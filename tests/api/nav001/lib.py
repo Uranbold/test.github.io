@@ -47,8 +47,9 @@ class Report:
 
     def check(self, cid, ok, expected="", actual=""):
         if ok:
-            self.results.append(("PASS", cid, ""))
-            print(f"PASS  {cid}", flush=True)
+            shown = "" if actual in ("", None) else str(actual)[:200]
+            self.results.append(("PASS", cid, shown))
+            print(f"PASS  {cid}" + (f"  [{shown}]" if shown else ""), flush=True)
         else:
             detail = f"expected: {expected} | actual: {actual}"
             self.results.append(("FAIL", cid, detail))

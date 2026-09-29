@@ -1,0 +1,13 @@
+{
+  "name": "navmn-e2e",
+  "private": true,
+  "description": "Browser E2E tests (Playwright). NAV-001: CORS + PMTiles JS client against the gateway.",
+  "scripts": {
+    "test": "playwright test",
+    "test:nav001": "playwright test nav001"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "pmtiles": "4.5.0"
+  }
+}

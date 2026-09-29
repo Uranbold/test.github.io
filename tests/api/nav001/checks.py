@@ -63,7 +63,7 @@ class Nav001:
         if dist <= limit:
             return self.r.check(cid, True)
         if dist <= limit + MOVE_ALLOWANCE_M:
-            self.r.note(cid + ".move", f"{target_key} is {dist:.0f} m from the route end; passes only after moving "
+            self.r.note(cid + ".move", f"route endpoint is {dist:.0f} m from {target_key}; passes only after moving "
                                         f"{target_key} {MOVE_ALLOWANCE_M} m toward the road (story allowance)")
             return self.r.check(cid, True)
         return self.r.check(cid, False, f"<= {limit} m from {target_key} (<= {limit + MOVE_ALLOWANCE_M} m with the 50 m move)",
