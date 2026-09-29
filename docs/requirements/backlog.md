@@ -19,12 +19,14 @@ Status: `draft` (idea, not refined) → `ready` (story file with testable AC, no
 |---|---|---|---|---|---|---|---|---|---|---|
 | NAV-005 | Active navigation with Mongolian voice and off-route reroute (team design says Android first) | TBD | 1 | L | yes | yes | yes | draft | NAV-004; **user decision on platform order** | not written |
 | NAV-006 | Daily OSM rebuild pipeline with blue/green switch | TBD | 1 | L | no | yes | no | draft | NAV-001; hosting decision | not written |
+| NAV-007 | Native-speaker review of Mongolian voice guidance and turn instructions: Valhalla `mn-MN` + app copy, real TTS on Android/iOS, fixes in our resource files, upstream PR to Valhalla | must (proposed, **PO to confirm**) | 1 | L | yes | yes | yes | draft (blocked on PO decisions: reviewer panel/budget, priority) | NAV-001 (Valhalla up); glossary; TTS harness or NAV-005 build for AC 9–11; architect decision on override location; should finish before NAV-005 external release | [NAV-007](stories/NAV-007-mongolian-voice-native-review.md) |
 
 ## Business risks tracked across stories (data quality)
 - OSM address coverage in UB (`addr:*`, khoroo, ger-district plots) affects search and reverse (NAV-001 R9, NAV-003).
 - `name:mn` / `name:en` coverage affects Latin search and English UI (NAV-001 R6).
 - `maxspeed` coverage affects ETA quality (NAV-001 R8). Traffic comes in Phase 3.
-- Valhalla `mn-MN` narrative quality affects voice/banner text (NAV-001 R7, NAV-005).
+- Valhalla `mn-MN` narrative quality affects voice/banner text (NAV-001 R7, NAV-005, NAV-007). The BA desk check of 3.9.0 found likely defects: English strings in `enter_roundabout_verbal`, a broken placeholder, a typo, a zero-width space, a wrong verb, and left/east ambiguity (NAV-007 F1–F10).
+- Mongolian TTS voice availability on Android/iOS devices is unknown (NAV-007 AC 9, NAV-005). It is a device and platform risk, not an OSM risk.
 - `turn:lanes` / `destination` density affects lane guidance (Phase 2).
 
 ## Product decisions still owed by the user (from research §11)
@@ -34,3 +36,8 @@ These are not blocking for NAV-001. Each one blocks the stories noted.
 3. Offline navigation at launch: yes or no.
 4. Traffic data partner (fleet / taxi / bus GPS). Blocks Phase 3.
 5. Hosting (own servers in Mongolia vs cloud). Blocks NAV-006 and production SLAs.
+6. Native-speaker review panel and budget (paid drivers + editor vs volunteers vs crowd survey). Blocks NAV-007.
+7. TTS fallback if devices lack a Mongolian voice (server neural TTS vs recorded prompts vs text-only). Decide after NAV-007 AC 9. Affects NAV-005.
+
+## Cross-cutting: bilingual glossary
+`glossary.md` is binding for all agents (one approved Mongolian term per concept). All Mongolian terms are `needs native review` until NAV-007 signs them off.
