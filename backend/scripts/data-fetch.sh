@@ -74,16 +74,18 @@ resolve_photon_dump() {
 resolve_aux() {
     local entry file url
     for entry in \
-        "natural_earth_vector.gpkg.zip|${NATURAL_EARTH_URL}" \
-        "water-polygons-split-3857.zip|${WATER_POLYGONS_URL}" \
-        "land-polygons-split-3857.zip|${LAND_POLYGONS_URL}" \
-        "daylight-landcover.gpkg|${LANDCOVER_URL}" \
-        "qrank.csv.gz|${QRANK_URL}" \
-        "pgf-encoding.zip|${PGF_ENCODING_URL}"; do
+        "natural_earth_vector.gpkg.zip|${NATURAL_EARTH_URL:-}" \
+        "water-polygons-split-3857.zip|${WATER_POLYGONS_URL:-}" \
+        "land-polygons-split-3857.zip|${LAND_POLYGONS_URL:-}" \
+        "daylight-landcover.gpkg|${LANDCOVER_URL:-}" \
+        "qrank.csv.gz|${QRANK_URL:-}" \
+        "pgf-encoding.zip|${PGF_ENCODING_URL:-}"; do
         file=${entry%%|*}
         url=${entry#*|}
         if [[ -s "$SRC/$file" ]]; then
             log info "reused" input="$file"
+        elif [[ -z "$url" ]]; then
+            die "auxiliary source missing and no URL configured" input="$file"
         else
             fetch "$url" "$SRC/$file"
             echo "url:$url" > "$SRC/$file.source"
@@ -113,11 +115,11 @@ fetch_all() {
     resolve_osm
     resolve_photon_dump
 
-    ensure_tool photon.jar "$PHOTON_JAR_URL" 256 "${PHOTON_JAR_SHA256:-}"
+    ensure_tool photon.jar "${PHOTON_JAR_URL:-}" 256 "${PHOTON_JAR_SHA256:-}"
     if marker_matches "$DATA/photon/.complete" "$(photon_fingerprint)"; then
         log info "photon index up to date; zstd decoder not needed"
     else
-        ensure_tool aircompressor.jar "$AIRCOMPRESSOR_URL" 256 "${AIRCOMPRESSOR_SHA256:-}"
+        ensure_tool aircompressor.jar "${AIRCOMPRESSOR_URL:-}" 256 "${AIRCOMPRESSOR_SHA256:-}"
     fi
 
     if marker_matches "$DATA/tiles/.complete" "$(tiles_fingerprint)" && [[ -s "$DATA/tiles/basemap.pmtiles" ]]; then
@@ -127,8 +129,8 @@ fetch_all() {
         if [[ -s "$(protomaps_jar)" ]]; then
             log info "reused" tool="$(basename "$(protomaps_jar)")"
         else
-            ensure_tool "protomaps-basemaps-${PROTOMAPS_COMMIT}.tar.gz" "$PROTOMAPS_SRC_URL" 256 "${PROTOMAPS_SRC_SHA256:-}"
-            ensure_tool maven-bin.tar.gz "$MAVEN_DIST_URL" 512 "${MAVEN_DIST_SHA512:-}"
+            ensure_tool "protomaps-basemaps-${PROTOMAPS_COMMIT}.tar.gz" "${PROTOMAPS_SRC_URL:-}" 256 "${PROTOMAPS_SRC_SHA256:-}"
+            ensure_tool maven-bin.tar.gz "${MAVEN_DIST_URL:-}" 512 "${MAVEN_DIST_SHA512:-}"
         fi
     fi
     log info "data-fetch finished" seconds="$(( $(now_s) - t0 ))"

@@ -436,10 +436,19 @@ def run_checks(s):
     n = len(body.get("routes") or [])
     s.check("AC20 ROUTE P1->P4 alternates=2 -> 200 with 1-3 routes", st == 200 and 1 <= n <= 3, "200, 1..3 routes", f"{st}, {n}")
 
-    # AC 32 out of coverage, AC 33 malformed
-    st, h, raw, el = s.route("P1", "X1")
+    # AC 32 out of coverage, AC 33 malformed. X1 (Erdenet) is out of coverage only on the UB dev
+    # extract; when the tiles show a wider extract covering it, Beijing (X2) is used instead.
+    out = "X1"
+    try:
+        tb = PMTiles(s).bounds
+        if tb[0] <= P["X1"][1] <= tb[2] and tb[1] <= P["X1"][0] <= tb[3]:
+            out = "X2"
+            s.note("AC32 out-of-coverage point", "X1 is inside the extract bounds, using X2 (Beijing)")
+    except Exception:  # noqa: BLE001 - tiles problems are reported by the AC 9/10 checks
+        pass
+    st, h, raw, el = s.route("P1", out)
     body = s.json_of(raw)
-    s.check("AC32 ROUTE P1->X1 (Erdenet) -> 4xx JSON with message within 3 s",
+    s.check(f"AC32 ROUTE P1->{out} (out of coverage) -> 4xx JSON with message within 3 s",
             400 <= st < 500 and isinstance(body, dict) and bool(body.get("message") or body.get("error")) and el < 3,
             "4xx, JSON message, <3 s", f"{st}, {el:.2f}s, {raw[:100]!r}")
     st, h, raw, el = s.http("POST", "/v1/route", {"costing": "auto", "format": "osrm"})
@@ -528,6 +537,7 @@ def run_perf(s):
         st, _, _, el = s.route(a, b)
         lat.append(el)
     v = p95(lat)
+    s.note("AC35 p95 / max", f"{v * 1000:.0f} ms / {max(lat) * 1000:.0f} ms")
     s.check("AC35 ROUTE p95 (20 sequential, auto mn-MN osrm) <= 500 ms", v <= 0.5, "<= 500 ms", f"{v * 1000:.0f} ms")
     prefixes = ["Сү", "Сүх", "Сүхб", "Сүхбаа", "Сүхбаатар", "Ул", "Улаан", "Улаанбаа", "Га", "Ганд",
                 "Гандан", "За", "Зайс", "Зайсан", "Их", "Их дэл", "Их дэлгүүр", "Чин", "Чингэл", "Чингэлтэй"]
@@ -536,6 +546,7 @@ def run_perf(s):
         st, _, _, el = s.get("/v1/search", {"q": q, "lang": "mn", "lat": P["P1"][0], "lon": P["P1"][1], "limit": 5})
         lat.append(el)
     v = p95(lat)
+    s.note("AC36 p95 / max", f"{v * 1000:.0f} ms / {max(lat) * 1000:.0f} ms")
     s.check("AC36 SEARCH p95 (20 sequential prefixes) <= 300 ms", v <= 0.3, "<= 300 ms", f"{v * 1000:.0f} ms")
     lat = []
     for i in range(20):
@@ -543,6 +554,7 @@ def run_perf(s):
         st, _, _, el = s.get("/v1/reverse", {"lat": p[0], "lon": p[1], "lang": "mn"})
         lat.append(el)
     v = p95(lat)
+    s.note("AC37 p95 / max", f"{v * 1000:.0f} ms / {max(lat) * 1000:.0f} ms")
     s.check("AC37 REVERSE p95 (20 sequential) <= 300 ms", v <= 0.3, "<= 300 ms", f"{v * 1000:.0f} ms")
     pm = PMTiles(s)
     locs = []
@@ -558,6 +570,7 @@ def run_perf(s):
         _, el = pm._range(off, ln)
         lat.append(el)
     v = p95(lat)
+    s.note("AC38 p95 / max", f"{v * 1000:.1f} ms / {max(lat) * 1000:.1f} ms")
     s.check("AC38 TILES p95 (20 sequential z10-z14 range reads near P1) <= 100 ms", v <= 0.1, "<= 100 ms", f"{v * 1000:.1f} ms")
 
 

@@ -7,3 +7,4 @@ data/
 *.pmtiles
 *.mbtiles
 *.jsonl.zst
+__pycache__/

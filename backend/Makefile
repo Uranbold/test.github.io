@@ -67,7 +67,7 @@ clean-data: ## Delete ALL of data/ including the ~2.5 GB of cached downloads (as
 
 stats: ## Memory/CPU of running services and size of data/ (AC 39)
 	docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}' $$($(COMPOSE) ps -q)
-	@du -sh data data/* 2>/dev/null || true
+	@du -sh data 2>/dev/null; du -sh data/* 2>/dev/null || true
 
 build-info: ## Print data/build-info.json (sources, dates, versions)
 	@cat data/build-info.json

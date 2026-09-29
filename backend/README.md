@@ -161,7 +161,23 @@ The ghcr nginx image stops at 1.27.4; switch to `nginxinc/nginx-unprivileged:1.2
 
 ## Measured on the reference machine (4 CPU, 15 GB RAM, dev container, 2026-09-29)
 
-MEASUREMENTS_PLACEHOLDER
+| What | UB dev extract (BBBike, 4.4 MB) | Mongolia (geo2day, 70 MB) | Limit |
+|---|---|---|---|
+| **Cold first run**: empty `data/`, `make up` until all services are healthy | **530 s**. Downloads 255 s (~2.5 GB), graph 3 s, Photon import 34 s, Protomaps jar (Maven, once) 106 s, Planetiler 164 s | n/a | AC 1: ≤ 30 min |
+| **Warm restart**: `docker compose down` then `up -d --wait` | **8.8 s**; tiles, graph and index all log `reused`, and no network requests are made | same mechanism | AC 2: ≤ 120 s |
+| **Source switch**: `make rebuild-data` after changing `OSM_PBF_URL`, auxiliary files cached | n/a | **336 s**. Graph 22 s, Photon 33 s, Maven 76 s, Planetiler 229 s | AC 5 |
+| Peak memory during the build (`docker stats`, sampled every 3 s) | 3.98 GB (tiles-build 3.5 GB) | 4.24 GB | AC 39: ≤ 12 GB |
+| Memory of the running services | gateway 5 MB, valhalla 97–132 MB, photon 392–785 MB (< 1 GB total) | similar | AC 39: ≤ 6 GB |
+| Total size of `data/` | 2.6 GB (2.4 GB of it is cached auxiliary sources) | 2.9 GB | AC 39: ≤ 10 GB |
+| PMTiles size | 2.6 MB (z0–15, 177 tiles) | 243 MB | AC 12: ≤ 200 MB (defined for the UB extract) |
+| Routing graph / Photon index | 3.9 MB / 27 MB | 64 MB / 27 MB | |
+| p95 of 20 sequential requests through the gateway: route / search / reverse / tile range | 12 ms / 70 ms / 44 ms / 1.3 ms | all within limits | AC 35–38: 500 / 300 / 300 / 100 ms |
+| `scripts/smoke.py` | 36 pass, 3 fail. The failures are AC 10 (P3/P6 outside the tile bounds) and AC 13/14 (P3 outside the extract); see "Dev extract coverage" | all pass | AC 40 |
+| `scripts/contract_check.py` (27 cases from openapi.yaml) | 27 conform | 27 conform | |
+
+Planetiler with max zoom 15 and `-Xmx3g`. The Natural Earth pass takes about 85 s regardless of the
+extract size. Photon's `lang=mn` works (AC 27). The Protomaps tiles carry `name` and `name:en` but not
+`name:mn` (AC 11, as ADR-0002 expected).
 
 ## Privacy and logs
 - **Gateway access log:** one JSON line per request with method, path without the query string, status, bytes and timings. No client IP, query string, body, Origin or User-Agent.
@@ -172,7 +188,7 @@ MEASUREMENTS_PLACEHOLDER
 
 ## Could not be run or verified here
 - **Geofabrik (`download.geofabrik.de`) is blocked from the dev container**, where it answers with a 301 loop via a squid proxy. The production source switch was exercised with the geo2day.com Mongolia extract instead. Geofabrik PBFs carry a header bbox, so the node scan is not needed there.
-- **The BBBike URL returned HTTP 503 on 2026-09-29.** The BBBike runs used the local copy through `OSM_PBF_FILE`, and the download path was verified with the other URLs. The "source unreachable" behaviour (non-zero exit naming the URL and status) was observed on a TLS failure during development.
+- **The BBBike URL returned HTTP 503 all day on 2026-09-29.** The BBBike runs used the local copy through `OSM_PBF_FILE`. With the URL alone, `data-fetch` exits 1 with `"msg":"download failed","url":"https://download.bbbike.org/…","http_status":"503"` after curl's 3 retries (about 75 s), which is the documented edge-case behaviour. With `OSM_PBF_FILE` set, the build succeeds under `docker run --network none` (AC 4).
 - **Ferrostar parsing the route response end to end** is not tested here (no client in NAV-001). Only the OpenAPI schema and the fields in AC 15 are checked.
 - **Docker Hub images** (`nginx:1.28`, `mediagis/nominatim`) were not tried, because Docker Hub returns 429.
 - **Nominatim** is not part of NAV-001 (ADR-0003).
