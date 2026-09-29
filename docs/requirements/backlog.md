@@ -40,4 +40,4 @@ These are not blocking for NAV-001. Each one blocks the stories noted.
 7. TTS fallback if devices lack a Mongolian voice (server neural TTS vs recorded prompts vs text-only). Decide after NAV-007 AC 9. Affects NAV-005.
 
 ## Cross-cutting: bilingual glossary
-`glossary.md` is binding for all agents (one approved Mongolian term per concept). All Mongolian terms are `needs native review` until NAV-007 signs them off.
+`glossary.md` is binding for all agents (one approved Mongolian term per concept). The PO pre-reviewed all 90 terms on 2026-09-29: 83 are `PO-approved 2026-09-29 (panel pending)` and 7 are `PO-revised 2026-09-29 (panel pending)` («Замчлал», «эхлэх цэг» / «Миний байршил», «Байршил руу буцах», «ШТС» on screen, -дугаар/-дүгээр voice ordinals, «км/цаг»). No term is final until the NAV-007 panel signs it off.
