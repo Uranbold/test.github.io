@@ -34,11 +34,20 @@ As a **UB commuter by car** (and, through later stories, every other persona), I
   - `SEARCH`: Photon forward search / autocomplete
   - `REVERSE`: Photon reverse geocoding
   - `HEALTH`: gateway health
-- **Reference machine** for all timing and size limits below: 4 CPU, 15 GB RAM, 30 GB free disk, Docker running, dev OSM source = BBBike Ulaanbaatar extract (~4.4 MB PBF).
-- **Environment constraints known for this story:** Docker Hub is rate-limited (HTTP 429); ghcr.io and GitHub releases are reachable; `download.geofabrik.de` is blocked from the dev container; `https://download.bbbike.org/osm/bbbike/UlanBator/UlanBator.osm.pbf` works but was seen returning HTTP 503 on 2026-09-29, and a local copy of the PBF exists.
+- **Reference machine** for all timing and size limits below: 4 CPU, 15 GB RAM, 30 GB free disk, Docker running, dev OSM source = **full Mongolia extract** from the dev mirror `https://geo2day.com/asia/mongolia.pbf` (~70 MB PBF).
+- **Default dev OSM source (PO decision 2026-09-29):** the full Mongolia extract. Every AC in this story is evaluated on a build from this default unless the AC says otherwise.
+  - **Dev:** `https://geo2day.com/asia/mongolia.pbf`. This is a third-party mirror, used for **development only** because `download.geofabrik.de` is blocked from the dev container.
+  - **Production:** Geofabrik `https://download.geofabrik.de/asia/mongolia-latest.osm.pbf`.
+  - The URL stays configurable in `.env` (AC 3).
+  - The BBBike Ulaanbaatar extract (`https://download.bbbike.org/osm/bbbike/UlanBator/UlanBator.osm.pbf`, ~4.4 MB, bbox `106.8392,47.8995,107.0167,47.9337`, about 13 × 4 km) may stay documented as an **optional small/fast alternative**. It is not the default: it excludes P3 and P6, so AC 10, 13 and 14 cannot pass on it.
+- **Environment constraints known for this story:**
+  - Docker Hub is rate-limited (HTTP 429). Images are pinned and already pulled.
+  - ghcr.io, GitHub releases and `geo2day.com` are reachable.
+  - `download.geofabrik.de` is blocked from the dev container.
+  - The BBBike URL returned HTTP 503 all day on 2026-09-29. A local copy of the UB PBF exists.
 
 ### Reference test locations (Ulaanbaatar, WGS84, approximate)
-QA may move any point by up to 50 m to the nearest routable road. Every point must lie inside the dev extract's bounding box, which the backend checks with `osmium fileinfo` or equivalent and records in the README.
+QA may move any point by up to 50 m to the nearest routable road. Every point P1 to P6 must lie inside the default dev extract's bounding box. The backend checks this with `osmium fileinfo` or equivalent and records it in the README or `data/build-info.json`.
 
 | Key | Place | lat | lon |
 |---|---|---|---|
@@ -48,7 +57,7 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
 | P4 | Gandantegchinlen Monastery (Гандан) | 47.9215 | 106.8950 |
 | P5 | Ulaanbaatar railway station | 47.9095 | 106.8835 |
 | P6 | Chingeltei ger-district area (unpaved roads likely) | 47.9600 | 106.9000 |
-| X1 | Out of dev coverage: Erdenet | 49.0270 | 104.0440 |
+| X1 | Erdenet: inside the default Mongolia extract, outside the optional BBBike UB box | 49.0270 | 104.0440 |
 | X2 | Out of any Mongolia coverage: Beijing | 39.9042 | 116.4074 |
 
 ## Acceptance criteria
@@ -57,8 +66,9 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
 1. **Given** a clean clone with no `data/` directory, **When** the developer runs `cp .env.example .env` and then `docker compose up -d`, **Then** all services (tiles, routing, search, gateway, plus any one-shot build/init containers) finish without manual steps, and every long-running service reports `healthy` in `docker compose ps` within **30 minutes** on the reference machine.
 2. **Given** `data/` already holds a complete build from a previous run, **When** the developer runs `docker compose down` and then `docker compose up -d`, **Then** all long-running services report `healthy` within **120 seconds**, and the logs show that the tiles, Valhalla graph and Photon index were **reused, not rebuilt**.
 3. **Given** `.env.example`, **When** it is inspected, **Then** it contains at least:
-   - an OSM source URL key whose default is `https://download.bbbike.org/osm/bbbike/UlanBator/UlanBator.osm.pbf`
+   - an OSM source URL key whose default is `https://geo2day.com/asia/mongolia.pbf`, with a comment saying it is a **dev-only** third-party mirror of the full Mongolia extract
    - a commented production value `https://download.geofabrik.de/asia/mongolia-latest.osm.pbf`
+   - if the BBBike UB extract is mentioned, it appears only as a commented, optional small/fast alternative, never as the active default
    - an optional local-file key that, when set, is used instead of downloading
    - the gateway host port (default `8080`)
    - the allowed CORS origins (default allows any origin, for local dev only)
@@ -72,6 +82,7 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
    - the start, stop, rebuild and smoke-test commands
    - the gateway port and the symbolic endpoints mapped to real paths
    - every external download the data build needs (OSM PBF, plus any Planetiler auxiliary sources such as Natural Earth or water polygons) and the `.env` key that overrides each one
+   - the dev coverage: the default source is the full Mongolia extract from the dev-only mirror, production uses Geofabrik `mongolia-latest`, and the BBBike UB extract is an optional small/fast alternative that does not cover P3 and P6
    - any component that could not be run in the development environment, and why
 
 ### B. Basemap tiles (Protomaps PMTiles via Planetiler)
@@ -81,7 +92,7 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
     - the max zoom is at least **14**
     - the metadata `attribution` contains `OpenStreetMap`
 11. **Given** the PMTiles archive, **When** the z14 tile containing P1 is extracted (QA computes x/y from P1), **Then** it is non-empty and holds at least one road feature with a non-empty `name` attribute. The smoke report records whether `name:mn` and `name:en` attributes are present (informational, see Data risks).
-12. **Given** the built archive for the dev extract, **When** its size is checked, **Then** it is **≤ 200 MB**.
+12. **Given** the built archive for the dev extract, **When** its size is checked, **Then** it is **≤ 200 MB**. *(Unresolved: the backend measured **243 MB** on the Mongolia build. This limit was set for the UB extract and is not in the PO-approved scope of the 2026-09-29 change. See Open question 4.)*
 
 ### C. Routing (Valhalla, OSRM-compatible, mn-MN)
 13. **Given** the stack is healthy, **When** `ROUTE` is called from P1 to P3 with `costing=auto`, `format=osrm`, `banner_instructions=true`, `voice_instructions=true`, `language=mn-MN`, `units=kilometers`, **Then**:
@@ -89,7 +100,7 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
     - `routes` has at least 1 entry
     - `routes[0].distance` is **≥ the straight-line distance P1→P3** and **≤ 2.5 × that distance**
     - `routes[0].duration` is **> 0**
-14. **Given** the response from AC 13, **When** `routes[0].geometry` is decoded as **polyline6**, **Then** the first coordinate is **≤ 100 m** from P1 and the last is **≤ 100 m** from P3.
+14. **Given** the response from AC 13, **When** `routes[0].geometry` is decoded as **polyline6**, **Then** the first coordinate is **≤ 100 m** from P1 and the last is **≤ 100 m** from P3. The 50 m reference-point move allowance applies, so the **hard limit is ≤ 150 m** from the P1 and P3 coordinates in the table (100 m route-end limit + 50 m allowed point move). An endpoint between 100 m and 150 m passes, and the test output prints its measured distance as an INFO line.
 15. **Given** the response from AC 13, **When** the steps are inspected, **Then** every step in `routes[0].legs[0].steps` has a `maneuver` object, and at least one step has both of the following, which is the minimum Ferrostar's OSRM parser needs:
     - `voiceInstructions[]` with non-empty `announcement` and numeric `distanceAlongGeometry`
     - `bannerInstructions[]` with non-empty `primary.text` and numeric `distanceAlongGeometry`
@@ -116,9 +127,19 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
     - `Access-Control-Allow-Headers`, including `Range` and `Content-Type`
 30. **Given** a `GET TILES` with `Origin: http://localhost:5173` and a `Range` header, **When** it is sent, **Then** the response includes `Access-Control-Allow-Origin` and `Access-Control-Expose-Headers` listing at least `Content-Range`, `Content-Length` and `ETag`. The PMTiles JS client needs these in a browser.
 31. **Given** the CORS origin key in `.env` is set to `http://localhost:5173` only, **When** a preflight comes from `Origin: http://evil.example`, **Then** the response carries **no** `Access-Control-Allow-Origin` for that origin.
-32. **Given** `ROUTE` is called from P1 to X1 (outside the dev extract), **When** it is sent, **Then** the gateway returns a **4xx** status (not 200, not 5xx) with a JSON body containing an error message, within **3 s**.
+32. **Given** `ROUTE` is called from P1 to a point outside the configured extract (**X2** on the default Mongolia build; X1 on the optional BBBike UB build), **When** it is sent, **Then** the gateway returns a **4xx** status (not 200, not 5xx) with a JSON body containing an error message, within **3 s**. The test output records which point was used.
 33. **Given** `ROUTE` is called with a malformed body (for example missing `locations`), **When** it is sent, **Then** the gateway returns **400** with a JSON body within **1 s**.
 34. **Given** the routing container is stopped (`docker compose stop <valhalla>`), **When** `ROUTE` is called, **Then** the gateway returns **502 or 503** within **5 s**, and `SEARCH` and `TILES` keep working. The same applies when the search container is stopped.
+
+Added 2026-09-29 (numbered after AC 42 so existing AC numbers stay stable):
+
+43. **Given** the stack is healthy and the archive size `S` is known from `HEAD TILES` `Content-Length`, **When** a client sends `GET TILES` with `Origin: http://localhost:5173` and an unsatisfiable range `Range: bytes=S-` (start ≥ `S`), **Then**:
+    - the status is **416** and `Content-Range` is `bytes */S`
+    - `Access-Control-Allow-Origin` and `Access-Control-Expose-Headers` each appear **exactly once**, and no other `Access-Control-*` header is repeated
+    - `Content-Type` is `application/json`, and the body is valid JSON matching the gateway error schema in `openapi.yaml` (`code` and `message`), **not** HTML
+    - a browser `fetch` of the same request from `http://localhost:5173` resolves with status 416 instead of rejecting with a CORS/network error
+
+    Note: `bytes=99999999-` (about 95 MB) is **satisfiable** on the ~243 MB Mongolia archive, so QA must derive the start from `S`.
 
 ### F. Performance baseline (reference machine, warm services, via gateway)
 35. **Given** 20 sequential `ROUTE` requests (auto, mn-MN, OSRM format) among P1 to P5, **When** timed, **Then** the **p95 is ≤ 500 ms**.
@@ -133,11 +154,12 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
 42. **Given** the smoke command finishes, **When** its output is read, **Then** it includes the informational values from AC 11 (`name:mn`/`name:en` presence), AC 19 (unpaved result) and AC 24 (Latin search baseline).
 
 ## Edge cases
-- **OSM source unreachable or failing** (BBBike 503, Geofabrik blocked, no network): the build stops with a non-zero exit and a message naming the URL and HTTP status. No service goes `healthy` on missing data, and the local-file key (AC 4) is the documented workaround.
+- **OSM source unreachable or failing** (dev mirror `geo2day.com` down, BBBike 503, Geofabrik blocked, no network): the build stops with a non-zero exit and a message naming the URL and HTTP status. No service goes `healthy` on missing data, and the local-file key (AC 4) is the documented workaround.
 - **Interrupted or partial build** (Ctrl-C, OOM, disk full): the next `docker compose up` detects the incomplete artefact and rebuilds it. It never serves a half-written PMTiles file, graph or index. Artefacts are written to a temp path and moved into place only on success.
 - **Auxiliary downloads blocked** (Planetiler Natural Earth, water polygons, Photon dump server): same behaviour as an unreachable OSM source. Each URL can be overridden (AC 8).
 - **Docker Hub 429**: images come from ghcr.io or are built locally from GitHub releases, and the image names can be overridden (AC 7).
-- **Out-of-coverage coordinates** (intercity/countryside persona, dev extract is UB-only): routing returns 4xx and reverse returns empty, with no 5xx (AC 26, 32). Countryside coverage needs the production Mongolia extract.
+- **Out-of-coverage coordinates**: the default dev extract covers all of Mongolia, so intercity/countryside points such as X1 Erdenet are routable in dev. Points outside Mongolia (X2 Beijing) make routing return 4xx and reverse return empty, with no 5xx (AC 26, 32). On the optional BBBike UB build, X1 is also out of coverage.
+- **Range beyond the end of the tiles archive**: 416 with single CORS headers and a JSON error body, so a browser client sees the real status (AC 43).
 - **Unpaved / ger-district roads**: `exclude_unpaved` must be accepted, and "no route" is a valid answer (AC 19).
 - **No search result**: 200 with an empty list, not an error (AC 23).
 - **Cyrillic/Latin transliteration** ("Sukhbaatar" vs "Сүхбаатар"): baseline recorded only (AC 24). Full requirement in NAV-003.
@@ -149,9 +171,10 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
 ## Data dependencies & risks
 | # | Risk | Impact on NAV-001 | Mitigation / owner |
 |---|---|---|---|
-| R1 | **BBBike extract covers only the UB bounding box** and is refreshed on BBBike's own schedule | Routes and search outside UB fail by design. Dev data may be days or weeks old | Production uses Geofabrik `mongolia-latest`. Record extract date (AC 5). Backend |
-| R2 | **BBBike availability** (HTTP 503 seen on 2026-09-29) | First-run build fails | Local-file override (AC 4). Backend |
+| R1 | **Dev default is a third-party mirror** (`geo2day.com`), not Geofabrik. Its PBF header has no bbox and no replication timestamp (a node scan gives bbox `[81.9257, 39.0189, 120.2728, 53.0383]`) | Data provenance and date are less certain than Geofabrik's. Dev data may differ from production. Tile bounds are a rectangle wider than Mongolia | **Dev only.** Production uses Geofabrik `mongolia-latest`. Record source, sha256 and HTTP `Last-Modified` (AC 5). Backend |
+| R2 | **Dev source availability** (mirror may go down; BBBike returned HTTP 503 all day on 2026-09-29) | First-run build fails | Local-file override (AC 4). BBBike UB as a documented optional alternative. Backend |
 | R3 | **Geofabrik blocked in the dev container** | The production source switch cannot be verified here | Verify AC 5 with the Geofabrik URL somewhere with access. QA/orchestrator |
+| R12 | **The full Mongolia extract is larger** (~70 MB PBF vs 4.4 MB; PMTiles 243 MB vs 2.6 MB; source switch measured 336 s) | Cold first run (AC 1, ≤ 30 min including downloads) and AC 12 (≤ 200 MB) are at risk | AC 1 is re-verified on the Mongolia build. AC 12 is Open question 4. Backend/QA |
 | R4 | **Planetiler auxiliary sources** (Natural Earth, water polygons) may be blocked or large | Tile build fails even when the PBF is local | Overridable URLs, cache under `data/`. Backend |
 | R5 | **Photon index source.** Photon cannot import a PBF directly. It needs a Nominatim database import (GPL, heavier) or a prebuilt GraphHopper JSON dump (weekly, Asia region, may differ in date from the PBF used for tiles and routing) | Search results may not match the routing and tiles data; build time and disk vary a lot | Architect decides (see Open questions). Backend documents it |
 | R6 | **`name:mn` / `name:en` coverage in OSM** for UB streets and POIs | Latin search (AC 24) and English labels may be weak. `name` in UB is usually Cyrillic Mongolian, so Mongolian UX falls back acceptably | Baseline recorded (AC 11, 24). Mapping programme later |
@@ -163,7 +186,7 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
 
 ## Out of scope
 - Any mobile or web client, map style or UI strings (NAV-002+).
-- Auth, API keys, rate limiting, TLS, production hosting, CDN.
+- Auth, API keys, rate limiting, TLS, production hosting, CDN. Hosting is tracked as a separate backlog item, not in NAV-001.
 - The daily rebuild pipeline and blue/green switch (NAV-006).
 - Nominatim structured search and admin lookups, unless the architect decides Photon's index source needs it (see Open questions).
 - Traffic, incidents, transit, offline data.
@@ -171,7 +194,7 @@ QA may move any point by up to 50 m to the nearest routable road. Every point mu
 - Native-speaker review of the Valhalla `mn-MN` text.
 
 ## Open questions
-None are blocking. The story is `ready`.
+Q1 to Q3 are not blocking. Q4 blocks a full pass on the default dev configuration.
 1. **Is Nominatim part of NAV-001 or deferred?** Options: (a) defer, with Photon `/reverse` covering reverse in the PoC; (b) include Nominatim now as Photon's index source and for structured/reverse. *Recommendation: (a), unless the architect picks Nominatim as the Photon index source anyway (Q2).*
 2. **Photon index source for dev** (architect decision, recorded in an ADR). Options: (a) own Nominatim import from the same PBF, which keeps data consistent but is heavier and GPL server-side; (b) a prebuilt GraphHopper Photon dump filtered to `mn`, which is fast but has a different data date, needs a large regional download and may lack `name:mn`. *Recommendation: (a) for consistency with tiles and routing, if it fits the 30-minute/10 GB limits on the UB extract; otherwise (b) for dev only.*
 3. **Performance and resource limits** (AC 12, 35 to 39) are BA-proposed PoC baselines, not user-agreed SLAs. *Recommendation: accept for Phase 0 and revisit production targets with the hosting decision.*
