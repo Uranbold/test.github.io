@@ -1,0 +1,20 @@
+<!doctype html>
+<!--
+  NAV-002 AC 8 fixture (test hook, not a product screen). Renders three injected features with the
+  exported LABEL_EXPRESSION on a blank style that uses the bundled glyphs, plus one feature with no name keys.
+  QA: open http://localhost:5173/fixtures/label-rule.html and query window.__labelRule.
+-->
+<html lang="mn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title></title>
+    <script type="module" src="./label-rule.ts"></script>
+    <style>
+      html, body, #map { margin: 0; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="map" data-testid="fixture-map"></div>
+  </body>
+</html>

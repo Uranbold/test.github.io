@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Газрын зураг</title>
+<!--
+  NAV-002 web map: static wireframe (owner: ux-designer). NOT app code.
+  Spec: docs/design/screens/NAV-002-web-map.md. Colours copy docs/design/tokens.json (tokens.json wins on any difference).
+  Strings copy the screen spec Copy table (glossary + story G1-G7). The real app loads them from web/ resource files.
+  URL hash controls the view, e.g. #state=denied&theme=night&lang=en&zoom=low&toolbar=0
+  state: ready | loading | tiles-start | tiles-banner | offline | offline-start | generic | following | not-following |
+         locating | denied | unavailable | stale | unsupported | worst
+-->
+<style>
+  :root {
+    --surface:#FFFFFF; --surface-container:#F1F3F4; --on-surface:#1F1F1F; --on-surface-variant:#444746;
+    --outline:#747775; --outline-variant:#C4C7C5; --primary:#0B57D0; --primary-container:#D3E3FD; --on-primary-container:#041E49;
+    --error:#B3261E; --error-container:#F9DEDC; --on-error-container:#410E0B;
+    --inverse-surface:#303030; --inverse-on-surface:#F2F2F2; --inverse-primary:#A8C7FA; --focus-ring:#0B57D0;
+    --message-surface:#303030; --on-message-surface:#F2F2F2; --message-action:#A8C7FA; --message-outline:#303030;
+    --disabled:rgba(31,31,31,.38);
+    --loc-dot:#1A73E8; --loc-stroke:#FFFFFF; --loc-acc:rgba(26,115,232,.15); --loc-acc-line:rgba(26,115,232,.45);
+    --stale-dot:#80868B; --stale-acc:rgba(128,134,139,.15); --stale-acc-line:rgba(128,134,139,.45);
+    --earth:#F3F0EA; --water:#A8CDEE; --park:#C5E3BD; --building:#E3DED5; --major:#FFFFFF; --major-casing:#C9C2B5;
+    --minor:#FFFFFF; --minor-casing:#D5D0C6; --trunk:#FFD98A; --trunk-casing:#D9A441; --path:#CBC2B2;
+    --label-major:#3C4043; --label-halo:#FFFFFF; --label-city:#202124; --label-sub:#5F6368;
+    --elev1:0 1px 2px rgba(0,0,0,.30),0 1px 3px 1px rgba(0,0,0,.15);
+    --elev2:0 1px 2px rgba(0,0,0,.30),0 2px 6px 2px rgba(0,0,0,.15);
+    --elev3:0 4px 8px 3px rgba(0,0,0,.15),0 1px 3px rgba(0,0,0,.30);
+    color-scheme: light;
+  }
+  :root[data-theme="night"] {
+    --surface:#1F2733; --surface-container:#27303D; --on-surface:#E3E6EA; --on-surface-variant:#B9C0CA;
+    --outline:#8B94A1; --outline-variant:#3F4957; --primary:#A8C7FA; --primary-container:#0B3D8C; --on-primary-container:#D3E3FD;
+    --error:#F2B8B5; --error-container:#601410; --on-error-container:#F9DEDC;
+    --inverse-surface:#E3E6EA; --inverse-on-surface:#1F2733; --inverse-primary:#0B57D0; --focus-ring:#A8C7FA;
+    --message-surface:#2E3846; --on-message-surface:#E3E6EA; --message-action:#A8C7FA; --message-outline:#6E7A8C;
+    --disabled:rgba(227,230,234,.38);
+    --loc-dot:#669DF6; --loc-stroke:#E8EAED; --loc-acc:rgba(102,157,246,.18); --loc-acc-line:rgba(102,157,246,.5);
+    --stale-dot:#9AA0A6; --stale-acc:rgba(154,160,166,.15); --stale-acc-line:rgba(154,160,166,.45);
+    --earth:#18202B; --water:#0B2238; --park:#1D3029; --building:#222B37; --major:#4A5566; --major-casing:#10151C;
+    --minor:#36404E; --minor-casing:#141A22; --trunk:#7C6B48; --trunk-casing:#10151C; --path:#3A4452;
+    --label-major:#D5DAE1; --label-halo:#18202B; --label-city:#E6E9ED; --label-sub:#A3ACB8;
+    color-scheme: dark;
+  }
+  html, body { margin:0; height:100%; overflow:hidden; background:var(--earth); }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif; color:var(--on-surface); }
+  button { font:inherit; }
+  :focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+
+  /* Fake map (stands in for the MapLibre canvas) */
+  #map { position:fixed; inset:0; }
+  #map svg { width:100%; height:100%; display:block; }
+  #map.blank .features { display:none; }
+  .lbl { font:500 13px "Noto Sans", system-ui, sans-serif; fill:var(--label-major); paint-order:stroke; stroke:var(--label-halo); stroke-width:3px; }
+  .lbl.city { font-size:16px; font-weight:600; fill:var(--label-city); }
+  .lbl.sub { font-size:12px; fill:var(--label-sub); }
+
+  /* Overlay grid: R1 top bar, R2 messages, R3 spacer, R4 bottom controls, R5 attribution */
+  #ui { position:fixed; inset:0; display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,auto) minmax(0,1fr) auto auto; pointer-events:none; }
+  #ui > * { pointer-events:auto; min-width:0; }
+  .r1 { grid-row:1; grid-column:1; display:flex; justify-content:flex-end; gap:8px; padding:calc(12px + env(safe-area-inset-top)) 16px 8px; pointer-events:none; }
+  .r1 > * { pointer-events:auto; }
+  .r2 { grid-row:2; grid-column:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; align-items:center; gap:8px; padding:0 16px 8px; pointer-events:none; }
+  .r2 > * { pointer-events:auto; width:100%; max-width:560px; box-sizing:border-box; }
+  .r4 { grid-row:4; grid-column:1; display:flex; justify-content:space-between; align-items:flex-end; padding:0 16px 8px; pointer-events:none; }
+  .r4 > * { pointer-events:auto; }
+  .r5 { grid-row:5; grid-column:1; }
+  .blocking { grid-row:2 / 5; grid-column:1; display:flex; align-items:center; justify-content:center; padding:0 16px; pointer-events:none; }
+  .blocking > * { pointer-events:auto; }
+  [hidden] { display:none !important; }
+
+  /* Buttons */
+  .btn { box-sizing:border-box; min-width:48px; height:48px; border-radius:8px; border:1px solid transparent; background:var(--surface); color:var(--on-surface-variant); box-shadow:var(--elev1); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+  .btn svg { width:24px; height:24px; fill:currentColor; }
+  .btn.text { padding:0 12px; font-size:.875rem; font-weight:500; color:var(--on-surface); }
+  .btn[aria-disabled="true"] { color:var(--disabled); cursor:default; }
+  .col { display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+  .group { display:flex; flex-direction:column; border-radius:8px; background:var(--surface); box-shadow:var(--elev1); overflow:hidden; }
+  .group .btn { box-shadow:none; border-radius:0; }
+  .group .btn + .btn { border-top:1px solid var(--outline-variant); }
+  #loc[data-state="following"] { background:var(--primary-container); color:var(--primary); }
+  #loc[data-state="not-following"] { color:var(--primary); }
+  #loc[data-state="denied"] { color:var(--error); }
+  #loc[data-state="unsupported"] { color:var(--disabled); }
+  #loc[data-state="locating"] { box-shadow:var(--elev1), inset 0 0 0 2px var(--primary); }
+  .needle-n { fill:var(--error); } .needle-s { fill:var(--on-surface-variant); }
+
+  /* Scale bar */
+  .scale { background:var(--surface-container); color:var(--on-surface); border-radius:4px; padding:2px 6px; font-size:.75rem; line-height:1rem; display:flex; align-items:center; gap:6px; }
+  .scale .bar { width:80px; height:6px; border:2px solid var(--on-surface); border-top:0; box-sizing:border-box; }
+
+  /* Attribution */
+  .attr { background:var(--surface-container); color:var(--on-surface-variant); font-size:.75rem; line-height:1rem; padding:4px 16px calc(4px + env(safe-area-inset-bottom)); box-shadow:0 -1px 3px rgba(0,0,0,.15); }
+  .attr a { color:inherit; text-decoration:underline; }
+  .attr p { margin:0; }
+
+  /* Banners and messages */
+  .banner, .msg { border-radius:8px; padding:12px 8px 12px 16px; font-size:.875rem; line-height:1.25rem; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; column-gap:12px; row-gap:0; }
+  .msg { grid-template-columns:minmax(0,1fr) auto; }
+  .banner { box-shadow:var(--elev2); }
+  .banner svg { width:24px; height:24px; fill:currentColor; }
+  .banner.offline { background:var(--message-surface); color:var(--on-message-surface); border:1px solid var(--message-outline); padding-right:16px; }
+  .banner.tiles { background:var(--error-container); color:var(--on-error-container); }
+  .banner.tiles .act { color:var(--on-error-container); }
+  .msg { background:var(--message-surface); color:var(--on-message-surface); border:1px solid var(--message-outline); box-shadow:var(--elev3); }
+  .msg .title { font-weight:600; display:block; }
+  .acts { display:flex; gap:0; justify-self:end; }
+  .act { height:48px; min-width:48px; padding:0 12px; border:0; border-radius:9999px; background:transparent; color:var(--message-action); font-weight:500; font-size:.875rem; cursor:pointer; white-space:nowrap; }
+  /* Rule: actions sit at the end of the text line. Below 480 px viewport, messages whose actions are wide
+     («Дахин оролдох», or two buttons: class .stack-narrow) move the actions to their own line, right-aligned. */
+  @media (max-width:479px) {
+    .stack-narrow .acts { grid-column:1 / -1; }
+    .msg.stack-narrow { grid-template-columns:minmax(0,1fr); }
+  }
+  /* Blocking layer */
+  .pill { background:var(--surface); box-shadow:var(--elev2); border-radius:9999px; padding:8px 16px; display:flex; align-items:center; gap:12px; font-size:.875rem; }
+  .spin { width:20px; height:20px; border-radius:50%; border:3px solid var(--primary-container); border-top-color:var(--primary); box-sizing:border-box; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation:none; } }
+  .card { width:100%; max-width:360px; box-sizing:border-box; background:var(--surface); box-shadow:var(--elev3); border-radius:16px; padding:24px; text-align:center; }
+  .card svg { width:40px; height:40px; fill:var(--on-surface-variant); }
+  .card h1 { font-size:1rem; line-height:1.5rem; font-weight:600; margin:8px 0 16px; }
+  .tonal { height:48px; padding:0 24px; border:0; border-radius:9999px; background:var(--primary-container); color:var(--on-primary-container); font-weight:500; font-size:.875rem; cursor:pointer; }
+
+  /* Location marker (fake, centred) */
+  .acc { position:fixed; left:50%; top:50%; width:120px; height:120px; margin:-60px 0 0 -60px; border-radius:50%; background:var(--loc-acc); border:1px solid var(--loc-acc-line); box-sizing:border-box; pointer-events:none; }
+  .dot { position:fixed; left:50%; top:50%; width:18px; height:18px; margin:-9px 0 0 -9px; border-radius:50%; background:var(--loc-dot); border:3px solid var(--loc-stroke); box-sizing:border-box; box-shadow:var(--elev1); }
+  .stale .acc { background:var(--stale-acc); border-color:var(--stale-acc-line); }
+  .stale .dot { background:var(--stale-dot); }
+
+  /* Design-review toolbar (not part of the screen) */
+  #tb { position:fixed; left:8px; bottom:120px; z-index:10; font:12px system-ui; background:#fff; color:#000; border:1px solid #888; padding:6px; border-radius:6px; }
+  #tb select { font:inherit; }
+</style>
+</head>
+<body>
+<div id="map" aria-label="Газрын зураг" role="region" tabindex="0">
+  <svg viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <rect width="1600" height="1000" fill="var(--earth)"/>
+    <g class="features">
+      <path d="M0 820 C300 760 520 900 800 840 S1300 760 1600 820 L1600 880 C1300 820 1050 930 800 900 S300 820 0 880 Z" fill="var(--water)"/>
+      <rect x="760" y="380" width="120" height="90" fill="var(--park)"/>
+      <g fill="var(--building)"><rect x="640" y="300" width="60" height="40"/><rect x="900" y="300" width="70" height="45"/><rect x="640" y="520" width="80" height="40"/><rect x="930" y="520" width="50" height="60"/></g>
+      <g fill="none" stroke-linecap="round">
+        <path d="M0 250 L1600 230 M300 0 L340 1000 M1250 0 L1220 1000 M0 650 L1600 640" stroke="var(--minor-casing)" stroke-width="11"/>
+        <path d="M0 250 L1600 230 M300 0 L340 1000 M1250 0 L1220 1000 M0 650 L1600 640" stroke="var(--minor)" stroke-width="8"/>
+        <path d="M600 0 L610 1000 M0 490 L1600 480" stroke="var(--major-casing)" stroke-width="17"/>
+        <path d="M600 0 L610 1000 M0 490 L1600 480" stroke="var(--major)" stroke-width="13"/>
+        <path d="M0 120 C500 160 1100 60 1600 110" stroke="var(--trunk-casing)" stroke-width="19"/>
+        <path d="M0 120 C500 160 1100 60 1600 110" stroke="var(--trunk)" stroke-width="15"/>
+        <path d="M720 600 L1000 700 L1400 700" stroke="var(--path)" stroke-width="2" stroke-dasharray="4 3"/>
+      </g>
+      <text class="lbl" x="1020" y="472">Энхтайвны өргөн чөлөө</text>
+      <text class="lbl city" x="700" y="440">Сүхбаатарын талбай</text>
+      <text class="lbl sub" x="380" y="360">Чингэлтэй</text>
+      <text class="lbl sub" x="1300" y="330">Баянзүрх</text>
+      <text class="lbl" x="1000" y="880">Туул гол</text>
+    </g>
+  </svg>
+</div>
+<div id="marker" hidden><div class="acc"></div><div class="dot" role="img" data-k="marker.myLocation" data-attr="aria-label"></div></div>
+
+<div id="ui">
+  <div class="r1">
+    <button class="btn text" id="lang" data-control aria-describedby="lang-desc"></button>
+    <span id="lang-desc" hidden data-k="language.label"></span>
+    <button class="btn" id="theme" data-control></button>
+    <button class="btn" id="compass" data-control data-k="control.northUp" data-attr="aria-label">
+      <svg viewBox="0 0 24 24" aria-hidden="true" style="transform:rotate(-30deg)"><path class="needle-n" d="M12 2 16 12H8Z"/><path class="needle-s" d="M8 12h8l-4 10Z"/></svg>
+    </button>
+  </div>
+
+  <div class="r2" id="messages">
+    <div class="banner offline" id="b-offline" role="status" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.3 2 2 3.3l3 3A7 7 0 0 0 6 20h11.7l2.9 2.9 1.4-1.4ZM6 18a5 5 0 0 1-.3-10l9.9 10Zm13.4-1.1A4 4 0 0 0 19 10a7 7 0 0 0-10.6-5.9L9.9 5.6A5 5 0 0 1 17 10v1h1a2 2 0 0 1 .9 3.8Z"/></svg>
+      <span class="txt" data-k="status.offline"></span>
+    </div>
+    <div class="banner tiles stack-narrow" id="b-tiles" role="status" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2Zm12-3h-2v-2h2Zm0-4h-2v-4h2Z"/></svg>
+      <span class="txt" data-k="status.tilesUnavailable"></span>
+      <span class="acts"><button class="act" data-control data-k="action.retry"></button></span>
+    </div>
+    <div class="msg" id="m-denied" role="alert" hidden>
+      <span class="txt"><span class="title" data-k="location.denied.title"></span><span data-k="location.denied.hint"></span></span>
+      <span class="acts"><button class="act" data-control data-k="action.close"></button></span>
+    </div>
+    <div class="msg stack-narrow" id="m-unavailable" role="alert" hidden>
+      <span class="txt"><span class="title" data-k="location.unavailable"></span></span>
+      <span class="acts"><button class="act" data-control data-k="action.retry"></button><button class="act" data-control data-k="action.close"></button></span>
+    </div>
+    <div class="msg" id="m-stale" role="alert" hidden>
+      <span class="txt"><span class="title" data-k="location.unavailable"></span></span>
+      <span class="acts"><button class="act" data-control data-k="action.close"></button></span>
+    </div>
+  </div>
+
+  <div class="blocking" id="blocking" hidden>
+    <div class="pill" id="loading" role="status" aria-live="polite" hidden><span class="spin" aria-hidden="true"></span><span data-k="status.loading"></span></div>
+    <div class="card" id="card" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.3 2 2 3.3 4 5.3V19l5-2 6 2 2.7-1L20.7 21 22 19.7ZM9 15l-3 1.2V7.3l3 3Zm6 1.9-4-1.4v-3.2l4 4ZM9 5.1l6 2.1v4.5l2 2V6.3l3-1.2v9.7l1.8 1.8L22 16V3l-5 2-6-2-3.5 1.2 1.6 1.6Z"/></svg>
+      <h1 id="card-title"></h1>
+      <button class="tonal" id="card-btn" data-control data-k="action.retry"></button>
+    </div>
+  </div>
+
+  <div class="r4" id="bottom">
+    <div class="scale" id="scale" aria-hidden="true"><span class="bar"></span><span id="scale-label"></span></div>
+    <div class="col">
+      <div class="group">
+        <button class="btn" id="zin" data-control data-k="control.zoomIn" data-attr="aria-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6Z"/></svg></button>
+        <button class="btn" id="zout" data-control data-k="control.zoomOut" data-attr="aria-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h14v2H5Z"/></svg></button>
+      </div>
+      <button class="btn" id="loc" data-control data-k="control.recenter" data-attr="aria-label" data-state="idle" aria-pressed="false"></button>
+    </div>
+  </div>
+
+  <footer class="r5 attr" id="attribution">
+    <p><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" data-control data-k="attribution.osm"></a></p>
+    <p id="esa" hidden data-k="attribution.esa"></p>
+  </footer>
+</div>
+
+<div id="tb">
+  <select id="tb-state"></select>
+  <select id="tb-theme"><option>day</option><option>night</option></select>
+  <select id="tb-lang"><option>mn</option><option>en</option></select>
+  <select id="tb-zoom"><option>normal</option><option>low</option></select>
+</div>
+
+<script>
+const S = {
+  mn: { "app.title":"Газрын зураг","map.label":"Газрын зураг","control.zoomIn":"Томруулах","control.zoomOut":"Жижигрүүлэх",
+    "control.northUp":"Хойд зүг дээшээ","control.recenter":"Байршил руу буцах","marker.myLocation":"Миний байршил",
+    "theme.day":"Өдрийн горим","theme.night":"Шөнийн горим","language.label":"Хэл","language.mn":"Монгол","language.en":"English",
+    "status.loading":"Ачаалж байна…","status.tilesUnavailable":"Газрын зургийг ачаалж чадсангүй","status.offline":"Интернэт холболт алга",
+    "status.genericError":"Алдаа гарлаа","action.retry":"Дахин оролдох","action.close":"Хаах",
+    "location.denied.title":"Байршлын зөвшөөрөл олгоогүй байна","location.denied.hint":"Хөтчийн тохиргоонд байршлын зөвшөөрлийг асаана уу",
+    "location.unavailable":"Байршил тодорхойлж чадсангүй","unit.m":"м","unit.km":"км",
+    "attribution.osm":"© OpenStreetMap contributors",
+    "attribution.esa":"© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium" },
+  en: { "app.title":"Map","map.label":"Map","control.zoomIn":"Zoom in","control.zoomOut":"Zoom out","control.northUp":"North up",
+    "control.recenter":"Recenter","marker.myLocation":"My location","theme.day":"Day mode","theme.night":"Night mode",
+    "language.label":"Language","language.mn":"Монгол","language.en":"English","status.loading":"Loading…",
+    "status.tilesUnavailable":"The map could not be loaded","status.offline":"No internet connection","status.genericError":"Something went wrong",
+    "action.retry":"Try again","action.close":"Close","location.denied.title":"Location permission is turned off",
+    "location.denied.hint":"Allow location access in your browser settings","location.unavailable":"Your location could not be determined",
+    "unit.m":"m","unit.km":"km","attribution.osm":"© OpenStreetMap contributors",
+    "attribution.esa":"© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium" }
+};
+const STATES = ["ready","loading","tiles-start","tiles-banner","offline","offline-start","generic","following","not-following","locating","denied","unavailable","stale","unsupported","worst"];
+const ICON = {
+  moon:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>',
+  sun:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M11 1h2v3h-2Zm0 19h2v3h-2ZM1 11h3v2H1Zm19 0h3v2h-3ZM4.2 5.6l1.4-1.4 2.1 2.1-1.4 1.4Zm12.1 12.1 1.4-1.4 2.1 2.1-1.4 1.4ZM4.2 18.4l2.1-2.1 1.4 1.4-2.1 2.1ZM16.3 6.3l2.1-2.1 1.4 1.4-2.1 2.1Z"/></svg>',
+  loc:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 1h2v3.1A8 8 0 0 1 19.9 11H23v2h-3.1A8 8 0 0 1 13 19.9V23h-2v-3.1A8 8 0 0 1 4.1 13H1v-2h3.1A8 8 0 0 1 11 4.1Zm1 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"/></svg>',
+  locFilled:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 1h2v3.1A8 8 0 0 1 19.9 11H23v2h-3.1A8 8 0 0 1 13 19.9V23h-2v-3.1A8 8 0 0 1 4.1 13H1v-2h3.1A8 8 0 0 1 11 4.1Zm1 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12Zm0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z"/></svg>',
+  locOff:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.3 3.7 3.7 2.3l18 18-1.4 1.4-3.2-3.2A8 8 0 0 1 13 19.9V23h-2v-3.1A8 8 0 0 1 4.1 13H1v-2h3.1a8 8 0 0 1 1.5-3.9ZM7 8.4A6 6 0 0 0 15.6 17ZM11 1h2v3.1A8 8 0 0 1 19.9 11H23v2h-3.1a8 8 0 0 1-.9 2.8l-1.5-1.5A6 6 0 0 0 9.7 6.5L8.2 5a8 8 0 0 1 2.8-.9Z"/></svg>'
+};
+function params(){ const p=new URLSearchParams(location.hash.slice(1)); return {state:p.get("state")||"ready",theme:p.get("theme")||"day",lang:p.get("lang")||"mn",zoom:p.get("zoom")||"normal",toolbar:p.get("toolbar")!=="0"}; }
+function $(id){ return document.getElementById(id); }
+function render(){
+  const {state,theme,lang,zoom,toolbar}=params(), t=S[lang];
+  document.documentElement.lang=lang; document.documentElement.dataset.theme=theme; document.title=t["app.title"];
+  $("map").setAttribute("aria-label",t["map.label"]);
+  document.querySelectorAll("[data-k]").forEach(el=>{ const v=t[el.dataset.k]; if(el.dataset.attr) el.setAttribute(el.dataset.attr,v); else el.textContent=v; });
+  const other=lang==="mn"?"en":"mn"; $("lang").textContent=t["language."+other]; $("lang").lang=other; $("lang").title=t["language.label"];
+  const target=theme==="day"?"night":"day"; $("theme").innerHTML=theme==="day"?ICON.moon:ICON.sun; $("theme").setAttribute("aria-label",t["theme."+target]); $("theme").title=t["theme."+target];
+  $("scale-label").textContent = zoom==="low" ? "200 "+t["unit.km"] : "2 "+t["unit.km"];
+  $("esa").hidden = zoom!=="low";
+  const blockingStates={"loading":1,"tiles-start":1,"offline-start":1,"generic":1};
+  const blocking=!!blockingStates[state];
+  $("blocking").hidden=!blocking; $("bottom").hidden=blocking; $("compass").hidden=blocking; $("map").classList.toggle("blank",blocking);
+  $("loading").hidden=state!=="loading"; $("card").hidden=!(blocking&&state!=="loading");
+  $("card-title").textContent = state==="generic"?t["status.genericError"]:state==="offline-start"?t["status.offline"]:t["status.tilesUnavailable"];
+  $("card-btn").hidden = state==="offline-start";
+  $("b-offline").hidden=state!=="offline";
+  $("b-tiles").hidden=!(state==="tiles-banner"||state==="worst");
+  $("m-denied").hidden=!(state==="denied"||state==="worst");
+  $("m-unavailable").hidden=state!=="unavailable";
+  $("m-stale").hidden=state!=="stale";
+  const locState={following:"following","not-following":"not-following",locating:"locating",denied:"denied",worst:"denied",unsupported:"unsupported",stale:"following"}[state]||"idle";
+  const loc=$("loc"); loc.dataset.state=locState; loc.setAttribute("aria-pressed",String(locState==="following"));
+  loc.innerHTML = locState==="following"?ICON.locFilled:(locState==="denied"||locState==="unsupported")?ICON.locOff:ICON.loc;
+  if(locState==="unsupported"){ loc.setAttribute("aria-disabled","true"); loc.title=t["location.unavailable"]; } else { loc.removeAttribute("aria-disabled"); loc.title=t["control.recenter"]; }
+  $("marker").hidden=!["following","not-following","stale"].includes(state); $("marker").classList.toggle("stale",state==="stale");
+  $("tb").hidden=!toolbar;
+  $("tb-state").value=state; $("tb-theme").value=theme; $("tb-lang").value=lang; $("tb-zoom").value=zoom;
+}
+$("tb-state").innerHTML=STATES.map(s=>`<option>${s}</option>`).join("");
+document.querySelectorAll("#tb select").forEach(sel=>sel.addEventListener("change",()=>{
+  location.hash=`state=${$("tb-state").value}&theme=${$("tb-theme").value}&lang=${$("tb-lang").value}&zoom=${$("tb-zoom").value}`;
+}));
+window.addEventListener("hashchange",render);
+render();
+</script>
+</body>
+</html>

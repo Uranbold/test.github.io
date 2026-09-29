@@ -1,0 +1,76 @@
+<!doctype html>
+<!--
+  NAV-002 web demo map. Screen spec: docs/design/screens/NAV-002-web-map.md
+  No user-facing text in this file: every string is filled from src/i18n/{mn,en}.json (AC 32).
+-->
+<html lang="mn" data-theme="day">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title></title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <div id="map" data-testid="map"></div>
+
+    <div id="ui" class="ui">
+      <div class="r1" data-testid="top-bar">
+        <button id="lang-btn" type="button" class="btn text" data-testid="language-toggle" aria-describedby="lang-desc" data-tooltip="language.label"></button>
+        <span id="lang-desc" hidden data-i18n="language.label"></span>
+        <button id="theme-btn" type="button" class="btn" data-testid="theme-toggle"></button>
+        <button id="compass-btn" type="button" class="btn" data-testid="compass" data-i18n-aria-label="control.northUp" data-tooltip="control.northUp" hidden>
+          <svg class="needle" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path class="needle-n" d="M12 2 16 12H8Z" /><path class="needle-s" d="M8 12h8l-4 10Z" /></svg>
+        </button>
+      </div>
+
+      <div class="r2" id="messages">
+        <div id="status-banner" class="banner" role="status" data-testid="status-banner" hidden>
+          <span class="icon" aria-hidden="true"></span>
+          <span class="txt" id="status-banner-text"></span>
+          <span class="acts"><button type="button" class="act" id="banner-retry" data-testid="banner-retry" data-i18n="action.retry"></button></span>
+        </div>
+        <div id="location-message" class="msg" role="alert" data-testid="location-message" hidden>
+          <span class="txt"><span class="title" id="location-message-title"></span><span class="hint" id="location-message-hint"></span></span>
+          <span class="acts">
+            <button type="button" class="act" id="location-retry" data-testid="location-retry" data-i18n="action.retry"></button>
+            <button type="button" class="act" id="location-close" data-testid="location-close" data-i18n="action.close"></button>
+          </span>
+        </div>
+      </div>
+
+      <div class="blocking" id="blocking">
+        <div id="loading" class="pill idle" data-testid="loading" role="status" aria-live="polite" aria-hidden="true">
+          <span class="spin" aria-hidden="true"></span><span id="loading-text"></span>
+        </div>
+        <div id="card" class="card" data-testid="blocking-card" hidden>
+          <span class="icon" aria-hidden="true"></span>
+          <h1 id="card-title"></h1>
+          <button type="button" class="tonal" id="card-retry" data-testid="card-retry"><span class="spin small" aria-hidden="true"></span><span data-i18n="action.retry"></span></button>
+        </div>
+      </div>
+
+      <div class="r4" id="bottom" hidden>
+        <div class="scale" id="scale" data-testid="scale-bar" aria-hidden="true"><span class="bar" id="scale-bar"></span><span id="scale-label" data-testid="scale-label"></span></div>
+        <div class="col">
+          <div class="group">
+            <button id="zoom-in" type="button" class="btn" data-testid="zoom-in" data-i18n-aria-label="control.zoomIn" data-tooltip="control.zoomIn">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6Z" /></svg>
+            </button>
+            <button id="zoom-out" type="button" class="btn" data-testid="zoom-out" data-i18n-aria-label="control.zoomOut" data-tooltip="control.zoomOut">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 11h14v2H5Z" /></svg>
+            </button>
+          </div>
+          <button id="locate-btn" type="button" class="btn" data-testid="my-location" data-state="idle" aria-pressed="false" data-i18n-aria-label="control.recenter"></button>
+          <span id="locate-desc" hidden></span>
+        </div>
+      </div>
+
+      <footer class="r5 attr" id="attribution" data-testid="attribution">
+        <p><a id="attribution-osm" data-testid="attribution-osm" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" data-i18n="attribution.osm"></a></p>
+        <p id="attribution-esa" data-testid="attribution-esa" data-i18n="attribution.esa" hidden></p>
+      </footer>
+    </div>
+
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  </body>
+</html>

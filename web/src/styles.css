@@ -1,0 +1,444 @@
+/* NAV-002 web map chrome. Colour, size, radius, elevation and motion values are CSS custom
+   properties generated from docs/design/tokens.json at start-up (src/style/tokens.ts › tokensCss).
+   Layout: docs/design/screens/NAV-002-web-map.md › Layout. */
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--map-earth);
+}
+body {
+  font-family: var(--font-ui);
+  color: var(--ui-on-surface);
+}
+button {
+  font: inherit;
+}
+:focus-visible {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: var(--size-focus-ring-offset);
+}
+[hidden] {
+  display: none !important;
+}
+
+/* Map canvas fills the viewport; the overlay grid never changes its size. */
+#map {
+  position: fixed;
+  inset: 0;
+  background: var(--map-earth);
+}
+#map .maplibregl-canvas:focus-visible {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: calc(-1 * var(--size-focus-ring-width) - var(--size-focus-ring-offset));
+}
+
+/* Overlay grid: R1 top bar, R2 messages, R3 spacer, R4 bottom controls, R5 attribution. One explicit column. */
+.ui {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, auto) minmax(0, 1fr) auto auto;
+  pointer-events: none;
+}
+.ui > * {
+  min-width: 0;
+}
+.r1 {
+  grid-row: 1;
+  grid-column: 1;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-control-gap);
+  padding: calc(12px + env(safe-area-inset-top)) var(--spacing-gutter) 8px;
+}
+.r2 {
+  grid-row: 2;
+  grid-column: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-control-gap);
+  padding: 0 var(--spacing-gutter) 8px;
+}
+.r2 > * {
+  width: 100%;
+  max-width: var(--size-message-max-width);
+  box-sizing: border-box;
+}
+.r4 {
+  grid-row: 4;
+  grid-column: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--spacing-control-gap);
+  padding: 0 var(--spacing-gutter) 8px;
+}
+.r5 {
+  grid-row: 5;
+  grid-column: 1;
+}
+.blocking {
+  grid-row: 2 / 5;
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--spacing-gutter);
+}
+.r1 > *,
+.r2 > *,
+.r4 > *,
+.blocking > *,
+.r5 {
+  pointer-events: auto;
+}
+
+/* Buttons (48 × 48 touch targets, AC 49) */
+.btn {
+  box-sizing: border-box;
+  min-width: var(--size-control);
+  height: var(--size-control);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--ui-surface);
+  color: var(--ui-on-surface-variant);
+  box-shadow: var(--elevation-1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.btn svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: currentColor;
+}
+.btn:hover {
+  background-image: linear-gradient(var(--ui-state-hover), var(--ui-state-hover));
+}
+.btn:active {
+  background-image: linear-gradient(var(--ui-state-pressed), var(--ui-state-pressed));
+}
+.btn.text {
+  padding: 0 12px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  color: var(--ui-on-surface);
+}
+.btn[aria-disabled="true"] {
+  color: var(--ui-disabled-content);
+  cursor: default;
+  background-image: none;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-control-gap);
+  align-items: flex-end;
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-md);
+  background: var(--ui-surface);
+  box-shadow: var(--elevation-1);
+}
+.group .btn {
+  box-shadow: none;
+}
+.group .btn:first-child {
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+.group .btn:last-child {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+.group .btn + .btn {
+  border-top: 1px solid var(--ui-outline-variant);
+}
+.needle {
+  transition: transform 0s;
+}
+.needle-n {
+  fill: var(--ui-error);
+}
+.needle-s {
+  fill: var(--ui-on-surface-variant);
+}
+
+/* My-location button states (screen spec table) */
+#locate-btn[data-state="following"] {
+  background-color: var(--ui-primary-container);
+  color: var(--ui-primary);
+}
+#locate-btn[data-state="not-following"] {
+  color: var(--ui-primary);
+}
+#locate-btn[data-state="denied"] {
+  color: var(--ui-error);
+}
+#locate-btn[data-state="unsupported"] {
+  color: var(--ui-disabled-content);
+}
+#locate-btn[data-state="locating"] {
+  position: relative;
+}
+#locate-btn[data-state="locating"]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 2px solid transparent;
+  border-top-color: var(--ui-primary);
+  border-right-color: var(--ui-primary);
+  animation: spin 1s linear infinite;
+}
+
+/* Scale bar */
+.scale {
+  background: var(--ui-surface-container);
+  color: var(--ui-on-surface);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.scale .bar {
+  display: block;
+  height: 6px;
+  border: 2px solid var(--ui-on-surface);
+  border-top: 0;
+  box-sizing: border-box;
+}
+
+/* Attribution strip: opaque, never collapsed, never covered (AC 34–35) */
+.attr {
+  background: var(--ui-surface-container);
+  color: var(--ui-on-surface-variant);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  padding: 4px var(--spacing-gutter) calc(4px + env(safe-area-inset-bottom));
+  box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.15);
+  position: relative;
+  z-index: 1;
+}
+.attr a {
+  color: inherit;
+  text-decoration: underline;
+}
+.attr p {
+  margin: 0;
+}
+
+/* Banners and messages */
+.banner,
+.msg {
+  border-radius: var(--radius-md);
+  padding: 12px 8px 12px 16px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+.msg {
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: var(--ui-message-surface);
+  color: var(--ui-on-message-surface);
+  border: 1px solid var(--ui-message-outline);
+  box-shadow: var(--elevation-3);
+}
+.banner {
+  box-shadow: var(--elevation-2);
+}
+.banner .icon svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+  display: block;
+}
+.banner[data-reason="offline"] {
+  background: var(--ui-message-surface);
+  color: var(--ui-on-message-surface);
+  border: 1px solid var(--ui-message-outline);
+  padding-right: 16px;
+}
+.banner[data-reason="tiles"] {
+  background: var(--ui-error-container);
+  color: var(--ui-on-error-container);
+}
+.banner[data-reason="tiles"] .act {
+  color: var(--ui-on-error-container);
+}
+.msg .title {
+  font-weight: 600;
+  display: block;
+}
+.msg .hint {
+  display: block;
+}
+.acts {
+  display: flex;
+  justify-self: end;
+}
+.act {
+  height: 48px;
+  min-width: 48px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--ui-message-action);
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.act:hover {
+  background: var(--ui-state-hover);
+}
+/* Layout rule 5: below 480 px, wide actions move to their own line, right-aligned. */
+@media (max-width: 479px) {
+  .stack-narrow .acts {
+    grid-column: 1 / -1;
+  }
+  .msg.stack-narrow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Blocking layer: loading pill and card */
+.pill {
+  background: var(--ui-surface);
+  color: var(--ui-on-surface);
+  box-shadow: var(--elevation-2);
+  border-radius: var(--radius-full);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.pill:empty,
+.pill.idle {
+  display: none;
+}
+.spin {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 3px solid var(--ui-primary-container);
+  border-top-color: var(--ui-primary);
+  box-sizing: border-box;
+  animation: spin 1s linear infinite;
+  flex: none;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.card {
+  width: 100%;
+  max-width: var(--size-card-max-width);
+  box-sizing: border-box;
+  background: var(--ui-surface);
+  color: var(--ui-on-surface);
+  box-shadow: var(--elevation-3);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  text-align: center;
+}
+.card .icon svg {
+  width: 40px;
+  height: 40px;
+  fill: var(--ui-on-surface-variant);
+}
+.card h1 {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+  margin: 8px 0 16px;
+}
+.tonal {
+  height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--ui-primary-container);
+  color: var(--ui-on-primary-container);
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.tonal .spin {
+  display: none;
+}
+.tonal[aria-busy="true"] .spin {
+  display: inline-block;
+}
+
+/* Location marker (map-style.md §7) */
+.loc-dot {
+  width: var(--size-location-dot);
+  height: var(--size-location-dot);
+  border-radius: 50%;
+  background: var(--loc-dot);
+  border: var(--size-location-dot-stroke) solid var(--loc-dot-stroke);
+  box-sizing: border-box;
+  box-shadow: var(--elevation-1);
+}
+.loc-dot[data-stale="true"] {
+  background: var(--loc-stale-dot);
+}
+
+/* Tooltip (hover after 500 ms, focus immediately, Esc hides; never over R5) */
+.tooltip {
+  position: fixed;
+  z-index: 10;
+  max-width: 240px;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--ui-message-surface);
+  color: var(--ui-on-message-surface);
+  border: 1px solid var(--ui-message-outline);
+  pointer-events: auto;
+}
+
+/* Reduced motion: static indicators, no fades (screen spec › Accessibility) */
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  #locate-btn[data-state="locating"]::after {
+    animation: none;
+  }
+}
+
+/* Forced colours: keep control boundaries visible */
+@media (forced-colors: active) {
+  .btn,
+  .act,
+  .tonal {
+    border: 1px solid ButtonBorder;
+  }
+}
