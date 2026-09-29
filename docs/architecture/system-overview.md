@@ -45,19 +45,22 @@ Only the gateway publishes a port. Valhalla and Photon are reachable only on the
 ```mermaid
 flowchart TD
   ENV[".env<br/>OSM_PBF_URL / OSM_PBF_FILE<br/>PHOTON_DUMP_URL / PHOTON_DUMP_FILE<br/>*_URL for Planetiler auxiliary files"] --> F
-  F["data-fetch<br/>local file wins over URL · curl --fail<br/>writes data/build-info.json"] --> SRC[("data/sources/<br/>osm.pbf · photon dump · NE · water/land polygons · landcover · qrank · pgf")]
+  F["data-fetch<br/>local file wins over URL · curl --fail"] --> SRC[("data/sources/<br/>osm.pbf · photon dump · NE · water/land polygons · landcover · qrank · pgf")]
   SRC --> T["tiles-build<br/>Protomaps basemap @42ffaaa4 on Planetiler 0.10.2"]
   SRC --> V["valhalla-build<br/>valhalla_build_tiles + build_extract"]
   SRC --> P["photon-import<br/>-languages mn,en,ru"]
   T --> TA[("data/tiles/basemap.pmtiles")]
   V --> VA[("data/valhalla/")]
   P --> PA[("data/photon/")]
-  TA -.->|completed_successfully| GW[gateway]
+  TA --> BI["build-info<br/>writes data/build-info.json"]
+  VA --> BI
+  PA --> BI
+  BI -.->|completed_successfully| GW[gateway]
   VA -.->|completed_successfully| VH[valhalla]
   PA -.->|completed_successfully| PH[photon]
 ```
 
-- Each builder writes to `*.tmp`, validates, renames, and writes a `.complete` marker last. If the marker exists the builder skips the work and logs `reused`. Partial output is deleted and rebuilt (ADR-0002 §4).
+- Each builder writes to a staging path (`*.tmp` or `*.staging`), validates, renames, and writes a `.complete` marker last. If the marker exists the builder skips the work and logs `reused`. Partial output is deleted and rebuilt (ADR-0002 §4).
 - Dev inputs: BBBike UlanBator PBF (about 4.4 MB) and the GraphHopper Mongolia Photon dump (about 8 MB). Production inputs: Geofabrik `mongolia-latest` and, from NAV-006, our own Nominatim.
 - Measured on 2026-09-29 (UB extract):
   - Valhalla graph: about 2 s, 3.9 MB

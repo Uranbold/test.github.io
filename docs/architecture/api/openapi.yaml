@@ -30,7 +30,10 @@ info:
 
     **Attribution.** Map data is © OpenStreetMap contributors (ODbL). Clients render this string
     from their own resource files on every map screen. The PMTiles metadata attribution is
-    only a shorter `© OpenStreetMap` link.
+    only a shorter `© OpenStreetMap` link. The basemap's landcover layer (z0-z7) is CC BY 4.0
+    (Daylight landcover, from ESA WorldCover), so screens that show it also credit
+    "© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021) processed by
+    ESA WorldCover consortium", also from resource files (ADR-0002 Consequences).
 
     **Auth.** None (NAV-001: local development only).
 
@@ -187,8 +190,13 @@ paths:
         - Send `units: "kilometers"`.
         - Rerouting is decided on the client (Ferrostar) and simply calls this endpoint again.
 
-        Dev coverage is the configured OSM extract (UB bounding box by default). Locations
-        outside it return 400 `NoSegment`.
+        Dev coverage is the configured OSM extract (by default the BBBike UB box
+        [106.8392, 47.8995, 107.0167, 47.9337], about 13 x 4 km; `data/build-info.json` records the
+        current bbox). Locations far outside it return 400 `NoSegment`. A location just outside it
+        (within Valhalla's default search cutoff of 35 km) snaps to the nearest road inside, so the
+        response is a 200 whose route ends away from the requested point. Measured: P3 Zaisan, about
+        1.5 km south of the box, gives a route ending 1416 m from P3. Clients compare
+        `waypoints[].distance` (snap distance) with a threshold before trusting such a route.
 
         NFR: p95 <= 500 ms via the gateway for UB routes (NAV-001 AC 35). The gateway read timeout is 10 s.
       x-stories: [NAV-001, NAV-004, NAV-005]
@@ -266,7 +274,10 @@ paths:
       tags: [routing]
       operationId: getRoute
       summary: Same as POST, with the request JSON URL-encoded in `json`
-      description: For quick manual tests and cacheable links. Keep URLs under 8 KB. Clients use POST.
+      description: |
+        For quick manual tests and cacheable links. Clients use POST. Keep URLs under 8 KB: longer
+        request lines get 414 from the gateway with an HTML body, which is not part of the contract.
+        The query string is redacted from all service logs (ADR-0002 §3.4).
       x-stories: [NAV-001]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route }
       parameters:
@@ -624,8 +635,9 @@ components:
           example: { code: PayloadTooLarge, message: "Request body too large" }
     UpstreamUnavailable:
       description: |
-        The upstream container is stopped, unresolvable or refusing connections. Returned within 5 s. Other
-        endpoints are unaffected (NAV-001 AC 34). Clients show a retryable "service unavailable" state.
+        The upstream container is stopped, unresolvable, refusing connections or not accepting the connection
+        within the 2 s connect timeout (this case is also 502, not 504). Returned within 5 s. Other endpoints
+        are unaffected (NAV-001 AC 34). Clients show a retryable "service unavailable" state.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/GatewayError" }
