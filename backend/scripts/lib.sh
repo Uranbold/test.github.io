@@ -80,12 +80,16 @@ fetch() {
     local rc=0
     # (`|| rc=$?` keeps the ERR trap quiet; the failure is reported below with URL + status)
     code=$(curl -sS -L --fail --retry 3 --retry-delay 5 --connect-timeout 20 \
-        -o "$dest.part" -w '%{http_code}' "$url" 2>/tmp/curl.err) || rc=$?
+        -o "$dest.part" -w '%{http_code}' -D /tmp/curl.headers "$url" 2>/tmp/curl.err) || rc=$?
     if [[ $rc -ne 0 ]]; then
         rm -f "$dest.part"
         die "download failed" url="$url" http_status="${code:-000}" curl_exit="$rc" error="$(tail -c 300 /tmp/curl.err)"
     fi
     mv -f "$dest.part" "$dest"
+    # Last-Modified of the final response: the source date when the file itself carries none.
+    tr -d '\r' < /tmp/curl.headers | awk 'tolower($1)=="last-modified:"{sub(/^[^:]*: */,""); lm=$0} END{if (lm) print lm}' \
+        > "$dest.last-modified" || true
+    [[ -s "$dest.last-modified" ]] || rm -f "$dest.last-modified"
     log info "downloaded" url="$url" file="${dest#"$DATA"/}" bytes="$(stat -c %s "$dest")" seconds="$(( $(now_s) - t0 ))"
 }
 

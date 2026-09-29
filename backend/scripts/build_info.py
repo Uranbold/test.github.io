@@ -77,7 +77,7 @@ def main():
 
     aux = {}
     for f in sorted(os.listdir(SRC)) if os.path.isdir(SRC) else []:
-        if f.startswith(("osm.pbf", "photon-dump")) or f.endswith((".source", ".part", ".sha256")):
+        if f.startswith(("osm.pbf", "photon-dump")) or f.endswith((".source", ".part", ".sha256", ".last-modified")):
             continue
         aux[f] = {"source": source_label(read(f"{SRC}/{f}.source")) or "pre-seeded file",
                   "bytes": os.path.getsize(f"{SRC}/{f}")}
@@ -89,13 +89,16 @@ def main():
             "sha256": read(f"{SRC}/osm.pbf.sha256"),
             "bytes": os.path.getsize(f"{SRC}/osm.pbf") if os.path.exists(f"{SRC}/osm.pbf") else None,
             "replication_timestamp": osm_meta.get("replication_timestamp"),
+            "http_last_modified": read(f"{SRC}/osm.pbf.last-modified"),
             "writing_program": osm_meta.get("writing_program"),
             "bbox": bbox,
+            "bbox_source": osm_meta.get("bbox_source"),
             "reference_points_inside_bbox": coverage,
         },
         "photon_dump": {
             "source": source_label(read(f"{SRC}/photon-dump.source")),
             "sha256": read(f"{SRC}/photon-dump.sha256"),
+            "http_last_modified": read(f"{SRC}/photon-dump.last-modified"),
             "data_timestamp": dump_header.get("data_timestamp"),
             "database_version": dump_header.get("database_version"),
             "generator": dump_header.get("generator"),
