@@ -33,3 +33,13 @@ As a **<persona>**, I want **<goal>**, so that **<benefit>**.
 
 ## Open questions
 - ...
+
+## Traceability
+| AC | Screen spec | API operation | Code | Test | Issues |
+|---|---|---|---|---|---|
+| AC1 | | | | | |
+
+## Change log
+| Date | Issue | Change | Why |
+|---|---|---|---|
+| YYYY-MM-DD | — | Created | |

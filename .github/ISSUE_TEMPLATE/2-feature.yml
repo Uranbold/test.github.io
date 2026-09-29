@@ -1,0 +1,45 @@
+name: ✨ Feature request
+description: A new capability that doesn't exist yet.
+title: "[Feature] "
+labels: ["type:feature", "status:new"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / goal
+      description: What problem does this solve, and for whom? Describe the problem, not only the solution.
+    validations:
+      required: true
+  - type: dropdown
+    id: persona
+    attributes:
+      label: Who benefits most?
+      multiple: true
+      options:
+        - UB commuter by car
+        - Taxi / delivery driver
+        - Pedestrian
+        - Tourist (English UI)
+        - Intercity / countryside driver
+        - Internal team / operations
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution (optional)
+  - type: textarea
+    id: value
+    attributes:
+      label: Expected value / success measure
+      placeholder: "e.g. 30% of trips use voice guidance"
+  - type: input
+    id: deadline
+    attributes:
+      label: Hard deadline (if any)
+      description: Only if there is a real date (contract, event, regulation). This makes it "fixed date" class.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Your view of urgency (the PO decides the final priority)
+      options: ["Now", "This iteration", "Next iteration", "Someday"]

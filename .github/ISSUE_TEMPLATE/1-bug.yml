@@ -1,0 +1,72 @@
+name: 🐞 Bug report
+description: Something works differently from its story's acceptance criteria, crashes, or gives wrong guidance.
+title: "[Bug] "
+labels: ["type:bug", "status:new"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Triage will reply with severity and next steps.
+        **Wrong street name, missing road, wrong one-way?** It may be an OpenStreetMap data issue. Report it here anyway and triage will route it.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Actual behaviour. Include error text if any.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the app, search "Сүхбаатарын талбай"
+        2. Start navigation to ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Location / route
+      description: Start and end coordinates or place names (lat, lon), if relevant.
+      placeholder: "47.9189, 106.9176 → 47.6469, 106.8197"
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options: [Android, iOS, Web, Backend / API, Not sure]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version / build / commit
+  - type: dropdown
+    id: impact
+    attributes:
+      label: How bad is it for you? (triage sets the final severity)
+      options:
+        - "Service down, crash, or dangerous route guidance"
+        - "Core feature broken, no workaround"
+        - "Degraded, workaround exists"
+        - "Cosmetic"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots, screen recording, GPX track or logs
+      description: Drag files here. Remove personal data first.
+  - type: input
+    id: story
+    attributes:
+      label: Related story ID (if known)
+      placeholder: NAV-004

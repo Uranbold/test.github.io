@@ -1,0 +1,39 @@
+name: 🔁 Change request
+description: Change how an existing feature or story works (it currently works as designed, but the design should change).
+title: "[Change] "
+labels: ["type:change", "status:new"]
+body:
+  - type: input
+    id: story
+    attributes:
+      label: Story being changed
+      placeholder: NAV-004
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: desired
+    attributes:
+      label: Desired behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why change it?
+      description: User feedback, data, business reason.
+    validations:
+      required: true
+  - type: textarea
+    id: keep
+    attributes:
+      label: What must NOT change?
+  - type: input
+    id: deadline
+    attributes:
+      label: Hard deadline (if any)

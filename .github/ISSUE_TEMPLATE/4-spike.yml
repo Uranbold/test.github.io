@@ -1,0 +1,29 @@
+name: 🔬 Spike / question
+description: Something we need to research or decide before we can write stories.
+title: "[Spike] "
+labels: ["type:spike", "status:new"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question to answer
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Which decision or work does the answer unblock?
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: ["Technical (architect)", "Product / market (business analyst)"]
+    validations:
+      required: true
+  - type: input
+    id: timebox
+    attributes:
+      label: Timebox
+      placeholder: "1 agent run / 1 day"

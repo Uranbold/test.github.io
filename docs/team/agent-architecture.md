@@ -7,6 +7,7 @@ How the AI agent team builds the OSM navigation product. The agents are Claude C
 | Agent | Role | Inputs (reads) | Outputs (writes) |
 |---|---|---|---|
 | **Orchestrator** (main session) | Plans work, calls agents, routes handoffs, asks the user for decisions | Everything | Nothing directly; integrates results and commits |
+| **triage-lead** | Classifies every incoming item, detects duplicates, proposes severity/priority, picks the lane | Issues, stories, triage log, code (read-only) | `docs/triage/**`, issue labels + comments |
 | **architect** | Tech lead: ADRs, API contract, task breakdown, integration review | Stories, UX specs, code | `docs/architecture/**` (ADRs, `api/openapi.yaml`, diagrams) |
 | **business-analyst** | Requirements: PRD, stories, acceptance criteria, backlog | Research, user input | `docs/requirements/**` |
 | **ux-designer** | UI/UX: flows, screen specs, tokens, map style, navigation UX | Stories | `docs/design/**` (+ Figma when connected) |
@@ -68,7 +69,20 @@ flowchart TB
 4. **Single ownership per path.** Two agents never write the same file, so parallel agents never conflict.
 5. **Humans decide.** Product decisions surface as `open_questions` and the orchestrator asks the user. Agents never guess.
 
-## 3. Feature delivery flow
+## 3. Intake and lanes
+
+Every new item is triaged first. The lane depends on the type (full design: `intake-and-triage-flow.md`):
+
+| Lane | Workflow file | Path |
+|---|---|---|
+| Triage | `.claude/workflows/triage.js` | triage-lead → PO confirms priority |
+| 🚨 Hotfix (S1) | `hotfix.js` | QA reproduce → fix (minimal) → smoke → 48 h follow-up |
+| 🐞 Bug | `bug-fix.js` | QA reproduce (failing test) → owner fix → QA verify + regression (→ architect if contract touched) |
+| 🔁 Change | `change-request.js` | BA ∥ architect impact → PO approves → story → UX ∥ architect → backend ∥ mobile → regression + review |
+| ✨ Feature | `feature-delivery.js` | as below |
+| 🔬 Spike | `spike.js` | architect or BA research → skeptic challenge → follow-ups to triage |
+
+## 3b. Feature delivery flow
 
 | Step | Agent(s) | Gate to continue |
 |---|---|---|

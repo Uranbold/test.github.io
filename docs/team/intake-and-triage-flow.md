@@ -1,6 +1,17 @@
 # Intake & Triage Flow: features, changes and bugs
 
-*Research + proposal, 29 Sep 2026. Extends `agent-architecture.md`.*
+*Research + design, 29 Sep 2026. Extends `agent-architecture.md`.*
+
+**Status: implemented.**
+
+| Part | File |
+|---|---|
+| Triage agent | `.claude/agents/triage-lead.md` |
+| Workflows | `.claude/workflows/triage.js`, `bug-fix.js`, `hotfix.js`, `change-request.js`, `spike.js` (feature lane: `feature-delivery.js`) |
+| Issue forms | `.github/ISSUE_TEMPLATE/1-bug.yml` … `5-tech-debt.yml` |
+| Labels | `.github/labels.yml`, synced by `.github/workflows/labels.yml` on pushes to `master` |
+| Triage log | `docs/triage/log.md` |
+| Orchestrator procedure | `CLAUDE.md` → "Intake procedure" |
 
 ## 1. Problem with the current flow
 

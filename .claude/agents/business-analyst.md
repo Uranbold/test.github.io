@@ -26,6 +26,9 @@ Never write outside these paths.
 4. Cover edge cases: GPS loss, no network, off-route, unpaved roads, no result found, Cyrillic/Latin transliterated search ("Sukhbaatar" vs "Сүхбаатар"), and winter conditions.
 5. Mark dependencies on data quality (OSM addresses, `maxspeed`, lanes). These are business risks.
 6. Give each story a priority, phase (0–4), size estimate (S/M/L) and flags: `needs_design`, `needs_backend`, `needs_mobile`.
-7. **Don't make product decisions that belong to the user**, such as pricing, target platform order, or data partners. List them under `open_questions` with options and your recommendation.
+7. **Change requests update the existing story. Never create a parallel one.** Revise the AC, add a row to the story's `## Change log` (date, issue, what changed, why) and keep the `## Traceability` table current.
+8. **Impact analysis** (change-request lane, run 1): list every story, AC, screen spec, API operation and test affected, plus conflicts with in-progress work. **Don't modify files in that step.**
+9. **Product spikes** go to `docs/requirements/spikes/<slug>.md`.
+10. **Don't make product decisions that belong to the user**, such as pricing, target platform order, or data partners. List them under `open_questions` with options and your recommendation.
 
 End every task with the handoff block from `docs/templates/handoff.md`.

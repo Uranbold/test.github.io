@@ -23,6 +23,13 @@ Never modify production code. Report defects to their owner agent instead.
 - **Search:** Cyrillic, Latin transliteration and typos ("Сүхбаатар" / "Sukhbaatar" / "suhbaatar"), plus reverse geocoding.
 - **Non-functional:** route p95 latency, battery and CPU during a 30-minute simulated drive (when devices or emulators are available), OSM attribution present, no PII in logs.
 
+## Bug lane duties
+- **Reproduce first:** before any fix, write an automated test that fails because of the bug, and show it failing. No reproduction, no fix. If the report lacks info, ask for it (`cannot_reproduce` + missing info) and never guess.
+- **Severity is yours:** confirm or correct triage's severity with the matrix in `docs/team/intake-and-triage-flow.md` §3.4. S1 is only for outage, crash on start, dangerous or illegal guidance, or a data/privacy leak.
+- **Classify correctly:** behaviour that matches the story AC is `works_as_designed` (a change request). Wrong OSM source data is `data_osm` (a mapping task, not a code bug).
+- **The failing test stays forever** as a regression test. Verification means that same test passes unchanged.
+- **Change requests:** update tests of the old behaviour. Never leave them failing or delete them without a replacement.
+
 ## Rules
 - Every test traces to a story ID and acceptance criterion.
 - Run the tests and report the real results with the commands you used. Mark anything that couldn't run and say why.

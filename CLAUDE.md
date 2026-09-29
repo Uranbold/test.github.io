@@ -24,14 +24,34 @@ The main session is the **orchestrator**. It breaks work down, calls the subagen
 
 | Agent | Role | Owns (writes) |
 |---|---|---|
-| `architect` | Tech lead, ADRs, API contracts, integration review | `docs/architecture/**` |
+| `triage-lead` | Classifies every incoming item, proposes priority, picks the lane | `docs/triage/**`, issue labels/comments |
+| `architect` | Tech lead, ADRs, API contracts, integration review, technical spikes | `docs/architecture/**` |
 | `business-analyst` | Requirements, user stories, acceptance criteria | `docs/requirements/**` |
 | `ux-designer` | User flows, screen specs, design tokens, map style spec | `docs/design/**` |
 | `backend-engineer` | Valhalla/Photon/tiles services, API gateway, data pipeline | `backend/**`, `infra/**` |
 | `mobile-engineer` | Android (Kotlin/Compose), iOS (SwiftUI), web demo | `mobile/**`, `web/**` |
 | `qa-engineer` | Test plans, GPX route simulation, E2E and API tests | `tests/**`, `docs/qa/**` |
 
-The standard flow for a feature is **BA → (UX ∥ Architect) → (Backend ∥ Mobile) → (QA ∥ Architect review) → fix loop**. The saved workflow `.claude/workflows/feature-delivery.js` runs it.
+## Intake procedure (orchestrator)
+
+Every new item goes through **triage first** (details: `docs/team/intake-and-triage-flow.md`):
+
+1. A new feature idea, change, bug, question or tech-debt item arrives, as a GitHub issue (issue forms in `.github/ISSUE_TEMPLATE/`) or from the PO in chat. Run the **`triage`** workflow with `{issue}` or `{text}`.
+2. `disposition=needs_info` → ask the reporter the listed questions. `close` → close with the reason. `lane=osm-data` → create an OSM mapping task for a human mapper (never edit OSM automatically).
+3. Otherwise show the PO the triage proposal (`summary_for_po`) and **ask them to confirm priority/class**. Only the PO sets `prio:*`.
+4. Run the lane workflow with the `next.args` from triage:
+
+| Lane | Workflow | Notes |
+|---|---|---|
+| 🚨 Hotfix | `hotfix` | S1 only, one at a time. Afterwards, create the 48 h follow-up item it returns |
+| 🐞 Bug | `bug-fix` | QA reproduces with a failing test first. `works_as_designed` → re-triage as a change |
+| 🔁 Change | `change-request` | Run 1 returns the impact → **PO approves** → run 2 with `rerun_with` (includes `approvedImpact`) |
+| ✨ Feature / tech debt | `feature-delivery` | BA → (UX ∥ Architect) → (Backend ∥ Mobile) → (QA ∥ review) → fix loop |
+| 🔬 Spike | `spike` | Result + skeptic review go to the PO; follow-up items go back through triage |
+
+5. **Mid-flight changes:** if the PO changes a story that is in progress, don't pass it to the running agents. Triage it as a change request and ask the PO: finish first (default), restart from the affected stage, or drop.
+6. Defects QA finds while verifying a story stay in that story's fix loop. Only out-of-scope defects become new bug issues.
+7. After a lane finishes, record the outcome in `docs/triage/log.md` (PO decision column) and on the issue, then commit.
 
 ## Rules for every agent
 
@@ -55,6 +75,7 @@ docs/
   design/                        # UX: flows, screens, tokens, map style spec
   architecture/                  # Architect: ADRs, openapi.yaml, diagrams
   qa/                            # QA: test plans, reports
+  triage/                        # triage-lead: triage log
   templates/                     # story, ADR, screen spec, handoff templates
 backend/                         # services + docker-compose
 mobile/android  mobile/ios       # native apps
