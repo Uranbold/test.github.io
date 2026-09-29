@@ -1,0 +1,9 @@
+# NAV-001: build artefacts and downloads never go into git (AC 6)
+data/
+.env
+.venv/
+*.osm.pbf
+*.pbf
+*.pmtiles
+*.mbtiles
+*.jsonl.zst

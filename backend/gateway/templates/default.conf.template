@@ -1,0 +1,167 @@
+# NAV-001 gateway server (ADR-0002 §2-3, docs/architecture/api/openapi.yaml).
+# Rendered by the nginx image's envsubst step: only ${VALHALLA_UPSTREAM}, ${PHOTON_UPSTREAM} and
+# ${GATEWAY_ERROR_LOG_LEVEL} are substituted; nginx's own $variables are left alone.
+#
+#   GET  /health                   -> answered here
+#   GET  /tiles/basemap.pmtiles    -> static file, HTTP Range / ETag
+#   POST /v1/route, GET ?json=     -> Valhalla /route   (pass-through)
+#   GET  /v1/search                -> Photon /api       (pass-through)
+#   GET  /v1/reverse               -> Photon /reverse   (pass-through)
+#   OPTIONS <any path>             -> 204 CORS preflight, never forwarded
+
+# nginx error_log lines contain the request line (query string = coordinates / search text).
+# Keep the level at crit unless you are debugging locally (ADR-0002 §3.4).
+error_log /dev/stderr ${GATEWAY_ERROR_LOG_LEVEL};
+
+# Docker's embedded DNS + variable proxy_pass: nginx starts and keeps running while an
+# upstream container is stopped, and fails fast (502) instead of hanging (AC 34).
+resolver 127.0.0.11 valid=10s ipv6=off;
+resolver_timeout 2s;
+
+client_max_body_size 256k;
+
+# A stopped upstream whose IP is still in the resolver cache gives a *connect* timeout, which
+# nginx reports as 504. The contract wants 502/503 for "unavailable" (AC 34) and 504 only when
+# the upstream accepted the connection but did not answer in time. "-" = connect never completed.
+map $upstream_connect_time $upstream_connect_failed {
+    ""      1;
+    "-"     1;
+    default 0;
+}
+
+# nginx sends Accept-Ranges on full 200 responses only; the contract also lists it on 206.
+# add_header runs before the range filter sets 206, so key on the request's Range header.
+map $http_range $tiles_accept_ranges_206 {
+    ""      "";
+    default bytes;
+}
+
+server {
+    listen 8080 default_server;
+    server_name _;
+
+    set $valhalla_upstream ${VALHALLA_UPSTREAM};
+    set $photon_upstream   ${PHOTON_UPSTREAM};
+
+    error_page 404 = @not_found;
+    error_page 405 = @method_not_allowed;
+    error_page 413 = @payload_too_large;
+
+    # ---------------------------------------------------------------- HEALTH
+    location = /health {
+        include /etc/nginx/snippets/cors-headers.conf;
+        if ($request_method = OPTIONS) { return 204; }
+        if ($request_method !~ ^(GET|HEAD)$) { return 405; }
+        default_type application/json;
+        return 200 '{"status":"ok"}';
+    }
+
+    # ---------------------------------------------------------------- TILES
+    location = /tiles/basemap.pmtiles {
+        include /etc/nginx/snippets/cors-headers.conf;
+        add_header Cache-Control "public, max-age=300";
+        add_header Accept-Ranges $tiles_accept_ranges_206;
+        if ($request_method = OPTIONS) { return 204; }
+        if ($request_method !~ ^(GET|HEAD)$) { return 405; }
+        gzip off;
+        etag on;
+        types { }
+        default_type application/octet-stream;
+        alias /srv/data/tiles/basemap.pmtiles;
+    }
+
+    # ---------------------------------------------------------------- ROUTE
+    location = /v1/route {
+        include /etc/nginx/snippets/cors-headers.conf;
+        error_page 404 = @not_found;
+        error_page 405 = @method_not_allowed;
+        error_page 413 = @payload_too_large;
+        error_page 502 503 = @route_unavailable;
+        error_page 504 = @route_timeout;
+        if ($request_method = OPTIONS) { return 204; }
+        if ($request_method !~ ^(GET|POST)$) { return 405; }
+        include /etc/nginx/snippets/proxy-common.conf;
+        proxy_read_timeout 10s;
+        proxy_pass http://$valhalla_upstream/route$is_args$args;
+    }
+
+    # ---------------------------------------------------------------- SEARCH
+    location = /v1/search {
+        include /etc/nginx/snippets/cors-headers.conf;
+        error_page 404 = @not_found;
+        error_page 405 = @method_not_allowed;
+        error_page 413 = @payload_too_large;
+        error_page 502 503 = @search_unavailable;
+        error_page 504 = @search_timeout;
+        if ($request_method = OPTIONS) { return 204; }
+        if ($request_method !~ ^(GET|HEAD)$) { return 405; }
+        include /etc/nginx/snippets/proxy-common.conf;
+        proxy_read_timeout 5s;
+        proxy_pass http://$photon_upstream/api$is_args$args;
+    }
+
+    # ---------------------------------------------------------------- REVERSE
+    location = /v1/reverse {
+        include /etc/nginx/snippets/cors-headers.conf;
+        error_page 404 = @not_found;
+        error_page 405 = @method_not_allowed;
+        error_page 413 = @payload_too_large;
+        error_page 502 503 = @search_unavailable;
+        error_page 504 = @search_timeout;
+        if ($request_method = OPTIONS) { return 204; }
+        if ($request_method !~ ^(GET|HEAD)$) { return 405; }
+        include /etc/nginx/snippets/proxy-common.conf;
+        proxy_read_timeout 5s;
+        proxy_pass http://$photon_upstream/reverse$is_args$args;
+    }
+
+    # ---------------------------------------------------------------- everything else
+    location / {
+        include /etc/nginx/snippets/cors-headers.conf;
+        if ($request_method = OPTIONS) { return 204; }
+        return 404;
+    }
+
+    # ---------------------------------------------------------------- JSON error bodies (GatewayError)
+    location @not_found {
+        include /etc/nginx/snippets/cors-headers.conf;
+        default_type application/json;
+        return 404 '{"code":"NotFound","message":"No such endpoint"}';
+    }
+    location @method_not_allowed {
+        include /etc/nginx/snippets/cors-headers.conf;
+        default_type application/json;
+        return 405 '{"code":"MethodNotAllowed","message":"Method not allowed"}';
+    }
+    location @payload_too_large {
+        include /etc/nginx/snippets/cors-headers.conf;
+        default_type application/json;
+        return 413 '{"code":"PayloadTooLarge","message":"Request body too large"}';
+    }
+    location @route_unavailable {
+        include /etc/nginx/snippets/cors-headers.conf;
+        default_type application/json;
+        return 502 '{"code":"UpstreamUnavailable","message":"routing service unavailable"}';
+    }
+    location @route_timeout {
+        include /etc/nginx/snippets/cors-headers.conf;
+        default_type application/json;
+        if ($upstream_connect_failed) {
+            return 502 '{"code":"UpstreamUnavailable","message":"routing service unavailable"}';
+        }
+        return 504 '{"code":"UpstreamTimeout","message":"routing service timed out"}';
+    }
+    location @search_unavailable {
+        include /etc/nginx/snippets/cors-headers.conf;
+        default_type application/json;
+        return 502 '{"code":"UpstreamUnavailable","message":"search service unavailable"}';
+    }
+    location @search_timeout {
+        include /etc/nginx/snippets/cors-headers.conf;
+        default_type application/json;
+        if ($upstream_connect_failed) {
+            return 502 '{"code":"UpstreamUnavailable","message":"search service unavailable"}';
+        }
+        return 504 '{"code":"UpstreamTimeout","message":"search service timed out"}';
+    }
+}
