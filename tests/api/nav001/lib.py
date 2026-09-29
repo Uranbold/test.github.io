@@ -25,8 +25,8 @@ P = {
     "P4": (47.9215, 106.8950),  # Gandan Monastery
     "P5": (47.9095, 106.8835),  # UB railway station
     "P6": (47.9600, 106.9000),  # Chingeltei ger district
-    "X1": (49.0270, 104.0440),  # Erdenet (outside dev extract)
-    "X2": (39.9042, 116.4074),  # Beijing (outside any Mongolia coverage)
+    "X1": (49.0270, 104.0440),  # Erdenet: inside the default Mongolia dev extract, outside the optional BBBike UB box
+    "X2": (39.9042, 116.4074),  # Beijing (outside any Mongolia coverage; AC 32 point on the default build)
 }
 ORIGIN = "http://localhost:5173"
 EVIL_ORIGIN = "http://evil.example"
@@ -76,11 +76,22 @@ class Report:
 
 # ------------------------------------------------------------------------------------ HTTP
 class Resp:
-    def __init__(self, status, headers, body, elapsed, error=None):
+    def __init__(self, status, headers, body, elapsed, error=None, raw_headers=None):
         self.status, self.headers, self.body, self.elapsed, self.error = status, headers, body, elapsed, error
+        # Every header line as received, repeats kept (the dict above keeps only the last one).
+        self.raw_headers = list(raw_headers or [])
 
     def header(self, name, default=None):
         return self.headers.get(name.lower(), default)
+
+    def header_count(self, name):
+        return sum(1 for k, _v in self.raw_headers if k.lower() == name.lower())
+
+    def repeated_headers(self, prefix="access-control-"):
+        """Header names starting with prefix that appear on more than one line (NAV-001 AC 43,
+        openapi.yaml: every Access-Control-* header at most once on every response)."""
+        names = [k.lower() for k, _v in self.raw_headers if k.lower().startswith(prefix)]
+        return sorted({n for n in names if names.count(n) > 1})
 
     def json(self):
         try:
@@ -113,7 +124,8 @@ class Client:
             raw, status, h = e.read(), e.code, e.headers
         except Exception as e:  # connection refused, timeout, reset
             return Resp(0, {}, b"", time.perf_counter() - t0, error=f"{type(e).__name__}: {e}")
-        return Resp(status, {k.lower(): v for k, v in h.items()}, raw, time.perf_counter() - t0)
+        # http.client's HTTPMessage.items() returns every header line, repeats included.
+        return Resp(status, {k.lower(): v for k, v in h.items()}, raw, time.perf_counter() - t0, raw_headers=h.items())
 
     def get(self, path, params=None, **kw):
         if params:

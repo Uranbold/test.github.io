@@ -1,5 +1,5 @@
 // NAV-001 browser E2E: the gateway used cross-origin from a real Chromium page.
-// Test plan: docs/qa/test-plans/NAV-001.md (E2E-01 .. E2E-06).
+// Test plan: docs/qa/test-plans/NAV-001.md (E2E-01 .. E2E-07).
 //
 //   cd tests/e2e && npm ci && BASE_URL=http://localhost:8080 npx playwright test nav001
 //   # AC 31 variant, with the gateway started with CORS_ALLOWED_ORIGINS=http://localhost:5173:
@@ -7,13 +7,29 @@
 //
 // Why a browser: curl cannot prove that a browser will expose Content-Range/ETag to JavaScript or
 // accept a preflight. Here Chromium enforces CORS itself, and the real PMTiles JS client is used.
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
+
+// The fixture origin (http://localhost:5173, and http://127.0.0.1:5173 for E2E-06) is served by Playwright
+// request interception from tests/e2e/, not by whatever process listens on port 5173. Reason: the NAV-002
+// web demo's Vite dev server also uses 5173 and answers every path with its SPA index.html, which made
+// `reuseExistingServer` load the wrong page (pmtiles not defined). Only same-origin fixture requests are
+// intercepted; every request to the gateway goes over the real network and Chromium enforces CORS as usual.
+const E2E_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const FIXTURES = {
+  '/nav001/page.html': 'text/html; charset=utf-8',
+  '/node_modules/pmtiles/dist/pmtiles.js': 'text/javascript; charset=utf-8',
+};
 
 const GW = (process.env.BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
 const ALLOWLIST = process.env.E2E_EXPECT_ALLOWLIST || '';
 const P1 = { lat: 47.9189, lon: 106.9176 };
 const P2 = { lat: 47.9139, lon: 106.9044 };
-const X1 = { lat: 49.027, lon: 104.044 };
+// AC 32 out-of-coverage point. NAV-001 CR 2026-09-29: the default dev extract is all of Mongolia, so
+// X1 Erdenet is routable and X2 Beijing is used (X1 only on the optional BBBike UB build).
+const X2 = { lat: 39.9042, lon: 116.4074 };
 
 function tileXY(lat, lon, z) {
   const n = 2 ** z;
@@ -22,8 +38,21 @@ function tileXY(lat, lon, z) {
   return { x, y };
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.goto('/nav001/page.html');
+test.beforeEach(async ({ context, page }) => {
+  // An intercepted document has no remote IP, so Chromium's Local Network Access check puts it in the
+  // `unknown` address space and blocks its requests to localhost before CORS is even evaluated. A real
+  // client served from localhost is in the local space and never hits that check, so grant it here. This
+  // keeps CORS as the only thing that can block a request (E2E-06 must be blocked by CORS, not by LNA).
+  for (const origin of ['http://localhost:5173', 'http://127.0.0.1:5173']) {
+    await context.grantPermissions(['local-network-access'], { origin });
+  }
+  await context.route(/^http:\/\/(localhost|127\.0\.0\.1):5173\//, async (route) => {
+    const { pathname } = new URL(route.request().url());
+    const contentType = FIXTURES[pathname];
+    if (!contentType) return route.fulfill({ status: 404, contentType: 'text/plain', body: 'not a NAV-001 fixture' });
+    return route.fulfill({ status: 200, contentType, body: await readFile(path.join(E2E_ROOT, pathname)) });
+  });
+  await page.goto('http://localhost:5173/nav001/page.html');
   expect(await page.evaluate(() => location.origin)).toBe('http://localhost:5173');
 });
 
@@ -116,13 +145,46 @@ test('E2E-05 AC32/AC33 + contract: error statuses and JSON bodies are readable b
     const nf = await fetch(`${gw}/nope`);
     out.nf = { status: nf.status, body: await nf.json() };
     return out;
-  }, { gw: GW, a: P1, x: X1 });
+  }, { gw: GW, a: P1, x: X2 });
   expect(r.noSeg.status).toBeGreaterThanOrEqual(400);
   expect(r.noSeg.status).toBeLessThan(500);
   expect(r.noSeg.body.message || r.noSeg.body.error).toBeTruthy();
   expect(r.bad.status).toBe(400);
   expect(r.nf.status).toBe(404);
   expect(r.nf.body.code).toBe('NotFound');
+});
+
+test('E2E-07 AC43: a 416 on the tiles archive reaches JS as status 416 with a JSON body, not a CORS TypeError', async ({ page }) => {
+  const r = await page.evaluate(async (gw) => {
+    const url = `${gw}/tiles/basemap.pmtiles`;
+    const head = await fetch(url, { method: 'HEAD' });
+    const size = Number(head.headers.get('Content-Length')); // exposed by Access-Control-Expose-Headers
+    const out = { size };
+    for (const method of ['GET', 'HEAD']) {
+      try {
+        const res = await fetch(url, { method, headers: { Range: `bytes=${size}-` } });
+        const text = method === 'GET' ? await res.text() : '';
+        let body = null;
+        try { body = text ? JSON.parse(text) : null; } catch { body = `not JSON: ${text.slice(0, 60)}`; }
+        out[method] = {
+          status: res.status, contentType: res.headers.get('Content-Type'),
+          contentRange: res.headers.get('Content-Range'), body,
+        };
+      } catch (e) {
+        out[method] = { error: `${e.name}: ${e.message}` }; // a duplicated ACAO lands here (pre-fix behaviour)
+      }
+    }
+    return out;
+  }, GW);
+  expect(r.size).toBeGreaterThan(0);
+  for (const method of ['GET', 'HEAD']) {
+    expect(r[method].error, `${method} must not be rejected by CORS`).toBeUndefined();
+    expect(r[method].status).toBe(416);
+    expect(r[method].contentType).toMatch(/^application\/json/);
+    expect(r[method].contentRange).toBe(`bytes */${r.size}`);
+  }
+  expect(r.GET.body).toMatchObject({ code: 'RangeNotSatisfiable' });
+  expect(typeof r.GET.body.message).toBe('string');
 });
 
 test('E2E-06 AC31: a page on a non-allowlisted origin is blocked by the browser', async ({ page }) => {
@@ -133,10 +195,11 @@ test('E2E-06 AC31: a page on a non-allowlisted origin is blocked by the browser'
     const res = {};
     for (const [k, init] of [
       ['tiles', { headers: { Range: 'bytes=0-126' } }],
+      ['tiles416', { headers: { Range: 'bytes=999999999999-' } }], // AC 43: the 416 also carries no ACAO for this origin
       ['route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }],
     ]) {
       try {
-        const x = await fetch(`${gw}/${k === 'tiles' ? 'tiles/basemap.pmtiles' : 'v1/route'}`, init);
+        const x = await fetch(`${gw}/${k.startsWith('tiles') ? 'tiles/basemap.pmtiles' : 'v1/route'}`, init);
         res[k] = `readable ${x.status}`;
       } catch (e) {
         res[k] = `blocked ${e.name}`;
@@ -145,5 +208,6 @@ test('E2E-06 AC31: a page on a non-allowlisted origin is blocked by the browser'
     return res;
   }, GW);
   expect(r.tiles).toMatch(/^blocked/);
+  expect(r.tiles416).toMatch(/^blocked/);
   expect(r.route).toMatch(/^blocked/);
 });

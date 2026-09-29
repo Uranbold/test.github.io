@@ -42,7 +42,7 @@ Facts checked on 2026-09-29:
 
 ## Consequences
 - NAV-001 AC 5 ("rebuilt from the new source") holds for tiles and routing. For Photon, the force-rebuild command re-imports from `PHOTON_DUMP_URL`/`PHOTON_DUMP_FILE`, which is a separate key and **not** derived from `OSM_PBF_URL`. The backend README must say this plainly (raised in the architect handoff as a non-blocking question).
-- Search can return places outside UB, such as Erdenet, that dev routing cannot reach. The route call then returns 400 `NoSegment`, which is the expected out-of-coverage behaviour (NAV-001 AC 32). This goes away with the Mongolia PBF.
+- *Updated 2026-09-29 (ADR-0002 Amendment 1):* the default dev PBF is now all of Mongolia, so the dump and the routing and tiles data cover the same area, and Erdenet is routable. Only on the optional BBBike UB build can search return places that routing cannot reach, such as Erdenet. The route call then returns 400 `NoSegment`, which is the expected out-of-coverage behaviour (NAV-001 AC 32). The data-date difference between the dump and the PBF remains.
 - `lang` accepts `mn`, `en`, `ru` and `default`. Any other value returns **400**, not a fallback. Clients send `lang` explicitly (the UI language), because otherwise Photon uses the browser's `Accept-Language`.
 - Some OSM `name` values contain traditional Mongolian script after the Cyrillic (for example country "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ"). NAV-003 UX must decide how to display address lines. Noted for the UX designer.
 - If GraphHopper stops publishing the country dump, the fallback is option 2 or 3, and only the `photon-import` builder changes. The HTTP contract does not change.

@@ -7,9 +7,14 @@ Test plan: docs/qa/test-plans/NAV-001.md (each check id below is a test case id 
 
 Groups (default: smoke):
   smoke      AC 40 set: AC 9, 13-16, 18, 21-23, 25, 28-30, 32 + AC 42 info (11, 19, 24) + AC 40 runtime
-  full       smoke + AC 10, 11, 12, 17, 19, 20, 24, 26, 27, 33 + contract extras (404/405/413/HEAD/304/416/GET ?json=)
+  full       smoke + AC 10, 11, 12, 17, 19, 20, 24, 26, 27, 33, 43 + contract extras (404/405/413/HEAD/304/416/GET ?json=,
+             no repeated Access-Control-* header on any response)
   perf       AC 35-38 (p95 of 20 sequential requests each)
-  cors-allowlist  AC 31. The gateway must already run with CORS_ALLOWED_ORIGINS=http://localhost:5173
+  ac43       AC 43 only (416 on TILES: single CORS headers, JSON body); also part of full. Runs against a
+             gateway-only container too (isolated-gateway.sh), which is how the negative control is done
+  cors-allowlist  AC 31 (+ AC 43 per origin). The gateway must already run with CORS_ALLOWED_ORIGINS=http://localhost:5173
+  tiles-missing   CT17: gateway started WITHOUT data/tiles/basemap.pmtiles (tests/api/nav001/isolated-gateway.sh):
+             the TILES 404 must still be JSON with single CORS headers (error_page inheritance regression, AC 43 fix)
   outage     AC 34. Stops and restarts valhalla and photon with docker compose (needs --compose-dir)
   logs       No PII in logs: sends requests with marker coordinates/text, then greps service logs (needs --compose-dir)
   stats      AC 39 steady-state memory and data/ size (needs --compose-dir)
@@ -58,14 +63,14 @@ class Nav001:
         return self._route13
 
     def within(self, cid, dist, target_key, limit=100):
-        """AC 14 endpoint check. Strict limit against the story point; if that fails but the distance is
-        within limit + 50 m, the story's 50 m point-move allowance is applied and recorded."""
+        """AC 14 endpoint check (story CR 2026-09-29): hard limit = 100 m route-end limit + 50 m allowed
+        reference-point move = 150 m. 100-150 m passes and prints the measured distance as INFO."""
         if dist <= limit:
-            return self.r.check(cid, True)
+            return self.r.check(cid, True, actual=f"{dist:.0f} m")
         if dist <= limit + MOVE_ALLOWANCE_M:
-            self.r.note(cid + ".move", f"route endpoint is {dist:.0f} m from {target_key}; passes only after moving "
-                                        f"{target_key} {MOVE_ALLOWANCE_M} m toward the road (story allowance)")
-            return self.r.check(cid, True)
+            self.r.note(cid + ".move", f"route endpoint is {dist:.0f} m from {target_key} (100-150 m band: passes with the "
+                                        f"story's {MOVE_ALLOWANCE_M} m point-move allowance)")
+            return self.r.check(cid, True, actual=f"{dist:.0f} m")
         return self.r.check(cid, False, f"<= {limit} m from {target_key} (<= {limit + MOVE_ALLOWANCE_M} m with the 50 m move)",
                             f"{dist:.0f} m")
 
@@ -364,6 +369,9 @@ class Nav001:
         r = self.c.get("/v1/search", {"q": "Сүхб"}, headers={"Origin": EVIL_ORIGIN})
         self.r.check("AC31.evil_search_response_no_acao", r.header("access-control-allow-origin") is None,
                      "no Access-Control-Allow-Origin on GET /v1/search", r.header("access-control-allow-origin"))
+        # AC 43 in allowlist mode: the 416 echoes the allowed origin once, and a disallowed origin gets none.
+        self.ac43(ORIGIN, True, prefix="AC43.allowlist_allowed")
+        self.ac43(EVIL_ORIGIN, False, prefix="AC43.allowlist_evil")
 
     def ac32(self):
         key = "X1"
@@ -372,6 +380,10 @@ class Nav001:
             self.r.note("AC32.point_used", "X2 (Beijing): the tile bounds cover X1 Erdenet, so X1 is not out of coverage")
         else:
             self.r.note("AC32.point_used", "X1 (Erdenet), outside the dev extract bounds")
+        if key == "X2":
+            x1 = self.c.route("P1", "X1", timeout=15)
+            self.r.note("AC32.x1_erdenet_on_this_build", f"HTTP {x1.status} {(x1.json() or {}).get('code')}"
+                        + (f", {x1.json()['routes'][0]['distance'] / 1000:.0f} km" if x1.status == 200 and (x1.json() or {}).get('routes') else ""))
         r = self.c.route("P1", key)
         j = r.json()
         self.r.check("AC32.4xx_json_within_3s",
@@ -406,8 +418,12 @@ class Nav001:
         r = self.c.request("GET", "/tiles/basemap.pmtiles", headers={"Range": "bytes=0-126"})
         self.r.check("CT06.accept_ranges_on_206", r.header("accept-ranges") == "bytes", "Accept-Ranges: bytes", r.header("accept-ranges"))
         self.r.check("CT07.no_gzip_on_tiles", r.header("content-encoding") in (None, "identity"), "no Content-Encoding", r.header("content-encoding"))
+        size = self.archive_size()
+        r = self.c.request("GET", "/tiles/basemap.pmtiles", headers={"Range": f"bytes={size}-"})
+        self.r.check("CT08.range_beyond_416", r.status == 416, f"416 for bytes={size}- (S from HEAD)", r.status)
         r = self.c.request("GET", "/tiles/basemap.pmtiles", headers={"Range": "bytes=999999999999-"})
-        self.r.check("CT08.range_beyond_416", r.status == 416, 416, r.status)
+        self.r.check("CT08.range_far_beyond_416", r.status == 416, 416, r.status)
+        self.no_repeated_cors_sweep()
         q = urllib.parse.quote(json.dumps(self.c.route_body("P1", "P2")))
         r = self.c.request("GET", "/v1/route?json=" + q)
         self.r.check("CT09.get_route_json_param", r.status == 200 and (r.json() or {}).get("code") == "Ok", "200 Ok", r.status)
@@ -426,6 +442,94 @@ class Nav001:
         self.r.check("CT14.vary_origin", "origin" in self._tokens(r.header("vary")), "Vary: Origin", r.header("vary"))
         r = self.c.get("/v1/search", {"q": "Сүхб"})
         self.r.check("CT15.search_default_lang_mn", r.status == 200, 200, r.status)
+
+    # ------------------------------------------------------------------ AC 43 (CR 2026-09-29)
+    def archive_size(self):
+        r = self.c.request("HEAD", "/tiles/basemap.pmtiles")
+        try:
+            return int(r.header("content-length"))
+        except (TypeError, ValueError):
+            raise RuntimeError(f"HEAD /tiles/basemap.pmtiles gave no Content-Length ({r.status})")
+
+    def _cors_once(self, cid, r, origin=ORIGIN, expect_acao=True):
+        """Access-Control-Allow-Origin / -Expose-Headers exactly once, no Access-Control-* repeated."""
+        rep = r.repeated_headers()
+        self.r.check(cid + ".no_repeated_access_control_header", not rep, "each Access-Control-* header at most once",
+                     {h: [v for k, v in r.raw_headers if k.lower() == h] for h in rep})
+        n_acao, n_aceh = r.header_count("access-control-allow-origin"), r.header_count("access-control-expose-headers")
+        if expect_acao:
+            ok = n_acao == 1 and r.header("access-control-allow-origin") in (origin, "*")
+            self.r.check(cid + ".allow_origin_once", ok, f"exactly 1 Access-Control-Allow-Origin ({origin} or *)",
+                         f"{n_acao}x {r.header('access-control-allow-origin')!r}")
+        else:
+            self.r.check(cid + ".no_allow_origin", n_acao == 0, "no Access-Control-Allow-Origin for a disallowed origin",
+                         f"{n_acao}x {r.header('access-control-allow-origin')!r}")
+        self.r.check(cid + ".expose_headers_once", n_aceh == 1, "exactly 1 Access-Control-Expose-Headers", n_aceh)
+
+    def ac43(self, origin=ORIGIN, expect_acao=True, prefix="AC43"):
+        size = self.archive_size()
+        self.r.note(prefix + ".archive_size_S", size)
+        hdrs = {"Origin": origin, "Range": f"bytes={size}-"}
+        for method in ("GET", "HEAD"):
+            cid = f"{prefix}.{method}"
+            r = self.c.request(method, "/tiles/basemap.pmtiles", headers=hdrs)
+            self.r.check(cid + ".status_416", r.status == 416, f"416 for Range: bytes={size}-", r.status)
+            self.r.check(cid + ".content_range_unsatisfied", r.header("content-range") == f"bytes */{size}",
+                         f"bytes */{size}", r.header("content-range"))
+            self._cors_once(cid, r, origin, expect_acao)
+            ctype = (r.header("content-type") or "").split(";")[0].strip()
+            self.r.check(cid + ".content_type_json", ctype == "application/json", "application/json", r.header("content-type"))
+            if method == "GET":
+                j = r.json()
+                ok = isinstance(j, dict) and j.get("code") == "RangeNotSatisfiable" and isinstance(j.get("message"), str) and j["message"]
+                self.r.check(cid + ".json_gateway_error", bool(ok), '{"code":"RangeNotSatisfiable","message":"..."} (GatewayError)',
+                             r.body[:120])
+        # CR text used bytes=99999999-: satisfiable on the Mongolia archive, so it is not an AC 43 probe (recorded).
+        r = self.c.request("GET", "/tiles/basemap.pmtiles", headers={"Origin": origin, "Range": "bytes=99999999-99999999"})
+        self.r.note(prefix + ".cr_probe_99999999", f"HTTP {r.status} ({'satisfiable, archive > 95 MB' if r.status == 206 else 'unsatisfiable'})")
+
+    def no_repeated_cors_sweep(self):
+        """openapi.yaml 0.2.0: every Access-Control-* header at most once on every response (CT16)."""
+        o = {"Origin": ORIGIN}
+        cases = [
+            ("tiles_206", lambda: self.c.request("GET", "/tiles/basemap.pmtiles", headers={**o, "Range": "bytes=0-126"})),
+            ("tiles_head_200", lambda: self.c.request("HEAD", "/tiles/basemap.pmtiles", headers=o)),
+            ("tiles_304", lambda: self.c.request("GET", "/tiles/basemap.pmtiles", headers={**o, "If-None-Match": self.c.request(
+                "HEAD", "/tiles/basemap.pmtiles").header("etag") or '"x"'})),
+            ("tiles_post_405", lambda: self.c.request("POST", "/tiles/basemap.pmtiles", b"x", headers=o)),
+            ("tiles_preflight_204", lambda: self.c.request("OPTIONS", "/tiles/basemap.pmtiles", headers=self.PREFLIGHT)),
+            ("health_200", lambda: self.c.get("/health", headers=o)),
+            ("unknown_404", lambda: self.c.get("/nope", headers=o)),
+            ("route_200", lambda: self.c.request("POST", "/v1/route", self.c.route_body("P1", "P2"), headers=o)),
+            ("route_400", lambda: self.c.request("POST", "/v1/route", {"costing": "auto"}, headers=o)),
+            ("route_delete_405", lambda: self.c.request("DELETE", "/v1/route", headers=o)),
+            ("route_413", lambda: self.c.request("POST", "/v1/route", b'{"x":"' + b"a" * (300 * 1024) + b'"}', headers=o)),
+            ("search_200", lambda: self.c.get("/v1/search", {"q": "Сүхб"}, headers=o)),
+            ("search_400", lambda: self.c.get("/v1/search", {"q": "Сүхб", "lang": "de"}, headers=o)),
+            ("reverse_200", lambda: self.c.get("/v1/reverse", {"lat": P["P1"][0], "lon": P["P1"][1]}, headers=o)),
+        ]
+        for name, fn in cases:
+            r = fn()
+            rep = r.repeated_headers()
+            self.r.check(f"CT16.no_repeated_cors.{name}", r.status != 0 and not rep, "each Access-Control-* header at most once",
+                         f"HTTP {r.status}; repeated: {rep}")
+
+    def tiles_missing(self):
+        """CT17: run against a gateway whose data/ has no tiles archive (isolated-gateway.sh ... empty dir).
+        Guards the AC 43 fix: a location with its own error_page stops inheriting the server-level 404 page."""
+        h = self.c.request("HEAD", "/tiles/basemap.pmtiles")
+        if h.status != 404:
+            return self.r.check("CT17.precondition_archive_missing", False, "HEAD 404 (gateway started without the archive)", h.status)
+        for method in ("GET", "HEAD"):
+            r = self.c.request(method, "/tiles/basemap.pmtiles", headers={"Origin": ORIGIN, "Range": "bytes=0-126"})
+            cid = f"CT17.{method}"
+            self.r.check(cid + ".status_404", r.status == 404, 404, r.status)
+            self._cors_once(cid, r)
+            ctype = (r.header("content-type") or "").split(";")[0].strip()
+            self.r.check(cid + ".content_type_json", ctype == "application/json", "application/json", r.header("content-type"))
+            if method == "GET":
+                j = r.json() or {}
+                self.r.check(cid + ".json_not_found", j.get("code") == "NotFound", '{"code":"NotFound",...}', r.body[:120])
 
     # ------------------------------------------------------------------ F. performance
     def _perf(self, cid, fn, limit_ms, n=20):
@@ -583,6 +687,7 @@ class Nav001:
             self.ac32()
             if full:
                 self.ac33()
+                self.ac43()
                 self.contract_extras()
             elapsed = time.perf_counter() - t0
             self.r.check("AC40.smoke_runtime_le_60s", elapsed <= 60, "<= 60 s", f"{elapsed:.1f} s")
@@ -590,6 +695,10 @@ class Nav001:
             self.perf()
         if "cors-allowlist" in groups:
             self.ac31()
+        if "ac43" in groups and "full" not in groups:
+            self.ac43()
+        if "tiles-missing" in groups:
+            self.tiles_missing()
         if "logs" in groups:
             self.logs()
         if "stats" in groups:
@@ -601,7 +710,7 @@ class Nav001:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8080"))
-    ap.add_argument("--group", action="append", choices=["smoke", "full", "perf", "cors-allowlist", "outage", "logs", "stats"])
+    ap.add_argument("--group", action="append", choices=["smoke", "full", "perf", "ac43", "cors-allowlist", "tiles-missing", "outage", "logs", "stats"])
     ap.add_argument("--compose-dir", help="backend/ directory (for outage, logs, stats)")
     ap.add_argument("--compose-project", help="docker compose project name if not the default")
     ap.add_argument("--json-out", help="write results as JSON here")

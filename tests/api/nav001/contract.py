@@ -6,7 +6,8 @@
 Needs: jsonschema>=4.18, PyYAML, openapi-spec-validator (tests/api/requirements.txt).
 For each case: the HTTP status must be documented for that operation, the JSON body must validate
 against the documented schema, and documented headers that the contract marks as always present
-must be there. Request examples from the spec are sent as-is, so the examples themselves are tested.
+must be there, and no Access-Control-* header may appear more than once (openapi.yaml 0.2.0 CORS rule,
+NAV-001 AC 43). Request examples from the spec are sent as-is, so the examples themselves are tested.
 Test plan ids: CT-S (spec valid), CT-R* (responses). Exit 0 only if every case conforms.
 """
 import argparse
@@ -70,6 +71,9 @@ class Contract:
         for h in required_headers:
             if resp.header(h) is None:
                 errors.append(f"missing header {h}")
+        repeated = resp.repeated_headers()
+        if repeated:
+            errors.append(f"repeated headers {repeated} (each Access-Control-* at most once)")
         return self.r.check(cid, not errors, f"{resp.status} conforms to openapi.yaml", "; ".join(errors))
 
     def run(self):
@@ -94,6 +98,19 @@ class Contract:
                                     "access-control-allow-origin", "access-control-expose-headers"))
         full = c.request("HEAD", "/tiles/basemap.pmtiles")
         self.case("CT-R03.tiles_head", "/tiles/basemap.pmtiles", "head", full, required_headers=("content-length", "etag", "accept-ranges"))
+        # NAV-001 AC 43: unsatisfiable range, start = archive size S from HEAD (bytes=99999999- is satisfiable on Mongolia).
+        size = int(full.header("content-length") or 0)
+        for method in ("get", "head"):
+            r416 = c.request(method.upper(), "/tiles/basemap.pmtiles", headers={"Range": f"bytes={size}-", "Origin": ORIGIN})
+            ok = self.case(f"CT-R20.tiles_{method}_416", "/tiles/basemap.pmtiles", method, r416,
+                           required_headers=("content-range", "access-control-allow-origin", "access-control-expose-headers"))
+            if ok and r416.status == 416:
+                cr_schema = self.deref(self.deref(self.response_def("/tiles/basemap.pmtiles", method, 416))["headers"]["Content-Range"])["schema"]
+                errs = list(self.validator(cr_schema).iter_errors(r416.header("content-range")))
+                self.r.check(f"CT-R20.tiles_{method}_416_content_range", not errs and r416.header("content-range") == f"bytes */{size}",
+                             f"bytes */{size} matching ContentRangeUnsatisfied", r416.header("content-range"))
+            elif r416.status != 416:
+                self.r.check(f"CT-R20.tiles_{method}_416_status", False, 416, r416.status)
 
         for name, ex in req_schema["examples"].items():
             resp = c.request("POST", "/v1/route", ex["value"])

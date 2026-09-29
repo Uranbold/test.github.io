@@ -3,7 +3,8 @@
 #   infra/ci/backend-static-checks.sh
 # 1. shell/python syntax  2. compose config renders with defaults only (no .env), no :latest
 # 3. nginx config test of the real gateway files  4. gateway behaviour without upstreams
-#    (health, CORS preflight, JSON 404/405/413, 502 when upstreams are absent)
+#    (health, CORS preflight, JSON 404/405/413, 502 when upstreams are absent,
+#    AC 43: 416 with single CORS headers + JSON, missing archive -> JSON 404)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 B=$ROOT/backend
@@ -41,4 +42,23 @@ curl -s -D - -o /dev/null -X OPTIONS -H 'Origin: http://evil.example' $G/v1/rout
 [[ $(code -X DELETE $G/v1/search) == 405 ]] || fail "405"
 [[ $(code -X POST --data-binary @<(head -c 300000 /dev/zero) $G/v1/route) == 413 ]] || fail "413"
 [[ $(code -X POST -d '{}' $G/v1/route) == 502 ]] || fail "502 without upstream"
+# AC 43: Range starting at the archive size -> 416, JSON, Content-Range bytes */S, each CORS header once
+S=$(stat -c %s "$TMP/tiles/basemap.pmtiles")
+H=$(curl -s -D - -o "$TMP/416.json" -H 'Origin: http://localhost:5173' -H "Range: bytes=$S-" $G/tiles/basemap.pmtiles | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 416' || fail "416 status: $(echo "$H" | head -1)"
+echo "$H" | grep -qi "^content-range: bytes \*/$S\$" || fail "416 Content-Range"
+echo "$H" | grep -qi '^content-type: application/json' || fail "416 Content-Type"
+grep -q '"code":"RangeNotSatisfiable"' "$TMP/416.json" || fail "416 body: $(head -c 120 "$TMP/416.json")"
+DUP=$(echo "$H" | grep -i '^access-control-[a-z-]*:' | cut -d: -f1 | tr 'A-Z' 'a-z' | sort | uniq -d)
+[[ -z "$DUP" ]] || fail "416 repeated headers: $DUP"
+[[ $(echo "$H" | grep -ci '^access-control-allow-origin: http://localhost:5173') == 1 ]] || fail "416 ACAO"
+curl -s -D - -o /dev/null -H 'Origin: http://evil.example' -H "Range: bytes=$S-" $G/tiles/basemap.pmtiles | grep -qi '^access-control-allow-origin' && fail "416 disallowed origin got ACAO"
+DUP=$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' -H 'Range: bytes=0-7' $G/tiles/basemap.pmtiles | tr -d '\r' | grep -i '^access-control-[a-z-]*:' | cut -d: -f1 | tr 'A-Z' 'a-z' | sort | uniq -d)
+[[ -z "$DUP" ]] || fail "206 repeated headers: $DUP"
+[[ $(code -X POST $G/tiles/basemap.pmtiles) == 405 ]] || fail "tiles POST 405"
+curl -s -X POST $G/tiles/basemap.pmtiles | grep -q '"code":"MethodNotAllowed"' || fail "tiles 405 not JSON"
+# Missing archive -> JSON 404 (the tiles location re-declares error_page 404; see ADR-0002 Amendment 2)
+rm -f "$TMP/tiles/basemap.pmtiles"
+[[ $(code $G/tiles/basemap.pmtiles) == 404 ]] || fail "missing archive 404"
+curl -s $G/tiles/basemap.pmtiles | grep -q '"code":"NotFound"' || fail "missing archive 404 not JSON"
 echo "OK: backend static checks passed"

@@ -4,7 +4,7 @@
     python3 scripts/smoke.py [--base-url http://localhost:8080] [--perf] [--cors-allowlist ORIGIN]
 
 Runs the story's smoke set (AC 9, 13-16, 18, 21-23, 25, 28-30, 32 per AC 40) plus cheap extras
-(AC 10, 11, 17, 19, 20, 24, 26, 27, 33, gateway 404/405). Prints PASS/FAIL/INFO lines, and each
+(AC 10, 11, 17, 19, 20, 24, 26, 27, 33, 43, gateway 404/405). Prints PASS/FAIL/INFO lines, and each
 FAIL shows expected and actual values. Exit code 0 only if no check failed (AC 41).
 --perf adds the AC 35-38 latency baselines (20 sequential requests each, p95).
 --cors-allowlist ORIGIN checks AC 31 against a gateway started with CORS_ALLOWED_ORIGINS=ORIGIN.
@@ -37,6 +37,7 @@ class Suite:
         self.failed = []
         self.passed = 0
         self.info = {}
+        self.last_raw_headers = []  # [(name_lower, value)] of the last response, repeats kept
 
     # ---------------------------------------------------------------- reporting
     def check(self, name, ok, expected="", actual=""):
@@ -70,8 +71,10 @@ class Suite:
             raw = e.read()
             status, h = e.code, e.headers
         except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            self.last_raw_headers = []
             return 0, {}, str(e).encode(), time.perf_counter() - t0
         elapsed = time.perf_counter() - t0
+        self.last_raw_headers = [(k.lower(), v) for k, v in h.items()]
         headers_l = {k.lower(): v for k, v in h.items()}
         return status, headers_l, raw, elapsed
 
@@ -121,6 +124,13 @@ def polyline_decode(s, precision=6):
         lon += vals[1]
         out.append((lat / 10 ** precision, lon / 10 ** precision))
     return out
+
+
+def repeated_cors_headers(raw_headers):
+    """Access-Control-* header names that occur more than once (browsers reject a repeated ACAO).
+    Vary is not checked: it is list-valued and may legally repeat (gzip's Accept-Encoding + Origin)."""
+    names = [k for k, _ in raw_headers if k.startswith("access-control-")]
+    return sorted({k for k in names if names.count(k) > 1})
 
 
 def feature_min_dist(fc, point):
@@ -325,6 +335,25 @@ def run_checks(s):
             f"ACAO in ({ORIGIN}, *), expose >= content-range,content-length,etag",
             f"ACAO={h.get('access-control-allow-origin')}, expose={h.get('access-control-expose-headers')}")
 
+    # AC 43 unsatisfiable Range: 416, single CORS headers, JSON GatewayError. The range start is the
+    # archive size from HEAD, so the check works for any extract size (bytes=99999999- is inside a
+    # 243 MB Mongolia archive and would return 206).
+    st, h, raw, el = s.http("HEAD", "/tiles/basemap.pmtiles", headers={"Origin": ORIGIN})
+    size = int(h.get("content-length") or 0)
+    for method in ("GET", "HEAD"):
+        st, h, raw, el = s.http(method, "/tiles/basemap.pmtiles", headers={"Range": f"bytes={size}-", "Origin": ORIGIN})
+        dup = repeated_cors_headers(s.last_raw_headers)
+        body = s.json_of(raw) if method == "GET" else {"code": "RangeNotSatisfiable"}
+        s.check(f"AC43 TILES {method} Range bytes={size}- -> 416, Content-Range bytes */{size}, "
+                "each CORS header once" + (", JSON RangeNotSatisfiable" if method == "GET" else ""),
+                size > 0 and st == 416 and h.get("content-range") == f"bytes */{size}" and not dup
+                and h.get("access-control-allow-origin") in (ORIGIN, "*")
+                and (body or {}).get("code") == "RangeNotSatisfiable"
+                and (method == "HEAD" or h.get("content-type", "").startswith("application/json")),
+                f"416, bytes */{size}, no repeated headers, ACAO, application/json RangeNotSatisfiable",
+                f"{st}, content-range={h.get('content-range')}, repeated={dup}, ACAO={h.get('access-control-allow-origin')}, "
+                f"type={h.get('content-type')}, body={raw[:80]!r}")
+
     # AC 10 / 11 PMTiles header, metadata, z14 tile at P1
     try:
         pm = PMTiles(s)
@@ -512,10 +541,12 @@ def run_checks(s):
     st, h, raw, el = s.http("DELETE", "/v1/search")
     s.check("GW wrong method -> 405 GatewayError MethodNotAllowed",
             st == 405 and (s.json_of(raw) or {}).get("code") == "MethodNotAllowed", "405 {code: MethodNotAllowed}", f"{st} {raw[:80]!r}")
-    st, h, raw, el = s.route("P1", "P2")
-    s.check("GW upstream CORS stripped (single Access-Control-Allow-Origin, not Valhalla's)",
-            h.get("access-control-allow-origin") in (None, "*") or "," not in h.get("access-control-allow-origin", ""),
-            "no duplicated ACAO", h.get("access-control-allow-origin"))
+    body = {"locations": [{"lat": P["P1"][0], "lon": P["P1"][1]}, {"lat": P["P2"][0], "lon": P["P2"][1]}],
+            "costing": "auto", "format": "osrm", "language": "mn-MN", "units": "kilometers"}
+    st, h, raw, el = s.http("POST", "/v1/route", body, headers={"Origin": ORIGIN})
+    dup = repeated_cors_headers(s.last_raw_headers)
+    s.check("GW upstream CORS stripped (each Access-Control-* header once on a routed response)",
+            st == 200 and not dup, "200, no repeated headers", f"{st}, repeated={dup}")
 
 
 def run_cors_allowlist(s, allowed):
@@ -524,6 +555,16 @@ def run_cors_allowlist(s, allowed):
             "header absent", h.get("access-control-allow-origin"))
     st, h, raw, el = s.http("OPTIONS", "/v1/route", headers={"Origin": allowed, "Access-Control-Request-Method": "GET"})
     s.check("AC31 allowed origin is echoed", h.get("access-control-allow-origin") == allowed, allowed, h.get("access-control-allow-origin"))
+    st, h, raw, el = s.http("HEAD", "/tiles/basemap.pmtiles")
+    size = int(h.get("content-length") or 0)
+    st, h, raw, el = s.http("GET", "/tiles/basemap.pmtiles", headers={"Range": f"bytes={size}-", "Origin": "http://evil.example"})
+    s.check("AC43/AC31 416 for a disallowed origin has no Access-Control-Allow-Origin",
+            st == 416 and "access-control-allow-origin" not in h, "416, header absent", f"{st}, {h.get('access-control-allow-origin')}")
+    st, h, raw, el = s.http("GET", "/tiles/basemap.pmtiles", headers={"Range": f"bytes={size}-", "Origin": allowed})
+    dup = repeated_cors_headers(s.last_raw_headers)
+    s.check("AC43/AC31 416 for the allowed origin echoes it exactly once",
+            st == 416 and h.get("access-control-allow-origin") == allowed and not dup,
+            f"416, ACAO={allowed}, no repeated headers", f"{st}, {h.get('access-control-allow-origin')}, repeated={dup}")
     st, h, raw, el = s.route("P1", "P2", language="mn-MN")
     s.check("AC31 Valhalla's own '*' does not leak for requests without an allowed Origin",
             "access-control-allow-origin" not in h, "header absent", h.get("access-control-allow-origin"))

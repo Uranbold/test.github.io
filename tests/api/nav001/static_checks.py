@@ -15,6 +15,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import Report  # noqa: E402
 
+# NAV-001 CR 2026-09-29 (PO): dev default = full Mongolia from a dev-only mirror; production = Geofabrik;
+# BBBike UB = optional small/fast alternative, commented only.
+MONGOLIA_MIRROR = "https://geo2day.com/asia/mongolia.pbf"
 BBBIKE = "https://download.bbbike.org/osm/bbbike/UlanBator/UlanBator.osm.pbf"
 GEOFABRIK = "https://download.geofabrik.de/asia/mongolia-latest.osm.pbf"
 DATA_EXT = re.compile(r"\.(osm\.pbf|pbf|pmtiles|mbtiles)$", re.I)
@@ -44,10 +47,32 @@ def ac03(r, be):
             uncommented.append(m.group(1))
     if shared:
         r.note("AC03.keys_sharing_comment_with_previous_key", shared)
-    r.check("AC03.osm_url_default_bbbike", kv.get("OSM_PBF_URL") == BBBIKE, f"OSM_PBF_URL={BBBIKE}", kv.get("OSM_PBF_URL"))
+    # Replaces AC03.osm_url_default_bbbike (old AC 3 wording, before the CR of 2026-09-29).
+    r.check("AC03.osm_url_default_mongolia_mirror", kv.get("OSM_PBF_URL") == MONGOLIA_MIRROR,
+            f"OSM_PBF_URL={MONGOLIA_MIRROR}", kv.get("OSM_PBF_URL"))
+    idx = next((i for i, ln in enumerate(lines) if ln.startswith("OSM_PBF_URL=")), None)
+    block = []
+    if idx is not None:
+        j = idx - 1
+        while j >= 0 and lines[j].lstrip().startswith("#"):
+            block.insert(0, lines[j])
+            j -= 1
+    comment = " ".join(block)
+    r.check("AC03.osm_url_dev_only_mirror_comment",
+            re.search(r"(?i)dev[\s-]*only", comment) is not None and re.search(r"(?i)mirror", comment) is not None
+            and re.search(r"(?i)mongolia", comment) is not None,
+            "comment above OSM_PBF_URL says dev-only third-party mirror of the full Mongolia extract", comment[:200] or "no comment")
+    active_bbbike = [ln for ln in lines if "bbbike" in ln.lower() and not ln.lstrip().startswith("#")]
+    r.check("AC03.bbbike_only_commented", not active_bbbike, "BBBike appears only in comments, never as an active value", active_bbbike)
+    r.note("AC03.bbbike_optional_line_present", any(re.match(r"^#\s*OSM_PBF_URL=" + re.escape(BBBIKE), ln) for ln in lines))
     r.check("AC03.geofabrik_commented", any(re.match(r"^#\s*OSM_PBF_URL=" + re.escape(GEOFABRIK) + r"\s*$", ln) for ln in lines),
             f"# OSM_PBF_URL={GEOFABRIK}", "not found")
     r.check("AC03.local_file_key", "OSM_PBF_FILE" in kv, "OSM_PBF_FILE key present", sorted(k for k in kv if "FILE" in k))
+    compose = open(os.path.join(be, "compose.yaml"), encoding="utf-8").read()
+    m = re.search(r"\$\{OSM_PBF_URL:-([^}]*)\}", compose)
+    r.check("AC03.compose_default_matches_env_example", m is not None and m.group(1) == kv.get("OSM_PBF_URL"),
+            f"compose.yaml ${{OSM_PBF_URL:-{kv.get('OSM_PBF_URL')}}} (.env.example says compose has the same defaults)",
+            m.group(1) if m else "no ${OSM_PBF_URL:-...} in compose.yaml")
     r.check("AC03.gateway_port_8080", kv.get("GATEWAY_PORT") == "8080", "GATEWAY_PORT=8080", kv.get("GATEWAY_PORT"))
     r.check("AC03.cors_default_any", kv.get("CORS_ALLOWED_ORIGINS") == "*", "CORS_ALLOWED_ORIGINS=*", kv.get("CORS_ALLOWED_ORIGINS"))
     r.check("AC03.every_key_commented", not uncommented, "a comment line directly above every key", uncommented)
@@ -126,8 +151,18 @@ def ac08(r, be):
     r.check("AC08.every_download_key_documented", url_keys and not missing, f"all *_URL keys in README ({len(url_keys)})", missing)
     r.check("AC08.not_run_section", re.search(r"(?i)could not be run|not (be )?verified", readme) is not None,
             "a section listing what could not run", "missing")
-    r.check("AC08.extract_bbox_recorded", re.search(r"106\.8392.*47\.8995.*107\.0167.*47\.9337", readme) is not None,
-            "dev extract bbox in README (story: reference points section)", "missing")
+    # Replaces AC08.extract_bbox_recorded (UB bbox only, old wording). AC 8 now: dev coverage documented.
+    missing = [what for what, ok in (
+        ("dev default = Mongolia mirror URL", MONGOLIA_MIRROR in readme),
+        ("mirror marked dev only", re.search(r"(?i)(mirror[^\n]{0,80}dev[\s-]*only|dev[\s-]*only[^\n]{0,80}mirror)", readme) is not None),
+        ("production = Geofabrik mongolia-latest", "mongolia-latest" in readme and re.search(r"(?i)production", readme) is not None),
+        ("BBBike UB optional, not default", re.search(r"(?i)bbbike[^\n]*(optional|not the default)", readme) is not None),
+        ("BBBike misses P3 and P6", re.search(r"(?i)bbbike[\s\S]{0,600}P3[\s\S]{0,200}P6", readme) is not None),
+        ("Mongolia bbox recorded", re.search(r"81\.92\d*,\s*39\.01\d*,\s*120\.27\d*,\s*53\.03", readme) is not None),
+    ) if not ok]
+    r.check("AC08.dev_coverage_documented", not missing, "README dev-coverage section per AC 8 (CR 2026-09-29)", missing)
+    r.check("AC08.no_open_default_decision", "open product decision" not in readme.lower(),
+            "no 'which dev default ... open product decision' left", "still present")
 
 
 def main():
