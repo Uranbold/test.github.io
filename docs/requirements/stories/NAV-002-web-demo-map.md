@@ -37,7 +37,7 @@ Secondary personas:
 - **UX inputs this story depends on** (owner: ux-designer): screen spec `docs/design/screens/NAV-002-web-map.md`, map style spec `docs/design/map-style.md` (day and night), design tokens `docs/design/tokens.json` (light and night).
 
 ### User-facing strings
-All strings come from `docs/requirements/glossary.md`. The terms NAV-002 needs that are **not yet in the glossary** are listed below as BA proposals with status `needs native review`. The BA adds them to the glossary in a follow-up run (this run may only write the story file). Implementation uses **exactly** these strings. Mobile and UX do not invent their own.
+All strings come from `docs/requirements/glossary.md`. The terms NAV-002 needed that were not in the glossary when this story was written are listed below as G1–G7. **They were added to the glossary on 2026-09-29** (section 7 "Errors, permissions and status messages" for G1–G6 with status `needs native review`, section 8 for G7 with status `n/a (not translated)`). Implementation uses **exactly** these strings. Mobile and UX do not invent their own.
 
 **Existing glossary terms used**
 
@@ -56,17 +56,17 @@ All strings come from `docs/requirements/glossary.md`. The terms NAV-002 needs t
 | Scale bar units | C3 (banner abbreviations) | «м» / «км» | "m" / "km" |
 | Attribution | OSM attribution | «© OpenStreetMap contributors» (not translated) | same |
 
-**Proposed glossary additions (status `needs native review`, BA to add to glossary before implementation merges)**
+**Glossary additions G1–G7 (added to `glossary.md` 2026-09-29)**
 
-| # | English term | Proposed `mn` | `en` | Where | Notes |
-|---|---|---|---|---|---|
-| G1 | Loading | «Ачаалж байна…» | "Loading…" | Loading state | Generic, reusable by NAV-003/004 |
-| G2 | Map could not be loaded | «Газрын зургийг ачаалж чадсангүй» | "The map could not be loaded" | Tiles-unavailable state | Uses «газрын зураг» (Map row) |
-| G3 | Location permission denied | «Байршлын зөвшөөрөл олгоогүй байна» | "Location permission is turned off" | My location, denied | Pairs with the existing "Location permission" row |
-| G4 | Allow location in browser settings | «Хөтчийн тохиргоонд байршлын зөвшөөрлийг асаана уу» | "Allow location access in your browser settings" | My location, denied (hint) | C1 polite imperative. «хөтөч» here means web browser. It is unrelated to the rejected «дуут хөтөч» (voice guidance). The panel should confirm |
-| G5 | Location could not be determined | «Байршил тодорхойлж чадсангүй» | "Your location could not be determined" | My location: timeout, unavailable, unsupported, lost after a fix | Deliberately not «GPS дохио тасарлаа», because browser location is often Wi-Fi/IP-based, not GPS |
-| G6 | Close (dismiss) | «Хаах» | "Close" | Dismiss button on messages | Button uses the -х form (C1) |
-| G7 | ESA WorldCover credit | «© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium» | same | Attribution, landcover zooms | `n/a (not translated)`, licence credit (ADR-0002) |
+| # | English term | Proposed `mn` | `en` | Where | Notes | Glossary |
+|---|---|---|---|---|---|---|
+| G1 | Loading | «Ачаалж байна…» | "Loading…" | Loading state | Generic, reusable by NAV-003/004 | added 2026-09-29, §7 "Loading", `needs native review` |
+| G2 | Map could not be loaded | «Газрын зургийг ачаалж чадсангүй» | "The map could not be loaded" | Tiles-unavailable state | Uses «газрын зураг» (Map row) | added 2026-09-29, §7 "Map could not be loaded", `needs native review` |
+| G3 | Location permission denied | «Байршлын зөвшөөрөл олгоогүй байна» | "Location permission is turned off" | My location, denied | Pairs with the existing "Location permission" row | added 2026-09-29, §7 "Location permission denied", `needs native review` |
+| G4 | Allow location in browser settings | «Хөтчийн тохиргоонд байршлын зөвшөөрлийг асаана уу» | "Allow location access in your browser settings" | My location, denied (hint) | C1 polite imperative. «хөтөч» here means web browser. It is unrelated to the rejected «дуут хөтөч» (voice guidance). The panel should confirm | added 2026-09-29, §7 "Allow location in browser settings", `needs native review` |
+| G5 | Location could not be determined | «Байршил тодорхойлж чадсангүй» | "Your location could not be determined" | My location: timeout, unavailable, unsupported, lost after a fix | Deliberately not «GPS дохио тасарлаа», because browser location is often Wi-Fi/IP-based, not GPS | added 2026-09-29, §7 "Location could not be determined", `needs native review` |
+| G6 | Close (dismiss) | «Хаах» | "Close" | Dismiss button on messages | Button uses the -х form (C1) | added 2026-09-29, §7 "Close (dismiss)", `needs native review` |
+| G7 | ESA WorldCover credit | «© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium» | same | Attribution, landcover zooms | Licence credit (ADR-0002) | added 2026-09-29, §8 "ESA WorldCover credit", `n/a (not translated)` |
 
 ## Acceptance criteria
 
@@ -115,7 +115,7 @@ All strings come from `docs/requirements/glossary.md`. The terms NAV-002 needs t
 30. **Given** a first visit, **When** the page loads with the browser language set to `en-US`, **Then** the UI is still Mongolian and `<html lang="mn">` is set (Mongolian first regardless of browser language).
 31. **Given** the language toggle («Хэл»: «Монгол» / «English», each shown in its own language), **When** the user switches to English, **Then** within **500 ms** every UI string (buttons, tooltips, accessible names, messages, scale units, page title) is English and `<html lang="en">` is set, with no page reload and no camera change. The map labels do **not** change *(Open question 1, option a)*. The choice survives a reload.
 32. **Given** the `web/` sources, **When** the check documented in the README runs (lint rule or scripted scan), **Then** no user-facing text literal is hard-coded outside the `mn` and `en` resource files. The two files have **identical key sets**, and no value is empty.
-33. **Given** the `mn` resource file, **When** each value is compared with `docs/requirements/glossary.md` (existing rows or the G1 to G7 rows once added), **Then** 100 % of values match a glossary term exactly. Any mismatch fails the check.
+33. **Given** the `mn` resource file, **When** each value is compared with `docs/requirements/glossary.md` (including rows G1 to G7, added 2026-09-29), **Then** 100 % of values match a glossary term exactly. Any mismatch fails the check.
 
 ### H. Attribution and licences
 34. **Given** viewport widths **320, 360, 768, 1366 and 1920 px**, both modes, both languages, and every state (map shown, loading, tiles unavailable, offline, location message open), **When** the page is inspected, **Then** «© OpenStreetMap contributors» is fully inside the viewport, not covered by another element, not collapsed behind an info ("i") button, and at least **11 CSS px** in size. It links to `https://www.openstreetmap.org/copyright` and opens in a new tab.
@@ -202,7 +202,7 @@ None of these block design. The AC above follow the BA recommendation for each, 
 | AC16–17 | NAV-002 screen spec (TBD) | — | TBD | TBD | |
 | AC18–25 | NAV-002 screen spec, location states (TBD) | — | TBD | TBD | |
 | AC26–29 | `docs/design/map-style.md`, `docs/design/tokens.json` (TBD) | — | TBD | TBD | |
-| AC30–33 | NAV-002 screen spec (TBD) | — | `web/` resource files (TBD) | TBD | Glossary G1–G7 to be added |
+| AC30–33 | NAV-002 screen spec (TBD) | — | `web/` resource files (TBD) | TBD | Glossary G1–G7 added 2026-09-29 (glossary §7, §8) |
 | AC34–36 | NAV-002 screen spec, attribution layout (TBD) | — | TBD | TBD | ADR-0002 Consequences (ESA credit) |
 | AC37–45 | NAV-002 screen spec, states (TBD) | `getBasemapPmtiles` (200/206/404/5xx) | TBD | TBD | |
 | AC46–47 | — | `getBasemapPmtiles` | TBD | TBD | NFR-P1 |
@@ -212,3 +212,4 @@ None of these block design. The AC above follow the BA recommendation for each, 
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-09-29 | — | Created from the backlog draft row (team design §5) and the NAV-002 feature request. 49 AC covering start-up/config, labels, pan/zoom/rotate, scale bar, my location, day/night, mn/en UI, attribution and licences, loading / tiles-unavailable / offline states, network hygiene and accessibility. Proposed glossary additions G1–G7. Five non-blocking open questions. | Refine NAV-002 to `ready` for UX and architect. Frontend-only, and it runs alongside the NAV-001 change request. |
+| 2026-09-29 | NAV-002 AC 33 blocker | Rows G1–G7 added to `glossary.md` with the exact strings from this story and `web/src/i18n/mn.json`. G1–G6 are in section 7 with status `needs native review`, and G7 is in section 8 with status `n/a (not translated)`. The G1–G7 table now has a "Glossary" column, the "User-facing strings" intro no longer calls them pending, the AC 33 wording refers to the added rows, and the AC30–33 traceability row is updated. No AC changed in substance. | AC 33 needs every `mn` value to match a glossary term. The web app already uses these strings, so acceptance was waiting only on the glossary rows. |
