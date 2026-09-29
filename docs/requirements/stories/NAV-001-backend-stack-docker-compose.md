@@ -198,3 +198,78 @@ Q1 to Q3 are not blocking. Q4 blocks a full pass on the default dev configuratio
 1. **Is Nominatim part of NAV-001 or deferred?** Options: (a) defer, with Photon `/reverse` covering reverse in the PoC; (b) include Nominatim now as Photon's index source and for structured/reverse. *Recommendation: (a), unless the architect picks Nominatim as the Photon index source anyway (Q2).*
 2. **Photon index source for dev** (architect decision, recorded in an ADR). Options: (a) own Nominatim import from the same PBF, which keeps data consistent but is heavier and GPL server-side; (b) a prebuilt GraphHopper Photon dump filtered to `mn`, which is fast but has a different data date, needs a large regional download and may lack `name:mn`. *Recommendation: (a) for consistency with tiles and routing, if it fits the 30-minute/10 GB limits on the UB extract; otherwise (b) for dev only.*
 3. **Performance and resource limits** (AC 12, 35 to 39) are BA-proposed PoC baselines, not user-agreed SLAs. *Recommendation: accept for Phase 0 and revisit production targets with the hosting decision.*
+4. **AC 12 PMTiles size on the full Mongolia build (PO decision).** The limit of ≤ 200 MB was written for the UB extract. The Mongolia build measured 243 MB (z0 to 15). Options:
+   - (a) raise the limit for the Mongolia dev extract to **≤ 400 MB**
+   - (b) keep ≤ 200 MB and have the backend build to max zoom 14 (AC 10 requires only ≥ 14, and clients overzoom), then re-measure
+   - (c) apply AC 12 only to the optional BBBike UB build
+
+   *Recommendation: (b) first, since it keeps the size baseline and the AC 10 minimum. If z14 is still over 200 MB, then (a). Until the PO decides, AC 12 is reported as a known deviation, not a blocker defect.*
+5. **AC 14 tolerance** is recorded as 150 m total (see Change log 2026-09-29). This is the orchestrator's recommendation, which the PO did not object to. The PO can revise it.
+
+## Traceability
+Symbols map to `openapi.yaml` operations as follows:
+- `TILES` = `getBasemapPmtiles` / `headBasemapPmtiles` / `preflightTiles` (`/tiles/basemap.pmtiles`)
+- `ROUTE` = `postRoute` / `getRoute` / `preflightRoute`
+- `SEARCH` = `search` / `preflightSearch`
+- `REVERSE` = `reverse`
+- `HEALTH` = `getHealth`
+
+Tests abbreviations:
+- `smoke` = `tests/smoke/run.sh`
+- `checks` = `tests/api/nav001/checks.py`
+- `contract` = `tests/api/nav001/contract.py`
+- `static` = `tests/api/nav001/static_checks.py`
+- `e2e` = `tests/e2e/nav001/cors-browser.spec.mjs`
+- `plan §5.x` = `docs/qa/test-plans/NAV-001.md`
+
+| AC | Screen spec | API operation | Code | Test | Issues |
+|---|---|---|---|---|---|
+| AC1 | — | all | `backend/compose.yaml`, `backend/scripts/*` | plan §5.2 TC-01-01 (to re-run on the Mongolia default) | CR 2026-09-29: cold run now includes the ~70 MB Mongolia download |
+| AC2 | — | all | `backend/compose.yaml`, `backend/scripts/*` | plan §5.3 TC-02-01 | CR 2026-09-29: re-verify on the Mongolia build |
+| AC3 | — | — | `backend/.env.example` | `static` AC03.* | CR 2026-09-29: default URL is now the Mongolia dev mirror |
+| AC4 | — | — | `backend/scripts/data-fetch.sh` | plan §5.4 TC-04-01 | |
+| AC5 | — | — | `backend/Makefile` (`rebuild-data`), `backend/scripts/build_info.py` | plan §5.5 TC-05-01 | |
+| AC6 | — | — | `backend/.gitignore` | `static` AC06.* | |
+| AC7 | — | — | `backend/compose.yaml` | `static` AC07.* | |
+| AC8 | — | — | `backend/README.md` | `static` AC08.* | CR 2026-09-29: dev-coverage section |
+| AC9 | — | `getBasemapPmtiles` | `backend/gateway/` | `smoke`, `checks` smoke, `e2e` E2E-01 | |
+| AC10 | — | `getBasemapPmtiles` | `backend/scripts/tiles-build.sh` | `checks` full, `e2e` E2E-02 | CR 2026-09-29: evaluated on the Mongolia build (P3, P6 now covered) |
+| AC11 | — | `getBasemapPmtiles` | `backend/scripts/tiles-build.sh` | `checks` full (info in `smoke`) | |
+| AC12 | — | `headBasemapPmtiles` | `backend/scripts/tiles-build.sh` | `checks` full | Open question 4 (243 MB measured on Mongolia) |
+| AC13 | — | `postRoute` | `backend/scripts/valhalla-build.sh` | `smoke` | CR 2026-09-29: evaluated on the Mongolia build |
+| AC14 | — | `postRoute` | — | `smoke` AC14.* (+ `.move` INFO) | CR 2026-09-29: hard limit 150 m |
+| AC15 | — | `postRoute` | — | `smoke` | |
+| AC16 | — | `postRoute` | — | `smoke`, `e2e` E2E-03 | |
+| AC17 | — | `postRoute` | — | `checks` full | |
+| AC18 | — | `postRoute` | — | `smoke` | |
+| AC19 | — | `postRoute` | — | `checks` full (info in `smoke`) | CR 2026-09-29: P6 now inside the extract |
+| AC20 | — | `postRoute` | — | `checks` full | |
+| AC21 | — | `search` | `backend/scripts/photon-import.sh` | `smoke`, `e2e` E2E-04 | |
+| AC22 | — | `search` | — | `smoke` | |
+| AC23 | — | `search` | — | `smoke` | |
+| AC24 | — | `search` | — | `checks` full (info in `smoke`) | |
+| AC25 | — | `reverse` | — | `smoke`, `e2e` E2E-04 | |
+| AC26 | — | `reverse` | — | `checks` full | |
+| AC27 | — | `search` | — | `checks` full | |
+| AC28 | — | `getHealth` | `backend/gateway/` | `smoke` | |
+| AC29 | — | `preflightRoute`, `preflightSearch`, `preflightTiles` | `backend/gateway/snippets/cors-headers.conf` | `smoke`, `e2e` E2E-03 | |
+| AC30 | — | `getBasemapPmtiles` | `backend/gateway/snippets/cors-headers.conf` | `smoke`, `e2e` E2E-01/02 | |
+| AC31 | — | preflights, `postRoute`, `search` | `backend/gateway/entrypoint/15-cors-origins.sh` | `checks` cors-allowlist, `e2e` E2E-06, plan §5.7 | |
+| AC32 | — | `postRoute` | `backend/gateway/` | `smoke`, `e2e` E2E-05 | CR 2026-09-29: X2 on the Mongolia build |
+| AC33 | — | `postRoute` | `backend/gateway/` | `checks` full, `e2e` E2E-05 | |
+| AC34 | — | `postRoute`, `search`, `reverse` | `backend/gateway/` | `checks` outage | |
+| AC35 | — | `postRoute` | — | `checks` perf | CR 2026-09-29: re-verify on the Mongolia graph |
+| AC36 | — | `search` | — | `checks` perf | |
+| AC37 | — | `reverse` | — | `checks` perf | |
+| AC38 | — | `getBasemapPmtiles` | — | `checks` perf | CR 2026-09-29: re-verify on the Mongolia archive |
+| AC39 | — | — | `backend/compose.yaml` | `checks` stats, plan §5.2 TC-39-01 | |
+| AC40 | — | all | `backend/Makefile` (`smoke`) | `smoke` | |
+| AC41 | — | all | — | plan §5.6 TC-41-01 | |
+| AC42 | — | all | — | `smoke` | |
+| AC43 | — | `getBasemapPmtiles` (416) | `backend/gateway/nginx.conf`, `backend/gateway/templates/default.conf.template`, `backend/gateway/snippets/cors-headers.conf` | new regression in `checks`/`contract` + `e2e` (QA to name) | CR 2026-09-29: architect finding, duplicate CORS headers + HTML body on 416 |
+
+## Change log
+| Date | Issue | Change | Why |
+|---|---|---|---|
+| 2026-09-29 or earlier | — | Created (before this change log existed) | Research roadmap Phase 0 PoC |
+| 2026-09-29 | CR "Default dev OSM data = all of Mongolia; fix 416 CORS duplicate headers" (PO decision in chat, 2026-09-29) | **Context:** the default dev OSM source is now the **full Mongolia extract** from the dev-only mirror `https://geo2day.com/asia/mongolia.pbf`. Production stays Geofabrik `mongolia-latest`, and the URL stays configurable. BBBike UB is now an optional small/fast alternative. The reference machine now uses the Mongolia build, and all ACs are evaluated on it. **AC 3:** the default URL is now the mirror with a dev-only comment, and BBBike may appear only commented. **AC 8:** the README must describe dev coverage. **AC 14:** the hard limit is 150 m (100 m route-end limit + 50 m allowed reference-point move), and 100 to 150 m is printed as INFO. This is the **orchestrator's recommendation, which the PO did not object to; the PO may revise it**. **AC 32 and X1:** X1 Erdenet is inside the new default extract, so AC 32 uses X2 on the Mongolia build and X1 only on the BBBike build. This is a direct consequence of the extract switch and matches QA's existing interpretation. **New AC 43:** a 416 on `TILES` has single CORS headers and a JSON error body. It is numbered 43 so existing numbers stay stable. **Edge cases and risks** updated: R1/R2 rewritten, R12 added. **Open question 4** added: AC 12 fails on Mongolia (243 MB > 200 MB), and the AC 12 text is unchanged pending the PO. **Traceability** table added. P1 to P6 unchanged | The BBBike box (~13 × 4 km) excludes P3 Zaisan and P6 Chingeltei, so AC 10, 13 and 14 failed on it, and BBBike returned HTTP 503 all day. On a full Mongolia build the backend measured smoke 35/35 and contract 27/27. The architect found that a 416 on the PMTiles endpoint duplicated every CORS header (browsers reject a duplicated `Access-Control-Allow-Origin`) and returned an HTML body, which is inconsistent with `openapi.yaml` |
