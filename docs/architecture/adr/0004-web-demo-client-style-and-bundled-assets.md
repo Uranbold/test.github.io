@@ -1,6 +1,6 @@
 # ADR-0004: Web demo. Style generated in the client from `@protomaps/basemaps`, Mongolian label rule applied as an override, glyphs and sprites bundled in `web/`, own UI controls
 
-- **Status:** accepted
+- **Status:** accepted (amended 2026-09-29, see Amendments)
 - **Date:** 2026-09-29
 - **Stories:** NAV-002 (the pattern is reused by NAV-003 and NAV-004 on the web)
 
@@ -134,3 +134,19 @@ Why: MapLibre control strings can be set only at construction (no live mn↔en s
   3. **Unpaved roads (NAV-002 R6).** Check whether the pinned Protomaps tiles schema exposes `surface` on `roads`. Not verified here.
 - **Known rendering limit.** Glyphs for traditional Mongolian script are bundled, but MapLibre GL JS draws text horizontally without the contextual joining that Mongolian script needs. Any such `name` renders incorrectly. This is information only (NAV-002 edge case "Missing glyph ranges").
 - A `@protomaps/basemaps` or basemaps-assets upgrade is a normal PR: bump the version or commit, re-run `vendor-assets.sh`, and the label-rule test must pass.
+
+## Amendments
+
+### Amendment 1 (2026-09-29): as-built details from the NAV-002 integration review
+**Trigger.** The architect's NAV-002 integration review compared this ADR with `web/` and the UX specs. The implementation follows the decisions above. These points record where it refines them. None changes the contract, the backend or the runtime hosts.
+
+- **Retry after the first render also rebuilds the source.** §5 describes a fresh `PMTiles` plus `setStyle` for the start-up retry. The same applies to the mid-session banner's «Дахин оролдох» and to the `online` event: fresh `PMTiles`, then `setStyle(buildStyle(...), { diff: false })`. The reason, measured by mobile: MapLibre 6.11.2 leaves errored vector tiles stuck in "loading" after `source.setUrl` or `refreshTiles`. The theme switch keeps `diff: true` (§3).
+- **Scale bar rounding** follows the screen spec: 1-2-3-5 steps with a 100 px maximum bar (not 1-2-5 as §6 says). AC 17 (±5 %) is unaffected.
+- **ESA WorldCover credit** is shown while zoom < 8 (screen spec). For integer zooms this is the same as AC 35's "≤ 7".
+- **No Permissions API query at load.** §6 is confirmed as normative. The UX flow F3 and the screen-spec "denied" row, which allow a `navigator.permissions.query` at load, are superseded; the denied state appears after the first press.
+- **Tooling pin.** TypeScript is pinned to 6.0.3, not the 7.0.2 measured in Context, because the `typescript-eslint` peer range stops below 6.1. §2 already leaves tooling versions to `package-lock.json`. `maplibre-gl` 6.11.2 works with `pmtiles` 4.5.0, so the 5.x fallback in §2 was not used.
+- **Colours come from `docs/design/tokens.json` at build time** through a read-only Vite alias (`@design`). No colour is copied into `web/`. This makes `docs/design/tokens.json` a build input of `web/`; renaming or restructuring it is a breaking change for the web build.
+- **Missing upstream sprite icons** (for example `townhall` in `sprites/v4`) are resolved to a 1×1 transparent image, so the POI label still renders without a console warning.
+- **Licence review (NAV-002 R5, AC 36): accepted.** `web/THIRD_PARTY_NOTICES.md` lists the Noto Sans glyphs (SIL OFL 1.1, full text), the `sprites/v4` icons (MIT, tangrams/icons, full text), `@protomaps/basemaps` 5.7.2 (code BSD-3-Clause, visual design CC0, some icons MIT) and 28 runtime npm packages (BSD-2/BSD-3, MIT, ISC, MIT-or-Apache-2.0). No GPL, LGPL or other copyleft component is shipped. OFL allows bundling the fonts with software as long as they are not sold on their own.
+- **Follow-up confirmed (Consequences item 3).** UX confirmed from the tiles source (`docs/design/map-style.md`, R6) that the Protomaps `roads` layer has **no `surface` attribute**, and tracks are `kind=path`, `kind_detail=track`. So unpaved roads cannot be styled from the current schema. A later story needs either an upstream schema change or our own layer; that choice would need its own ADR, because it touches the tiles pipeline (NAV-001).
+
