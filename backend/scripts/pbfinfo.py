@@ -99,10 +99,108 @@ def read_header(path):
     return info
 
 
+def packed_sint(buf):
+    """Decode a packed sint64 field into a list (zigzag)."""
+    out = []
+    append = out.append
+    pos, n = 0, len(buf)
+    while pos < n:
+        shift = result = 0
+        while True:
+            b = buf[pos]
+            pos += 1
+            result |= (b & 0x7F) << shift
+            if not b & 0x80:
+                break
+            shift += 7
+        append((result >> 1) ^ -(result & 1))
+    return out
+
+
+def scan_bbox(path):
+    """Bounding box of all nodes, for PBFs whose header has no bbox (e.g. some third-party extracts).
+    Reads every OSMData blob; dense nodes only need min/max of the delta-decoded lat/lon arrays."""
+    min_lat = min_lon = float("inf")
+    max_lat = max_lon = float("-inf")
+    with open(path, "rb") as f:
+        while True:
+            h = f.read(4)
+            if len(h) < 4:
+                break
+            (hlen,) = struct.unpack(">I", h)
+            btype, dsize = None, 0
+            for num, _, val in fields(f.read(hlen)):
+                if num == 1:
+                    btype = val.decode()
+                elif num == 3:
+                    dsize = val
+            blob = f.read(dsize)
+            if btype != "OSMData":
+                continue
+            data = None
+            for num, _, val in fields(blob):
+                if num == 1:
+                    data = val
+                elif num == 3:
+                    data = zlib.decompress(val)
+            if data is None:
+                raise ValueError("unsupported blob compression (only raw/zlib)")
+            gran, lat_off, lon_off, groups = 100, 0, 0, []
+            for num, _, val in fields(data):
+                if num == 2:
+                    groups.append(val)
+                elif num == 17:
+                    gran = val
+                elif num == 19:
+                    lat_off = val
+                elif num == 20:
+                    lon_off = val
+            lats, lons = [], []
+            for g in groups:
+                for num, _, val in fields(g):
+                    if num == 2:  # DenseNodes
+                        dl = dn = None
+                        for n2, _, v2 in fields(val):
+                            if n2 == 8:
+                                dl = packed_sint(v2)
+                            elif n2 == 9:
+                                dn = packed_sint(v2)
+                        if dl:
+                            acc, vals = 0, []
+                            for d in dl:
+                                acc += d
+                                vals.append(acc)
+                            lats += (min(vals), max(vals))
+                            acc, vals = 0, []
+                            for d in dn:
+                                acc += d
+                                vals.append(acc)
+                            lons += (min(vals), max(vals))
+                    elif num == 1:  # plain Node: lat=8, lon=9 (sint64)
+                        for n2, _, v2 in fields(val):
+                            if n2 == 8:
+                                lats.append(zigzag(v2))
+                            elif n2 == 9:
+                                lons.append(zigzag(v2))
+            if lats:
+                min_lat = min(min_lat, (lat_off + gran * min(lats)) / 1e9)
+                max_lat = max(max_lat, (lat_off + gran * max(lats)) / 1e9)
+                min_lon = min(min_lon, (lon_off + gran * min(lons)) / 1e9)
+                max_lon = max(max_lon, (lon_off + gran * max(lons)) / 1e9)
+    if min_lat == float("inf"):
+        return None
+    return [round(min_lon, 7), round(min_lat, 7), round(max_lon, 7), round(max_lat, 7)]
+
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit("usage: pbfinfo.py <file.osm.pbf>")
     try:
-        print(json.dumps(read_header(sys.argv[1]), ensure_ascii=False))
+        info = read_header(sys.argv[1])
+        info["bbox_source"] = "header"
+        if not info["bbox"] or None in info["bbox"]:
+            info["bbox"] = scan_bbox(sys.argv[1])
+            info["bbox_source"] = "node scan (header has no bbox)"
+        print(json.dumps(info, ensure_ascii=False))
     except Exception as e:  # noqa: BLE001 - report any parse failure as a clean error
-        sys.exit(f"pbfinfo: cannot read PBF header of {sys.argv[1]}: {e}")
+        sys.exit(f"pbfinfo: cannot read PBF {sys.argv[1]}: {e}")

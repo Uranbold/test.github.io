@@ -1,0 +1,191 @@
+# NAV-001 local dev stack (ADR-0002, ADR-0003). Contract: docs/architecture/api/openapi.yaml
+#
+#   cp .env.example .env && docker compose up -d        # or: make up
+#
+# One-shot builders run in order and exit 0; long-running services start on their output:
+#   data-fetch -> tiles-build, valhalla-build, photon-import -> build-info -> gateway
+#                                valhalla-build -> valhalla,  photon-import -> photon
+# Everything lives in ./data (git-ignored). Builders reuse complete artefacts (marker files)
+# and rebuild partial or outdated ones. Only the gateway publishes a port.
+name: navmn
+
+x-build-env: &build-env
+  BUILD_HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+  BUILD_THREADS: ${BUILD_THREADS:-}
+  PROTOMAPS_COMMIT: ${PROTOMAPS_COMMIT:-42ffaaa4a85a41bfcb23e43cc0f5b492a5eca123}
+  PHOTON_LANGUAGES: ${PHOTON_LANGUAGES:-mn,en,ru}
+  PHOTON_COUNTRY_CODES: ${PHOTON_COUNTRY_CODES:-}
+  PHOTON_JAVA_OPTS: ${PHOTON_JAVA_OPTS:--Xms256m -Xmx1g}
+  PHOTON_VERSION: "1.3.0"
+  VALHALLA_VERSION: "3.9.0"
+  PLANETILER_VERSION: "0.10.2"
+  TILES_MAXZOOM: ${TILES_MAXZOOM:-15}
+  TILES_BOUNDS: ${TILES_BOUNDS:-}
+  TILES_JAVA_OPTS: ${TILES_JAVA_OPTS:--Xmx3g}
+
+x-scripts: &scripts
+  type: bind
+  source: ./scripts
+  target: /scripts
+  read_only: true
+
+x-data: &data
+  type: bind
+  source: ./data
+  target: /data
+
+x-extra-ca: &extra-ca
+  type: bind
+  source: ${EXTRA_CA_CERT:-./config/empty-ca.pem}
+  target: /run/extra-ca.pem
+  read_only: true
+  bind: { create_host_path: false }
+
+services:
+  # ------------------------------------------------------------------ one-shot builders
+  data-fetch:
+    image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
+    entrypoint: ["/bin/bash", "/scripts/data-fetch.sh"]
+    command: ["fetch"]
+    environment:
+      <<: *build-env
+      OSM_PBF_URL: ${OSM_PBF_URL:-https://download.bbbike.org/osm/bbbike/UlanBator/UlanBator.osm.pbf}
+      OSM_PBF_FILE: ${OSM_PBF_FILE:-}
+      PHOTON_DUMP_URL: ${PHOTON_DUMP_URL:-https://download1.graphhopper.com/public/asia/mongolia/photon-dump-mongolia-1.0-latest.jsonl.zst}
+      PHOTON_DUMP_FILE: ${PHOTON_DUMP_FILE:-}
+      NATURAL_EARTH_URL: ${NATURAL_EARTH_URL:-https://naciscdn.org/naturalearth/packages/natural_earth_vector.gpkg.zip}
+      WATER_POLYGONS_URL: ${WATER_POLYGONS_URL:-https://osmdata.openstreetmap.de/download/water-polygons-split-3857.zip}
+      LAND_POLYGONS_URL: ${LAND_POLYGONS_URL:-https://osmdata.openstreetmap.de/download/land-polygons-split-3857.zip}
+      LANDCOVER_URL: ${LANDCOVER_URL:-https://r2-public.protomaps.com/datasets/daylight-landcover.gpkg}
+      QRANK_URL: ${QRANK_URL:-https://qrank.toolforge.org/download/qrank.csv.gz}
+      PGF_ENCODING_URL: ${PGF_ENCODING_URL:-https://wipfli.github.io/pgf-encoding/pgf-encoding.zip}
+      PHOTON_JAR_URL: ${PHOTON_JAR_URL:-https://github.com/komoot/photon/releases/download/1.3.0/photon-1.3.0.jar}
+      PHOTON_JAR_SHA256: ${PHOTON_JAR_SHA256:-a89707c0045e4807b2a1180e132e68e108d998709f48b6c94b98a6e281f571a5}
+      AIRCOMPRESSOR_URL: ${AIRCOMPRESSOR_URL:-https://repo1.maven.org/maven2/io/airlift/aircompressor/0.27/aircompressor-0.27.jar}
+      AIRCOMPRESSOR_SHA256: ${AIRCOMPRESSOR_SHA256:-fdbef3137a28f63bb0cb93487803080ede746a4ec3d421e36c6f0c305c35e5e4}
+      PROTOMAPS_SRC_URL: ${PROTOMAPS_SRC_URL:-https://codeload.github.com/protomaps/basemaps/tar.gz/42ffaaa4a85a41bfcb23e43cc0f5b492a5eca123}
+      PROTOMAPS_SRC_SHA256: ${PROTOMAPS_SRC_SHA256:-f89ff8ee6aff13baf60c83b5e98d3811ddb946cc1089d437c435885395764696}
+      MAVEN_DIST_URL: ${MAVEN_DIST_URL:-https://repo1.maven.org/maven2/org/apache/maven/apache-maven/3.9.11/apache-maven-3.9.11-bin.tar.gz}
+      MAVEN_DIST_SHA512: ${MAVEN_DIST_SHA512:-bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978}
+    volumes:
+      - *scripts
+      - *data
+      - *extra-ca
+      - type: bind
+        source: ${OSM_PBF_FILE:-./config/unset}
+        target: /input/osm.pbf
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ${PHOTON_DUMP_FILE:-./config/unset}
+        target: /input/photon-dump
+        read_only: true
+        bind: { create_host_path: false }
+    restart: "no"
+
+  tiles-build:
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    entrypoint: ["/bin/bash", "/scripts/tiles-build.sh"]
+    working_dir: /
+    environment: *build-env
+    volumes: [*scripts, *data, *extra-ca]
+    depends_on:
+      data-fetch: { condition: service_completed_successfully }
+    restart: "no"
+
+  valhalla-build:
+    image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
+    entrypoint: ["/bin/bash", "/scripts/valhalla-build.sh"]
+    environment: *build-env
+    volumes: [*scripts, *data]
+    depends_on:
+      data-fetch: { condition: service_completed_successfully }
+    restart: "no"
+
+  photon-import:
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    entrypoint: ["/bin/bash", "/scripts/photon-import.sh"]
+    environment: *build-env
+    volumes: [*scripts, *data]
+    depends_on:
+      data-fetch: { condition: service_completed_successfully }
+    restart: "no"
+
+  build-info:
+    image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
+    entrypoint: ["python3", "/scripts/build_info.py"]
+    environment: *build-env
+    volumes: [*scripts, *data]
+    depends_on:
+      tiles-build: { condition: service_completed_successfully }
+      valhalla-build: { condition: service_completed_successfully }
+      photon-import: { condition: service_completed_successfully }
+    restart: "no"
+
+  # ------------------------------------------------------------------ long-running services
+  valhalla:
+    image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
+    entrypoint: ["/bin/bash", "/scripts/valhalla-serve.sh"]
+    environment:
+      VALHALLA_THREADS: ${VALHALLA_THREADS:-}
+    volumes:
+      - *scripts
+      - { type: bind, source: ./data, target: /data, read_only: true }
+    depends_on:
+      valhalla-build: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8002/status"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+      start_interval: 2s
+    restart: unless-stopped
+
+  photon:
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    entrypoint: ["/bin/bash", "/scripts/photon-serve.sh"]
+    environment:
+      PHOTON_JAVA_OPTS: ${PHOTON_JAVA_OPTS:--Xms256m -Xmx1g}
+      PHOTON_DEFAULT_LANGUAGE: ${PHOTON_DEFAULT_LANGUAGE:-mn}
+      PHOTON_MAX_RESULTS: ${PHOTON_MAX_RESULTS:-20}
+    volumes: [*scripts, *data]
+    depends_on:
+      photon-import: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "/bin/bash", "/scripts/http-ok.sh", "2322", "/status"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 90s
+      start_interval: 2s
+    restart: unless-stopped
+
+  gateway:
+    image: ${GATEWAY_IMAGE:-ghcr.io/nginxinc/nginx-unprivileged:1.27.4-alpine}
+    ports:
+      - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080"
+    environment:
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+      GATEWAY_ERROR_LOG_LEVEL: ${GATEWAY_ERROR_LOG_LEVEL:-crit}
+      VALHALLA_UPSTREAM: valhalla:8002
+      PHOTON_UPSTREAM: photon:2322
+      NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+    volumes:
+      - { type: bind, source: ./gateway/nginx.conf, target: /etc/nginx/nginx.conf, read_only: true }
+      - { type: bind, source: ./gateway/templates, target: /etc/nginx/templates, read_only: true }
+      - { type: bind, source: ./gateway/snippets, target: /etc/nginx/snippets, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
+      - { type: bind, source: ./data, target: /srv/data, read_only: true }
+    # Starts once the data is built, but NOT gated on valhalla/photon health (AC 34: one upstream down
+    # must not take the gateway or the other endpoints down).
+    depends_on:
+      build-info: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+      start_interval: 1s
+    restart: unless-stopped

@@ -1,0 +1,3 @@
+# Host-side dev tools for `make contract` (NAV-001). The stack itself needs none of these.
+jsonschema==4.23.0
+PyYAML==6.0.2
