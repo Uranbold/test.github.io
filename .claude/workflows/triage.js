@@ -28,7 +28,7 @@ const TRIAGE = {
     title: { type: 'string' },
     brief: { type: 'string', description: 'Self-contained description for the lane workflow: facts from the report only (repro steps, coordinates, platform, desired behaviour). No invented details.' },
     rationale: { type: 'string' },
-    summary_for_po: { type: 'string' },
+    summary_for_po: { type: 'string', description: 'In Mongolian (Cyrillic): what it is, the proposal, what the PO must decide. Max 3 lines.' },
     github_updated: { type: 'boolean' },
   },
   required: ['disposition', 'type', 'areas', 'severity', 'proposed_priority', 'proposed_class', 'lane', 'title', 'brief', 'rationale', 'summary_for_po'],
@@ -45,6 +45,8 @@ ${source}
 Rules to apply strictly: S1 only for outage / crash on start / dangerous or illegal guidance / data or privacy leak;
 only S1 may be expedite or the hotfix lane; "works as designed" is type=change; OSM source-data errors use lane=osm-data;
 missing Definition-of-Ready info means disposition=needs_info. Priority is only a proposal for the PO.
+Language: write summary_for_po and any GitHub comment in Mongolian using docs/requirements/glossary.md terms;
+write brief and rationale in English (quote the reporter's own words exactly where they matter).
 Append the decision to docs/triage/log.md${input.issue ? ' and label + comment on the issue (proposed priority/class go in the comment, not as labels)' : ''}.`,
   { label: 'triage-lead', phase: 'Triage', agentType: 'triage-lead', schema: TRIAGE },
 )

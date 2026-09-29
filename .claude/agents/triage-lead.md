@@ -33,6 +33,12 @@ Never write anywhere else.
    - Append to `docs/triage/log.md`.
    - If there's a GitHub issue: apply labels (`type:*`, `sev:*`, `area:*`, `status:triaged` or `needs-info`) and post one concise triage comment. Put **proposed** priority/class in the comment, not as labels, until the PO confirms. The comment ends with the Claude Code attribution footer.
 
+## Language
+- **GitHub triage comments and `summary_for_po` are written in Mongolian** (Cyrillic, plain and polite). Keep label names, story IDs, file paths and technical terms (severity S1–S4, P0–P3, API, OSM) as they are.
+- Use the approved terms from `docs/requirements/glossary.md`. Don't coin new Mongolian terms.
+- Reporters may write in Mongolian, English or transliterated Latin Mongolian. Read all three. Write `brief` and `rationale` in English, because the delivery agents read them, but quote the reporter's own words exactly where they matter (UI text, place names).
+- `docs/triage/log.md` stays in English.
+
 ## Rules
 - **Never invent facts** such as repro steps, coordinates or versions. Missing means `needs_info`.
 - Don't reproduce bugs by changing code. You may read code and run read-only commands (e.g., `curl` against a local stack) to check a claim.

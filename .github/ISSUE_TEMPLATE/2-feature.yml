@@ -1,45 +1,49 @@
-name: ✨ Feature request
-description: A new capability that doesn't exist yet.
-title: "[Feature] "
+name: ✨ Шинэ боломж санал болгох · Feature request
+description: Одоогоор байхгүй шинэ боломж. · A new capability that doesn't exist yet.
+title: "[Санал] "
 labels: ["type:feature", "status:new"]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem / goal
-      description: What problem does this solve, and for whom? Describe the problem, not only the solution.
+      label: Асуудал / зорилго · Problem / goal
+      description: Энэ нь хэний, ямар асуудлыг шийдэх вэ? Зөвхөн шийдлийг биш, асуудлыг тайлбарлана уу. · What problem does this solve, and for whom? Describe the problem, not only the solution.
     validations:
       required: true
   - type: dropdown
     id: persona
     attributes:
-      label: Who benefits most?
+      label: Хэнд хамгийн их хэрэгтэй вэ? · Who benefits most?
       multiple: true
       options:
-        - UB commuter by car
-        - Taxi / delivery driver
-        - Pedestrian
-        - Tourist (English UI)
-        - Intercity / countryside driver
-        - Internal team / operations
+        - "Улаанбаатарт машинаар зорчигч · UB commuter by car"
+        - "Такси / хүргэлтийн жолооч · Taxi / delivery driver"
+        - "Явган зорчигч · Pedestrian"
+        - "Жуулчин (англи интерфейс) · Tourist (English UI)"
+        - "Хот хоорондын / хөдөөгийн жолооч · Intercity / countryside driver"
+        - "Дотоод баг / үйл ажиллагаа · Internal team / operations"
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution (optional)
+      label: Санал болгож буй шийдэл (заавал биш) · Proposed solution (optional)
   - type: textarea
     id: value
     attributes:
-      label: Expected value / success measure
-      placeholder: "e.g. 30% of trips use voice guidance"
+      label: Хүлээгдэж буй үр дүн / амжилтын хэмжүүр · Expected value / success measure
+      placeholder: "Жишээ нь: аяллын 30% нь дуут зааварчилгаа ашиглана · e.g. 30% of trips use voice guidance"
   - type: input
     id: deadline
     attributes:
-      label: Hard deadline (if any)
-      description: Only if there is a real date (contract, event, regulation). This makes it "fixed date" class.
+      label: Заавал дуусгах хугацаа (байвал) · Hard deadline (if any)
+      description: Зөвхөн бодит огноо байгаа үед бөглөнө (гэрээ, арга хэмжээ, хууль журам). · Only if there is a real date (contract, event, regulation).
   - type: dropdown
     id: priority
     attributes:
-      label: Your view of urgency (the PO decides the final priority)
-      options: ["Now", "This iteration", "Next iteration", "Someday"]
+      label: Таны бодлоор яаралтай байдал (эцсийн эрэмбийг PO шийднэ) · Your view of urgency (the PO decides)
+      options:
+        - "Одоо · Now"
+        - "Энэ давталтад · This iteration"
+        - "Дараагийн давталтад · Next iteration"
+        - "Хэзээ нэгэн цагт · Someday"

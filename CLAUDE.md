@@ -53,6 +53,19 @@ Every new item goes through **triage first** (details: `docs/team/intake-and-tri
 6. Defects QA finds while verifying a story stay in that story's fix loop. Only out-of-scope defects become new bug issues.
 7. After a lane finishes, record the outcome in `docs/triage/log.md` (PO decision column) and on the issue, then commit.
 
+## Language policy
+
+| What | Language |
+|---|---|
+| App UI, voice guidance, map labels | **Mongolian first**, English second |
+| Issue forms, triage comments, summaries and questions for the PO | **Mongolian** (technical terms and IDs stay as they are) |
+| Chat with the PO | The language the PO writes in |
+| Agent instructions, workflows, code, API, commits, ADRs, test plans | **English** |
+| Stories and acceptance criteria | English, with user-facing Mongolian text quoted **exactly**, e.g. «300 м-т баруун тийш эргэнэ үү» |
+| Glossary (`docs/requirements/glossary.md`) | **Bilingual**, and **binding**: one approved Mongolian term per concept |
+
+Every agent that writes user-facing Mongolian (UI copy, voice prompts, test expectations, triage comments) **must use the glossary terms**. If a term is missing, don't invent one. Request it from the business-analyst via `requests_to_other_agents`. Terms marked "needs native review" are provisional until a native speaker approves them.
+
 ## Rules for every agent
 
 1. **Only write inside the paths you own.** If you need a change in another area, describe it in your handoff under `requests_to_other_agents`. Don't edit that area yourself.
@@ -61,7 +74,7 @@ Every new item goes through **triage first** (details: `docs/team/intake-and-tri
 4. **Don't invent product decisions.** If a requirement is unclear, list it under `open_questions`. The orchestrator asks the user.
 5. **End every task with a handoff block** (format in `docs/templates/handoff.md`): what you did, the files you changed, how you verified it, open questions, and requests to other agents.
 6. **Verify before you hand off.** Run the build, tests or linters for anything you changed. Say plainly what you did not verify.
-7. **Localisation:** all user-facing strings go through resource files (`mn` default, `en`). Never hard-code them. Map labels use `name:mn` → `name` → `name:en`.
+7. **Localisation:** all user-facing strings go through resource files (`mn` default, `en`). Never hard-code them. Mongolian wording must match the glossary. Map labels use `name:mn` → `name` → `name:en`.
 8. **OSM attribution** "© OpenStreetMap contributors" must be visible on every map screen.
 9. No secrets in the repo. Use `.env.example` for configuration keys.
 
