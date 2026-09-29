@@ -1,0 +1,23 @@
+name: 🧹 Техникийн өр · Tech debt
+description: Хэрэглэгчид шууд харагдахгүй дотоод сайжруулалт (refactor, шинэчлэл, автоматжуулалт). · Internal improvement with no direct user-visible change (refactor, upgrade, automation).
+title: "[Техникийн өр] "
+labels: ["type:tech-debt", "status:new"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Юуг сайжруулах вэ? · What should be improved?
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Хийхгүй бол ямар эрсдэл, зардал гарах вэ? · Risk or cost if we don't do it
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Хамрах хүрээ · Area
+      multiple: true
+      options: [routing, search, tiles, gateway, android, ios, web, design, data-osm, ci/infra]

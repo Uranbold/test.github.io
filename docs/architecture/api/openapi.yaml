@@ -1,0 +1,994 @@
+openapi: 3.1.0
+info:
+  title: OSM Navigation Mongolia - Gateway API
+  version: 0.1.0
+  summary: HTTP contract between backend/ and mobile/ + web/ clients.
+  description: |
+    Single source of truth for the HTTP API (owner: architect). Backend implements it,
+    and clients consume it. Neither side changes it on its own.
+
+    Design decisions: ADR-0002 (gateway, pass-through, CORS, paths) and ADR-0003 (Photon index source).
+
+    **Pass-through principle.** `/v1/route` is Valhalla `/route` (pinned 3.9.0), and
+    `/v1/search` and `/v1/reverse` are Photon `/api` and `/reverse` (pinned 1.3.0). Requests and
+    responses are forwarded unchanged. The schemas below describe the subset clients rely on,
+    and upstream may return extra fields (`additionalProperties: true`). Clients must ignore
+    unknown fields.
+
+    **Coordinates.** Valhalla requests use `{lat, lon}` objects. OSRM and GeoJSON responses use
+    `[lon, lat]` arrays. Route geometries are **polyline6** encoded strings.
+
+    **CORS** is handled only by the gateway (ADR-0002 §3). Every path answers `OPTIONS`
+    with 204. `Access-Control-Allow-Origin` is present only for origins allowed by
+    `CORS_ALLOWED_ORIGINS`. `Access-Control-Expose-Headers` always includes
+    `Content-Range, Content-Length, ETag, Accept-Ranges`.
+
+    **Errors.** Clients branch on HTTP status first. 4xx bodies come from the upstream
+    (Valhalla OSRM-style `{code,message}`, Valhalla native `{error_code,error,...}`, or Photon
+    `{message}` / validation map). 404/405/413/502/503/504 produced by the gateway itself use
+    `GatewayError` `{code,message}`. A 500 from an upstream is a bug, not a contract case.
+
+    **Attribution.** Map data is © OpenStreetMap contributors (ODbL). Clients render this string
+    from their own resource files on every map screen. The PMTiles metadata attribution is
+    only a shorter `© OpenStreetMap` link.
+
+    **Auth.** None (NAV-001: local development only).
+
+    Story traceability: NAV-001 (all operations).
+  license:
+    name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
+servers:
+  - url: http://localhost:{port}
+    description: Local docker compose stack (backend/compose.yaml)
+    variables:
+      port:
+        default: "8080"
+        description: GATEWAY_PORT in backend/.env
+tags:
+  - name: gateway
+    description: Served by the gateway itself
+  - name: tiles
+    description: Protomaps PMTiles v3 basemap, read by clients with HTTP Range requests
+  - name: routing
+    description: Valhalla route, OSRM-compatible output for Ferrostar
+  - name: search
+    description: Photon forward search / autocomplete and reverse geocoding
+
+paths:
+  /health:
+    get:
+      tags: [gateway]
+      operationId: getHealth
+      summary: Gateway liveness (story symbol HEALTH)
+      description: |
+        Answered by the gateway without contacting any upstream. Must respond within 1 s (NAV-001 AC 28).
+        Upstream readiness is shown by the Docker healthchecks (`docker compose ps`), not by this endpoint.
+      x-stories: [NAV-001]
+      responses:
+        "200":
+          description: Gateway is up
+          headers:
+            Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              example: { status: ok }
+    options:
+      tags: [gateway]
+      operationId: preflightHealth
+      summary: CORS preflight (answered by the gateway)
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/AccessControlRequestMethod"
+        - $ref: "#/components/parameters/AccessControlRequestHeaders"
+      responses:
+        "204":
+          $ref: "#/components/responses/CorsPreflight"
+
+  /tiles/basemap.pmtiles:
+    get:
+      tags: [tiles]
+      operationId: getBasemapPmtiles
+      summary: Basemap PMTiles archive (story symbol TILES)
+      description: |
+        A static Protomaps basemap archive (PMTiles spec v3) for the configured OSM extract, built
+        by Planetiler (ADR-0002). Clients read it with the PMTiles protocol: MapLibre GL JS with the
+        `pmtiles` plugin (`pmtiles://http://localhost:8080/tiles/basemap.pmtiles`), or MapLibre
+        Native with a `pmtiles://` source URL.
+
+        Guarantees for the dev build (NAV-001 AC 9-12):
+        - bytes 0-6 are `PMTiles` and byte 7 is `0x03`
+        - bounds cover UB reference points P1-P6, `maxzoom` >= 14 (Protomaps default 15)
+        - the metadata `attribution` contains `OpenStreetMap`
+        - size is at most 200 MB for the UB extract
+
+        Label fields in the Protomaps schema are `name`, `name:en`, `name:ru` and other
+        languages, but **not** `name:mn` (ADR-0002 Consequences). Clients use `name` as the
+        Mongolian label.
+      x-stories: [NAV-001, NAV-002]
+      parameters:
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/Origin"
+      responses:
+        "200":
+          description: Whole archive (no Range header)
+          headers:
+            Content-Length: { $ref: "#/components/headers/ContentLength" }
+            ETag: { $ref: "#/components/headers/ETag" }
+            Accept-Ranges: { $ref: "#/components/headers/AcceptRanges" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+            Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "206":
+          description: Requested byte range
+          headers:
+            Content-Range:
+              description: "`bytes <start>-<end>/<total>`"
+              schema: { type: string, example: "bytes 0-126/48213301" }
+            Content-Length: { $ref: "#/components/headers/ContentLength" }
+            ETag: { $ref: "#/components/headers/ETag" }
+            Accept-Ranges: { $ref: "#/components/headers/AcceptRanges" }
+            Cache-Control: { $ref: "#/components/headers/CacheControl" }
+            Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+            Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "304":
+          description: Not modified (If-None-Match matched)
+        "404":
+          $ref: "#/components/responses/GatewayNotFound"
+        "416":
+          description: Range not satisfiable
+          headers:
+            Content-Range:
+              schema: { type: string, example: "bytes */48213301" }
+    head:
+      tags: [tiles]
+      operationId: headBasemapPmtiles
+      summary: Archive size and ETag without body
+      x-stories: [NAV-001]
+      responses:
+        "200":
+          description: Headers only
+          headers:
+            Content-Length: { $ref: "#/components/headers/ContentLength" }
+            ETag: { $ref: "#/components/headers/ETag" }
+            Accept-Ranges: { $ref: "#/components/headers/AcceptRanges" }
+    options:
+      tags: [gateway]
+      operationId: preflightTiles
+      summary: CORS preflight (answered by the gateway)
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/AccessControlRequestMethod"
+        - $ref: "#/components/parameters/AccessControlRequestHeaders"
+      responses:
+        "204":
+          $ref: "#/components/responses/CorsPreflight"
+
+  /v1/route:
+    post:
+      tags: [routing]
+      operationId: postRoute
+      summary: Route between locations (story symbol ROUTE), Valhalla pass-through
+      description: |
+        Forwards the JSON body unchanged to Valhalla `/route`. This is the endpoint Ferrostar's
+        Valhalla route provider POSTs to, and its OSRM route adapter parses the 200 response.
+
+        **Client rules:**
+        - Send `format: "osrm"`, `banner_instructions: true` and `voice_instructions: true` for turn-by-turn use.
+        - Send `language` explicitly (`mn-MN` by default in the apps, `en-US` for English UI).
+          Valhalla silently falls back to `en-US` for unknown languages.
+        - Send `units: "kilometers"`.
+        - Rerouting is decided on the client (Ferrostar) and simply calls this endpoint again.
+
+        Dev coverage is the configured OSM extract (UB bounding box by default). Locations
+        outside it return 400 `NoSegment`.
+
+        NFR: p95 <= 500 ms via the gateway for UB routes (NAV-001 AC 35). The gateway read timeout is 10 s.
+      x-stories: [NAV-001, NAV-004, NAV-005]
+      x-upstream: { service: valhalla, version: "3.9.0", path: /route, docs: "https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ValhallaRouteRequest" }
+            examples:
+              carMn:
+                summary: P1 Sükhbaatar Square to P3 Zaisan, car, Mongolian (NAV-001 AC 13)
+                value:
+                  locations:
+                    - { lat: 47.9189, lon: 106.9176 }
+                    - { lat: 47.8858, lon: 106.9173 }
+                  costing: auto
+                  format: osrm
+                  banner_instructions: true
+                  voice_instructions: true
+                  language: mn-MN
+                  units: kilometers
+              pedestrian:
+                summary: P1 to P2 on foot (AC 18)
+                value:
+                  locations:
+                    - { lat: 47.9189, lon: 106.9176 }
+                    - { lat: 47.9139, lon: 106.9044 }
+                  costing: pedestrian
+                  format: osrm
+                  banner_instructions: true
+                  voice_instructions: true
+                  language: mn-MN
+                  units: kilometers
+              avoidUnpaved:
+                summary: P1 to P6 ger district, avoid unpaved (AC 19)
+                value:
+                  locations:
+                    - { lat: 47.9189, lon: 106.9176 }
+                    - { lat: 47.9600, lon: 106.9000 }
+                  costing: auto
+                  costing_options: { auto: { exclude_unpaved: true } }
+                  format: osrm
+                  language: mn-MN
+                  units: kilometers
+              alternates:
+                summary: P1 to P4 with up to 2 alternates (AC 20)
+                value:
+                  locations:
+                    - { lat: 47.9189, lon: 106.9176 }
+                    - { lat: 47.9215, lon: 106.8950 }
+                  costing: auto
+                  format: osrm
+                  alternates: 2
+                  language: mn-MN
+                  units: kilometers
+      responses:
+        "200":
+          $ref: "#/components/responses/RouteOk"
+        "400":
+          $ref: "#/components/responses/RouteBadRequest"
+        "404":
+          $ref: "#/components/responses/GatewayNotFound"
+        "405":
+          $ref: "#/components/responses/GatewayMethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/GatewayPayloadTooLarge"
+        "502":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "503":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "504":
+          $ref: "#/components/responses/UpstreamTimeout"
+    get:
+      tags: [routing]
+      operationId: getRoute
+      summary: Same as POST, with the request JSON URL-encoded in `json`
+      description: For quick manual tests and cacheable links. Keep URLs under 8 KB. Clients use POST.
+      x-stories: [NAV-001]
+      x-upstream: { service: valhalla, version: "3.9.0", path: /route }
+      parameters:
+        - name: json
+          in: query
+          required: true
+          description: URL-encoded `ValhallaRouteRequest` JSON
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValhallaRouteRequest" }
+      responses:
+        "200":
+          $ref: "#/components/responses/RouteOk"
+        "400":
+          $ref: "#/components/responses/RouteBadRequest"
+        "502":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "503":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "504":
+          $ref: "#/components/responses/UpstreamTimeout"
+    options:
+      tags: [gateway]
+      operationId: preflightRoute
+      summary: CORS preflight (answered by the gateway)
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/AccessControlRequestMethod"
+        - $ref: "#/components/parameters/AccessControlRequestHeaders"
+      responses:
+        "204":
+          $ref: "#/components/responses/CorsPreflight"
+
+  /v1/search:
+    get:
+      tags: [search]
+      operationId: search
+      summary: Forward search / autocomplete (story symbol SEARCH), Photon /api pass-through
+      description: |
+        Prefix matching, so it works for search-as-you-type (`q=Сүхб`). No results is **200 with an empty
+        `features` array**, never an error.
+
+        The index is built from the GraphHopper Mongolia Photon dump (ADR-0003) and covers all of
+        Mongolia, even when dev routing covers only UB. Indexed languages are `mn`, `en` and `ru`.
+
+        **Client rules:** always send `lang` (the UI language). Otherwise Photon uses the
+        `Accept-Language` header. For UB-relevant ranking, send `lat`/`lon` (the map centre or user position).
+        Debounce keystrokes on the client.
+
+        NFR: p95 <= 300 ms via the gateway (NAV-001 AC 36). The gateway read timeout is 5 s.
+      x-stories: [NAV-001, NAV-003]
+      x-upstream: { service: photon, version: "1.3.0", path: /api, docs: "https://github.com/komoot/photon/blob/1.3.0/docs/api-v1.md" }
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Free-text query, Cyrillic or Latin. Partial words allowed.
+          schema: { type: string, minLength: 1, maxLength: 200 }
+          examples:
+            full: { value: Сүхбаатар }
+            prefix: { value: Сүхб }
+            latin: { value: Sukhbaatar }
+        - $ref: "#/components/parameters/PhotonLat"
+        - $ref: "#/components/parameters/PhotonLon"
+        - name: zoom
+          in: query
+          description: Radius of the location bias, as a map zoom level. Photon default 12.
+          schema: { type: integer, minimum: 0, maximum: 18 }
+        - name: location_bias_scale
+          in: query
+          description: 0.0 ignores prominence, 1.0 weighs prominence equally with distance. Photon default 0.4.
+          schema: { type: number, minimum: 0, maximum: 1 }
+        - name: bbox
+          in: query
+          description: Restrict results to `minLon,minLat,maxLon,maxLat`
+          schema: { type: string, pattern: '^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$', example: "106.7,47.8,107.1,48.0" }
+        - $ref: "#/components/parameters/PhotonLimit"
+        - $ref: "#/components/parameters/PhotonLang"
+        - $ref: "#/components/parameters/PhotonLayer"
+        - $ref: "#/components/parameters/PhotonOsmTag"
+        - name: dedupe
+          in: query
+          description: "`0` disables Photon's duplicate removal. Default is on."
+          schema: { type: integer, enum: [0, 1] }
+        - $ref: "#/components/parameters/AcceptLanguage"
+      responses:
+        "200":
+          $ref: "#/components/responses/PhotonOk"
+        "400":
+          $ref: "#/components/responses/PhotonBadRequest"
+        "502":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "503":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "504":
+          $ref: "#/components/responses/UpstreamTimeout"
+    options:
+      tags: [gateway]
+      operationId: preflightSearch
+      summary: CORS preflight (answered by the gateway)
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/AccessControlRequestMethod"
+        - $ref: "#/components/parameters/AccessControlRequestHeaders"
+      responses:
+        "204":
+          $ref: "#/components/responses/CorsPreflight"
+
+  /v1/reverse:
+    get:
+      tags: [search]
+      operationId: reverse
+      summary: Reverse geocoding (story symbol REVERSE), Photon /reverse pass-through
+      description: |
+        Returns the nearest indexed place(s) to a coordinate. It may be a POI, street or area rather
+        than a house address (OSM address coverage in UB is irregular). A coordinate with nothing
+        within `radius` returns **200 with an empty `features` array** (for example Beijing).
+
+        NFR: p95 <= 300 ms via the gateway (NAV-001 AC 37).
+      x-stories: [NAV-001, NAV-003]
+      x-upstream: { service: photon, version: "1.3.0", path: /reverse }
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema: { type: number, format: double, minimum: -90, maximum: 90, example: 47.9189 }
+        - name: lon
+          in: query
+          required: true
+          schema: { type: number, format: double, minimum: -180, maximum: 180, example: 106.9176 }
+        - name: radius
+          in: query
+          description: Search radius in km (0-5000). Photon default applies when omitted.
+          schema: { type: number, minimum: 0, maximum: 5000 }
+        - $ref: "#/components/parameters/PhotonLimit"
+        - $ref: "#/components/parameters/PhotonLang"
+        - $ref: "#/components/parameters/PhotonLayer"
+        - $ref: "#/components/parameters/PhotonOsmTag"
+        - $ref: "#/components/parameters/AcceptLanguage"
+      responses:
+        "200":
+          $ref: "#/components/responses/PhotonOk"
+        "400":
+          $ref: "#/components/responses/PhotonBadRequest"
+        "502":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "503":
+          $ref: "#/components/responses/UpstreamUnavailable"
+        "504":
+          $ref: "#/components/responses/UpstreamTimeout"
+    options:
+      tags: [gateway]
+      operationId: preflightReverse
+      summary: CORS preflight (answered by the gateway)
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/AccessControlRequestMethod"
+        - $ref: "#/components/parameters/AccessControlRequestHeaders"
+      responses:
+        "204":
+          $ref: "#/components/responses/CorsPreflight"
+
+components:
+  parameters:
+    AccessControlRequestMethod:
+      name: Access-Control-Request-Method
+      in: header
+      required: false
+      schema: { type: string, example: GET }
+    AccessControlRequestHeaders:
+      name: Access-Control-Request-Headers
+      in: header
+      required: false
+      schema: { type: string, example: "Range, Content-Type" }
+    Origin:
+      name: Origin
+      in: header
+      required: false
+      schema: { type: string, example: "http://localhost:5173" }
+    Range:
+      name: Range
+      in: header
+      required: false
+      description: "Byte range, e.g. `bytes=0-126` for the PMTiles header"
+      schema: { type: string, example: "bytes=0-126" }
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema: { type: string }
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      required: false
+      description: Used by Photon only when `lang` is absent. Clients send `lang` instead.
+      schema: { type: string }
+    PhotonLat:
+      name: lat
+      in: query
+      description: Location-bias latitude. Send it together with `lon`.
+      schema: { type: number, format: double, minimum: -90, maximum: 90, example: 47.9189 }
+    PhotonLon:
+      name: lon
+      in: query
+      description: Location-bias longitude. Send it together with `lat`.
+      schema: { type: number, format: double, minimum: -180, maximum: 180, example: 106.9176 }
+    PhotonLimit:
+      name: limit
+      in: query
+      description: Maximum number of results. The server caps it at 20 (`-max-results`). Fewer results may be returned.
+      schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
+    PhotonLang:
+      name: lang
+      in: query
+      description: |
+        Result language. Only languages indexed at import time are accepted (`PHOTON_LANGUAGES`, default
+        `mn,en,ru`) plus `default` (the OSM `name`). Anything else returns **400** "Language is not supported"
+        (ADR-0003). When a place has no name in the requested language, Photon falls back to the server
+        default language (`mn`), then to `name`.
+      schema: { type: string, enum: [mn, en, ru, default], example: mn }
+    PhotonLayer:
+      name: layer
+      in: query
+      description: Restrict to layers. Repeat the parameter for several layers.
+      style: form
+      explode: true
+      schema:
+        type: array
+        items: { type: string, enum: [house, street, locality, district, city, county, state, country, other] }
+    PhotonOsmTag:
+      name: osm_tag
+      in: query
+      description: "Tag filter, repeatable: `key:value`, `key`, `:value`, or with `!` to exclude (Photon syntax)."
+      style: form
+      explode: true
+      schema:
+        type: array
+        items: { type: string, example: "amenity:pharmacy" }
+
+  headers:
+    AccessControlAllowOrigin:
+      description: Present only for allowed origins. Either the echoed origin or `*`.
+      schema: { type: string }
+    AccessControlExposeHeaders:
+      description: Always includes Content-Range, Content-Length, ETag, Accept-Ranges
+      schema: { type: string, example: "Content-Range, Content-Length, ETag, Accept-Ranges" }
+    ContentLength:
+      schema: { type: integer }
+    ETag:
+      schema: { type: string }
+    AcceptRanges:
+      schema: { type: string, enum: [bytes] }
+    CacheControl:
+      schema: { type: string, example: "public, max-age=300" }
+
+  responses:
+    CorsPreflight:
+      description: |
+        Preflight result. Returned with 204 on every path and never forwarded upstream.
+        `Access-Control-Allow-Origin` is set only when `Origin` is allowed by `CORS_ALLOWED_ORIGINS`
+        (`*` by default in dev). For a disallowed origin the header is absent (NAV-001 AC 29, 31).
+      headers:
+        Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+        Access-Control-Allow-Methods:
+          schema: { type: string, example: "GET, HEAD, POST, OPTIONS" }
+        Access-Control-Allow-Headers:
+          schema: { type: string, example: "Range, Content-Type, If-None-Match, If-Match, Accept-Language" }
+        Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+        Access-Control-Max-Age:
+          schema: { type: integer, example: 600 }
+        Vary:
+          schema: { type: string, example: Origin }
+    RouteOk:
+      description: |
+        OSRM-compatible route (Valhalla `format=osrm`). `code` is `"Ok"`. With `alternates: n`, 1 to n+1 routes
+        are returned (dev server limit n <= 2). Fewer alternates than requested is normal.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/OsrmRouteResponse" }
+    RouteBadRequest:
+      description: |
+        Invalid request or no route. Shape depends on whether Valhalla could read `format=osrm`:
+        - `OsrmError`, for example `NoSegment` (a location is outside coverage or not near a road),
+          `NoRoute` (for example no path with `exclude_unpaved`), `InvalidOptions` (missing `locations`,
+          unknown costing), `InvalidValue`, `TooBig`, `DistanceExceeded`
+        - `ValhallaError` when the body is not JSON or `format` is not `osrm`, for example `error_code` 100 "Failed
+          to parse json request", or 171 "No suitable edges near location"
+        Must be returned within 1 s for malformed bodies and 3 s for out-of-coverage locations (NAV-001 AC 32, 33).
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/OsrmError"
+              - $ref: "#/components/schemas/ValhallaError"
+          examples:
+            outOfCoverage:
+              summary: P1 to X1 Erdenet on the UB-only dev extract
+              value: { code: NoSegment, message: "One of the supplied input coordinates could not snap to street segment." }
+            missingLocations:
+              value: { code: InvalidOptions, message: "Options are invalid." }
+            notJson:
+              value: { error_code: 100, error: "Failed to parse json request", status_code: 400, status: "Bad Request" }
+    PhotonOk:
+      description: GeoJSON FeatureCollection (possibly empty)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/PhotonFeatureCollection" }
+          examples:
+            hit:
+              value:
+                type: FeatureCollection
+                features:
+                  - type: Feature
+                    geometry: { type: Point, coordinates: [106.9168967, 47.9188126] }
+                    properties:
+                      osm_type: R
+                      osm_id: 15638347
+                      osm_key: place
+                      osm_value: square
+                      type: locality
+                      name: Сүхбаатарын талбай
+                      district: Бага Тойрог
+                      city: Улаанбаатар
+                      countrycode: MN
+                      extent: [106.9162195, 47.9196907, 106.9190342, 47.9179263]
+            empty:
+              value: { type: FeatureCollection, features: [] }
+    PhotonBadRequest:
+      description: Invalid parameter (missing `q`, unsupported `lang`, non-numeric `lat`, and so on)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/PhotonError" }
+          examples:
+            missingQ:
+              value: { message: "q parameter is required when no include categories are specified" }
+            badLang:
+              value: { lang: [ { message: "Language is not supported. Supported are: default, mn, ru, en", args: {}, value: de } ] }
+    GatewayNotFound:
+      description: Unknown path (or tiles archive missing)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GatewayError" }
+          example: { code: NotFound, message: "No such endpoint" }
+    GatewayMethodNotAllowed:
+      description: Method not allowed on this path
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GatewayError" }
+          example: { code: MethodNotAllowed, message: "Method not allowed" }
+    GatewayPayloadTooLarge:
+      description: Request body over 256 KB
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GatewayError" }
+          example: { code: PayloadTooLarge, message: "Request body too large" }
+    UpstreamUnavailable:
+      description: |
+        The upstream container is stopped, unresolvable or refusing connections. Returned within 5 s. Other
+        endpoints are unaffected (NAV-001 AC 34). Clients show a retryable "service unavailable" state.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GatewayError" }
+          example: { code: UpstreamUnavailable, message: "routing service unavailable" }
+    UpstreamTimeout:
+      description: The upstream did not answer within the gateway read timeout (route 10 s, search/reverse 5 s)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GatewayError" }
+          example: { code: UpstreamTimeout, message: "routing service timed out" }
+
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+
+    GatewayError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [NotFound, MethodNotAllowed, PayloadTooLarge, UpstreamUnavailable, UpstreamTimeout]
+        message:
+          type: string
+          description: English, developer-facing. Clients show localised text keyed on `code` / HTTP status.
+
+    OsrmError:
+      type: object
+      description: Valhalla error when `format=osrm` was understood
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: OSRM-style code. Known values are listed. Treat unknown values as a generic failure.
+          examples: [NoSegment, NoRoute, InvalidOptions, InvalidValue, InvalidUrl, TooBig, DistanceExceeded]
+        message: { type: string }
+
+    ValhallaError:
+      type: object
+      description: Valhalla native error (body not parseable, or `format` not `osrm`)
+      required: [error_code, error]
+      properties:
+        error_code: { type: integer, examples: [100, 110, 171, 442] }
+        error: { type: string }
+        status_code: { type: integer }
+        status: { type: string }
+
+    PhotonError:
+      description: "Either `{message}` or a per-parameter validation map `{<param>: [{message, args, value}]}`"
+      oneOf:
+        - type: object
+          required: [message]
+          properties:
+            message: { type: string }
+        - type: object
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              properties:
+                message: { type: string }
+                args: { type: object }
+                value: {}
+
+    # ---------- Valhalla route request (subset used by clients; other Valhalla options are forwarded) ----------
+    ValhallaRouteRequest:
+      type: object
+      required: [locations, costing]
+      additionalProperties: true
+      description: |
+        Native Valhalla `/route` request. Fields not listed are forwarded unchanged but are not
+        part of the contract (don't rely on them without an architect update).
+      properties:
+        locations:
+          type: array
+          minItems: 2
+          maxItems: 20
+          items: { $ref: "#/components/schemas/ValhallaLocation" }
+        costing:
+          type: string
+          description: |
+            Contracted for NAV-001: `auto`, `pedestrian`. Also accepted by Valhalla and expected in later stories:
+            `bicycle`, `motorcycle`, `taxi`, `bus`, `truck`, `motor_scooter`.
+          enum: [auto, pedestrian, bicycle, motorcycle, taxi, bus, truck, motor_scooter]
+        costing_options:
+          type: object
+          description: "Keyed by costing name, for example `{ \"auto\": { \"exclude_unpaved\": true } }`"
+          additionalProperties:
+            $ref: "#/components/schemas/ValhallaCostingOptions"
+        format:
+          type: string
+          enum: [osrm, json]
+          description: Clients send `osrm`. `json` (Valhalla native) is forwarded but not contracted.
+        banner_instructions: { type: boolean, description: "OSRM `bannerInstructions` per step (needs format=osrm)" }
+        voice_instructions: { type: boolean, description: "OSRM `voiceInstructions` per step (needs format=osrm)" }
+        language:
+          type: string
+          description: Narrative language. Unknown values silently fall back to `en-US`.
+          enum: [mn-MN, en-US, ru-RU]
+          default: en-US
+        units:
+          type: string
+          enum: [kilometers, miles]
+        alternates:
+          type: integer
+          minimum: 0
+          maximum: 2
+          description: Number of alternative routes requested (server limit 2)
+        directions_type:
+          type: string
+          enum: [none, maneuvers, instructions]
+        id:
+          type: string
+          description: Echoed back by Valhalla. Handy for correlating requests on the client.
+
+    ValhallaLocation:
+      type: object
+      required: [lat, lon]
+      additionalProperties: true
+      properties:
+        lat: { type: number, format: double, minimum: -90, maximum: 90 }
+        lon: { type: number, format: double, minimum: -180, maximum: 180 }
+        type:
+          type: string
+          enum: [break, through, via, break_through]
+        heading:
+          type: integer
+          minimum: 0
+          maximum: 360
+          description: Travel direction in degrees, used on reroute so the new route starts forward
+        heading_tolerance: { type: integer }
+        radius: { type: integer, description: "Snap radius in metres (server max 200)" }
+        name: { type: string }
+
+    ValhallaCostingOptions:
+      type: object
+      additionalProperties: true
+      properties:
+        exclude_unpaved:
+          type: boolean
+          description: Avoid unpaved roads. A route may still be impossible, which gives 400 `NoRoute` (NAV-001 AC 19).
+        use_highways: { type: number, minimum: 0, maximum: 1 }
+        use_tolls: { type: number, minimum: 0, maximum: 1 }
+        use_ferry: { type: number, minimum: 0, maximum: 1 }
+
+    # ---------- OSRM-compatible route response (Valhalla format=osrm), fields Ferrostar needs ----------
+    OsrmRouteResponse:
+      type: object
+      required: [code, routes]
+      additionalProperties: true
+      properties:
+        code: { type: string, const: Ok }
+        routes:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items: { $ref: "#/components/schemas/OsrmRoute" }
+        waypoints:
+          type: array
+          items: { $ref: "#/components/schemas/OsrmWaypoint" }
+
+    OsrmWaypoint:
+      type: object
+      additionalProperties: true
+      properties:
+        location: { $ref: "#/components/schemas/LonLat" }
+        name: { type: string }
+        distance: { type: number, description: Snap distance in metres }
+
+    OsrmRoute:
+      type: object
+      required: [distance, duration, geometry, legs]
+      additionalProperties: true
+      properties:
+        distance: { type: number, description: Metres }
+        duration: { type: number, description: Seconds (road-class defaults where `maxspeed` is missing, no traffic) }
+        weight: { type: number }
+        weight_name: { type: string }
+        geometry: { type: string, description: "Encoded polyline, precision 6 (polyline6)" }
+        voiceLocale: { type: string, example: mn-MN }
+        legs:
+          type: array
+          items: { $ref: "#/components/schemas/OsrmLeg" }
+
+    OsrmLeg:
+      type: object
+      required: [steps]
+      additionalProperties: true
+      properties:
+        distance: { type: number }
+        duration: { type: number }
+        weight: { type: number }
+        summary: { type: string }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/OsrmStep" }
+
+    OsrmStep:
+      type: object
+      required: [maneuver, distance, duration, geometry]
+      additionalProperties: true
+      properties:
+        distance: { type: number }
+        duration: { type: number }
+        weight: { type: number }
+        geometry: { type: string, description: polyline6 }
+        name: { type: string, description: Street name from OSM (usually Cyrillic Mongolian in UB) }
+        ref: { type: string }
+        mode: { type: string, example: driving }
+        driving_side: { type: string, enum: [left, right] }
+        maneuver: { $ref: "#/components/schemas/OsrmManeuver" }
+        intersections:
+          type: array
+          items: { $ref: "#/components/schemas/OsrmIntersection" }
+        voiceInstructions:
+          type: array
+          items: { $ref: "#/components/schemas/VoiceInstruction" }
+        bannerInstructions:
+          type: array
+          items: { $ref: "#/components/schemas/BannerInstruction" }
+
+    OsrmManeuver:
+      type: object
+      required: [type, location]
+      additionalProperties: true
+      properties:
+        type: { type: string, examples: [depart, turn, "new name", continue, merge, "on ramp", "off ramp", fork, "end of road", roundabout, rotary, arrive] }
+        modifier: { type: string, examples: [left, right, "slight left", "slight right", "sharp left", "sharp right", straight, uturn] }
+        location: { $ref: "#/components/schemas/LonLat" }
+        bearing_before: { type: integer }
+        bearing_after: { type: integer }
+        instruction: { type: string, description: Narrative in the requested `language` }
+
+    OsrmIntersection:
+      type: object
+      additionalProperties: true
+      properties:
+        location: { $ref: "#/components/schemas/LonLat" }
+        bearings: { type: array, items: { type: integer } }
+        entry: { type: array, items: { type: boolean } }
+        in: { type: integer }
+        out: { type: integer }
+        lanes:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              indications: { type: array, items: { type: string } }
+              valid: { type: boolean }
+              active: { type: boolean }
+              valid_indication: { type: string }
+
+    VoiceInstruction:
+      type: object
+      required: [announcement, distanceAlongGeometry]
+      additionalProperties: true
+      properties:
+        distanceAlongGeometry: { type: number, description: Metres before the end of the step at which to speak }
+        announcement: { type: string, description: Plain text for TTS in the requested language }
+        ssmlAnnouncement: { type: string, description: "SSML `<speak>` wrapper around the announcement" }
+
+    BannerInstruction:
+      type: object
+      required: [primary, distanceAlongGeometry]
+      additionalProperties: true
+      properties:
+        distanceAlongGeometry: { type: number }
+        primary: { $ref: "#/components/schemas/BannerContent" }
+        secondary:
+          oneOf:
+            - $ref: "#/components/schemas/BannerContent"
+            - type: "null"
+        sub: { $ref: "#/components/schemas/BannerContent" }
+
+    BannerContent:
+      type: object
+      required: [text]
+      additionalProperties: true
+      properties:
+        text: { type: string }
+        type: { type: string }
+        modifier: { type: string }
+        degrees: { type: number }
+        driving_side: { type: string }
+        components:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              text: { type: string }
+              type: { type: string, examples: [text, icon, delimiter, exit, "exit-number", lane] }
+              directions: { type: array, items: { type: string } }
+              active: { type: boolean }
+              active_direction: { type: string }
+
+    LonLat:
+      type: array
+      description: "[longitude, latitude] (WGS84)"
+      minItems: 2
+      maxItems: 2
+      items: { type: number, format: double }
+
+    # ---------- Photon GeoJSON ----------
+    PhotonFeatureCollection:
+      type: object
+      required: [type, features]
+      additionalProperties: true
+      properties:
+        type: { type: string, const: FeatureCollection }
+        features:
+          type: array
+          items: { $ref: "#/components/schemas/PhotonFeature" }
+
+    PhotonFeature:
+      type: object
+      required: [type, geometry, properties]
+      additionalProperties: true
+      properties:
+        type: { type: string, const: Feature }
+        geometry:
+          type: object
+          required: [type, coordinates]
+          properties:
+            type: { type: string, const: Point }
+            coordinates: { $ref: "#/components/schemas/LonLat" }
+        properties: { $ref: "#/components/schemas/PhotonProperties" }
+
+    PhotonProperties:
+      type: object
+      additionalProperties: true
+      description: |
+        GeocodeJSON-style properties. All address fields are optional and in the requested `lang` where
+        available. Some OSM values contain traditional Mongolian script after the Cyrillic (for example
+        "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ"). NAV-003 UX decides how these are displayed.
+      properties:
+        osm_type: { type: string, enum: [N, W, R] }
+        osm_id: { type: integer, format: int64 }
+        osm_key: { type: string, example: place }
+        osm_value: { type: string, example: square }
+        type:
+          type: string
+          description: Photon layer of this result
+          enum: [house, street, locality, district, city, county, state, country, other]
+        name: { type: string }
+        housenumber: { type: string }
+        street: { type: string }
+        postcode: { type: string }
+        locality: { type: string }
+        district: { type: string }
+        city: { type: string }
+        county: { type: string }
+        state: { type: string }
+        country: { type: string }
+        countrycode: { type: string, example: MN }
+        extent:
+          type: array
+          description: "[minLon, maxLat, maxLon, minLat] as emitted by Photon"
+          minItems: 4
+          maxItems: 4
+          items: { type: number }
+        extra: { type: object, additionalProperties: { type: string } }

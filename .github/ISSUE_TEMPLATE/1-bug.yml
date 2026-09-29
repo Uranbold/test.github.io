@@ -1,0 +1,74 @@
+name: 🐞 Алдаа мэдээлэх · Bug report
+description: Апп гацсан, буруу ажилласан эсвэл буруу чиглэл зааж байна. · Something crashes, works wrong, or gives wrong guidance.
+title: "[Алдаа] "
+labels: ["type:bug", "status:new"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Мэдээлсэнд баярлалаа! Шалгасны дараа алдааны ноцтой байдал болон дараагийн алхмыг хариулна.
+        **Гудамжны нэр буруу, зам байхгүй, нэг чиглэлийн зам буруу байна уу?** Энэ нь OpenStreetMap-ийн өгөгдлийн алдаа байж магадгүй. Гэсэн ч энд мэдээлээрэй, бид зөв газар нь чиглүүлнэ.
+
+        *Thanks for reporting! Triage will reply with severity and next steps. Wrong street name or missing road? It may be OpenStreetMap data. Report it here anyway.*
+  - type: textarea
+    id: what
+    attributes:
+      label: Юу болсон бэ? · What happened?
+      description: Бодитоор юу болсныг бичнэ үү. Алдааны мэдэгдэл байвал хуулж оруулна уу. · Actual behaviour, including any error text.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Юу болно гэж хүлээж байсан бэ? · What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Давтан гаргах алхмууд · Steps to reproduce
+      placeholder: |
+        1. Аппыг нээж "Сүхбаатарын талбай" гэж хайна
+        2. ... руу навигаци эхлүүлнэ
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Байршил / маршрут · Location / route
+      description: Эхлэх ба очих цэгийн координат (өргөрөг, уртраг) эсвэл газрын нэр. · Start/end coordinates (lat, lon) or place names.
+      placeholder: "47.9189, 106.9176 → 47.6469, 106.8197"
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Платформ · Platform
+      multiple: true
+      options: ["Android", "iOS", "Вэб · Web", "Backend / API", "Мэдэхгүй · Not sure"]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Аппын хувилбар / build / commit · App version / build / commit
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Танд хэр их нөлөөлж байна вэ? (Эцсийн ноцтой байдлыг шалгагч тогтооно) · How bad is it for you? (triage sets the final severity)
+      options:
+        - "Үйлчилгээ ажиллахгүй, апп унтарсан эсвэл аюултай чиглэл заасан · Service down, crash, or dangerous guidance"
+        - "Үндсэн функц ажиллахгүй, өөр арга байхгүй · Core feature broken, no workaround"
+        - "Муу ажиллаж байгаа ч өөр арга бий · Degraded, workaround exists"
+        - "Зөвхөн харагдах байдлын асуудал · Cosmetic"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Дэлгэцийн зураг, бичлэг, GPX зам эсвэл лог · Screenshots, recording, GPX track or logs
+      description: Файлаа энд чирж оруулна уу. Хувийн мэдээллээ эхлээд устгана уу. · Drag files here. Remove personal data first.
+  - type: input
+    id: story
+    attributes:
+      label: Холбогдох story ID (мэдэж байвал) · Related story ID (if known)
+      placeholder: NAV-004

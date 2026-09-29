@@ -1,0 +1,112 @@
+# Synced to GitHub by .github/workflows/labels.yml (runs on the default branch)
+- name: type:feature
+  color: 1d76db
+  description: New capability
+- name: type:change
+  color: 1d76db
+  description: Change to an existing story
+- name: type:bug
+  color: 1d76db
+  description: Defect
+- name: type:spike
+  color: 1d76db
+  description: Research / decision needed
+- name: type:tech-debt
+  color: 1d76db
+  description: Internal improvement
+- name: sev:S1
+  color: b60205
+  description: 'Critical: outage, crash, dangerous guidance, data leak'
+- name: sev:S2
+  color: d93f0b
+  description: 'Major: core feature broken'
+- name: sev:S3
+  color: fbca04
+  description: 'Minor: degraded, workaround exists'
+- name: sev:S4
+  color: c2e0c6
+  description: 'Trivial: cosmetic'
+- name: prio:P0
+  color: b60205
+  description: Now
+- name: prio:P1
+  color: d93f0b
+  description: This iteration
+- name: prio:P2
+  color: fbca04
+  description: Next iteration
+- name: prio:P3
+  color: c5def5
+  description: Backlog
+- name: cos:expedite
+  color: b60205
+  description: S1 only, WIP limit 1
+- name: cos:fixed-date
+  color: 5319e7
+  description: Hard deadline
+- name: cos:standard
+  color: 0e8a16
+  description: FIFO by priority
+- name: cos:intangible
+  color: bfdadc
+  description: Tech debt, gives way first
+- name: area:routing
+  color: 006b75
+  description: ''
+- name: area:search
+  color: 006b75
+  description: ''
+- name: area:tiles
+  color: 006b75
+  description: ''
+- name: area:gateway
+  color: 006b75
+  description: ''
+- name: area:android
+  color: 006b75
+  description: ''
+- name: area:ios
+  color: 006b75
+  description: ''
+- name: area:web
+  color: 006b75
+  description: ''
+- name: area:design
+  color: 006b75
+  description: ''
+- name: area:data-osm
+  color: 006b75
+  description: ''
+- name: area:ci-infra
+  color: 006b75
+  description: ''
+- name: status:new
+  color: ededed
+  description: Awaiting triage
+- name: status:triaged
+  color: ededed
+  description: Triage done, awaiting PO priority
+- name: status:ready
+  color: ededed
+  description: Definition of Ready met
+- name: status:in-progress
+  color: ededed
+  description: In a delivery lane
+- name: status:in-review
+  color: ededed
+  description: QA / architect review
+- name: status:done
+  color: ededed
+  description: Accepted
+- name: needs-info
+  color: d876e3
+  description: Waiting for reporter
+- name: blocked
+  color: '000000'
+  description: Blocked by dependency or decision
+- name: duplicate
+  color: cfd3d7
+  description: Duplicate of another issue
+- name: wont-fix
+  color: ffffff
+  description: Will not be done

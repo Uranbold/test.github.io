@@ -1,0 +1,39 @@
+name: 🔁 Өөрчлөлтийн хүсэлт · Change request
+description: Одоо байгаа боломжийн ажиллах байдлыг өөрчлөх (одоо зөв ажиллаж байгаа ч дизайныг өөрчлөх шаардлагатай). · Change how an existing feature works (it works as designed, but the design should change).
+title: "[Өөрчлөлт] "
+labels: ["type:change", "status:new"]
+body:
+  - type: input
+    id: story
+    attributes:
+      label: Өөрчлөх story · Story being changed
+      placeholder: NAV-004
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Одоогийн ажиллагаа · Current behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: desired
+    attributes:
+      label: Хүссэн ажиллагаа · Desired behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Яагаад өөрчлөх вэ? · Why change it?
+      description: Хэрэглэгчийн санал, өгөгдөл, бизнесийн шалтгаан. · User feedback, data, business reason.
+    validations:
+      required: true
+  - type: textarea
+    id: keep
+    attributes:
+      label: Юуг өөрчлөх ёсгүй вэ? · What must NOT change?
+  - type: input
+    id: deadline
+    attributes:
+      label: Заавал дуусгах хугацаа (байвал) · Hard deadline (if any)

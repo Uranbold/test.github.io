@@ -1,0 +1,31 @@
+name: 🔬 Судалгаа / асуулт · Spike / question
+description: Story бичихээс өмнө судлах эсвэл шийдэх шаардлагатай асуудал. · Something we need to research or decide before we can write stories.
+title: "[Судалгаа] "
+labels: ["type:spike", "status:new"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Хариулах асуулт · Question to answer
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Хариулт нь ямар шийдвэр эсвэл ажлыг гацаанаас гаргах вэ? · Which decision or work does the answer unblock?
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Төрөл · Kind
+      options:
+        - "Техникийн (архитектор) · Technical (architect)"
+        - "Бүтээгдэхүүн / зах зээл (бизнес шинжээч) · Product / market (business analyst)"
+    validations:
+      required: true
+  - type: input
+    id: timebox
+    attributes:
+      label: Хугацааны хязгаар · Timebox
+      placeholder: "1 агентын ажиллагаа / 1 өдөр · 1 agent run / 1 day"
