@@ -1,6 +1,6 @@
 # System overview (owner: architect)
 
-Current scope: **Phase 0**: NAV-001 local dev stack and NAV-002 web demo map. Decisions: ADR-0001 (stack), ADR-0002 (gateway, paths, data build, tile zoom range), ADR-0003 (Photon index source), ADR-0004 (web demo client). Staging hosting is ADR-0005 (proposed, NAV-008). HTTP contract: `api/openapi.yaml` 0.3.0.
+Current scope: **Phase 0**: NAV-001 local dev stack and NAV-002 web demo map. Decisions: ADR-0001 (stack), ADR-0002 (gateway, paths, data build, tile zoom range), ADR-0003 (Photon index source), ADR-0004 (web demo client). Staging hosting is ADR-0005 (accepted for staging on 2026-09-30; production path still proposed, NAV-008/NAV-009), deployed as in `deployment-staging.md`. HTTP contract: `api/openapi.yaml` 0.4.0.
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 
@@ -78,7 +78,7 @@ sequenceDiagram
 ```
 
 Notes:
-- **CORS.** The page origin is a different origin from the gateway, so every tile request is a CORS request with a `Range` header. The gateway allows the `Range` request header and exposes `Content-Range`, `Content-Length`, `ETag` and `Accept-Ranges` (ADR-0002 §3). In dev `CORS_ALLOWED_ORIGINS=*`. Any shared deployment (NAV-008 staging) must list the web origin explicitly.
+- **CORS.** The page origin is a different origin from the gateway, so every tile request is a CORS request with a `Range` header. The gateway allows the `Range` request header and exposes `Content-Range`, `Content-Length`, `ETag`, `Accept-Ranges` and, since openapi 0.4.0, `Retry-After` (ADR-0002 §3). In dev `CORS_ALLOWED_ORIGINS=*`. Any shared deployment (NAV-008 staging) must list the web origin explicitly.
 - **Attribution.** «© OpenStreetMap contributors» (and the ESA WorldCover credit at zoom < 8) is rendered by the app from its resource files, not from the PMTiles metadata (`metadata: false`, ADR-0004 §5-6).
 - **Caching.** Bundle, fonts and sprites follow the page origin's static caching. The archive follows the gateway's `Cache-Control: public, max-age=300` with ETag revalidation. The 416 is `no-store`.
 - **Later.** Serving style, glyphs and sprites from the gateway is deferred until a second client needs them (ADR-0004 Consequences). Android and iOS bundle their own assets and use the same `getBasemapPmtiles` operation.

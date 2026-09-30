@@ -134,6 +134,17 @@ class Contract:
             ar = [v for k, v in r416.raw_headers if k.lower() == "accept-ranges"]
             self.r.check(f"CT-R21.tiles_{method}_416_no_accept_ranges", not ar, "Accept-Ranges absent on 416", ar)
 
+        # CT-R22 (INFO, not a NAV-001 gate): openapi 0.4.0 says Access-Control-Expose-Headers "always includes"
+        # the tokens in the AccessControlExposeHeaders example; 0.4.0 added Retry-After (NAV-008 AC 13, 429 RateLimited).
+        # NAV-001 AC 30 only requires Content-Range, Content-Length, ETag (checked in checks.py AC30), so the
+        # difference is reported as INFO until NAV-008 implements 0.4.0 on the gateway.
+        ex_tokens = [t.strip().lower() for t in str(self.deref(self.spec["components"]["headers"]["AccessControlExposeHeaders"])
+                                                     .get("schema", {}).get("example", "")).split(",") if t.strip()]
+        live = [t.strip().lower() for t in (rng.header("access-control-expose-headers") or "").split(",") if t.strip()]
+        missing = [t for t in ex_tokens if t not in live]
+        self.r.note("CT-R22.expose_headers_vs_spec_0_4_0",
+                    "all spec tokens exposed" if not missing else f"missing {missing} (spec {self.spec['info']['version']}; NAV-008, not a NAV-001 AC)")
+
         for name, ex in req_schema["examples"].items():
             resp = c.request("POST", "/v1/route", ex["value"])
             self.case(f"CT-R04.route_example_{name}", "/v1/route", "post", resp)
