@@ -169,6 +169,8 @@ test('AC45: tabs pattern (tablist «Зорчих хэлбэр», ArrowLeft/Right
   await page.waitForTimeout(800);
   await waitFinal(page);
   // turn list
+  const camKeys0 = await page.evaluate(() => { const m = window.__nav002.map; const c = m.getCenter(); return { lng: c.lng, lat: c.lat, zoom: m.getZoom() }; });
+  const nKeys0 = (await routeReqs(page)).length;
   await tid(page, 'route-step').first().focus();
   const cur = () => page.evaluate(() => document.activeElement?.dataset.index);
   await page.keyboard.press('ArrowDown');
@@ -182,6 +184,19 @@ test('AC45: tabs pattern (tablist «Зорчих хэлбэр», ArrowLeft/Right
   await page.keyboard.press('ArrowDown');
   const ti = await page.evaluate(() => [...document.querySelectorAll('[data-testid=route-step]')].map((b) => b.tabIndex));
   expect(ti).toEqual([-1, 0, -1, -1]);
+  // AC 45 (story text since D54): arrow/Home/End move focus only, with no activation: no manoeuvre point, no camera
+  // move, 0 requests until Enter.
+  await page.waitForTimeout(300);
+  const keysOnly = await page.evaluate(() => {
+    const m = window.__nav002.map;
+    const c = m.getCenter();
+    return { step: m.getSource('nav-route-step')?.serialize().data.features?.length ?? 0, moving: m.isMoving(), lng: c.lng, lat: c.lat, zoom: m.getZoom() };
+  });
+  expect(keysOnly.step, 'arrow keys do not activate a row (no manoeuvre point)').toBe(0);
+  expect(keysOnly.moving, 'arrow keys do not move the camera').toBe(false);
+  expect(Math.abs(keysOnly.lng - camKeys0.lng) + Math.abs(keysOnly.lat - camKeys0.lat), 'camera centre unchanged by arrow keys').toBeLessThan(1e-9);
+  expect(keysOnly.zoom).toBeCloseTo(camKeys0.zoom, 6);
+  expect((await routeReqs(page)).length, 'arrow keys send nothing').toBe(nKeys0);
   const n0 = (await routeReqs(page)).length;
   await page.keyboard.press('Enter');
   await page.waitForTimeout(1300);
