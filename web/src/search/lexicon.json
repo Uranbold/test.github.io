@@ -1,0 +1,46 @@
+{
+  "$comment": "NAV-003 query-assistance data (ADR-0006 §2.3, §2.4, §2.6). Not UI text: nothing here is ever displayed. It only rewrites what is SENT to GET /v1/search, or matches name suffixes for the type-label rules 1-4 (story section D). Kept in JSON so the src/**/*.ts hard-coded-text scan (npm run check:i18n) stays strict. District names follow the glossary row 'Düüreg' (story AC 16 table).",
+  "districtAbbreviations": {
+    "СБД": "Сүхбаатар дүүрэг",
+    "БЗД": "Баянзүрх дүүрэг",
+    "ХУД": "Хан-Уул дүүрэг",
+    "БГД": "Баянгол дүүрэг",
+    "ЧД": "Чингэлтэй дүүрэг",
+    "СХД": "Сонгинохайрхан дүүрэг"
+  },
+  "vowelFallback": { "у": "ү", "У": "Ү", "о": "ө", "О": "Ө" },
+  "latin": {
+    "precomposed": { "ö": "ө", "ő": "ө", "ü": "ү", "ű": "ү" },
+    "frontVowels": ["ө", "ү"],
+    "multi": [
+      ["shch", "щ"],
+      ["kh", "х"],
+      ["ts", "ц"],
+      ["ch", "ч"],
+      ["sh", "ш"],
+      ["zh", "ж"],
+      ["ya", "я"],
+      ["yu", "ю"],
+      ["yo", "ё"],
+      ["ye", "е"],
+      ["ii", "ий"]
+    ],
+    "shortI": "й",
+    "yOther": "ы",
+    "uBack": "у",
+    "uFront": "ү",
+    "oBack": "о",
+    "oFront": "ө",
+    "single": {
+      "a": "а", "b": "б", "c": "ц", "d": "д", "e": "э", "f": "ф", "g": "г", "h": "х", "i": "и", "j": "ж",
+      "k": "к", "l": "л", "m": "м", "n": "н", "p": "п", "q": "к", "r": "р", "s": "с", "t": "т", "v": "в",
+      "w": "в", "x": "х", "z": "з"
+    }
+  },
+  "typeLabelNameSuffixes": {
+    "district": " дүүрэг",
+    "khoroo": " хороо",
+    "aimag": " аймаг",
+    "soum": " сум"
+  }
+}

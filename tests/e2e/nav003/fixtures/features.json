@@ -1,0 +1,464 @@
+{
+ "story": "NAV-003",
+ "ac": [
+  8,
+  17,
+  18,
+  19,
+  20,
+  21
+ ],
+ "description": "Fixture features F1-F13 (F13 extra). Expected values derived by QA from the story tables, not from web/ code.",
+ "fixtures": [
+  {
+   "id": "F1",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9675,
+      47.95
+     ]
+    },
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 9001,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "district",
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "name": "Баянзүрх дүүрэг",
+     "city": "Улаанбаатар",
+     "extent": [
+      106.9,
+      48.0,
+      107.1,
+      47.88
+     ]
+    }
+   },
+   "expect": {
+    "rule": 1,
+    "name": "Баянзүрх дүүрэг",
+    "mn": "Дүүрэг",
+    "en": "District",
+    "context": "Улаанбаатар",
+    "zoomClass": "extent"
+   }
+  },
+  {
+   "id": "F2",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.921,
+      47.923
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9002,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "house",
+     "osm_key": "office",
+     "osm_value": "government",
+     "name": "Сүхбаатар дүүргийн 1-р хороо",
+     "district": "Бага Тойрог",
+     "city": "Улаанбаатар"
+    }
+   },
+   "expect": {
+    "rule": 2,
+    "name": "Сүхбаатар дүүргийн 1-р хороо",
+    "mn": "Хороо",
+    "en": "Khoroo",
+    "context": "Бага Тойрог, Улаанбаатар",
+    "zoom": 13
+   }
+  },
+  {
+   "id": "F3",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.044,
+      49.027
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9003,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "city",
+     "osm_key": "place",
+     "osm_value": "city",
+     "name": "Эрдэнэт",
+     "locality": "ᠪᠠᠶᠠᠨ",
+     "county": "Баян-Өндөр",
+     "state": "Орхон аймаг ᠣᠷᠬᠣᠨ ᠠᠶᠢᠮᠠᠭ"
+    }
+   },
+   "expect": {
+    "rule": 5,
+    "name": "Эрдэнэт",
+    "mn": "Хот",
+    "en": "City or town",
+    "context": "Баян-Өндөр, Орхон аймаг",
+    "zoom": 13,
+    "note": "AC18: state has traditional script (stripped); locality is traditional script only (skipped, next field used)"
+   }
+  },
+  {
+   "id": "F4",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.915,
+      47.92
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9004,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "house",
+     "osm_key": "place",
+     "osm_value": "neighbourhood",
+     "name": "Бага Тойрог",
+     "district": "Бага Тойрог",
+     "city": "Улаанбаатар",
+     "state": "Улаанбаатар"
+    }
+   },
+   "expect": {
+    "rule": 7,
+    "name": "Бага Тойрог",
+    "mn": "Хороолол",
+    "en": "Neighbourhood",
+    "context": "Улаанбаатар",
+    "zoom": 13,
+    "note": "AC17: district equals name (skipped); city and state identical (distinct)"
+   }
+  },
+  {
+   "id": "F5",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9169,
+      47.9188
+     ]
+    },
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 9005,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "house",
+     "osm_key": "place",
+     "osm_value": "square",
+     "name": "Сүхбаатарын талбай",
+     "district": "Бага Тойрог",
+     "city": "Улаанбаатар",
+     "extent": [
+      106.9162195,
+      47.9196907,
+      106.9190342,
+      47.9179263
+     ]
+    }
+   },
+   "expect": {
+    "rule": 8,
+    "name": "Сүхбаатарын талбай",
+    "mn": "Талбай",
+    "en": "Square",
+    "context": "Бага Тойрог, Улаанбаатар",
+    "zoomClass": "extent"
+   }
+  },
+  {
+   "id": "F6",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.887,
+      47.916
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9006,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "house",
+     "osm_key": "amenity",
+     "osm_value": "fuel",
+     "name": "Петровис",
+     "street": "Энхтайваны өргөн чөлөө",
+     "district": "Гандан",
+     "city": "Улаанбаатар"
+    }
+   },
+   "expect": {
+    "rule": 9,
+    "name": "Петровис",
+    "mn": "ШТС",
+    "en": "Petrol station",
+    "context": "Гандан, Улаанбаатар",
+    "zoom": 16
+   }
+  },
+  {
+   "id": "F7",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.91,
+      47.917
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9007,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "house",
+     "osm_key": "amenity",
+     "osm_value": "restaurant",
+     "name": "Хаан хоол",
+     "city": "Улаанбаатар",
+     "state": "Улаанбаатар"
+    }
+   },
+   "expect": {
+    "rule": 14,
+    "name": "Хаан хоол",
+    "mn": "Хоолны газар",
+    "en": "Restaurant or café",
+    "context": "Улаанбаатар",
+    "zoom": 16
+   }
+  },
+  {
+   "id": "F8",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.912,
+      47.915
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9008,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "house",
+     "osm_key": "shop",
+     "osm_value": "convenience",
+     "name": "CU",
+     "district": "Цайз",
+     "city": "Улаанбаатар"
+    }
+   },
+   "expect": {
+    "rule": 17,
+    "name": "CU",
+    "mn": "Дэлгүүр",
+    "en": "Shop",
+    "context": "Цайз, Улаанбаатар",
+    "zoom": 16
+   }
+  },
+  {
+   "id": "F9",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.906,
+      47.915
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9009,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "house",
+     "osm_key": "highway",
+     "osm_value": "bus_stop",
+     "name": "Наран их дэлгүүр",
+     "district": "Цайз",
+     "city": "Улаанбаатар"
+    }
+   },
+   "expect": {
+    "rule": 20,
+    "name": "Наран их дэлгүүр",
+    "mn": "Автобусны буудал",
+    "en": "Bus stop",
+    "context": "Цайз, Улаанбаатар",
+    "zoom": 16
+   }
+  },
+  {
+   "id": "F10",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9,
+      47.917
+     ]
+    },
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 9010,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "street",
+     "osm_key": "highway",
+     "osm_value": "primary",
+     "name": "Энхтайвны өргөн чөлөө",
+     "city": "Улаанбаатар",
+     "extent": [
+      106.85,
+      47.925,
+      106.95,
+      47.91
+     ]
+    }
+   },
+   "expect": {
+    "rule": 30,
+    "name": "Энхтайвны өргөн чөлөө",
+    "mn": "Зам",
+    "en": "Road",
+    "context": "Улаанбаатар",
+    "zoomClass": "extent"
+   }
+  },
+  {
+   "id": "F11",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.913,
+      47.916
+     ]
+    },
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 9011,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "house",
+     "osm_key": "building",
+     "osm_value": "yes",
+     "street": "Сөүлийн гудамж",
+     "housenumber": "12",
+     "district": "Цайз",
+     "city": "Улаанбаатар"
+    }
+   },
+   "expect": {
+    "rule": 31,
+    "name": "Сөүлийн гудамж 12",
+    "mn": "Хаяг",
+    "en": "Address",
+    "context": "Цайз, Улаанбаатар",
+    "zoom": 16,
+    "note": "AC17: no name, street + housenumber"
+   }
+  },
+  {
+   "id": "F12",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      111.977,
+      43.653
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9012,
+     "countrycode": "CN",
+     "country": "Хятад",
+     "type": "house",
+     "osm_key": "man_made",
+     "osm_value": "tower",
+     "name": "Эрээн цамхаг",
+     "city": "Эрээн"
+    }
+   },
+   "expect": {
+    "rule": 32,
+    "name": "Эрээн цамхаг",
+    "mn": "Газар",
+    "en": "Place",
+    "context": "Эрээн",
+    "zoom": 16,
+    "note": "AC8: countrycode CN (listed after every MN result)"
+   }
+  },
+  {
+   "id": "F13",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.914,
+      47.914
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9013,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "house",
+     "osm_key": "man_made",
+     "osm_value": "mast"
+    }
+   },
+   "expect": {
+    "rule": 32,
+    "name": null,
+    "mn": "Газар",
+    "en": "Place",
+    "context": null,
+    "zoom": 16,
+    "note": "extra: no name/street -> type label as name; no context line (omitted, no \"undefined\")"
+   }
+  }
+ ]
+}

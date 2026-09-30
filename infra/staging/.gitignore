@@ -1,0 +1,6 @@
+# NAV-008: host-specific config and local inventory never go into git (host name, tokens, IP addresses).
+.env
+*.local
+*.local.*
+inventory*
+!inventory.example

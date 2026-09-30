@@ -1,0 +1,52 @@
+# NAV-008 staging TLS terminator (deployment-staging.md §5, ADR-0005). Owner: backend-engineer.
+# Placeholders {$...} come from infra/staging/.env through infra/staging/compose.staging.yaml.
+# Validate: infra/ci/staging-static-checks.sh (runs `caddy validate` in the pinned image).
+{
+	email {$ACME_EMAIL}
+	# Let's Encrypt production by default. The renewal dry run (bin/cert-dry-run.sh) sets the LE staging CA.
+	acme_ca {$ACME_CA}
+	servers {
+		# HTTP/3 (UDP 443) off on staging: the firewall stays TCP-only (deployment-staging.md §4).
+		protocols h1 h2
+	}
+	# Runtime log = include-list of certificate/config loggers only (checked against Caddy 2.11.4).
+	# Everything else is dropped, in particular http.log.error (per-request errors carry the request URI
+	# and the client address) and http.handlers.reverse_proxy. There is no access log: no `log`
+	# directive in the site block (NAV-008 AC 14).
+	log default {
+		output stdout
+		format json
+		level INFO
+		# Not `admin`: admin.api logs every admin request (the container healthcheck polls it every 30 s).
+		include tls http.acme_client http.auto_https
+	}
+}
+
+{$STAGING_HOST} {
+	tls {
+		protocols tls1.2 tls1.3
+	}
+	# No `encode`: PMTiles range responses and the gateway's gzip pass through unchanged.
+	# Caddy replaces any client-sent X-Forwarded-For with the real peer address; the gateway trusts
+	# X-Forwarded-For only from Caddy's fixed address on the edge network (GATEWAY_REAL_IP_FROM).
+	reverse_proxy gateway:8080
+	# Backstop only when the gateway container itself is down or unreachable (contract GatewayError
+	# shape, no CORS headers: CORS stays owned by the gateway, ADR-0002 §3). When an upstream behind the
+	# gateway is down, the gateway's own JSON 502/503/504 with CORS headers passes through unchanged.
+	handle_errors 502 503 504 {
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond `{"code":"UpstreamUnavailable","message":"gateway unavailable"}` {err.status_code}
+	}
+}
+
+# Web demo host (deployment-staging.md §6), only if the PO agrees that this host serves the NAV-002
+# static build. Uncomment, set DEMO_HOST in infra/staging/.env, and mount the build at /srv/demo:
+# {$DEMO_HOST} {
+# 	tls {
+# 		protocols tls1.2 tls1.3
+# 	}
+# 	root * /srv/demo
+# 	try_files {path} /index.html
+# 	file_server
+# }

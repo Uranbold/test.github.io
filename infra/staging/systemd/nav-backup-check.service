@@ -1,0 +1,12 @@
+# NAV-008 staging: weekly integrity check of the restic repository (deployment-staging.md §10).
+[Unit]
+Description=NAV-008 staging weekly restic check
+Documentation=file://@NAV_ROOT@/infra/staging/RUNBOOK.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@NAV_ROOT@/infra/staging/bin/nav-backup.sh check
+TimeoutStartSec=2h
+Nice=10

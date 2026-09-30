@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// NAV-002 AC 32: no user-facing text literal outside src/i18n/{mn,en}.json; identical key sets; no empty values.
+// NAV-002 AC 32 / NAV-003 AC 44: no user-facing text literal outside src/i18n/{mn,en}.json; identical key sets; no empty
+// values. (src/search/lexicon.json holds query-assistance data that is sent to the gateway, never displayed; it is JSON,
+// so it is not scanned here.)
 // Run: npm run check:i18n (also part of npm run lint). Exit code 1 on any problem.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -57,7 +59,7 @@ for (const f of tsFiles) {
     if (inner && />[^<]*[A-Za-z\u0400-\u04FF][^<]*</.test(inner[2])) problems.push(`${at}: text inside an innerHTML literal`);
   });
   for (const m of src.matchAll(/\bt\(\s*["']([a-zA-Z0-9.]+)["']/g)) usedKeys.add(m[1]);
-  for (const m of src.matchAll(/["']((?:app|map|control|marker|theme|language|status|action|location|unit|attribution)\.[a-zA-Z.]+)["']/g)) usedKeys.add(m[1]);
+  for (const m of src.matchAll(/["']((?:app|map|control|marker|theme|language|status|action|location|unit|attribution|search|place|placeType)\.[a-zA-Z.]+)["']/g)) usedKeys.add(m[1]);
 }
 
 for (const f of htmlFiles) {
@@ -71,7 +73,7 @@ for (const f of htmlFiles) {
   for (const m of html.matchAll(/\s(aria-label|title|alt|placeholder)="([^"]*)"/g)) {
     if (m[2].trim() !== "") problems.push(`${f}: hard-coded ${m[1]}="${m[2]}"`);
   }
-  for (const m of html.matchAll(/data-(?:i18n|i18n-aria-label|tooltip)="([^"]+)"/g)) usedKeys.add(m[1]);
+  for (const m of html.matchAll(/data-(?:i18n|i18n-aria-label|i18n-placeholder|tooltip)="([^"]+)"/g)) usedKeys.add(m[1]);
 }
 
 // 3. Every referenced key exists; report unused keys as information.

@@ -1,0 +1,4 @@
+# Nmap 7.94SVN scan initiated as: nmap -Pn -sT -n -T4 --open -p- -oG - 192.0.2.10
+Host: 192.0.2.10 ()	Status: Up
+Host: 192.0.2.10 ()	Ports: 22/open/tcp//ssh///, 80/open/tcp//http///, 443/open/tcp//https///, 2322/open/tcp//unknown///, 8080/open/tcp//http-proxy///	Ignored State: filtered (65530)
+# Nmap done at Wed Sep 30 10:00:00 2026 -- 1 IP address (1 host up) scanned in 612.33 seconds

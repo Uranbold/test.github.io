@@ -6,7 +6,8 @@
 Needs: jsonschema>=4.18, PyYAML, openapi-spec-validator (tests/api/requirements.txt).
 For each case: the HTTP status must be documented for that operation, the JSON body must validate
 against the documented schema, and documented headers that the contract marks as always present
-must be there, and no Access-Control-* header may appear more than once (openapi.yaml 0.2.0 CORS rule,
+must be there (plus every header the contract marks `required: true`, exactly once and equal to
+its `const` if one is given), and no Access-Control-* header may appear more than once (openapi.yaml 0.2.0 CORS rule,
 NAV-001 AC 43). Request examples from the spec are sent as-is, so the examples themselves are tested.
 Test plan ids: CT-S (spec valid), CT-R* (responses). Exit 0 only if every case conforms.
 """
@@ -71,6 +72,19 @@ class Contract:
         for h in required_headers:
             if resp.header(h) is None:
                 errors.append(f"missing header {h}")
+        # Headers the contract itself marks `required: true` (e.g. CacheControlNoStore on the tiles 416, 0.3.0) must be
+        # present exactly once, and a `const` schema value must match exactly.
+        for name, hdef in (rd.get("headers") or {}).items():
+            hdef = self.deref(hdef)
+            if not hdef.get("required"):
+                continue
+            values = [v for k, v in resp.raw_headers if k.lower() == name.lower()]
+            if len(values) != 1:
+                errors.append(f"contract-required header {name}: expected exactly 1, got {values}")
+                continue
+            const = (hdef.get("schema") or {}).get("const")
+            if const is not None and values[0] != const:
+                errors.append(f"header {name}: expected {const!r}, got {values[0]!r}")
         repeated = resp.repeated_headers()
         if repeated:
             errors.append(f"repeated headers {repeated} (each Access-Control-* at most once)")
@@ -111,6 +125,25 @@ class Contract:
                              f"bytes */{size} matching ContentRangeUnsatisfied", r416.header("content-range"))
             elif r416.status != 416:
                 self.r.check(f"CT-R20.tiles_{method}_416_status", False, 416, r416.status)
+            # openapi 0.3.0: exactly one Cache-Control: no-store (CacheControlNoStore const), Accept-Ranges absent.
+            cc = [v for k, v in r416.raw_headers if k.lower() == "cache-control"]
+            want = self.deref(self.deref(self.response_def("/tiles/basemap.pmtiles", method, 416))["headers"].get(
+                "Cache-Control", {})).get("schema", {}).get("const")
+            self.r.check(f"CT-R21.tiles_{method}_416_cache_control_no_store", want == "no-store" and cc == ["no-store"],
+                         f"spec const 'no-store' and exactly one header with it (spec const: {want!r})", cc)
+            ar = [v for k, v in r416.raw_headers if k.lower() == "accept-ranges"]
+            self.r.check(f"CT-R21.tiles_{method}_416_no_accept_ranges", not ar, "Accept-Ranges absent on 416", ar)
+
+        # CT-R22 (INFO, not a NAV-001 gate): openapi 0.4.0 says Access-Control-Expose-Headers "always includes"
+        # the tokens in the AccessControlExposeHeaders example; 0.4.0 added Retry-After (NAV-008 AC 13, 429 RateLimited).
+        # NAV-001 AC 30 only requires Content-Range, Content-Length, ETag (checked in checks.py AC30), so the
+        # difference is reported as INFO until NAV-008 implements 0.4.0 on the gateway.
+        ex_tokens = [t.strip().lower() for t in str(self.deref(self.spec["components"]["headers"]["AccessControlExposeHeaders"])
+                                                     .get("schema", {}).get("example", "")).split(",") if t.strip()]
+        live = [t.strip().lower() for t in (rng.header("access-control-expose-headers") or "").split(",") if t.strip()]
+        missing = [t for t in ex_tokens if t not in live]
+        self.r.note("CT-R22.expose_headers_vs_spec_0_4_0",
+                    "all spec tokens exposed" if not missing else f"missing {missing} (spec {self.spec['info']['version']}; NAV-008, not a NAV-001 AC)")
 
         for name, ex in req_schema["examples"].items():
             resp = c.request("POST", "/v1/route", ex["value"])

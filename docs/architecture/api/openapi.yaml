@@ -1,13 +1,50 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.2.0
+  version: 0.4.1
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
     and clients consume it. Neither side changes it on its own.
 
-    Design decisions: ADR-0002 (gateway, pass-through, CORS, paths) and ADR-0003 (Photon index source).
+    Design decisions: ADR-0002 (gateway, pass-through, CORS, paths), ADR-0003 (Photon index source),
+    ADR-0005 (staging hosting; deployment in `docs/architecture/deployment-staging.md`) and ADR-0006 (web search
+    client: query assistance and request orchestration over `search` / `reverse`).
+
+    **Changes in 0.4.1 (2026-09-30, NAV-003 design, ADR-0006).** Documentation only. No path, parameter,
+    status code, header or schema change, so nothing for backend to implement:
+    - `search`: the index behaviour measured on 2026-09-30 (no Cyrillic/Latin transliteration, no ү/у or ө/о
+      folding, Latin queries match only places with a Latin name) and the NAV-003 client profile (bias rounded to
+      3 decimals, at most 2 requests per settled query, `limit` 5-10).
+    - `reverse`: the nearest feature may have no `name` (for example an unnamed building). NAV-003 client profile.
+    - `PhotonProperties`: in Ulaanbaatar, `district` is the neighbourhood (OSM `place=suburb`), not the düüreg.
+      The traditional Mongolian script rule is now the one in NAV-003 AC 18 / ADR-0006 §2.6.
+    - Rate limits: a client that cannot read `Retry-After` (missing, not a positive integer, or not exposed by an
+      older gateway) waits 5 s.
+
+    **Changes in 0.4.0 (2026-09-30, NAV-008 AC 13 and AC 23, ADR-0005 accepted for staging).**
+    Backward compatible, additive only (no path, parameter or success-schema change):
+    - New `servers` entry for **staging** (`https://staging.example-placeholder`). The host name is a
+      **placeholder** until the PO provides the company domain (a subdomain of it, NAV-008 D6). Clients take the
+      base URL from configuration, never from a hard-coded string.
+    - New response **429 `RateLimited`** on `postRoute`, `getRoute`, `search` and `reverse`: `GatewayError` body
+      with the new code `RateLimited`, a `Retry-After` header (integer seconds, >= 1) and `Cache-Control: no-store`.
+      Returned by the gateway when one client IP exceeds the per-IP rate limit (staging values in
+      deployment-staging.md §7.1). `/health`, `/tiles/basemap.pmtiles` and `OPTIONS` preflights are never rate limited.
+    - `GatewayError.code` gains the value `RateLimited`. Clients already treat unknown codes as a generic
+      failure keyed on HTTP status.
+    - `Access-Control-Expose-Headers` now always includes `Retry-After` as well, so browser clients can read it.
+
+    **Changes in 0.3.0 (2026-09-30, NAV-001 PO decision D1 and architect follow-up).**
+    Backward compatible, additive only (a new server-side guarantee; no path, parameter or schema change):
+    - The tiles 416 (`GET` and `HEAD /tiles/basemap.pmtiles`) now **must** carry `Cache-Control: no-store`,
+      so no browser or proxy cache stores the error for the archive URL. It no longer carries `Accept-Ranges`.
+      `ETag` may still be present. 0.2.0 was silent on this ("may also be present").
+    - Tiles guarantees text: the default dev build is now max zoom **14** (`TILES_MAXZOOM=14`, PO decision D1,
+      ADR-0002 Amendment 3). The client-facing guarantee stays `maxzoom >= 14`, and clients overzoom above the
+      archive max zoom. The size note now reflects the measured z14 archive.
+    - Editorial: quoted the `OsrmRoute.duration` description, whose unquoted comma made it an invalid
+      flow mapping (found by `redocly lint`). No semantic change.
 
     **Changes in 0.2.0 (2026-09-29, NAV-001 change request "Default dev OSM data = all of Mongolia").**
     Backward compatible, additive only:
@@ -31,15 +68,24 @@ info:
 
     **CORS** is handled only by the gateway (ADR-0002 §3). Every path answers `OPTIONS`
     with 204. `Access-Control-Allow-Origin` is present only for origins allowed by
-    `CORS_ALLOWED_ORIGINS`. `Access-Control-Expose-Headers` always includes
-    `Content-Range, Content-Length, ETag, Accept-Ranges`. Every `Access-Control-*` header appears
+    `CORS_ALLOWED_ORIGINS` (`*` by default in dev; an explicit allowlist, never `*`, on staging).
+    `Access-Control-Expose-Headers` always includes
+    `Content-Range, Content-Length, ETag, Accept-Ranges, Retry-After` (`Retry-After` since 0.4.0). Every `Access-Control-*` header appears
     **at most once** on every response, including 206, 304, 4xx and 5xx (browsers reject a repeated
     `Access-Control-Allow-Origin`; NAV-001 AC 43).
 
     **Errors.** Clients branch on HTTP status first. 4xx bodies come from the upstream
     (Valhalla OSRM-style `{code,message}`, Valhalla native `{error_code,error,...}`, or Photon
-    `{message}` / validation map). 404/405/413/416/502/503/504 produced by the gateway itself use
+    `{message}` / validation map). 404/405/413/416/429/502/503/504 produced by the gateway itself use
     `GatewayError` `{code,message}` with `Content-Type: application/json`. A 500 from an upstream is a bug, not a contract case.
+
+    **Rate limits (since 0.4.0).** Where limits are enabled (staging: yes), `postRoute`, `getRoute`, `search`
+    and `reverse` may return **429** `RateLimited` with `Retry-After`. Client rules: do not repeat the request
+    before `Retry-After` seconds have passed; never retry in a tight loop; for search-as-you-type, drop the
+    pending request and let the next keystroke (after the delay) search again; for a route or reroute, show the
+    retryable state and retry at most once after the delay. Localised text is keyed on the code or HTTP status.
+    If `Retry-After` is missing, is not a positive integer, or cannot be read (a browser sees it only when the
+    gateway lists it in `Access-Control-Expose-Headers`), wait **5 s** (since 0.4.1, NAV-003 AC 35).
 
     **Attribution.** Map data is © OpenStreetMap contributors (ODbL). Clients render this string
     from their own resource files on every map screen. The PMTiles metadata attribution is
@@ -48,9 +94,11 @@ info:
     "© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021) processed by
     ESA WorldCover consortium", also from resource files (ADR-0002 Consequences).
 
-    **Auth.** None (NAV-001: local development only).
+    **Auth.** None. NAV-001: local development. NAV-008 staging: public but unlisted URL, protected by
+    per-IP rate limits (PO decision D8). Authentication is decided before any public release.
 
-    Story traceability: NAV-001 (all operations).
+    Story traceability: NAV-001 (all operations), NAV-003 (`search`, `reverse` web client profile),
+    NAV-008 (staging server, 429).
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -60,6 +108,11 @@ servers:
       port:
         default: "8080"
         description: GATEWAY_PORT in backend/.env
+  - url: https://staging.example-placeholder
+    description: |
+      Staging (NAV-008, ADR-0005): Hostinger VPS in Singapore, TLS by Caddy in front of the gateway.
+      PLACEHOLDER host name until the PO provides the company domain (the real host is a subdomain of it,
+      NAV-008 D6/AC 23). Tester-only, unlisted, rate limited (429), CORS allowlist. Not for real users.
 tags:
   - name: gateway
     description: Served by the gateway itself
@@ -115,12 +168,15 @@ paths:
         Guarantees for the dev build (NAV-001 AC 9-12). The default dev extract is all of Mongolia
         (ADR-0002 Amendment 1):
         - bytes 0-6 are `PMTiles` and byte 7 is `0x03`
-        - bounds cover UB reference points P1-P6, `maxzoom` >= 14 (Protomaps default 15)
+        - bounds cover UB reference points P1-P6, `maxzoom` >= 14. The default dev build is exactly
+          z0-14 (`TILES_MAXZOOM=14`, PO decision D1 of 2026-09-30, ADR-0002 Amendment 3). Clients read
+          `minzoom`/`maxzoom` from the archive header and overzoom above it (MapLibre does this for a
+          vector source whose `maxzoom` is lower than the map zoom). Clients must not hard-code 14 or 15.
         - the metadata `attribution` contains `OpenStreetMap`
-        - size: NAV-001 AC 12 says <= 200 MB, a limit written for the UB extract. The Mongolia build
-          measured 243 MB at z0-15, and the PO has not yet decided the limit (NAV-001 Open question 4).
-          Clients must not assume any archive size. They read `Content-Length` from HEAD or the
-          `Content-Range` total.
+        - size (NAV-001 AC 12, D1): <= 200 MB (2^20-byte MB) for the default Mongolia build, with a
+          fallback limit of <= 400 MB if a z14 build ever exceeds 200 MB. Measured 2026-09-30:
+          117,536,866 bytes at z0-14 (the z0-15 build was 243,254,233 bytes). Clients must not assume
+          any archive size. They read `Content-Length` from HEAD or the `Content-Range` total.
 
         A `Range` whose start is at or beyond the archive size returns **416** with a JSON
         `GatewayError` body and `Content-Range: bytes */<size>` (NAV-001 AC 43). PMTiles readers never
@@ -190,9 +246,10 @@ paths:
         "404":
           description: Tiles archive missing (headers only, no body on HEAD)
         "416":
-          description: Unsatisfiable Range (headers only, no body on HEAD). Headers as in the GET 416 response.
+          description: "Unsatisfiable Range (headers only, no body on HEAD). Headers as in the GET 416 response, including `Cache-Control: no-store`."
           headers:
             Content-Range: { $ref: "#/components/headers/ContentRangeUnsatisfied" }
+            Cache-Control: { $ref: "#/components/headers/CacheControlNoStore" }
             Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
             Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
     options:
@@ -239,7 +296,7 @@ paths:
 
         NFR: p95 <= 500 ms via the gateway for UB routes (NAV-001 AC 35), measured on the default Mongolia
         build. The gateway read timeout is 10 s.
-      x-stories: [NAV-001, NAV-004, NAV-005]
+      x-stories: [NAV-001, NAV-004, NAV-005, NAV-008]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route, docs: "https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/" }
       requestBody:
         required: true
@@ -304,6 +361,8 @@ paths:
           $ref: "#/components/responses/GatewayMethodNotAllowed"
         "413":
           $ref: "#/components/responses/GatewayPayloadTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "502":
           $ref: "#/components/responses/UpstreamUnavailable"
         "503":
@@ -318,7 +377,7 @@ paths:
         For quick manual tests and cacheable links. Clients use POST. Keep URLs under 8 KB: longer
         request lines get 414 from the gateway with an HTML body, which is not part of the contract.
         The query string is redacted from all service logs (ADR-0002 §3.4).
-      x-stories: [NAV-001]
+      x-stories: [NAV-001, NAV-008]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route }
       parameters:
         - name: json
@@ -333,6 +392,8 @@ paths:
           $ref: "#/components/responses/RouteOk"
         "400":
           $ref: "#/components/responses/RouteBadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "502":
           $ref: "#/components/responses/UpstreamUnavailable"
         "503":
@@ -368,8 +429,27 @@ paths:
         `Accept-Language` header. For UB-relevant ranking, send `lat`/`lon` (the map centre or user position).
         Debounce keystrokes on the client.
 
+        **Index behaviour clients must plan for** (measured 2026-09-30 on the dev stack, ADR-0006 Context):
+        - Photon does **not** transliterate between Cyrillic and Latin. A Latin query (for example `Sukhbaatar`,
+          `suhbaatar`, `Sükhbaatar`) matches places that have a Latin name (mostly `name:en`), with ICU diacritic
+          folding and edit-distance fuzziness, and returns the name in the requested `lang`. Places without a Latin
+          name are found only by a Cyrillic query.
+        - The index does **not** fold ү to у or ө to о. A single word typed with у for ү (`Сухбаатар`) returns an
+          empty result. Fuzziness rescues only some multi-word queries.
+        - OSM names can contain district abbreviations (`БЗД-ийн 4-р хороо`), so an abbreviation is also a valid
+          query as typed.
+        - A 1-character `q` is accepted (200). Clients do not send queries shorter than 2 characters.
+
+        **NAV-003 web client profile** (ADR-0006 §3; native clients follow it from NAV-005):
+        - `lat`/`lon` of the bias point with at most **3 decimals** (about 100 m, privacy). `limit` between 5 and 10
+          (web: 8). `zoom`, `location_bias_scale`, `bbox`, `layer` and `osm_tag` are not sent.
+        - At most **2** requests per settled query: the query as typed, plus at most one assisted variant (a Cyrillic
+          transliteration of a Latin query, the full district name for an abbreviation, or a ү/ө variant after an
+          empty result). Results are merged client-side, without duplicates by `osm_type` + `osm_id`.
+        - Client timeout 8 s. A response for a superseded query is discarded.
+
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 36). The gateway read timeout is 5 s.
-      x-stories: [NAV-001, NAV-003]
+      x-stories: [NAV-001, NAV-003, NAV-008]
       x-upstream: { service: photon, version: "1.3.0", path: /api, docs: "https://github.com/komoot/photon/blob/1.3.0/docs/api-v1.md" }
       parameters:
         - name: q
@@ -409,6 +489,8 @@ paths:
           $ref: "#/components/responses/PhotonOk"
         "400":
           $ref: "#/components/responses/PhotonBadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "502":
           $ref: "#/components/responses/UpstreamUnavailable"
         "503":
@@ -437,8 +519,14 @@ paths:
         than a house address (OSM address coverage in UB is irregular). A coordinate with nothing
         within `radius` returns **200 with an empty `features` array** (for example Beijing).
 
+        The nearest feature **may have no `name`**, for example an unnamed `building=yes` (measured near P2 on
+        2026-09-30). Clients fall back to `street` + `housenumber`, then to a type label (NAV-003 AC 17).
+
+        **NAV-003 web client profile** (ADR-0006 §4): one request per coordinate card with `lat`/`lon` to 6 decimals
+        (a point the user chose), `lang`, `limit=1`, `radius=0.5`. Client timeout 8 s.
+
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 37).
-      x-stories: [NAV-001, NAV-003]
+      x-stories: [NAV-001, NAV-003, NAV-008]
       x-upstream: { service: photon, version: "1.3.0", path: /reverse }
       parameters:
         - name: lat
@@ -463,6 +551,8 @@ paths:
           $ref: "#/components/responses/PhotonOk"
         "400":
           $ref: "#/components/responses/PhotonBadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "502":
           $ref: "#/components/responses/UpstreamUnavailable"
         "503":
@@ -563,8 +653,8 @@ components:
       description: Present only for allowed origins. Either the echoed origin or `*`.
       schema: { type: string }
     AccessControlExposeHeaders:
-      description: Always includes Content-Range, Content-Length, ETag, Accept-Ranges
-      schema: { type: string, example: "Content-Range, Content-Length, ETag, Accept-Ranges" }
+      description: Always includes Content-Range, Content-Length, ETag, Accept-Ranges, Retry-After (Retry-After since 0.4.0)
+      schema: { type: string, example: "Content-Range, Content-Length, ETag, Accept-Ranges, Retry-After" }
     ContentLength:
       schema: { type: integer }
     ContentRangeUnsatisfied:
@@ -575,7 +665,18 @@ components:
     AcceptRanges:
       schema: { type: string, enum: [bytes] }
     CacheControl:
+      description: Caching policy of the archive on 200/206 (dev value, ADR-0002 §5).
       schema: { type: string, example: "public, max-age=300" }
+    CacheControlNoStore:
+      description: Exactly one header with this value. Used on responses that must never be cached (tiles 416, since 0.3.0).
+      required: true
+      schema: { type: string, const: no-store }
+    RetryAfter:
+      description: |
+        Delay in whole seconds (RFC 9110 §10.2.3, delay-seconds form only, never an HTTP date) before the client
+        may send the same kind of request again. Exactly one header. Server-chosen (staging: 1). Since 0.4.0.
+      required: true
+      schema: { type: integer, minimum: 1, example: 1 }
 
   responses:
     CorsPreflight:
@@ -675,10 +776,16 @@ components:
       description: |
         The `Range` start is at or beyond the end of the archive (NAV-001 AC 43). Answered by the gateway
         with a JSON body. Each CORS header appears exactly once, so a browser `fetch` sees status 416
-        instead of a CORS error. Other headers on the file (`ETag`, `Cache-Control`, `Accept-Ranges`) may also
-        be present. Clients must not rely on them for a 416.
+        instead of a CORS error.
+
+        Caching (since 0.3.0): the response carries exactly one `Cache-Control` header with the value
+        `no-store`, never the file's `public, max-age=300`. A 416 is an error about the request, not a
+        representation of the archive, and must not be stored by a browser, proxy or CDN under the archive
+        URL. `Accept-Ranges` is absent (it describes the file, not the error). `ETag` of the current file
+        may be present. Clients must not rely on `ETag` or `Accept-Ranges` for a 416.
       headers:
         Content-Range: { $ref: "#/components/headers/ContentRangeUnsatisfied" }
+        Cache-Control: { $ref: "#/components/headers/CacheControlNoStore" }
         Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
         Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
       content:
@@ -691,6 +798,23 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/GatewayError" }
           example: { code: PayloadTooLarge, message: "Request body too large" }
+    RateLimited:
+      description: |
+        Since 0.4.0 (NAV-008 AC 13). The client IP exceeded the gateway's per-IP rate limit for this path group
+        (routing: `/v1/route`; search: `/v1/search` and `/v1/reverse`). Answered by the gateway without contacting
+        the upstream. Each CORS header appears exactly once, so a browser `fetch` sees status 429 and can read
+        `Retry-After` (it is in `Access-Control-Expose-Headers`). Must not be cached. Limits are set loosely because
+        many phones share one carrier-grade NAT address: a normal session (<= 10 requests/s to these paths) is never
+        limited. See the client rules under "Rate limits" in the API description.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+        Cache-Control: { $ref: "#/components/headers/CacheControlNoStore" }
+        Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+        Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GatewayError" }
+          example: { code: RateLimited, message: "Too many requests" }
     UpstreamUnavailable:
       description: |
         The upstream container is stopped, unresolvable, refusing connections or not accepting the connection
@@ -722,8 +846,9 @@ components:
           type: string
           description: |
             Known values are listed. New values may be added in minor versions (0.2.0 added
-            `RangeNotSatisfiable`), so clients treat an unknown code as a generic failure keyed on the HTTP status.
-          enum: [NotFound, MethodNotAllowed, PayloadTooLarge, RangeNotSatisfiable, UpstreamUnavailable, UpstreamTimeout]
+            `RangeNotSatisfiable`, 0.4.0 added `RateLimited`), so clients treat an unknown code as a generic failure
+            keyed on the HTTP status.
+          enum: [NotFound, MethodNotAllowed, PayloadTooLarge, RangeNotSatisfiable, RateLimited, UpstreamUnavailable, UpstreamTimeout]
         message:
           type: string
           description: English, developer-facing. Clients show localised text keyed on `code` / HTTP status.
@@ -877,7 +1002,7 @@ components:
       additionalProperties: true
       properties:
         distance: { type: number, description: Metres }
-        duration: { type: number, description: Seconds (road-class defaults where `maxspeed` is missing, no traffic) }
+        duration: { type: number, description: "Seconds (road-class defaults where `maxspeed` is missing, no traffic)" }
         weight: { type: number }
         weight_name: { type: string }
         geometry: { type: string, description: "Encoded polyline, precision 6 (polyline6)" }
@@ -1036,8 +1161,9 @@ components:
       additionalProperties: true
       description: |
         GeocodeJSON-style properties. All address fields are optional and in the requested `lang` where
-        available. Some OSM values contain traditional Mongolian script after the Cyrillic (for example
-        "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ"). NAV-003 UX decides how these are displayed.
+        available. Some OSM values contain traditional Mongolian script after the Cyrillic, in `name`, `state`,
+        `county` and `country` (for example "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ", "Сүхбаатар ᠰᠦᠬᠡ ᠪᠠᠭᠠᠲᠤᠷ"). Clients remove the
+        traditional-script part before display (NAV-003 AC 18, ADR-0006 §2.6).
       properties:
         osm_type: { type: string, enum: [N, W, R] }
         osm_id: { type: integer, format: int64 }
@@ -1047,14 +1173,19 @@ components:
           type: string
           description: Photon layer of this result
           enum: [house, street, locality, district, city, county, state, country, other]
-        name: { type: string }
+        name: { type: string, description: "May be absent (for example an unnamed building from `reverse`)" }
         housenumber: { type: string }
         street: { type: string }
         postcode: { type: string }
         locality: { type: string }
-        district: { type: string }
+        district:
+          type: string
+          description: |
+            In Ulaanbaatar this is usually the **neighbourhood** (OSM `place=suburb`, for example «Бага Тойрог»,
+            «Гандан»), not the düüreg. No property of the current index (ADR-0003 dump) reliably carries the düüreg
+            (measured 2026-09-30, ADR-0006 F7).
         city: { type: string }
-        county: { type: string }
+        county: { type: string, description: "Soum or similar. Usually absent for places in Ulaanbaatar" }
         state: { type: string }
         country: { type: string }
         countrycode: { type: string, example: MN }

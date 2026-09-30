@@ -21,6 +21,7 @@ MONGOLIA_MIRROR = "https://geo2day.com/asia/mongolia.pbf"
 BBBIKE = "https://download.bbbike.org/osm/bbbike/UlanBator/UlanBator.osm.pbf"
 GEOFABRIK = "https://download.geofabrik.de/asia/mongolia-latest.osm.pbf"
 DATA_EXT = re.compile(r"\.(osm\.pbf|pbf|pmtiles|mbtiles)$", re.I)
+GLYPH_RANGE = re.compile(r"^web/public/fonts/Noto Sans (Regular|Medium|Italic)/\d+-\d+\.pbf$")
 ARTEFACT = re.compile(r"(valhalla_tiles(\.tar)?|photon_data|\.pmtiles|\.mbtiles|\.pbf)(/|$|\s)", re.I)
 
 
@@ -73,6 +74,11 @@ def ac03(r, be):
     r.check("AC03.compose_default_matches_env_example", m is not None and m.group(1) == kv.get("OSM_PBF_URL"),
             f"compose.yaml ${{OSM_PBF_URL:-{kv.get('OSM_PBF_URL')}}} (.env.example says compose has the same defaults)",
             m.group(1) if m else "no ${OSM_PBF_URL:-...} in compose.yaml")
+    # PO decision D1 (2026-09-30): tiles max zoom key, default 14, same default in compose.yaml (AC 3, AC 12).
+    r.check("AC03.tiles_maxzoom_default_14", kv.get("TILES_MAXZOOM") == "14", "TILES_MAXZOOM=14 (D1)", kv.get("TILES_MAXZOOM"))
+    mz = re.search(r"\$\{TILES_MAXZOOM:-([^}]*)\}", compose)
+    r.check("AC03.compose_tiles_maxzoom_default_14", mz is not None and mz.group(1) == "14",
+            "compose.yaml ${TILES_MAXZOOM:-14}", mz.group(1) if mz else "no ${TILES_MAXZOOM:-...} in compose.yaml")
     r.check("AC03.gateway_port_8080", kv.get("GATEWAY_PORT") == "8080", "GATEWAY_PORT=8080", kv.get("GATEWAY_PORT"))
     r.check("AC03.cors_default_any", kv.get("CORS_ALLOWED_ORIGINS") == "*", "CORS_ALLOWED_ORIGINS=*", kv.get("CORS_ALLOWED_ORIGINS"))
     r.check("AC03.every_key_commented", not uncommented, "a comment line directly above every key", uncommented)
@@ -89,8 +95,15 @@ def ac06(r, repo, be):
     bad_st = [ln for ln in st if DATA_EXT.search(ln.split()[-1]) or ARTEFACT.search(ln)]
     r.check("AC06.git_status_no_data_files", not bad_st, "no .pbf/.pmtiles/.mbtiles/graph/index in git status", bad_st[:5])
     ls = run(["git", "ls-files"], repo).stdout.splitlines()
-    bad_ls = [f for f in ls if DATA_EXT.search(f) or ARTEFACT.search(f + "\n")]
-    r.check("AC06.git_ls_files_no_data_files", not bad_ls, "none tracked", bad_ls[:5])
+    # Interpretation (test plan section 6, item 6; BA asked to amend the AC 6 wording): MapLibre glyph range files
+    # web/public/fonts/<Noto Sans stack>/<start>-<end>.pbf are font assets that ADR-0004 decides to commit, not OSM data
+    # or build artefacts. Only that exact pattern is exempt; any other .pbf anywhere (including elsewhere in web/) fails.
+    glyphs = [f for f in ls if GLYPH_RANGE.match(f)]
+    bad_ls = [f for f in ls if (DATA_EXT.search(f) or ARTEFACT.search(f + "\n")) and not GLYPH_RANGE.match(f)]
+    r.check("AC06.git_ls_files_no_data_files", not bad_ls, "none tracked (ADR-0004 glyph ranges exempt)", bad_ls[:5])
+    if glyphs:
+        r.note("AC06.adr0004_glyph_pbf_tracked", f"{len(glyphs)} glyph range .pbf files under web/public/fonts "
+               "(literal AC 6 grep matches them; exempt per ADR-0004, BA to confirm wording)")
     gi = open(os.path.join(be, ".gitignore"), encoding="utf-8").read().splitlines()
     r.check("AC06.data_dir_ignored", any(ln.strip() in ("data/", "/data/", "data", "/data") for ln in gi), "data/ in backend/.gitignore", gi)
     chk = run(["git", "check-ignore", "-q", "backend/data/tiles/basemap.pmtiles"], repo)

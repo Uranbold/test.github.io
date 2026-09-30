@@ -1,10 +1,11 @@
-// NAV-002 web demo map: entry point.
+// NAV-002 web demo map + NAV-003 search: entry point.
 // Spec: docs/design/screens/NAV-002-web-map.md, flows/NAV-002-web-demo-map.md, map-style.md; ADR-0004.
 import "maplibre-gl/dist/maplibre-gl.css";
-import "./styles.css";
+// styles.css is linked from index.html (render-blocking), so the pre-module loading pill is styled (AC 37).
 import { addProtocol, setWorkerUrl, type Map as MapLibreMap } from "maplibre-gl";
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { PMTiles, Protocol } from "pmtiles";
+import { cancelBootLoading } from "./boot/bootLoading";
 import { loadConfig } from "./config";
 import { I18n } from "./i18n/i18n";
 import { LocationController } from "./location/locationController";
@@ -19,10 +20,14 @@ declare global {
   interface Window {
     /** Test hook, dev builds only (ADR-0004 §7). */
     __nav002?: { map: MapLibreMap; LABEL_EXPRESSION: typeof LABEL_EXPRESSION; app: App };
+    /** NAV-003 test hook, dev builds only (ADR-0006, web/README.md › Test hooks). */
+    __nav003?: { search: NonNullable<App["search"]>; map: MapLibreMap | null };
   }
 }
 
+/** Design-token CSS. index.html normally has it already (vite.config.ts › bootIndicator); this is the fallback. */
 function injectTokens(): void {
+  if (document.getElementById("design-tokens")) return;
   const style = document.createElement("style");
   style.id = "design-tokens";
   style.textContent = tokensCss();
@@ -30,6 +35,8 @@ function injectTokens(): void {
 }
 
 function main(): void {
+  // From here on the StatusMachine owns the loading pill (it counts the time since navigation start).
+  cancelBootLoading();
   injectTokens();
   setWorkerUrl(maplibreWorkerUrl);
 
@@ -60,6 +67,9 @@ function main(): void {
 
   if (import.meta.env.DEV && app.map) {
     window.__nav002 = { map: app.map, LABEL_EXPRESSION, app };
+  }
+  if (import.meta.env.DEV && app.search) {
+    window.__nav003 = { search: app.search, map: app.map };
   }
 }
 

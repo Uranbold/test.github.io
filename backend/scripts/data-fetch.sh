@@ -116,13 +116,14 @@ fetch_all() {
     resolve_photon_dump
 
     ensure_tool photon.jar "${PHOTON_JAR_URL:-}" 256 "${PHOTON_JAR_SHA256:-}"
-    if marker_matches "$DATA/photon/.complete" "$(photon_fingerprint)"; then
+    # FETCH_ALL_TOOLS=1 (staging nav-rebuild.sh --force): fetch every tool, as a forced re-import needs them all.
+    if [[ "${FETCH_ALL_TOOLS:-0}" != 1 ]] && marker_matches "$DATA/photon/.complete" "$(photon_fingerprint)"; then
         log info "photon index up to date; zstd decoder not needed"
     else
         ensure_tool aircompressor.jar "${AIRCOMPRESSOR_URL:-}" 256 "${AIRCOMPRESSOR_SHA256:-}"
     fi
 
-    if marker_matches "$DATA/tiles/.complete" "$(tiles_fingerprint)" && [[ -s "$DATA/tiles/basemap.pmtiles" ]]; then
+    if [[ "${FETCH_ALL_TOOLS:-0}" != 1 ]] && marker_matches "$DATA/tiles/.complete" "$(tiles_fingerprint)" && [[ -s "$DATA/tiles/basemap.pmtiles" ]]; then
         log info "tiles up to date; auxiliary sources and tile tooling not needed"
     else
         resolve_aux

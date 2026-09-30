@@ -8,13 +8,18 @@ Every request example in the spec (route bodies, search/reverse parameter exampl
 error cases is sent through the gateway. Each response status must be documented for that operation,
 and JSON bodies must validate (JSON Schema 2020-12) against the documented response schema. Response
 headers listed in the spec for CORS preflight and tiles are checked for presence, and no Access-Control-*
-header may appear more than once on any response (NAV-001 AC 43).
+header may appear more than once on any response (NAV-001 AC 43), and every Access-Control-Expose-Headers must
+carry all tokens of the spec's AccessControlExposeHeaders (Retry-After since 0.4.0).
+--rate-limit (NAV-008 AC 13): floods route, search and reverse and validates one 429 per group against
+components/responses/RateLimited (Retry-After integer >= 1 once, Cache-Control: no-store once). Use it only
+against a gateway started with GATEWAY_RATE_LIMIT=on (staging or an isolated test gateway).
 Exit code 0 only if every case conforms.
 """
 import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -93,10 +98,32 @@ class Checker:
             self.passes += 1
             print(f"PASS  {name}")
 
+    def expose_tokens(self):
+        """Tokens every Access-Control-Expose-Headers must contain (components/headers example, openapi 0.4.0+)."""
+        ex = self.spec.get("components", {}).get("headers", {}).get("AccessControlExposeHeaders", {}).get("schema", {}).get("example", "")
+        return {t.strip().lower() for t in ex.split(",") if t.strip()}
+
     def case(self, name, method, path, spec_path, body=None, headers=None, response_ref=None):
         """response_ref: validate against this components/responses entry (for paths/methods not in the spec)."""
         status, hdrs, raw, names = http(self.base, method, path, body, headers)
+        self.evaluate(name, method, spec_path, status, hdrs, raw, names, headers, response_ref)
+
+    def evaluate(self, name, method, spec_path, status, hdrs, raw, names, headers=None, response_ref=None):
         errors = [f"response header {n} sent more than once" for n in repeated_cors(names)]
+        if "access-control-expose-headers" in hdrs:
+            have = {t.strip().lower() for t in hdrs["access-control-expose-headers"].split(",")}
+            missing = sorted(self.expose_tokens() - have)
+            if missing:
+                errors.append(f"Access-Control-Expose-Headers lacks {missing} (spec AccessControlExposeHeaders)")
+        if status == 429:
+            for single in ("retry-after", "cache-control"):
+                if names.count(single) != 1:
+                    errors.append(f"429: {single} must appear exactly once (got {names.count(single)})")
+            ra = hdrs.get("retry-after", "")
+            if not (ra.isdigit() and int(ra) >= 1):
+                errors.append(f"429: Retry-After must be an integer >= 1, got {ra!r}")
+            if hdrs.get("cache-control") != "no-store":
+                errors.append(f"429: Cache-Control must be no-store, got {hdrs.get('cache-control')!r}")
         if response_ref:
             resp = self.deref({"$ref": response_ref})
         else:
@@ -132,6 +159,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://localhost:8080")
     ap.add_argument("--spec", default=DEFAULT_SPEC)
+    ap.add_argument("--rate-limit", action="store_true",
+                    help="NAV-008: also provoke and validate 429 RateLimited (gateway with GATEWAY_RATE_LIMIT=on only)")
+    ap.add_argument("--rate-limit-flood", type=int, default=150, help="requests per flood (default 150)")
     args = ap.parse_args()
     with open(args.spec, encoding="utf-8") as f:
         spec = yaml.safe_load(f)
@@ -182,6 +212,29 @@ def main():
     # Gateway errors on paths/methods the spec does not list
     c.case("unknown path", "GET", "/no/such/path", "-", response_ref="#/components/responses/GatewayNotFound")
     c.case("wrong method", "DELETE", "/v1/route", "-", response_ref="#/components/responses/GatewayMethodNotAllowed")
+
+    if args.rate_limit:
+        # NAV-008 AC 13 (openapi 0.4.0 RateLimited): flood one path group from this client, then validate a 429.
+        # Only against a gateway with GATEWAY_RATE_LIMIT=on; never against the shared dev stack.
+        from concurrent.futures import ThreadPoolExecutor
+        carmn_body = json.dumps(carmn).encode()
+        groups = [("route 429", "POST", "/v1/route", carmn_body), ("search 429", "GET", "/v1/search?q=ulaan&lang=mn", None),
+                  ("reverse 429", "GET", "/v1/reverse?lat=47.9189&lon=106.9176&lang=mn", None)]
+        for name, method, path, body in groups:
+            spec_path = path.split("?")[0]
+            got = None
+            for _ in range(5):
+                with ThreadPoolExecutor(max_workers=48) as ex:
+                    list(ex.map(lambda _i: http(c.base, method, path, body, cors), range(args.rate_limit_flood)))
+                got = http(c.base, method, path, body, cors)
+                if got[0] == 429:
+                    break
+            status, hdrs, raw, names = got
+            if status != 429:
+                c.result(f"{name} [{method} {spec_path}]", [f"no 429 after flooding ({status}); is GATEWAY_RATE_LIMIT=on?"])
+            else:
+                c.evaluate(name, method, spec_path, status, hdrs, raw, names, cors)
+            time.sleep(3)  # let the bucket drain before the next group (burst 60 at 30 r/s)
 
     print(f"\n{c.passes} conform, {len(c.failures)} do not")
     sys.exit(1 if c.failures else 0)

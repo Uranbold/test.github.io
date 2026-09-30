@@ -1,0 +1,485 @@
+{
+ "story": "NAV-003",
+ "ac": [
+  10,
+  14,
+  15,
+  16
+ ],
+ "refs": {
+  "P1": [
+   47.9189,
+   106.9176
+  ],
+  "P2": [
+   47.9139,
+   106.9044
+  ],
+  "P3": [
+   47.8858,
+   106.9173
+  ],
+  "P4": [
+   47.9215,
+   106.895
+  ],
+  "P5": [
+   47.9095,
+   106.8835
+  ],
+  "X1": [
+   49.027,
+   104.044
+  ]
+ },
+ "notes": [
+  "A9-A11, B9, B10 use the English type label when ui=en (B10: \"District\"). B10 name condition accepts the Latin or Cyrillic name (lang=en returns name:en where it exists, AC 45).",
+  "C4 (context line for A2 and A6) and C5 (share of Latin names in the mn UI) are computed from the A/B runs.",
+  "Rate: rows are spaced so the whole run stays <= 2 search requests per second (about 70 requests per run)."
+ ],
+ "rows": [
+  {
+   "id": "A1",
+   "tier": "A",
+   "q": "Сүхбаатарын талбай",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 500,
+    "top": 1
+   }
+  },
+  {
+   "id": "A2",
+   "tier": "A",
+   "q": "Сүхбаатар",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 1000,
+    "top": 3
+   }
+  },
+  {
+   "id": "A3",
+   "tier": "A",
+   "q": "Сүхб",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 1000,
+    "top": 5
+   }
+  },
+  {
+   "id": "A4",
+   "tier": "A",
+   "q": "Sukhbaatar",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 1000,
+    "top": 3
+   }
+  },
+  {
+   "id": "A5",
+   "tier": "A",
+   "q": "sukhbaatar square",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 500,
+    "top": 3
+   }
+  },
+  {
+   "id": "A6",
+   "tier": "A",
+   "q": "Гандан",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P4",
+    "m": 500,
+    "top": 3
+   }
+  },
+  {
+   "id": "A7",
+   "tier": "A",
+   "q": "Зайсан",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P3",
+    "m": 1000,
+    "top": 3
+   }
+  },
+  {
+   "id": "A8",
+   "tier": "A",
+   "q": "Их дэлгүүр",
+   "ui": "mn",
+   "bias": "P2",
+   "expect": {
+    "near": "P2",
+    "m": 300,
+    "top": 3
+   }
+  },
+  {
+   "id": "A9",
+   "tier": "A",
+   "q": "БЗД",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "nameContains": "Баянзүрх",
+    "type": "Дүүрэг",
+    "top": 3
+   }
+  },
+  {
+   "id": "A10",
+   "tier": "A",
+   "q": "ЧД",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "nameContains": "Чингэлтэй",
+    "type": "Дүүрэг",
+    "top": 3
+   }
+  },
+  {
+   "id": "A11",
+   "tier": "A",
+   "q": "худ",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "nameContains": "Хан-Уул",
+    "type": "Дүүрэг",
+    "top": 3
+   }
+  },
+  {
+   "id": "A12",
+   "tier": "A",
+   "q": "Баянзүрх дүүрэг",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "nameContains": "Баянзүрх",
+    "type": "Дүүрэг",
+    "top": 3
+   }
+  },
+  {
+   "id": "A13",
+   "tier": "A",
+   "q": "Энхтайвны өргөн чөлөө",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 2000,
+    "type": "Зам",
+    "top": 3
+   }
+  },
+  {
+   "id": "A14",
+   "tier": "A",
+   "q": "Эрдэнэт",
+   "ui": "mn",
+   "bias": "X1",
+   "expect": {
+    "near": "X1",
+    "m": 5000,
+    "top": 3
+   }
+  },
+  {
+   "id": "A15",
+   "tier": "A",
+   "q": "47.9189, 106.9176",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "coordinateOption": true,
+    "searchRequests": 0
+   }
+  },
+  {
+   "id": "A16",
+   "tier": "A",
+   "q": "xqzjwvk",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "noResults": true
+   }
+  },
+  {
+   "id": "B1",
+   "tier": "B",
+   "q": "suhbaatar",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 1000,
+    "top": 5
+   },
+   "control": "A2"
+  },
+  {
+   "id": "B2",
+   "tier": "B",
+   "q": "Sükhbaatar",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 1000,
+    "top": 5
+   },
+   "control": "A2"
+  },
+  {
+   "id": "B3",
+   "tier": "B",
+   "q": "Сухбаатар",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 1000,
+    "top": 5
+   },
+   "control": "A2"
+  },
+  {
+   "id": "B4",
+   "tier": "B",
+   "q": "Сүхбатар",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 1000,
+    "top": 5
+   },
+   "control": "A2"
+  },
+  {
+   "id": "B5",
+   "tier": "B",
+   "q": "Gandan",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "near": "P4",
+    "m": 500,
+    "top": 5
+   },
+   "control": "A6"
+  },
+  {
+   "id": "B6",
+   "tier": "B",
+   "q": "Zaisan",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P3",
+    "m": 1000,
+    "top": 5
+   },
+   "control": "A7"
+  },
+  {
+   "id": "B7",
+   "tier": "B",
+   "q": "Zaysan",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P3",
+    "m": 1000,
+    "top": 5
+   },
+   "control": "A7"
+  },
+  {
+   "id": "B8",
+   "tier": "B",
+   "q": "Ikh delguur",
+   "ui": "mn",
+   "bias": "P2",
+   "expect": {
+    "near": "P2",
+    "m": 300,
+    "top": 5
+   },
+   "control": "A8"
+  },
+  {
+   "id": "B9",
+   "tier": "B",
+   "q": "Bayanzurkh",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "nameContains": "Баянзүрх",
+    "type": "Дүүрэг",
+    "top": 5
+   },
+   "control": "A12"
+  },
+  {
+   "id": "B10",
+   "tier": "B",
+   "q": "Chingeltei",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "nameContains": "Chingeltei|Чингэлтэй",
+    "type": "District",
+    "top": 5
+   },
+   "control": "A10"
+  },
+  {
+   "id": "B11",
+   "tier": "B",
+   "q": "Enkhtaivan",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "near": "P1",
+    "m": 2000,
+    "type": "Зам",
+    "top": 5
+   },
+   "control": "A13"
+  },
+  {
+   "id": "B12",
+   "tier": "B",
+   "q": "Erdenet",
+   "ui": "en",
+   "bias": "X1",
+   "expect": {
+    "near": "X1",
+    "m": 5000,
+    "top": 3
+   },
+   "control": "A14"
+  },
+  {
+   "id": "B13",
+   "tier": "B",
+   "q": "Галт тэрэгний буудал",
+   "ui": "mn",
+   "bias": "P5",
+   "expect": {
+    "near": "P5",
+    "m": 500,
+    "top": 5
+   }
+  },
+  {
+   "id": "B14",
+   "tier": "B",
+   "q": "Сүхбаатар дүүргийн 1-р хороо",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "type": "Хороо",
+    "top": 5
+   }
+  },
+  {
+   "id": "B15",
+   "tier": "B",
+   "q": "БЗД 4-р хороо",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "type": "Хороо",
+    "nameOrContextContains": "Баянзүрх",
+    "top": 5
+   }
+  },
+  {
+   "id": "C1a",
+   "tier": "C",
+   "q": "Дархан",
+   "ui": "mn",
+   "bias": [
+    49.4867,
+    105.9228
+   ],
+   "expect": {
+    "baseline": "nearest option to Darkhan and its rank",
+    "ref": [
+     49.4867,
+     105.9228
+    ]
+   }
+  },
+  {
+   "id": "C1b",
+   "tier": "C",
+   "q": "Darkhan",
+   "ui": "en",
+   "bias": [
+    49.4867,
+    105.9228
+   ],
+   "expect": {
+    "baseline": "nearest option to Darkhan and its rank",
+    "ref": [
+     49.4867,
+     105.9228
+    ]
+   }
+  },
+  {
+   "id": "C2",
+   "tier": "C",
+   "q": "1-р хороо",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "baseline": "number of Хороо options and their context lines"
+   }
+  },
+  {
+   "id": "C3",
+   "tier": "C",
+   "q": "Чингэлтэй 13-р хороо",
+   "ui": "mn",
+   "bias": [
+    47.95,
+    106.9
+   ],
+   "expect": {
+    "baseline": "rank and distance (P6 not defined in NAV-003 context; a Chingeltei ger-district point is used)",
+    "ref": [
+     47.95,
+     106.9
+    ]
+   }
+  }
+ ]
+}

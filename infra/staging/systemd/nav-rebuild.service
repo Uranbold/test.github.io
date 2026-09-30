@@ -1,0 +1,16 @@
+# NAV-008 staging: daily data rebuild (deployment-staging.md §11). Installed by infra/staging/bin/install-units.sh.
+[Unit]
+Description=NAV-008 staging daily data rebuild (OSM -> tiles, routing graph, search index)
+Documentation=file://@NAV_ROOT@/infra/staging/RUNBOOK.md
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# The script takes /run/lock/nav-stack.lock (flock) itself, so a manual run, a deploy or a rollback never overlaps.
+ExecStart=@NAV_ROOT@/infra/staging/bin/nav-rebuild.sh
+TimeoutStartSec=2h
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

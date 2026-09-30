@@ -1,10 +1,10 @@
 # Map style spec (MapLibre)
 
 - **Owner:** ux-designer
-- **Stories:** NAV-002 (AC 5–10, 15, 26–29, 35, 46). Later stories add sections (route line: NAV-004, active navigation camera: NAV-005, traffic: Phase 3).
+- **Stories:** NAV-002 (AC 5–10, 15, 26–29, 35, 46), NAV-003 (§7.1 selected-place pin; AC 21, 23, 25). Later stories add sections (route line: NAV-004, active navigation camera: NAV-005, traffic: Phase 3).
 - **Colour values:** `docs/design/tokens.json` is the single source of truth. The tables below quote it for readability. `node docs/design/prototypes/check-contrast.mjs` fails if a table value here drifts from `tokens.json`, or if a listed text/background pair drops below WCAG AA.
-- **Status:** v0.1, 2026-09-29. Colours are a first proposal. The PO judges them on real tiles in the NAV-002 demo (story goal: "is the open basemap good enough for Mongolian users").
-- **Checked on real tiles (2026-09-29, design preview only, not app code):** both styles were generated from `tokens.json` with `@protomaps/basemaps` 5.7.2 plus the §3.2, §3.3 and §4 post-processing, validated with the MapLibre style validator (0 errors, 0 layers left reading `name:ru` / `pgf:*` / `name2` / `name3`), and rendered against the NAV-001 gateway archive at P1 z12, z14, z16.5 and Mongolia z6/z7, day and night. Result: Cyrillic labels incl. ө/ү render, Энх тайваны өргөн чөлөө shows as trunk, and the night map has no bright areas. Two things to watch in the demo: the low-zoom road *widths* are thin Protomaps defaults (colours fixed in §3.3; widths are a follow-up if the PO asks), and some POI names are Latin because that is the OSM `name` (story R2).
+- **Status:** v0.3, 2026-09-30 (§1 zoom range: D1 max zoom 14 read from the archive header; §7.1 NAV-003 pin). v0.2, 2026-09-30 (§1 post-processing moved to runtime per ADR-0004 §3; PO decisions D11–D13, D16 recorded). v0.1, 2026-09-29. Colours are a first proposal. The PO judges them on real tiles in the NAV-002 demo (story goal: "is the open basemap good enough for Mongolian users").
+- **Checked on real tiles (2026-09-29, design preview only, not app code):** both styles were generated from `tokens.json` with `@protomaps/basemaps` 5.7.2 plus the §3.2, §3.3 and §4 post-processing (the same steps `buildStyle` now runs at runtime, §1), validated with the MapLibre style validator (0 errors, 0 layers left reading `name:ru` / `pgf:*` / `name2` / `name3`), and rendered against the NAV-001 gateway archive at P1 z12, z14, z16.5 and Mongolia z6/z7, day and night. Result: Cyrillic labels incl. ө/ү render, Энх тайваны өргөн чөлөө shows as trunk, and the night map has no bright areas. Two things to watch in the demo: the low-zoom road *widths* are thin Protomaps defaults (colours fixed in §3.3; widths: PO decision D16, 2026-09-30, the PO judges them in the demo and a later widening comes back to this spec as a change), and some POI names are Latin because that is the OSM `name` (story R2).
 
 ## 1. Base and build approach
 
@@ -13,10 +13,11 @@
 | Tile schema | Protomaps basemap, tiles 4.15.2, commit `42ffaaa4` (ADR-0002). One vector source named `protomaps`. |
 | Style base | `@protomaps/basemaps` style generator **5.7.2** (the `styles/` package at the same commit). Its `layers("protomaps", flavor, …)` output is the layer list. We do **not** hand-write layers. |
 | Our flavors | `Day` = `tokens.json › color.light.map.flavor`, `Night` = `tokens.json › color.night.map.flavor`. Both are complete Protomaps `Flavor` objects (every key, checked by the checker script). We do not use the stock `light` / `dark` flavors: their label colours are too low-contrast (for example stock dark minor-road labels are 2.3:1), and the stock light map is grey without a road hierarchy. |
-| Post-processing | A build step (mobile-engineer, `web/`) applies §3.2 (trunk colour), §4 (label expression, sizes) and §6 (asset URLs) to the generated layers and writes two static JSON styles, e.g. `web/public/styles/day.json` and `night.json`. The runtime only sets the tile URL (gateway base URL, NAV-002 AC 2–3) and the absolute glyph/sprite URLs. |
+| Post-processing | **At runtime in the client, not a build step** (ADR-0004 §3). `buildStyle(theme, cfg)` in `web/` (mobile-engineer) calls the generator with our flavor, applies §3.2 (trunk colour), §3.3 (low-zoom road colour), §4 (label expression, sizes) and §5–6 (absolute glyph/sprite URLs from `location.origin`), and sets the tile URL from the gateway base URL (NAV-002 AC 2–3). The flavor colours are read from `docs/design/tokens.json`, which the web build imports read-only through the `@design` alias (ADR-0004 Amendment 1); no colour is copied into `web/`. No generated style JSON is written or committed (no `day.json` / `night.json`), so a `@protomaps/basemaps` upgrade is a version bump checked by the ADR-0004 §3 unit test. |
 | Source URL | `pmtiles://<GATEWAY_BASE_URL>/tiles/basemap.pmtiles` (default `http://localhost:8080`). |
+| Opening view | P1, Sükhbaatar Square (47.9189, 106.9176), z12, bearing 0 (NAV-002 AC 5; PO decision D13, 2026-09-30). |
 | Source attribution | Not shown from the style or the PMTiles metadata. The UI renders the credit lines from resource files (screen spec §Attribution; ADR-0002 Consequences). MapLibre's own `AttributionControl` is off. |
-| Zoom range | Camera `minZoom` 3, `maxZoom` 19 (NAV-002 AC 12). The archive's max zoom is 15 (Planetiler default) or 14. Above it MapLibre over-zooms, so roads and labels stay visible to z19 (AC 9). |
+| Zoom range | Camera `minZoom` 3, `maxZoom` 19 (NAV-002 AC 12). The default dev archive's max zoom is exactly **14** (`TILES_MAXZOOM=14`, PO decision D1, 2026-09-30). Clients **read `maxzoom` from the PMTiles header** (the `pmtiles` protocol passes it to the MapLibre source) and never hard-code 14 or 15, so a rebuilt archive with another max zoom needs no client change. Above the archive's max zoom MapLibre over-zooms, so roads and labels stay visible to z19 (AC 9). |
 | Pitch | Default `maxPitch`. Tilt is not styled or tested in NAV-002. No 3D buildings. |
 | World copies | On. No `maxBounds`: panning outside Mongolia is allowed and shows whatever low-zoom data exists, with no error (AC 10). |
 
@@ -75,7 +76,7 @@ Table rows for the checker (key, day, night):
 | `custom.lowzoom_major` | #B3AA99 | #4A5566 |
 
 - Bridges use the same colours as the matching road (`bridges_*` keys). Tunnels use a muted fill (`tunnel_*`: day #EEEBE5, motorway #F6DDB0; night #2A3340, motorway #4A3F2A) so they read as "below".
-- Widths and zoom ramps: Protomaps defaults, unchanged in NAV-002.
+- Widths and zoom ramps: Protomaps defaults, unchanged in NAV-002 (PO decision D16: judged in the demo, widened later through this spec if needed).
 - **"Major road" colour for QA (AC 27)** means the `major` key (`roads_major` layer): day #FFFFFF, night #4A5566.
 - **Unpaved roads (NAV-002 R6):** confirmed from the tiles source (`Roads.java` at `42ffaaa4`). The `roads` layer carries **no `surface` attribute**, so paved and unpaved roads cannot be styled differently. `highway=track` is `kind=path`, `kind_detail=track`, drawn with the `other` colour from the path minimum zoom. That is weak for the intercity and countryside persona (in the countryside, tracks are often the only road between soums). A later story needs a schema change (upstream or our own layer). Recorded as an open item, not a NAV-002 change.
 
@@ -100,7 +101,7 @@ Low-zoom colours: `custom.lowzoom_highway` (motorway), `custom.lowzoom_trunk` (t
 ## 4. Labels
 
 ### 4.1 Name expression (CLAUDE.md rule 7, glossary C8, NAV-002 AC 7–8)
-Every symbol layer that shows a feature **name** uses exactly this `text-field`, in the day **and** night styles, in **both** UI languages (NAV-002 Open question 1, option a):
+Every symbol layer that shows a feature **name** uses exactly this `text-field`, in the day **and** night styles, in **both** UI languages (PO decision D11, 2026-09-30: the English UI keeps the Cyrillic labels):
 
 ```json
 ["coalesce", ["get", "name:mn"], ["get", "name"], ["get", "name:en"]]
@@ -161,9 +162,24 @@ Every symbol layer that shows a feature **name** uses exactly this `text-field`,
 
 A GeoJSON polygon keeps the accuracy radius true to ground distance at every zoom and latitude (AC 19: 30 m ± 10 %). These layers are re-added after every style switch (day/night).
 
+### 7.1 Selected-place pin (NAV-003)
+One pin marks the selected search result or the selected point of a coordinate card (NAV-003 AC 21, 22, 25). At most one pin exists.
+
+| Element | Type | Placement | Day | Night |
+|---|---|---|---|---|
+| Pin body | HTML marker (MapLibre `Marker`, custom element, so it has an accessible name), 28×40 px teardrop (`size.pin-width` × `size.pin-height`), anchor `bottom`: the tip is on the point (±2 px) | Above all map layers and above the location dot; below the UI overlay (it never covers the attribution or a control) | fill `pin.fill` #C5221F | #F28B82 |
+| Pin outline | 2 px stroke on the body | Same | `pin.stroke` #FFFFFF | #10151C (a white ring would glare at night) |
+| Pin head dot | Circle, radius 4.5 px, centred in the head | Same | `pin.center` #FFFFFF | #10151C |
+| Shadow | `drop-shadow(0 1px 2px rgba(0,0,0,.3))` | Same | same | same |
+
+- Contrast (tokens `contrastPairs`, checker): pin fill ≥ 3:1 on `earth`, on `major` roads and on `water` in both modes; head dot ≥ 3:1 on the fill. Red is used only for this pin, so it never competes with the blue location dot or the NAV-004 route line.
+- Accessible name: the result name, or «Сонгосон цэг» for a coordinate card (`role="img"`, not focusable). Screen spec: `screens/NAV-003-search.md` › Components › Pin.
+- The pin is not a style layer: it survives `setStyle` without re-adding, but its colours switch with the theme through the UI custom properties (like the location dot).
+- No POI highlighting or label changes in the basemap: the selected feature's own label stays as the style draws it (Cyrillic, §4.1).
+
 ## 8. Day / night switching
-- NAV-002: manual toggle, day on first visit, choice remembered (AC 26–28, Open question 2 option a).
-- The switch replaces the style with the other static JSON (`setStyle` with diffing). The camera must not move (AC 27). Re-add §7 layers. The UI chrome switches through CSS custom properties from `tokens.json › color.<mode>.ui` in the same frame.
+- NAV-002: manual toggle, day on first visit, choice remembered (AC 26–28; PO decision D12, 2026-09-30).
+- The switch calls `map.setStyle(buildStyle(otherTheme, cfg))` with diffing on (ADR-0004 §3): the other style object is generated at runtime from `tokens.json`, not loaded from a static JSON file. The camera must not move (AC 27). Re-add §7 layers. The UI chrome switches through CSS custom properties from `tokens.json › color.<mode>.ui` in the same frame.
 - Automatic switching by sunrise/sunset (design principle) is specified with mobile night mode in Phase 1, not here.
 
 ## 9. Reserved (later stories)

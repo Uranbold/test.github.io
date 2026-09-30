@@ -2,12 +2,12 @@
 id: NAV-008
 title: Choose and set up hosting for the backend (dev/staging first, production later)
 phase: 0          # staging is needed at the end of Phase 0 (NAV-002 sharing) and for all Phase 1 device testing
-priority: must    # proposed by BA; PO to confirm (Open question 7)
+priority: must    # PO-confirmed 2026-09-30 (D3)
 size: L           # spike (about S) + staging setup with TLS, monitoring, backups (about M); can be split if the orchestrator prefers
 needs_design: false
 needs_backend: true
 needs_mobile: false
-status: draft     # blocked on: PO confirms priority; NAV-001 accepted; PO hosting decision (AC 5) before AC 6+
+status: ready     # since 2026-09-30. Spike delivered (ADR-0005, proposed). Staging provider chosen by the PO on 2026-09-30 (D25: Hostinger KVM 4, Singapore; C1 exception D26). AC 6+ wait for NAV-001 acceptance and for host details (IP/hostname, SSH access) from the PO. Outside testers wait for AC 24 (host is abroad)
 ---
 
 # NAV-008: Choose and set up hosting for the backend (dev/staging first, production later)
@@ -28,6 +28,20 @@ As a **taxi / delivery driver** (and every other persona who will test the app o
 - **Why now (PO request, 2026-09-29).** The NAV-001 stack (Valhalla, Photon, PMTiles, nginx gateway, Docker Compose) runs only in a temporary cloud dev container. Its gateway binds to `127.0.0.1:8080` (`backend/README.md`). Phones and outside testers cannot reach it. Android (API 28+) and iOS (ATS) block plain `http://` by default, so a phone build also needs **HTTPS with a publicly trusted certificate**.
 - **Research.** `docs/osm-navigation-research.md` §11 item 6 ("Hosting: own servers in Mongolia or a cloud provider?"), §10 item 5 (operations: rebuild pipelines, blue/green deploys and monitoring needed from MVP), §5.1 (tiles as a static file, possibly with a CDN later), §5.3 (sizing).
 - **Backlog.** This story turns owed decision 5 ("Hosting") into a story. The PO also mentioned possibly having **their own map data and Valhalla endpoints**. That is still unconfirmed and is an input to the spike (Open question 1).
+- **PO decisions of 2026-09-30** (`docs/requirements/decisions.md`, answer "all recommended"):
+  - D3: priority **must / Phase 0**.
+  - D4: the architect spike measures first. **Prefer a Mongolia-hosted server or the PO's own servers if their median RTT is < 50 ms (C1). Otherwise use an international cloud region near Mongolia for staging.** The BA treats the recommendation's readiness condition (ready within 10 working days) as part of the rule until the PO says otherwise.
+  - D5: staging budget **USD 50–150 per month**, so the ceiling is **USD 150 per month**.
+  - D6: the staging host is a **subdomain of the PO's existing company domain**.
+  - D7: a **named person on the PO side** holds the provider account, billing, DNS and SSH access and receives alerts. The backend engineer delivers infrastructure as code plus a runbook.
+  - D8: **public but unlisted URL with rate limits**. Authentication is decided before any public release.
+  - D9: the PO's **legal counsel reviews the personal-data law before any outside tester's traffic goes to a host abroad** (new AC 24).
+  - D10: whether the PO has **own servers, map data or Valhalla endpoints** is still **unanswered**. The spike proceeds without it (AC 1). *Update 2026-09-30:* the PO indicated that ICT Group (maker of Hamuga) has its own platform and servers. Details are pending (D10 now "open: partly answered").
+- **PO hosting decision of 2026-09-30** (`docs/requirements/decisions.md` D25, D26; given in chat after the spike and ADR-0005):
+  - **D25 (hybrid, Open question 1 option (d)).** **Staging** runs on a **Hostinger VPS, plan KVM 4**: 4 vCPU AMD EPYC, 16 GB RAM, 200 GB NVMe, 16 TB bandwidth. It is in the **Singapore** data centre, Hostinger's nearest location (Hostinger has no Japan or Hong Kong location). It is on a long-commitment term at about USD 12.99/month first, then USD 28.99/month on renewal (PO-stated prices). **Production** runs later on servers **in Mongolia**, most likely **ICT Group's own servers**, and is a separate story (**NAV-009**). D25 **replaces D4 for staging**: staging does not wait for the in-country phone latency trial. The trial moves to production selection (NAV-009).
+  - **D26 (C1 exception for staging).** The expected median RTT from Mongolian phones is **about 100 ms**, against the 50 ms target. The spike measured Singapore at 79–95 ms from a fixed line in UB (spike §3.1). Staging is for testers who know about it. **No real users' personal data goes to staging.** The < 50 ms target applies to **production** (NAV-009). The D9 legal review is still required before any real user traffic goes abroad. AC 24 stays unchanged until the PO says otherwise (`decisions.md`, Items to confirm 3).
+  - **Pending from the PO:** the staging host details (IP/hostname, SSH access). They go to the named operator (D7) and the orchestrator, **never into the repo** (AC 21). Staging data coverage (Open question 5) is also still unconfirmed.
+  - **Deviation from ADR-0005.** The ADR proposed an in-country staging VM after a trial, with Vultr Tokyo as the fallback, and it ranked Singapore below Tokyo and Hong Kong. The architect records the PO's alternative in the ADR (AC 5).
 - **Stack is fixed** by ADR-0001 and ADR-0002. This story chooses **where** the stack runs, not **what** runs. The gateway paths in `docs/architecture/api/openapi.yaml` stay the same.
 
 ### Sizing baseline (inputs to the spike)
@@ -40,7 +54,7 @@ As a **taxi / delivery driver** (and every other persona who will test the app o
 ### Decision criteria (the spike scores every option on each one)
 | # | Criterion | Target or what must be reported |
 |---|---|---|
-| C1 | **Latency from Ulaanbaatar** | Median TCP connect RTT to port 443 **< 50 ms** from phones in UB on **≥ 2** Mongolian mobile operators (for example Unitel, Mobicom, Skytel, G-Mobile), **≥ 20** samples per operator, p95 also reported. Method in AC 2 |
+| C1 | **Latency from Ulaanbaatar** | Median TCP connect RTT to port 443 **< 50 ms** from phones in UB on **≥ 2** Mongolian mobile operators (for example Unitel, Mobicom, Skytel, G-Mobile), **≥ 20** samples per operator, p95 also reported. Method in AC 2. **Since 2026-09-30: the < 50 ms target applies to production (NAV-009). Staging runs under the recorded exception D26 (about 100 ms expected) and is measured, not gated (AC 8)** |
 | C2 | **Monthly cost** | Staging and projected production, in USD and MNT: compute, disk, backups, bandwidth or egress, public IP, domain, certificate. Each figure cites a quote or price list with its date |
 | C3 | **Data residency and legal** | Where the data and logs physically sit. Whether route and search coordinates from Mongolian users leave Mongolia. The Mongolian Law on Personal Data Protection (adopted 17 Dec 2021, in force 1 May 2022) restricts transfer of personal data abroad without consent or a legal basis, so this is flagged for the PO's legal counsel (Open question 8). Also: the provider's contract jurisdiction, mainland-China ICP filing if a China region is considered, and the payment method (MNT invoice or international card) |
 | C4 | **Operational effort** | Who patches the OS and Docker, how hardware failure is handled, the provider SLA, power redundancy (UPS or generator; UB winter peak load), snapshot and API support, support language and hours, and estimated operator hours per month |
@@ -66,28 +80,42 @@ As a **taxi / delivery driver** (and every other persona who will test the app o
    - gives **every option a value for every criterion C1–C10**, or "unknown" together with how and by when it will be found out
    - states for each figure whether it was measured, quoted or taken from documentation, with the date
 2. **Given** a candidate can be tested (a trial VM, a provider test IP or a looking-glass host), **When** C1 is measured, **Then** the ADR records, for each of **≥ 2** Mongolian mobile operators, **≥ 20** TCP connect samples to port 443 from a phone in UB (Wi-Fi off) or a laptop tethered to that phone. Record the median, p95, operator, network type (4G/5G), place and date. A candidate that could not be measured is marked "C1 unmeasured" and **cannot** be recommended as meeting C1.
+   *(Changed 2026-09-30, D25/D26.)* For **staging**, no candidate trial is required before setup: the PO chose the staging host directly and accepted the C1 exception (D26). The staging host's own RTT is measured after setup under AC 8. The spike's measurement protocol (spike §5) is reused for **production** candidates in NAV-009. The ADR records that every staging candidate stayed "C1 unmeasured" and that the chosen host is **not** claimed to meet C1.
 3. **Given** the comparison, **When** the recommendation section is read, **Then** it names:
-   - **one** option for staging and a proposed path to production (same or different option), each with reasons, risks and estimated monthly cost
+   - **one** option for staging, chosen by applying the PO's rule D4 to the measured C1 values, and a proposed path to production (same or different option), each with reasons, risks and estimated monthly cost
+   - that the staging option's estimated monthly cost is **≤ USD 150** (D5). If no option that meets AC 4 fits the budget, the ADR says so and lists what would fit (smaller specification or higher budget) for the PO to decide
    - a concrete VM specification (vCPU, RAM, disk type and size, region or data centre)
-   - the PO decisions needed (Open questions 1–6 and 8 of this story), each with the architect's recommendation
+   - the PO decisions and information still needed, each with the architect's recommendation: the D4 choice for the PO to confirm (AC 5), D10 (own servers, map data, Valhalla), and Open question 5 if the PO has not confirmed it yet
 4. **Given** the sizing baseline, **When** the recommended staging specification is checked, **Then** it has **≥ 4 vCPU, ≥ 16 GB RAM and ≥ 100 GB SSD**, or the ADR explains in writing why a smaller size is enough, based on the NAV-001 measurements.
 
 ### B. PO decision recorded
-5. **Given** the recommendation, **When** the PO decides, **Then**:
-   - the decision on provider or location, budget ceiling, domain name, operator, staging data coverage and staging access (Open questions 1–6) is recorded with its date in this story's Change log
+5. **Given** the recommendation, and the PO decisions of 2026-09-30 already recorded (D3 priority, D4 location rule, D5 budget, D6 domain, D7 operator, D8 access, D9 legal review; `docs/requirements/decisions.md`), **When** the PO confirms the staging option that the D4 rule selects (or picks an alternative), **Then**:
+   - the confirmed provider and location, and the staging data coverage (Open question 5), are recorded with their date in this story's Change log and as a new row in `docs/requirements/decisions.md`
    - the architect sets the ADR to `accepted` or records the PO's chosen alternative
-   - backlog owed decision 5 is marked resolved with a link to the ADR
+   - backlog owed decision 5 links to the ADR (it already links to `decisions.md` D3–D10)
 
-   If the PO accepts an option that misses C1 (median ≥ 50 ms), the accepted exception and the measured value are recorded, and AC 8 uses the accepted value instead of 50 ms.
+   If the PO accepts an option that misses C1 (median ≥ 50 ms), the accepted exception and the measured value are recorded, and AC 8 uses the accepted value instead of 50 ms. Under D4 this applies to the international fallback region when it also misses 50 ms.
+
+   *(Changed 2026-09-30, D25/D26.)* **Status:** partly met. The PO picked an alternative to the ADR-0005 proposal: **Hostinger KVM 4, Singapore** for staging, with production in Mongolia (D25). The PO also accepted the **C1 exception** (D26: about 100 ms expected, based on the spike's fixed-line figures, not a mobile measurement). Both are recorded in this story's Change log and in `decisions.md`. **Still open under this AC:**
+   - the architect records the PO's alternative in ADR-0005 (or a superseding ADR)
+   - backlog decision 5 links to that ADR
+   - Open question 5 (staging data coverage) is confirmed by the PO
+   
+   Because D26 was accepted before any mobile measurement, AC 8 records the measured staging value instead of passing or failing against a number.
 
 ### C. Staging environment reachable from Mongolian phones
-6. **Given** staging is set up on the chosen hosting, **When** a phone in Ulaanbaatar on a Mongolian mobile network (Wi-Fi off) opens `https://<staging-host>/health` in the default browser, **Then** it gets **200** with `{"status":"ok"}` and **no certificate warning**. Tested on **≥ 1 Android** phone (Chrome) and, if available, **≥ 1 iPhone** (Safari), on **≥ 2** operators in total.
+6. **Given** staging is set up on the chosen hosting, with `<staging-host>` a subdomain of the PO's existing company domain (D6; the exact label, for example `nav-staging`, is set during setup and recorded under AC 23), **When** a phone in Ulaanbaatar on a Mongolian mobile network (Wi-Fi off) opens `https://<staging-host>/health` in the default browser, **Then** it gets **200** with `{"status":"ok"}` and **no certificate warning**. Tested on **≥ 1 Android** phone (Chrome) and, if available, **≥ 1 iPhone** (Safari), on **≥ 2** operators in total.
 7. **Given** the staging host, **When** its TLS setup is checked from outside (for example with `openssl s_client` or `testssl.sh`), **Then**:
    - the certificate is publicly trusted, matches the hostname and is valid for **≥ 30 days** on the acceptance date
    - only TLS 1.2 and 1.3 are offered
    - automatic renewal is configured, and a renewal dry run succeeds
    - `http://<staging-host>/` answers **301 or 308** to the `https://` URL, or port 80 serves only the ACME challenge
-8. **Given** a phone in UB on each of **≥ 2** Mongolian operators, **When** **20** TCP connect times to `<staging-host>:443` are measured (as in AC 2), **Then** the **median is < 50 ms** on each operator (or below the exception value accepted under AC 5). The p95 is recorded.
+8. *(Changed 2026-09-30, D26. Previously: "the median is < 50 ms on each operator (or below the exception value accepted under AC 5)".)* **Given** a phone in UB on each of **≥ 2** Mongolian operators, **When** **≥ 20** TCP connect times to `<staging-host>:443` are measured per operator with the spike §5 protocol, **Then**:
+   - for each operator, the n, **median**, **p95**, timeouts, network type, egress ASN, place (district only) and date are recorded in the ADR and referenced from D26 in `decisions.md`
+   - a run with **> 2 timeouts out of 20** is repeated and does not count
+   - if any operator's median is **> 100 ms** (the D26 expected value), the result is flagged to the PO **before** AC 9 is run. The PO either accepts the measured value as the D26 exception value (recorded as a new row in `decisions.md`) or asks for action
+   
+   The AC passes when these records exist for ≥ 2 operators, and any > 100 ms flag has a recorded PO response. The **< 50 ms target does not apply to staging.** It applies to production (NAV-009).
 9. **Given** a laptop tethered to a phone on a Mongolian mobile network, **When** **20** sequential `postRoute` requests P1→P2 (`costing=auto`, `format=osrm`, `language=mn-MN`, `units=kilometers`, voice and banner instructions on) are sent over one kept-alive HTTPS connection, **Then** the **p95 is ≤ 500 ms**, including the network.
 10. **Given** staging is healthy, **When** `BASE_URL=https://<staging-host> tests/smoke/run.sh` runs from a machine **outside** the staging host's network, **Then** it exits **0**, and every NAV-001 smoke check passes, including the checks that failed on the BBBike UB box (NAV-001 AC 10, 13, 14). This requires Mongolia-wide or full-UB data (Open question 5). The same command, run from a laptop tethered to a Mongolian mobile network, also exits **0**.
 11. **Given** the staging CORS allowlist is set to the NAV-002 web demo origin(s) and `http://localhost:5173` (BA proposal: lets developers run the demo locally against staging, and matches the smoke suite's test origin), **When** preflights are sent, **Then** allowed origins get `Access-Control-Allow-Origin`, and `Origin: http://evil.example` gets **none**. The allowlist does **not** contain `*`.
@@ -107,7 +135,7 @@ As a **taxi / delivery driver** (and every other persona who will test the app o
     - free disk after the build is **≥ 50 GB**, enough for a second data copy during blue/green and a later own Nominatim import
 
 ### E. Operations: monitoring, backups, runbook, cost
-17. **Given** staging is live, **When** an external uptime check requests `https://<staging-host>/health` every **≤ 60 s** from outside the host's network, **Then** stopping the gateway triggers an alert to the operator's channel (Open question 4) within **≤ 5 minutes**, and restarting it sends a recovery notice within **≤ 5 minutes**.
+17. **Given** staging is live, **When** an external uptime check requests `https://<staging-host>/health` every **≤ 60 s** from outside the host's network, **Then** stopping the gateway triggers an alert to the channel of the named PO-side operator (D7) within **≤ 5 minutes**, and restarting it sends a recovery notice within **≤ 5 minutes**.
 18. **Given** host metrics are collected, **When** they are checked, **Then** CPU, RAM and disk usage are kept for **≥ 7 days**, and alerts fire when disk use is **≥ 85 %** and when the TLS certificate expires in **≤ 14 days**.
 19. **Given** the backup setup, **When** it is reviewed, **Then**:
     - everything on the host that is **not** in git and **not** rebuildable is backed up **daily** to a location **off the host** (another provider, region or site): `.env`, TLS/ACME account data, proxy and firewall config, scheduler units
@@ -116,8 +144,16 @@ As a **taxi / delivery driver** (and every other persona who will test the app o
     - `data/` is **not** backed up (it can be rebuilt from OSM, AC 15), and the runbook says so
 20. **Given** a new, empty VM of the same specification, **When** the operator restores staging from the git repository plus the latest backup, following the runbook, **Then** the smoke suite (AC 10) exits **0** within **≤ 2 hours** from the start, and the measured time is recorded.
 21. **Given** the backend engineer's deliverables, **When** `infra/` and the runbook are inspected, **Then** they contain scripts or code for provisioning, deploy and update, certificate renewal, rebuild, restore and monitoring setup, plus the access roles (role names only, no personal data). **No secrets** are in the repository, and every new configuration key (for example public hostname, CORS origins, ACME contact, alert target) is in `.env.example` with a one-line comment.
-22. **Given** the first full month on staging, **When** the provider's invoice or usage page is checked, **Then** the actual monthly cost is **≤ the budget ceiling the PO approved** (Open question 2), and the amount is recorded in the ADR.
+22. *(Changed 2026-09-30, D25: prepaid long-term plan.)* **Given** the first invoice for staging, **When** the provider's invoice or usage page is checked, **Then**:
+    - the **effective monthly cost is ≤ USD 150** (the ceiling of the PO-approved band USD 50–150, D5), or ≤ a higher ceiling the PO approved under AC 3
+    - effective monthly cost = (prepaid term total ÷ months in the term) + monthly add-ons, such as paid backups or snapshots and a separate ops VM for AC 17/AC 19
+    - the ADR records the term length, the term total, the introductory monthly rate and the **renewal** monthly rate (PO-stated: about USD 12.99 and USD 28.99), in USD, with the invoice date
+    - both the introductory and the renewal effective cost are ≤ USD 150
 23. **Given** staging is accepted, **When** `docs/architecture/api/openapi.yaml` and `backend/README.md` are read, **Then** both list the staging base URL (`servers` in the OpenAPI file), so NAV-002, NAV-005 and QA can point their builds at it through configuration and **not** hard-coded strings.
+
+### F. Legal gate for a host abroad (added 2026-09-30, PO decision D9)
+24. **Given** the confirmed staging host (AC 5) is physically **outside Mongolia**, **When** the staging URL is first given to anyone outside the project team (outside testers, the NAV-007 reviewer panel, partner drivers), **Then** a record exists, dated **on or before** that first invitation, stating that the PO's legal counsel reviewed the Mongolian Law on Personal Data Protection for this setup. The record gives the date, the reviewer's role (no name), the outcome (go / go with conditions / no go) and any conditions, such as a tester consent text. It is kept in this story's Change log and as a row in `docs/requirements/decisions.md`. Until the outcome is go or go with conditions (and the conditions are met), only the project team uses the staging URL. If the confirmed host is in Mongolia, this AC is recorded as "not applicable (host in Mongolia)".
+    *(Note 2026-09-30, D25/D26. AC text unchanged.)* The staging host is in **Singapore**, so this AC **applies**. D26 says staging is for testers who know about it and that the review is required before real user traffic goes abroad. The BA keeps this AC as written (only the project team uses staging until the review) until the PO explicitly replaces D9 (`decisions.md`, Items to confirm 3).
 
 ## Edge cases
 - **No network or weak signal (countryside persona):** RTT outside UB is higher and is **not** a pass criterion. If a tester is in an aimag centre, record one C1-style measurement there for information.
@@ -128,7 +164,8 @@ As a **taxi / delivery driver** (and every other persona who will test the app o
 - **Disk full during a rebuild:** caught by the ≥ 85 % alert (AC 18). The NAV-001 atomic-write rules mean the old data keeps serving and no half-written artefact is served.
 - **A download is blocked from the host** (Geofabrik was blocked from the dev container): AC 15 fails, and the spike should already have caught it under C9. Pre-seeding by hand is a documented workaround, **not** a pass.
 - **Provider or data-centre outage:** staging is a single VM with no high availability. That is accepted for staging. The production follow-up covers HA.
-- **International link degradation:** for a host outside Mongolia, Mongolian testers lose the service even though local internet works (C10). Record any such incident during staging.
+- **International link degradation:** for a host outside Mongolia, Mongolian testers lose the service even though local internet works (C10). Record any such incident during staging. *Since D25 (2026-09-30), staging is in Singapore, so this applies and is accepted for staging. Production in Mongolia (NAV-009) removes it for real users.*
+- **Latency-sensitive behaviour on staging (D26):** with about 100 ms RTT, every request pays about twice the production target in network delay. NAV-005 reroute timing, search-as-you-type feel and tile loading judged on staging are pessimistic for production. Test reports from staging state the host and the AC 8 values next to any timing result.
 - **Winter:** UB winter peak electricity load can cause power interruptions. The provider's power redundancy is scored under C4. Rebuild times are scheduled in the night window (Asia/Ulaanbaatar, UTC+8) by NAV-006.
 - **Off-route and reroute (NAV-005):** reroute requests go through the same `postRoute`. AC 9 bounds their network delay on staging.
 - **No search result or Cyrillic/Latin search** ("Sukhbaatar" vs "Сүхбаатар"): behaviour is unchanged from NAV-001, and the smoke suite runs the same checks against staging (AC 10).
@@ -138,18 +175,22 @@ As a **taxi / delivery driver** (and every other persona who will test the app o
 | # | Risk | Impact | Mitigation / owner |
 |---|---|---|---|
 | R1 | **Download sources blocked or slow from the chosen host** (Geofabrik blocked from the dev container) | Daily rebuild cannot run, so NAV-006 is blocked | C9 in the spike, AC 15 on the real host. Architect, backend |
-| R2 | **Personal-data law** (Law on Personal Data Protection, in force 1 May 2022): route and search coordinates may count as personal data. Transfer abroad needs consent or a legal basis | An option B host may need user consent flows or may be unsuitable for production | Legal review before production and before outside testers' traffic goes abroad (Open question 8). Staging logs keep no IPs or coordinates (AC 14). PO |
-| R3 | **PO's own servers, map data or Valhalla endpoints are unknown** | Option C cannot be scored. A late answer may reopen the decision | Open question 1 asks for the details. The spike records "no details" with a date (AC 1). PO |
+| R2 | **Personal-data law** (Law on Personal Data Protection, in force 1 May 2022): route and search coordinates may count as personal data. Transfer abroad needs consent or a legal basis | An option B host may need user consent flows or may be unsuitable for production | Legal review before production and before outside testers' traffic goes abroad (D9, AC 24). Staging logs keep no IPs or coordinates (AC 14). PO. *2026-09-30: staging is abroad (D25, Singapore), so AC 24 applies. No real users' personal data goes to staging (D26). Production is planned in Mongolia (NAV-009)* |
+| R3 | **PO's own servers, map data or Valhalla endpoints are unknown** (D10, still unanswered on 2026-09-30) | Option C cannot be scored. A late answer may reopen the decision | Open question 1 asks for the details. The spike records "no details received from the PO by <date>" (AC 1). PO |
 | R4 | **Single VM is a single point of failure** | Staging downtime during outages or rebuilds | Accepted for staging. HA in the production follow-up |
-| R5 | **Agents cannot hold credentials or operate servers directly** | Provisioning, DNS and billing steps need a human | Backend delivers everything as code plus a runbook (AC 21). A named human operator runs privileged steps (Open question 4) |
-| R6 | **Procurement lead time** (contracts and MNT invoices for local providers, international card for foreign clouds) | Staging is delayed, and phone testing slips | Raised in the spike (C2, C3). Option B as a timeboxed staging fallback (Open question 1) |
+| R5 | **Agents cannot hold credentials or operate servers directly** | Provisioning, DNS and billing steps need a human | Backend delivers everything as code plus a runbook (AC 21). A named PO-side person runs privileged steps (D7). The person is named to the orchestrator, not in the repo |
+| R6 | **Procurement lead time** (contracts and MNT invoices for local providers, international card for foreign clouds) | Staging is delayed, and phone testing slips | Raised in the spike (C2, C3). Option B as a timeboxed staging fallback (Open question 1). *2026-09-30: largely resolved for staging by D25 (self-service Hostinger). The remaining wait is for the host details from the PO. Carries over to production in NAV-009* |
 | R7 | **Data quality becomes visible to outside testers.** OSM address coverage (`addr:*`, khoroo, ger plots), sparse `maxspeed` (unrealistic ETAs), missing `turn:lanes`, and missing `name:mn` in the tiles (NAV-001 R6, R8–R10) | Testers judge the product on data gaps, not on hosting | Tell testers what is known to be weak. Collect feedback per story. BA and PO |
 | R8 | **Photon index date differs from the tiles and routing data** (GraphHopper dump, ADR-0003) | Search can disagree with the map on staging | Recorded in build-info. Own Nominatim in NAV-006 |
-| R9 | **PMTiles for Mongolia is 243 MB**, above the NAV-001 AC 12 limit of 200 MB (which was defined for the UB extract) | None for serving: clients fetch byte ranges, not the whole file. Affects egress cost | Egress in C2. CDN option in C5 |
-| R10 | **Public, unauthenticated API** (NAV-001 has no auth) | Scraping or abuse can exhaust the VM | Rate limits (AC 13), unlisted URL. Auth before public release (Open question 6) |
+| R9 | **PMTiles for Mongolia was 243 MB at z15**, above the NAV-001 AC 12 limit of 200 MB (which was defined for the UB extract). PO decision D1 (2026-09-30): build at z14 and re-measure, with a 400 MB fallback limit | None for serving: clients fetch byte ranges, not the whole file. Affects egress cost | Egress in C2. CDN option in C5. The spike uses the z14 size once the backend has re-measured it |
+| R10 | **Public, unauthenticated API** (NAV-001 has no auth) | Scraping or abuse can exhaust the VM | Rate limits (AC 13), unlisted URL (D8). Auth is decided before any public release (D8) |
+| R11 | **Long-commitment prepaid term abroad** (D25). The renewal price is about 2.2 × the first-term price (USD 28.99 against USD 12.99). The prepaid amount may not be refundable if staging moves | Money is sunk if staging later moves in-country. Cost rises at renewal | Both rates are checked against the ceiling in AC 22. The IaC stays provider-agnostic (ADR-0005 point 4), so moving is a re-run. PO |
+| R12 | **Shared-vCPU VPS performance may vary** (a VPS plan, not dedicated cores) | Rebuild time (AC 15) and p95 latency (AC 9) may vary between runs | AC 15 and AC 9 are measured on the real host. If a rerun differs by > 50 %, both values are recorded. Backend, QA |
+| R13 | **Staging latency (about 100 ms, D26) is higher than production will be** | Testers and QA may judge latency-sensitive features (reroute, autocomplete) too harshly, or tune clients for the wrong RTT | AC 8 records the real values. Staging test reports state them (Edge cases). Production acceptance of latency-sensitive behaviour happens on NAV-009 hosting. QA, BA |
 
 ## Out of scope
-- **Production environment** (HA, second VM, load balancer, CDN, production SLA, on-call). The BA writes a follow-up story after the PO decision in AC 5.
+- **Production environment** (HA, second VM, load balancer, CDN, production SLA, on-call, and the in-country phone latency trial). Follow-up story **NAV-009** (draft, 2026-09-30), created after D25.
+- Evaluating Hamuga APIs as data sources: spike **NAV-010** (draft, 2026-09-30).
 - The **scheduled** daily pipeline and blue/green switch (NAV-006). This story only proves the host can run the rebuild (AC 15–16).
 - Own Nominatim import (ADR-0003 production direction, NAV-006).
 - Authentication, API keys, user accounts.
@@ -158,7 +199,12 @@ As a **taxi / delivery driver** (and every other persona who will test the app o
 - Traffic data, analytics, crash reporting.
 
 ## Open questions
-Decisions for the PO. The spike (AC 1–4) informs 1–3. The PO decides 1–6 in AC 5.
+Decisions for the PO. On 2026-09-30 the PO answered "all recommended" (`docs/requirements/decisions.md`): Q1 → D4 (rule applied after the spike, confirmed in AC 5), Q2 → D5, Q3 → D6, Q4 → D7, Q6 → D8, Q7 → D3, Q8 → D9. Later on 2026-09-30, Q1 → **D25** (hybrid, Hostinger Singapore staging) with the C1 exception **D26**. **Still open:**
+- the information request in Q1 (D10, now partly answered: ICT Group servers, details pending)
+- Q5, which was not in the relayed list
+- the staging host details (IP/hostname, SSH access), pending from the PO
+- whether D26 relaxes the D9/AC 24 gate for informed outside testers (`decisions.md`, Items to confirm 3; working assumption: no)
+- whether AC 8 needs a hard ceiling for staging RTT (see the handoff)
 
 1. **Provider and location.** Options:
    - (a) a VPS or cloud server hosted in Mongolia
@@ -169,48 +215,54 @@ Decisions for the PO. The spike (AC 1–4) informs 1–3. The PO decides 1–6 i
    *Recommendation: decide after the spike's latency measurements. BA leaning: (a) or (c) for staging if one can be ready within **10 working days** and meets C1, because in-country hosting is strongest on latency, data residency and international-link resilience. Otherwise (d), so phone testing is not blocked.*
 
    **Information needed from the PO for (c):** where the servers are, spare CPU, RAM and disk, whether a public IP with inbound 443 is possible, and who administers them. Also: do you have **your own map data or Valhalla endpoints**? If so, what data, which Valhalla version, and should they replace or sit next to our stack?
+
+   **Decided 2026-09-30 (D4):** the spike measures first. Prefer (a) or (c) if the median RTT is < 50 ms (and, per the recommendation, it can be ready within 10 working days). Otherwise use an international cloud region near Mongolia for staging, which is (b) now and possibly (d) later. The PO confirms the resulting choice in AC 5. **The information request above is still unanswered (D10).**
+
+   **Decided 2026-09-30 (D25, replaces D4 for staging): (d) hybrid.** Staging runs on Hostinger KVM 4 in Singapore. Production runs in Mongolia, most likely on ICT Group's own servers (NAV-009). The C1 exception for staging is D26. **D10 partly answered:** ICT Group (Hamuga) has its own platform and servers. The host details and the Hamuga tile/API docs are pending from the PO.
 2. **Budget range (monthly).** Options:
    - (a) ≤ USD 50
    - (b) USD 50–150
    - (c) USD 150–400
    - (d) no new cash cost (own servers only)
 
-   *Recommendation: (b) for staging, including off-host backups and monitoring. Revisit for production after the spike's quotes. These bands are BA estimates, not quotes.*
+   *Recommendation: (b) for staging, including off-host backups and monitoring. Revisit for production after the spike's quotes. These bands are BA estimates, not quotes.* **Decided 2026-09-30 (D5): (b), ceiling USD 150 per month** (AC 3, AC 22).
 3. **Domain name.** Options:
    - (a) register a product domain now (`.mn` or `.com`) and use `staging.<domain>`
    - (b) a subdomain of an existing PO or company domain, for example `nav-staging.<company-domain>`
    - (c) the provider-assigned hostname, for staging only
 
-   *Recommendation: (b). It is fast, needs no brand decision (the product name is still a working name) and gives a trusted certificate. Register the product domain before any external beta.*
+   *Recommendation: (b). It is fast, needs no brand decision (the product name is still a working name) and gives a trusted certificate. Register the product domain before any external beta.* **Decided 2026-09-30 (D6): (b).** The PO or the operator provides the company domain and DNS access at setup.
 4. **Who operates staging.** Options:
    - (a) a named person on the PO side holds the provider account, billing, DNS and SSH access and receives alerts. The backend engineer delivers everything as code plus a runbook (AC 21), and that person runs the privileged steps
    - (b) the PO's own IT team operates it fully
    - (c) a contractor or managed-hosting service
 
-   *Recommendation: (a) for staging. Revisit for production, where 24/7 on-call becomes a question.*
+   *Recommendation: (a) for staging. Revisit for production, where 24/7 on-call becomes a question.* **Decided 2026-09-30 (D7): (a).** The person is named to the orchestrator before AC 6 and is not recorded in the repo (AC 21).
 5. **Staging data coverage.** Options:
    - (a) Geofabrik `mongolia-latest`
    - (b) the BBBike Ulaanbaatar extract (dev default)
 
    *Recommendation: (a). The BBBike box (about 13 × 4 km) misses Zaisan (P3) and the Chingeltei ger district (P6) and fails 3 smoke checks. The Mongolia extract passes all of them, allows countryside testing and fits the sizing. This does not decide launch coverage (backlog owed decision 2).*
+
+   **Not in the relayed decision list of 2026-09-30.** "All recommended" would mean (a). AC 10 and AC 15 already assume (a), and the dev default has been the full Mongolia extract since 2026-09-29, so the BA treats (a) as the working assumption. The PO confirms it at the latest in AC 5.
 6. **Who may reach staging.** Options:
    - (a) public but unlisted URL, protected by rate limits (AC 13)
    - (b) (a) plus a shared API key or basic auth (needs an OpenAPI change and client support)
    - (c) VPN or IP allowlist (hard with mobile carrier-grade NAT)
 
-   *Recommendation: (a) for Phase 0–1 testers. Decide on auth before any public release. A key embedded in a public web demo does not protect much anyway.*
+   *Recommendation: (a) for Phase 0–1 testers. Decide on auth before any public release. A key embedded in a public web demo does not protect much anyway.* **Decided 2026-09-30 (D8): (a).** Auth is decided before any public release.
 7. **Priority and phase.** BA proposes **must, Phase 0** (spike and staging finish at the end of Phase 0), because it blocks NAV-002 sharing, NAV-005 on phones and NAV-007 device tests. Options:
    - (a) must / Phase 0
    - (b) must / Phase 1, with NAV-002 shown only on team laptops until then
    - (c) should / Phase 1
 
-   *Recommendation: (a).*
+   *Recommendation: (a).* **Decided 2026-09-30 (D3): (a).**
 8. **Legal review of data residency.** Options:
    - (a) the PO's legal counsel reviews the personal-data implications before production and before outside testers' traffic goes to a host abroad
    - (b) review only before production
    - (c) no review
 
-   *Recommendation: (a) if option B or (d) is chosen, otherwise (b).*
+   *Recommendation: (a) if option B or (d) is chosen, otherwise (b).* **Decided 2026-09-30 (D9): (a).** New AC 24 is the gate.
 
 Process note for the orchestrator (not a PO decision): the desk part of the spike (AC 1, 3, 4, and C1 measurements against provider test IPs) does not use NAV-001 code. It could start before NAV-001 is formally accepted, to save calendar time. AC 6 onwards needs NAV-001 accepted.
 
@@ -218,31 +270,34 @@ Process note for the orchestrator (not a PO decision): the desk part of the spik
 | AC | Screen spec | API operation | Code | Test | Issues |
 |---|---|---|---|---|---|
 | AC1 | — | — | hosting ADR (architect, TBD) | ADR review | PO request 2026-09-29 |
-| AC2 | — | — | hosting ADR (architect, TBD) | C1 latency measurements (architect, recorded in ADR) | |
-| AC3 | — | — | hosting ADR (architect, TBD) | ADR review | |
+| AC2 | — | — | `docs/architecture/adr/0005-backend-hosting-staging.md`, `docs/architecture/spikes/nav-008-hosting.md` §5 | no staging trial (D25/D26). Protocol reused for NAV-009 production candidates and for AC 8 | D25, D26 (2026-09-30) |
+| AC3 | — | — | hosting ADR (architect, TBD) | ADR review | D4 rule, D5 budget (2026-09-30) |
 | AC4 | — | — | hosting ADR (architect, TBD) | ADR review against sizing baseline | |
-| AC5 | — | — | this story's Change log; `backlog.md` decision 5 | — | |
-| AC6 | — | `getHealth` | `infra/` (backend, TBD) | phone check on ≥ 2 operators (QA report, TBD) | |
+| AC5 | — | — | this story's Change log; `docs/requirements/decisions.md` (D3–D10, D25, D26); ADR-0005 update recording the PO's alternative (architect, pending); `backlog.md` decision 5 | — | D3–D10 recorded 2026-09-30; D25/D26 recorded 2026-09-30; Q5 pending |
+| AC6 | — | `getHealth` | `infra/` (backend, TBD) | phone check on ≥ 2 operators (QA report, TBD) | D6 subdomain of the company domain |
 | AC7 | — | all | `infra/` TLS config (backend, TBD) | TLS check (QA, TBD) | |
-| AC8 | — | — | — | RTT measurement (QA report, TBD) | |
+| AC8 | — | — | — | RTT measurement per spike §5, recorded against the D26 exception, with a PO flag if > 100 ms (QA report, TBD) | D26 (2026-09-30) |
 | AC9 | — | `postRoute` | — | tethered latency test (QA, TBD) | |
 | AC10 | — | `getHealth`, `getBasemapPmtiles`, `postRoute`, `search`, `reverse`, preflights | `backend/` (NAV-001) | `tests/smoke/run.sh` with `BASE_URL=https://<staging-host>` | |
 | AC11 | — | `preflightRoute`, `preflightSearch`, `preflightTiles` | `.env` CORS key (backend) | CORS check (`make cors-check`, QA) | |
 | AC12 | — | — | `infra/` firewall and SSH config (backend, TBD) | external port scan (QA, TBD) | |
-| AC13 | — | `postRoute`, `search` (429 response to be added to openapi.yaml, architect) | gateway rate limit (backend, TBD) | load test (QA, TBD) | |
+| AC13 | — | `postRoute`, `search` (429 response to be added to openapi.yaml, architect) | gateway rate limit (backend, TBD) | load test (QA, TBD) | D8 unlisted URL plus rate limits |
 | AC14 | — | all | gateway and proxy log config (backend, TBD) | log inspection (QA, TBD) | |
 | AC15 | — | — | `make rebuild-data` on staging | rebuild run record + smoke (QA, TBD) | |
 | AC16 | — | — | — | `make stats` record (QA, TBD) | |
-| AC17 | — | `getHealth` | uptime monitor config (backend, TBD) | alert drill (QA, TBD) | |
+| AC17 | — | `getHealth` | uptime monitor config (backend, TBD) | alert drill (QA, TBD) | D7 PO-side operator receives alerts |
 | AC18 | — | — | metrics and alert config (backend, TBD) | alert config review (QA, TBD) | |
 | AC19 | — | — | backup scripts in `infra/` (backend, TBD) | backup review (QA, TBD) | |
 | AC20 | — | all | runbook (backend, TBD) | timed restore drill (QA, TBD) | |
 | AC21 | — | — | `infra/`, runbook, `backend/.env.example` | repo inspection + secret scan (QA, TBD) | |
-| AC22 | — | — | — | invoice check (PO/architect, recorded in ADR) | |
+| AC22 | — | — | — | invoice check: effective monthly cost for the introductory and renewal rates (PO/architect, recorded in ADR) | D5 ceiling USD 150 per month; D25 prepaid term |
 | AC23 | — | `servers` in openapi.yaml | `docs/architecture/api/openapi.yaml`, `backend/README.md` | doc check (QA) | |
+| AC24 | — | — | this story's Change log; `docs/requirements/decisions.md` (legal review row) | record check: date on or before the first outside invitation (QA, TBD) | D9 2026-09-30; applies since D25 (host in Singapore) |
 
 ## Change log
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-09-29 | PO request: add hosting to the backlog | Created as a spike-type enabler: architect spike with criteria C1–C10 and options A/B/C, PO decision, staging on HTTPS reachable from Mongolian mobile networks, NAV-001 smoke suite against staging, rebuild capacity for NAV-006, monitoring, backups and runbook. Production hosting left to a follow-up story. | The backend runs only in a temporary dev container. NAV-002 (sharing), NAV-005 (real phones) and NAV-007 (device tests) need a hosted backend. Turns backlog owed decision 5 into a story. |
 | 2026-09-29 | Sizing baseline correction | Peak build memory in the sizing baseline changed from 4.24 GB to **5.5 GB** (Mongolia cold first run, tiles-build 5.0 GB). The 4.24 GB figure is kept as context: it was the source-switch rebuild with cached auxiliary files. Added the AC 16 check (about 6.5 GB ≈ 40 % of 16 GB). The 16 GB RAM recommendation is unchanged. No AC changed | A new staging host starts from an empty `data/`, so the cold-run peak is the right sizing input. Sources: `backend/README.md` "Measured on the reference machine", ADR-0002 Amendment 1 |
+| 2026-09-30 | PO decisions D3–D10 (`docs/requirements/decisions.md`, PO answer "all recommended", relayed by the orchestrator) | **Front matter:** priority must / Phase 0 is PO-confirmed (D3), and status moves from `draft` to `ready`. **Context:** new bullet listing D3–D10. **AC 3:** the staging option is chosen by the D4 rule and must fit ≤ USD 150 per month (D5), or the ADR lists what would fit; the list of decisions still needed shrinks to the D4 confirmation, D10 and Q5. **AC 5:** rewritten. The PO's 2026-09-30 decisions are taken as recorded, and AC 5 now covers only the PO's confirmation of the D4 result and Q5, recorded here and in `decisions.md`. **AC 6:** the host is a subdomain of the PO's company domain (D6). **AC 17:** alerts go to the named PO-side operator (D7). **AC 22:** the ceiling is USD 150 per month (D5). **New AC 24** (section F): legal gate before outside testers use a host abroad (D9). It is numbered after AC 23 so existing numbers stay stable. **Risks:** R2, R3 (D10 unanswered), R5, R9 (NAV-001 D1, z14) and R10 updated. **Open questions:** Q1–Q4 and Q6–Q8 marked decided. The Q1 information request stays open (D10), and Q5 is flagged as not in the relayed list, with (a) as the working assumption. **Traceability** AC3, AC5, AC6, AC13, AC17 and AC22 updated, and AC24 added | The PO accepted every BA recommendation. Status moves to `ready` because no open question blocks the spike: D10 is handled by AC 1 ("no details received by <date>"), and Q5 already matches AC 10 and AC 15. NAV-001 acceptance stays a dependency for AC 6 onwards |
+| 2026-09-30 | PO hosting decision in chat, relayed by the orchestrator (`decisions.md` **D25**, **D26**; D10 updated) | **Decision record:** staging runs on Hostinger VPS KVM 4 (4 vCPU AMD EPYC, 16 GB, 200 GB NVMe, 16 TB bandwidth) in Singapore, on a long-commitment term at about USD 12.99/month first and USD 28.99 on renewal (PO-stated). Production runs in Mongolia, most likely on ICT Group's servers (D25, hybrid option (d), replaces D4 for staging). The C1 exception for staging is recorded: about 100 ms expected against 50 ms, testers only, no real users' personal data (D26). **Front matter:** status comment updated (provider chosen; host details pending). **Context:** new D25/D26 bullet, D10 update, and the deviation from ADR-0005 noted. **C1 row:** < 50 ms applies to production, and staging is measured under D26. **AC 2** *(changed)*: no staging trial; the protocol is reused for NAV-009 and AC 8. **AC 5** *(changed)*: status "partly met"; the ADR update and Q5 are still open. **AC 8** *(changed)*: records per-operator median/p95 against the D26 exception, flags to the PO if > 100 ms, and drops the < 50 ms pass condition for staging. **AC 22** *(changed)*: effective monthly cost for a prepaid term, checked at both the introductory and renewal rates. **AC 24**: text unchanged; a note that it applies (host abroad). **AC 9** was checked and is unchanged: p95 ≤ 500 ms is still reachable at about 100 ms RTT on a kept-alive connection. **Edge cases:** international link (applies now) and a new latency-sensitive behaviour case. **Risks:** R2 and R6 updated; new R11 (prepaid term, renewal price), R12 (shared-vCPU variance), R13 (staging latency higher than production). **Out of scope:** production goes to NAV-009, Hamuga to NAV-010. **Open questions:** Q1 decided (D25). **Traceability:** AC2, AC5, AC8, AC22, AC24 updated. AC numbering unchanged | The PO chose a fast, low-cost staging host abroad and moved the in-country latency trial to production selection. The ACs that assumed < 50 ms for staging would otherwise fail by design. Credentials and host details stay out of the repo (AC 21) |

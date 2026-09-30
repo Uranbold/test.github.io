@@ -11,9 +11,9 @@ Copy in the diagrams is quoted by resource key (see the screen spec, §Copy). Mo
 
 ```mermaid
 flowchart TD
-    A([User opens http://localhost:5173]) --> B[Read saved theme + language<br/>default: day, mn — AC 26, 30]
+    A([User opens http://localhost:5173]) --> B[Read saved theme + language<br/>default: day D12, mn — AC 26, 30]
     B --> C[Render chrome: top controls, attribution strip<br/>html lang + title from resources — AC 30, 34]
-    C --> D[Create map: centre P1, z12, bearing 0<br/>source pmtiles://GATEWAY/tiles/basemap.pmtiles — AC 2, 3, 5]
+    C --> D[Create map: centre P1 Sükhbaatar Square D13, z12, bearing 0<br/>source pmtiles://GATEWAY/tiles/basemap.pmtiles — AC 2, 3, 5]
     D --> E{First idle with tiles<br/>within 300 ms?}
     E -- yes --> R[Ready: map + controls + scale bar]
     E -- no --> L[Loading pill «Ачаалж байна…»<br/>aria-live polite — AC 37]
@@ -34,8 +34,9 @@ flowchart TD
 ```
 
 Notes
-- The loading pill never shows before 300 ms, so a fast load has no flash (AC 37). It hides within 500 ms of the first `idle`.
+- The loading pill is scheduled for 300 ms after navigation start (up to 50 ms earlier is allowed to absorb paint latency; it must be on screen by 350 ms), so a fast load has no flash (AC 37). It hides within 500 ms of the first `idle`. Timing rule: screen spec › States › Loading.
 - There is no endless spinner: the 10 s watchdog always ends in Ready or the blocking card (AC 38).
+- Opening view P1 = Sükhbaatar Square (PO decision D13). Supported browsers: current desktop Chrome, Edge, Firefox and Android Chrome; Safari/iOS later (D14, AC 50).
 - WebGL unavailable or an unexpected start-up exception (not in the AC, generic error row in the glossary): blocking card with «Алдаа гарлаа» + «Дахин оролдох» (reloads the page). The attribution stays visible.
 
 ## F2. Tile errors and connectivity while the map is shown
@@ -71,17 +72,14 @@ stateDiagram-v2
 flowchart TD
     S([Page load]) --> P{Geolocation API present<br/>and secure context?}
     P -- no --> U[Button aria-disabled, slashed icon<br/>description «Байршил тодорхойлж чадсангүй» — AC 24]
-    P -- yes --> Q{Permissions API says denied?<br/>no geolocation call — AC 18}
-    Q -- denied --> D0[Button in denied style]
-    Q -- granted / prompt / unknown --> I[Button idle]
+    P -- yes --> I[Button idle<br/>no Geolocation or Permissions API call — AC 18]
 
     I -- press --> REQ[Button: locating<br/>watchPosition, timeout 10 s]
-    D0 -- press --> REQ
     REQ -- browser prompt: Allow --> FIX
     REQ -- "PERMISSION_DENIED<br/>(prompt refused or blocked)" --> DEN[Message: «Байршлын зөвшөөрөл олгоогүй байна»<br/>«Хөтчийн тохиргоонд байршлын зөвшөөрлийг асаана уу»<br/>+ «Хаах». Button denied — AC 21]
     REQ -- "POSITION_UNAVAILABLE / timeout 10 s" --> UNA[Message: «Байршил тодорхойлж чадсангүй»<br/>+ «Дахин оролдох» + «Хаах» — AC 22]
     UNA -- "«Дахин оролдох»" --> REQ
-    DEN -- "press button again" --> DEN
+    DEN -- "press button again" --> REQ
 
     REQ -- first fix --> FIX[Fly to fix, zoom = max current, 15<br/>marker «Миний байршил» + accuracy circle<br/>button: following — AC 19, 25]
     FIX --> FOL((Following))
@@ -100,7 +98,8 @@ flowchart TD
 ```
 
 Rules
-- No geolocation call and no permission prompt until the first press (AC 18). Checking `navigator.permissions.query({name: "geolocation"})` at load is allowed (it does not prompt) and only pre-styles the button. If the permission later changes to granted (`change` event), the button returns to idle.
+- No Geolocation **and no Permissions API** call and no permission prompt until the first press (AC 18; ADR-0004 §6, confirmed as normative by ADR-0004 Amendment 1). The page does **not** call `navigator.permissions.query` at load, so an already-blocked permission is not pre-styled: the button starts `idle`, and the `denied` state appears only after the first press returns `PERMISSION_DENIED` (within 1 s, AC 21). The only check at load is support: `window.isSecureContext && "geolocation" in navigator` (AC 24).
+- From `denied`, a press starts a new request (`REQ`). If the user has meanwhile allowed location in the browser settings, it succeeds and goes to the first fix; otherwise the browser returns `PERMISSION_DENIED` again at once and the message shows again (AC 21).
 - Zooming with the wheel or pinch while following zooms **around the centre** (the marker), so following continues (Google Maps pattern). Double-click zooms at the pointer, so it ends following. Rotation and the zoom buttons keep following.
 - Position outside Mongolia (X2): same as any fix, no message (AC 25).
 - Coordinates never leave the browser (AC 47).
@@ -114,7 +113,7 @@ sequenceDiagram
     participant M as MapLibre
     participant S as localStorage (try/catch)
     U->>UI: Press theme button (shows the mode it switches to)
-    UI->>M: setStyle(night.json or day.json, diff) — camera unchanged
+    UI->>M: setStyle(buildStyle(other theme), diff) — style generated at runtime from tokens.json (ADR-0004 §3), camera unchanged
     UI->>UI: data-theme on html → UI tokens switch in the same frame
     M-->>UI: style.load → re-add location layers (map-style.md §7)
     UI->>S: save theme — AC 28
@@ -122,10 +121,11 @@ sequenceDiagram
     U->>UI: Press language button («English» / «Монгол»)
     UI->>UI: swap every string, html lang, document.title, scale units — ≤ 500 ms (AC 31)
     UI->>S: save language
-    Note over UI,M: Map labels do not change (Open question 1 a). Open messages switch language too.
+    Note over UI,M: Map labels do not change (PO decision D11). Open messages switch language too.
 ```
 
 - If storage is unavailable (private mode, blocked), the toggles still work for the session and the next visit starts at day + mn.
+- PO decisions of 2026-09-30 (`docs/requirements/decisions.md`): **D11** the English UI keeps the Cyrillic map labels (`name:mn` → `name` → `name:en` in both languages); **D12** day is the default theme, the manual choice is remembered (no automatic switching in NAV-002); **D15** the page title is «Газрын зураг» / "Map" until a product name exists.
 
 ## F5. Message precedence (AC 45)
 

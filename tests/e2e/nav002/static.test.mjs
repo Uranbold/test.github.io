@@ -1,4 +1,4 @@
-// NAV-002 section A (AC 1, 4) and the repository-level checks of AC 32, 33, 36.
+// NAV-002 section A (AC 1, 4) and the repository-level checks of AC 32, 33, 36, 50.
 // No browser needed; these run against the web/ working tree.
 import { test, expect } from '@playwright/test';
 import { execFileSync, spawn } from 'node:child_process';
@@ -136,23 +136,80 @@ test.describe('NAV-002 G. Language and strings (repository checks)', () => {
     expect(problems).toEqual([]);
   });
 
-  test('AC33 every mn value matches a glossary term (docs/requirements/glossary.md)', () => {
+  // AC 33, strict (run 4, 2026-09-30). The earlier version accepted every «…» anywhere in the glossary, so an
+  // Avoid term quoted in a Notes cell (e.g. «навигаци», «Төвлөрүүлэх») or a change-log line counted as a match.
+  // Accepted sources now: the "Approved Mongolian" column of the user-facing term tables (sections 2-8), «…» forms
+  // in their Definition column, and «…» examples in the Rule column of section 1 (conventions). Sentences that
+  // negate or forbid ("never", "Avoid", "not", "previous proposal", "Rejected") are ignored. Notes, Status,
+  // section 9 (team-internal) and the change log are never read. Mirrors web/scripts/check-glossary.mjs, but is
+  // independent of it.
+  const glossary = () => {
     const md = read(ROOT + 'docs/requirements/glossary.md');
-    const norm = (s) => s.replace(/\*\*|`/g, '').replace(/\s+/g, ' ').trim();
-    const terms = new Set();
-    for (const m of md.matchAll(/«([^»]+)»/g)) terms.add(norm(m[1]));
+    const norm = (x) => x.replace(/\*\*|`/g, '').replace(/\s+/g, ' ').trim();
+    const quoted = (x) => [...x.matchAll(/«([^»]+)»/g)].map((m) => norm(m[1]));
+    const sentences = (x) => x.split(/(?<=[.;])\s+|\s+e\.g\.\s+/);
+    const NEG = /\b(never|Avoid|avoid|not|Rejected|rejected|previous proposal|Previous proposal|instead of)\b/;
+    const approved = new Set();
+    const banned = new Set();
+    let section = '';
+    let kind = null; // 'terms' | 'conventions' | null
     for (const line of md.split('\n')) {
+      const h = line.match(/^##\s+(.*)$/);
+      if (h) { section = h[1]; kind = null; continue; }
       if (!line.startsWith('|') || /^\|\s*-/.test(line)) continue;
-      const cells = line.split('|').slice(1, -1);
-      if (cells.length < 3) continue;
-      const mn = cells[1].replace(/«[^»]*»/g, '|').replace(/\([^)]*\)/g, '|');
-      for (const piece of mn.split(/[|/,;:]/)) if (norm(piece)) terms.add(norm(piece));
+      const cells = line.split('|').slice(1, -1).map((c) => c.trim());
+      if (/Approved Mongolian/.test(line)) { kind = 'terms'; continue; }
+      if (/^\|\s*#\s*\|\s*Convention/.test(line)) { kind = 'conventions'; continue; }
+      const num = Number((section.match(/^(\d+)\./) || [])[1]);
+      if (!kind || !(num >= 1 && num <= 9)) continue;
+      // Banned: «…» in any sentence that says Avoid (Rule/Definition/Notes cells), except "not marked Avoid".
+      for (const c of cells.slice(1)) for (const snt of sentences(c)) {
+        if (/\bAvoid\b/.test(snt) && !/not marked Avoid/.test(snt)) for (const q of quoted(snt)) if (!q.includes('<')) banned.add(q);
+      }
+      if (num === 9) continue; // team-internal terms are not UI terms
+      if (kind === 'terms' && cells.length >= 5) {
+        const [, mn, def] = cells;
+        for (const q of quoted(mn)) approved.add(q);
+        const rest = mn.replace(/«[^»]*»/g, '|').replace(/\([^)]*\)/g, '|').replace(/\b(Banner|Layer|UI|Mute icon|Rationale prompt|Voice)\b/g, '|');
+        for (const piece of rest.split(/[|/,;:.]/)) if (norm(piece) && /[А-Яа-яӨөҮүЁё]|^[A-Z][a-z]+$/.test(norm(piece))) approved.add(norm(piece));
+        for (const snt of sentences(def)) if (!NEG.test(snt)) for (const q of quoted(snt)) approved.add(q);
+      } else if (kind === 'conventions' && cells.length >= 5) {
+        for (const snt of sentences(cells[2])) if (!NEG.test(snt)) for (const q of quoted(snt)) approved.add(q);
+      }
     }
-    // Stand-alone labels may start with a capital where the glossary row is lower case (UX/mobile proposal,
-    // BA confirmation pending: open question). Nothing else may differ.
-    const matches = (v) => terms.has(v) || [...terms].some((t) => t.length === v.length && t.slice(1) === v.slice(1) && t[0].toLowerCase() === v[0].toLowerCase());
+    return { approved, banned, norm };
+  };
+
+  test('AC33 every mn value matches a glossary term (strict: approved column, Definition and convention examples only)', () => {
+    const { approved, norm } = glossary();
+    // Stand-alone labels may start with a capital where the glossary row is lower case (e.g. «Өдрийн горим» vs
+    // «өдрийн горим»); nothing else may differ. Same interpretation as runs 1-3 (test plan TC-33-01).
+    const matches = (v) => approved.has(v) || [...approved].some((t) => t.length === v.length && t.slice(1) === v.slice(1) && t[0].toLowerCase() === v[0].toLowerCase());
     const missing = Object.entries(MN).filter(([, v]) => !matches(norm(v))).map(([k, v]) => `${k}: «${v}»`);
-    expect(missing, `mn values without a glossary term (${missing.length}/${Object.keys(MN).length})`).toEqual([]);
+    test.info().annotations.push({ type: 'AC33 approved glossary forms read', description: String(approved.size) });
+    expect(missing, `mn values without an approved glossary term (${missing.length}/${Object.keys(MN).length})`).toEqual([]);
+  });
+
+  test('AC33 / D22 no mn value uses a glossary Avoid term («навигаци», «Төвлөрүүлэх», «км/ц» as a unit, «хоёр дахь», …)', () => {
+    const { banned, norm } = glossary();
+    for (const must of ['навигаци', 'Төвлөрүүлэх', 'км/ц', 'хоёр дахь']) expect([...banned], `Avoid list must contain «${must}» (parser self-check)`).toContain(must);
+    const hit = (v, b) => (b === 'км/ц' ? /км\/ц(?!аг)/.test(v) : v.toLowerCase().includes(b.toLowerCase()));
+    const found = Object.entries(MN).flatMap(([k, v]) => [...banned].filter((b) => hit(norm(v), b)).map((b) => `${k}: «${v}» contains Avoid term «${b}»`));
+    test.info().annotations.push({ type: 'AC33 Avoid terms checked', description: [...banned].join(', ') });
+    expect(found).toEqual([]);
+  });
+
+  test('AC50 web/README.md has a "Supported browsers" section: desktop Chrome, Edge, Firefox, Android Chrome; Safari/iOS not yet; tests on desktop Chromium only (D14)', () => {
+    const md = read(WEB + 'README.md');
+    const m = md.match(/^(#{1,6})\s+Supported browsers\s*$([\s\S]*?)(?=^#{1,6}\s|(?![\s\S]))/m);
+    expect(m, 'a heading "Supported browsers" in web/README.md').not.toBeNull();
+    const sec = m[2];
+    for (const [what, re] of [
+      ['desktop Chrome', /\bChrome\b/], ['Edge', /\bEdge\b/], ['Firefox', /\bFirefox\b/], ['Android Chrome', /Android\s+Chrome|Chrome\s+(for|on)\s+Android/i],
+      ['"current"', /\bcurrent\b/i], ['Safari not supported yet', /Safari[\s\S]{0,80}not supported yet|not supported yet[\s\S]{0,80}Safari/i],
+      ['iOS not supported yet', /iOS[\s\S]{0,80}not supported yet|not supported yet[\s\S]{0,80}iOS/i],
+      ['automated tests on desktop Chromium only', /Chromium[\s\S]{0,80}only|only[\s\S]{0,80}Chromium/i],
+    ]) expect(re.test(sec), `Supported browsers section names ${what}`).toBe(true);
   });
 });
 

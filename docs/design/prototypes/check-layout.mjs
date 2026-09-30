@@ -6,7 +6,8 @@
 //   - no two visible controls overlap, and no message overlaps a control it does not contain
 //   - the attribution is fully inside the viewport, not covered, font-size >= 11px
 //   - no control or message covers the attribution or the scale bar
-//   - every control is >= 44x44 CSS px
+//   - every control is >= 44x44 CSS px, including the attribution link (its box includes the transparent padding)
+//   - the attribution link's hit area does not overlap the scale bar, and the strip keeps its one-line height
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -53,7 +54,7 @@ for (const [w, h] of viewports) {
 
       for (const c of controls) {
         const r = box(c);
-        if (c.tagName !== "A" && (r.width < 44 || r.height < 44)) out.push(`${name(c)} is ${r.width.toFixed(0)}x${r.height.toFixed(0)} (< 44)`);
+        if (r.width < 44 || r.height < 44) out.push(`${name(c)} is ${r.width.toFixed(0)}x${r.height.toFixed(0)} (< 44)`);
         if (r.left < 0 || r.top < 0 || r.right > vw + 0.5 || r.bottom > vh + 0.5) out.push(`${name(c)} outside viewport`);
       }
       for (let i = 0; i < controls.length; i++) for (let j = i + 1; j < controls.length; j++) {
@@ -73,6 +74,9 @@ for (const [w, h] of viewports) {
       for (const o of others) if (overlap(box(o), ar)) out.push(`${name(o)} covers attribution`);
       if (vis(scale)) for (const o of others) if (overlap(box(o), box(scale))) out.push(`${name(o)} covers scale bar`);
       if (r2.bottom > ar.top + 0.5) out.push("message row extends into attribution");
+      const link = attr.querySelector("a");
+      if (vis(scale) && overlap(box(link), box(scale))) out.push("attribution link hit area overlaps scale bar");
+      if (document.getElementById("esa").hidden && ar.height > 24.5) out.push(`attribution strip is ${ar.height.toFixed(1)}px high at one line (> 24)`);
       // Uncovered: sample points of every attribution line must hit the strip itself.
       for (const p of attr.querySelectorAll("p")) {
         if (!vis(p)) continue;

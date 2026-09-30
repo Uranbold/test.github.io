@@ -1,6 +1,7 @@
-/* NAV-002 web map chrome. Colour, size, radius, elevation and motion values are CSS custom
+/* NAV-002 web map chrome + NAV-003 search. Colour, size, radius, elevation and motion values are CSS custom
    properties generated from docs/design/tokens.json at start-up (src/style/tokens.ts › tokensCss).
-   Layout: docs/design/screens/NAV-002-web-map.md › Layout. */
+   Layout: docs/design/screens/NAV-002-web-map.md › Layout and NAV-003-search.md › Layout.
+   Breakpoints (tokens.json › breakpoint, media queries cannot read custom properties): 600 px medium, 840 px expanded. */
 
 html,
 body {
@@ -13,7 +14,8 @@ body {
   font-family: var(--font-ui);
   color: var(--ui-on-surface);
 }
-button {
+button,
+input {
   font: inherit;
 }
 :focus-visible {
@@ -23,11 +25,25 @@ button {
 [hidden] {
   display: none !important;
 }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
-/* Map canvas fills the viewport; the overlay grid never changes its size. */
+/* Map canvas fills the viewport as a grid item spanning every row (NAV-003 screen spec › Recommended DOM structure), so
+   the search field, not the canvas, is the first Tab stop. contain: strict keeps the canvas out of the track sizing. */
 #map {
-  position: fixed;
-  inset: 0;
+  grid-row: 1 / -1;
+  grid-column: 1;
+  position: relative;
+  z-index: 0;
+  contain: strict;
+  pointer-events: auto;
   background: var(--map-earth);
 }
 #map .maplibregl-canvas:focus-visible {
@@ -35,28 +51,39 @@ button {
   outline-offset: calc(-1 * var(--size-focus-ring-width) - var(--size-focus-ring-offset));
 }
 
-/* Overlay grid: R1 top bar, R2 messages, R3 spacer, R4 bottom controls, R5 attribution. One explicit column. */
+/* Overlay grid. Rows: 1 R1 top bar | 2 RS search panel | 3 R2 messages | 4 R3 spacer | 5 R4 bottom controls |
+   6 RC card row | 7 R5 attribution. One explicit column. Only RS, R2 and RC may shrink below their content. */
 .ui {
   position: fixed;
   inset: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, auto) minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, auto) minmax(0, auto) minmax(0, 1fr) auto minmax(0, auto) auto;
   pointer-events: none;
 }
 .ui > * {
   min-width: 0;
+  grid-column: 1;
+}
+.ui > *:not(#map) {
+  position: relative;
+  z-index: 1;
 }
 .r1 {
   grid-row: 1;
-  grid-column: 1;
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: var(--spacing-control-gap);
   padding: calc(12px + env(safe-area-inset-top)) var(--spacing-gutter) 8px;
 }
+.cluster {
+  display: flex;
+  gap: var(--spacing-control-gap);
+  margin-left: auto;
+}
 .r2 {
-  grid-row: 2;
+  grid-row: 3;
   grid-column: 1;
   min-height: 0;
   overflow-y: auto;
@@ -72,32 +99,392 @@ button {
   box-sizing: border-box;
 }
 .r4 {
-  grid-row: 4;
-  grid-column: 1;
+  grid-row: 5;
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
   gap: var(--spacing-control-gap);
-  padding: 0 var(--spacing-gutter) 8px;
+  /* Exactly the height the attribution link's hit area reaches above R5 (screen spec R4 row, Layout rule 6a/7). */
+  padding: 0 var(--spacing-gutter) 20px;
 }
 .r5 {
-  grid-row: 5;
-  grid-column: 1;
+  grid-row: 7;
 }
 .blocking {
-  grid-row: 2 / 5;
-  grid-column: 1;
+  grid-row: 3 / 6;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0 var(--spacing-gutter);
 }
-.r1 > *,
+.search,
+.cluster > *,
 .r2 > *,
 .r4 > *,
+.rs > *,
+.place > *,
 .blocking > *,
 .r5 {
   pointer-events: auto;
+}
+
+/* ---- NAV-003 search field (R1). Compact (< 600 px): full width on line 1, the button cluster on line 2. */
+.search {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+@media (min-width: 600px) {
+  .r1 {
+    flex-wrap: nowrap;
+  }
+  .search {
+    flex: 0 1 var(--size-search-width);
+  }
+}
+.field {
+  box-sizing: border-box;
+  height: var(--size-control);
+  display: flex;
+  align-items: center;
+  background: var(--ui-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-1);
+}
+.field:focus-within {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: var(--size-focus-ring-offset);
+}
+.field .lead {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  margin: 0 4px 0 12px;
+  flex: none;
+  fill: var(--ui-on-surface-variant);
+}
+.field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--size-control);
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: var(--ui-on-surface);
+  font-size: 1rem;
+  line-height: 1.5rem;
+  padding: 0 4px 0 8px;
+  text-overflow: ellipsis;
+}
+.field input:focus,
+.field input:focus-visible {
+  outline: none;
+}
+.field input::placeholder {
+  color: var(--ui-on-surface-variant);
+  opacity: 1;
+}
+.clear {
+  flex: none;
+  width: var(--size-control);
+  height: var(--size-control);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ui-on-surface-variant);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.clear svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: currentColor;
+}
+.clear:hover {
+  background: var(--ui-state-hover);
+}
+
+/* ---- RS: results popup (and, from 840 px, the place card) */
+.rs {
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--spacing-gutter);
+}
+.rs,
+.r2,
+.place {
+  min-height: 0;
+}
+/* The listbox (not the popup) scrolls: it is the combobox's aria-controls target, so keyboard users scroll it with the
+   arrow keys (aria-activedescendant + scrollIntoView) and axe treats it as a combobox popup. */
+.popup {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ui-surface);
+  color: var(--ui-on-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-2);
+  padding: 8px 0;
+}
+@media (min-width: 600px) {
+  .popup {
+    max-width: var(--size-search-width);
+  }
+}
+.popup ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow-y: auto;
+}
+.popup .state {
+  flex: none;
+}
+.opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-height: var(--size-list-row-min);
+  box-sizing: border-box;
+  padding: 8px 16px 8px 12px;
+  cursor: pointer;
+}
+.opt:hover {
+  background: var(--ui-state-hover);
+}
+.opt[aria-selected="true"] {
+  background: var(--ui-state-hover);
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: calc(-1 * var(--size-focus-ring-width));
+}
+.opt > svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  flex: none;
+  fill: var(--ui-on-surface-variant);
+  margin-top: 8px;
+}
+.opt .tx {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.nm {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  color: var(--ui-on-surface);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.mt {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--ui-on-surface-variant);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.ty + .cx:not(:empty)::before {
+  content: "·";
+  margin: 0 0.4em;
+}
+.state {
+  display: grid;
+  grid-template-columns: var(--size-icon) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+  min-height: var(--size-list-row-min);
+  box-sizing: border-box;
+  padding: 4px 8px 4px 12px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--ui-on-surface);
+}
+.state .icon {
+  display: flex;
+}
+.state .icon svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: var(--ui-on-surface-variant);
+}
+.state[data-state="unavailable"] .icon svg,
+.state[data-state="error"] .icon svg {
+  fill: var(--ui-error);
+}
+.state .spin {
+  margin: 2px;
+}
+.state .act,
+.near .act {
+  color: var(--ui-primary);
+}
+.act[aria-disabled="true"] {
+  color: var(--ui-disabled-content) !important;
+  cursor: default;
+  background: transparent;
+}
+@media (max-width: 479px) {
+  .state.has-act .act {
+    grid-column: 2 / -1;
+    justify-self: end;
+  }
+}
+
+/* ---- Place card: RC (grid row 6) below 840 px, RS (grid row 2) from 840 px. One element; only its row changes. */
+.place {
+  grid-row: 6;
+  display: flex;
+  flex-direction: column;
+  /* 20 px bottom keeps the NAV-002 attribution-link hit area clear (NAV-002 layout rule 6a). */
+  padding: 0 var(--spacing-gutter) 20px;
+}
+.place-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 40dvh;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--ui-surface);
+  color: var(--ui-on-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-2);
+  padding: 4px 4px 16px 16px;
+}
+@media (min-width: 600px) {
+  .place-card {
+    max-width: var(--size-search-width);
+  }
+}
+@media (min-width: 840px) {
+  .place {
+    grid-row: 2;
+    padding: 0 var(--spacing-gutter) 8px;
+  }
+  .place-card {
+    max-height: none;
+  }
+}
+/* While the card is in RC, the card (not R4) is next to R5: R4 keeps an 8 px bottom padding (NAV-003 R4 row). */
+@media (max-width: 839px) {
+  .ui:has(> .place:not([hidden])) .r4 {
+    padding-bottom: 8px;
+  }
+}
+.ph {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.ph h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 12px 0 0;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ph h2:focus {
+  outline: none;
+}
+.ph h2:focus-visible {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: var(--size-focus-ring-offset);
+}
+.btn.flat {
+  box-shadow: none;
+  background-color: transparent;
+  flex: none;
+}
+.place-card .pm {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--ui-on-surface-variant);
+  margin: 0 12px 0 0;
+  overflow-wrap: anywhere;
+}
+.coords {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--ui-on-surface-variant);
+  margin: 4px 12px 0 0;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+.near {
+  border-top: 1px solid var(--ui-outline-variant);
+  margin: 12px 12px 0 0;
+  padding-top: 12px;
+  min-height: 44px;
+}
+.near .lab {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: var(--ui-on-surface-variant);
+  margin: 0;
+}
+.near .nn {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.near .pm {
+  margin: 0;
+}
+.near .state {
+  padding: 0;
+  min-height: 48px;
+  column-gap: 12px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .place-card {
+    animation: card-in var(--motion-duration-short, 150ms) linear;
+  }
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---- Pin (map-style.md §7.1): HTML marker inside the map container, tip on the point (anchor bottom). */
+.place-pin {
+  width: var(--size-pin-width);
+  height: var(--size-pin-height);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+  pointer-events: none;
+}
+.place-pin svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.place-pin .pin-body {
+  fill: var(--pin-fill);
+  stroke: var(--pin-stroke);
+  stroke-width: 2;
+}
+.place-pin .pin-center {
+  fill: var(--pin-center);
 }
 
 /* Buttons (48 × 48 touch targets, AC 49) */
@@ -223,7 +610,7 @@ button {
   box-sizing: border-box;
 }
 
-/* Attribution strip: opaque, never collapsed, never covered (AC 34–35) */
+/* Attribution strip: opaque, never collapsed, never covered (AC 34–35). Padding 4 px 16 px: 24 px high at one line. */
 .attr {
   background: var(--ui-surface-container);
   color: var(--ui-on-surface-variant);
@@ -234,9 +621,27 @@ button {
   position: relative;
   z-index: 1;
 }
+/* AC 49 (screen spec › Components › Attribution strip, Layout rule 6a): the OSM link's hit area is at least
+   44 × 44 CSS px without enlarging the visible strip. Transparent padding is cancelled by equal negative margins, so
+   the line box and the strip height do not change: 16 + 24 + 4 = 44 px high, text width + 16 px wide. It reaches
+   20 px above the strip into R4's 20 px bottom padding. The padding paints nothing; the focus ring goes around the
+   inner <span> (the text) only. */
 .attr a {
   color: inherit;
   text-decoration: underline;
+  display: inline-block;
+  padding: 24px 8px 4px;
+  margin: -24px -8px -4px;
+  min-width: 44px;
+  background: none;
+  border: 0;
+}
+.attr a:focus-visible {
+  outline: none;
+}
+.attr a:focus-visible > span {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: var(--size-focus-ring-offset);
 }
 .attr p {
   margin: 0;
@@ -339,6 +744,15 @@ button {
 .pill.idle {
   display: none;
 }
+/* NAV-002 AC 37 (follow-up 1): the pill is in the initial HTML as "pending" = laid out, with its text, transparent.
+   src/boot/bootLoading.ts reveals it with a Web Animations opacity animation whose start time is pinned to the document
+   timeline origin (navigation start), so the reveal is at a fixed time after navigation start (270 ms, inside the UX
+   tolerance of 250–300 ms) no matter when the first style pass runs. An opacity animation runs on the compositor even
+   while MapLibre's start-up blocks the main thread. The animation (fill: both) overrides this opacity: 0. */
+.pill.pending {
+  opacity: 0;
+  will-change: opacity;
+}
 .spin {
   width: 20px;
   height: 20px;
@@ -440,5 +854,13 @@ button {
   .act,
   .tonal {
     border: 1px solid ButtonBorder;
+  }
+  .field,
+  .popup,
+  .place-card {
+    border: 1px solid CanvasText;
+  }
+  .opt[aria-selected="true"] {
+    outline-color: Highlight;
   }
 }
