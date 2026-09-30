@@ -59,7 +59,7 @@ for (const f of tsFiles) {
     if (inner && />[^<]*[A-Za-z\u0400-\u04FF][^<]*</.test(inner[2])) problems.push(`${at}: text inside an innerHTML literal`);
   });
   for (const m of src.matchAll(/\bt\(\s*["']([a-zA-Z0-9.]+)["']/g)) usedKeys.add(m[1]);
-  for (const m of src.matchAll(/["']((?:app|map|control|marker|theme|language|status|action|location|unit|attribution|search|place|placeType)\.[a-zA-Z.]+)["']/g)) usedKeys.add(m[1]);
+  for (const m of src.matchAll(/["']((?:app|map|control|marker|theme|language|status|action|location|unit|attribution|search|place|placeType|route|maneuver)\.[a-zA-Z.]+)["']/g)) usedKeys.add(m[1]);
 }
 
 for (const f of htmlFiles) {

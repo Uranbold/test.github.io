@@ -51,6 +51,11 @@ export class SearchFeature {
   private readonly attribution = el("attribution");
   private readonly longPress: LongPress;
   private rightDown: { x: number; y: number } | null = null;
+  /**
+   * NAV-004 AC 7: while the route preview is open, a right-click / long-press point goes to its own coordinate card.
+   * Returns true when it handled the point.
+   */
+  mapPointOverride: ((p: LatLon) => boolean) | null = null;
 
   constructor(private readonly deps: SearchFeatureDeps) {
     const isOnline = (): boolean => navigator.onLine;
@@ -209,6 +214,7 @@ export class SearchFeature {
 
   /** The camera does not move (AC 25). */
   private openPoint(p: LatLon): void {
+    if (this.mapPointOverride?.(p)) return;
     if (this.controller.view.state !== "closed") this.controller.close();
     this.card.showPoint(p);
     this.card.focusHeading();

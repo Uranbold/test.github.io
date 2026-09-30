@@ -7,7 +7,8 @@
   the initial HTML and revealed 270 ms after navigation start before the module graph loads (NAV-002 AC 37).
   styles.css is a render-blocking <link> for the same reason.
   DOM order = Tab order (NAV-003 screen spec › Recommended DOM structure): search input, clear, language, theme,
-  compass, results-list retry, place card, map canvas, messages, bottom controls, attribution.
+  compass, results-list retry, place card (with the NAV-004 «Маршрут гаргах» button), NAV-004 route slot, map canvas,
+  messages, bottom controls, attribution.
 -->
 <html lang="mn" data-theme="day">
   <head>
@@ -60,6 +61,12 @@
           </div>
           <p class="pm" id="place-card-meta" data-testid="place-card-meta"><span class="ty" id="place-card-type"></span><span class="cx" id="place-card-context"></span></p>
           <p class="coords" id="place-card-coords" data-testid="place-card-coords"></p>
+          <div class="cacts" id="place-actions">
+            <button type="button" class="fbtn" id="route-open" data-testid="route-open">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 1.4 10.6 10.6L12 22.6 1.4 12Zm1 7.1V11H9v4h2v-2h2v2.5l3.5-3.5Z" /></svg>
+              <span data-i18n="route.getDirections"></span>
+            </button>
+          </div>
           <div class="near" id="place-nearest" data-testid="place-nearest" aria-live="polite" hidden>
             <p class="lab" data-i18n="place.nearest"></p>
             <div class="near-place" id="place-nearest-place" hidden>
@@ -74,6 +81,10 @@
           </div>
         </section>
       </div>
+
+      <!-- NAV-004 route slot (screen spec NAV-004-route-preview.md › Recommended DOM structure): the route panel and the
+           preview-time coordinate card, built by src/ui/routePreview.ts. Directly after the NAV-003 card (Tab order). -->
+      <div class="route" id="route" data-testid="route-slot" hidden></div>
 
       <div id="map" data-testid="map"></div>
 

@@ -1,4 +1,4 @@
-# Web demo map (NAV-002) with search (NAV-003)
+# Web demo map (NAV-002) with search (NAV-003) and route preview (NAV-004)
 
 MapLibre GL JS page that shows the Mongolia basemap from the NAV-001 gateway (`GET /tiles/basemap.pmtiles`, read with the
 PMTiles protocol over HTTP Range), with place search, a place card and a coordinate card (NAV-003). Plain TypeScript +
@@ -12,8 +12,11 @@ NAV-002 section M): see [Static public demo](#static-public-demo-d44-nav-002-ac-
 - NAV-003: story `docs/requirements/stories/NAV-003-search-cyrillic-latin-autocomplete.md`, screen spec and flow
   `docs/design/screens/NAV-003-search.md`, `docs/design/flows/NAV-003-search.md`, ADR-0006 (query assistance and request
   orchestration).
-- API (`docs/architecture/api/openapi.yaml` 0.4.1): `getBasemapPmtiles`, `search` (`GET /v1/search`) and `reverse`
-  (`GET /v1/reverse`). No other backend call. The Photon types in `src/search/photon.ts` follow the contract schemas and
+- NAV-004: story `docs/requirements/stories/NAV-004-route-preview-web.md`, screen spec and flow
+  `docs/design/screens/NAV-004-route-preview.md`, `docs/design/flows/NAV-004-route-preview.md`, map style §7.2–7.3,
+  ADR-0008 (turn text is built on the client from the manoeuvre fields; Valhalla's narrative is never shown).
+- API (`docs/architecture/api/openapi.yaml` 0.5.0): `getBasemapPmtiles`, `search` (`GET /v1/search`), `reverse`
+  (`GET /v1/reverse`) and `postRoute` (`POST /v1/route`, web route-preview client profile). No other backend call. The Photon types in `src/search/photon.ts` follow the contract schemas and
   `src/search/display.test.ts` checks them against the contract text.
 
 ## Requirements
@@ -63,7 +66,7 @@ story-only fallback any more. `scripts/check-glossary.test.mjs` (part of `npm te
 | Key | Default | Meaning |
 |---|---|---|
 | `VITE_GATEWAY_BASE_URL` | `http://localhost:8080` (static demo: the page origin) | Gateway base URL. Tiles are read from `<base>/tiles/basemap.pmtiles`; trailing slashes are ignored. **`same-origin`** (or `/`) means the page's own origin at runtime (`window.location.origin`), so one build works on any host without a rebuild. A value starting with one `/` (e.g. `/gw`) means the page origin plus that path. An absolute URL is used as is. |
-| `VITE_STATIC_DEMO` | `false` | **Static public demo build setting** (NAV-002 AC 51, 53, 54). `true` (or `1`) turns **search, reverse and routing off**: 0 requests to `/v1/search`, `/v1/reverse` or `/v1/route` on any host, and the search box and the coordinate card show «Хайлт түр ажиллахгүй байна» with «Дахин оролдох» at once (250 ms after the last keystroke). The map, day/night, my location and attribution work as usual. `false`, `0` or unset = normal build. Any other value fails the build (and would count as `true` at runtime). In code: `cfg.staticDemo` and `cfg.features` (`search`, `reverse`, `routing`) in `src/config.ts`; routing (NAV-004) should check `cfg.features.routing`. |
+| `VITE_STATIC_DEMO` | `false` | **Static public demo build setting** (NAV-002 AC 51, 53, 54). `true` (or `1`) turns **search, reverse and routing off**: 0 requests to `/v1/search`, `/v1/reverse` or `/v1/route` on any host, and the search box and the coordinate card show «Хайлт түр ажиллахгүй байна» with «Дахин оролдох» at once (250 ms after the last keystroke). The map, day/night, my location and attribution work as usual. `false`, `0` or unset = normal build. Any other value fails the build (and would count as `true` at runtime). In code: `cfg.staticDemo` and `cfg.features` (`search`, `reverse`, `routing`) in `src/config.ts`; routing (NAV-004) uses `cfg.features.routing` (no second switch). |
 
 Copy `.env.example` to `.env` and edit it, or pass the variable on the command line
 (`VITE_GATEWAY_BASE_URL=http://localhost:8081 npm run dev`). Vite reads it at start-up, so restart the dev server after a change.
@@ -82,6 +85,9 @@ written into the repo (D35); below, `https://<demo-host>` is a placeholder for w
 
 1. Build: `npm run build:static-demo` (uses `.env.static-demo`: `VITE_STATIC_DEMO=true`, `VITE_GATEWAY_BASE_URL=same-origin`).
    The output is `dist-static-demo/`. The build log prints "static demo build: search, reverse and routing are off".
+   The same single setting also turns **routing** off (NAV-004 AC 53–54): the route preview still opens from
+   «Маршрут гаргах», but shows «Маршрутын үйлчилгээ түр ажиллахгүй байна» with «Дахин оролдох» at once and sends
+   **0** `/v1/route` requests to any host.
 2. Upload the **contents** of `dist-static-demo/` to the web root of the site (the domain root: asset URLs start with `/`,
    so a sub-folder is not supported).
 3. Upload the basemap archive (NAV-001 `basemap.pmtiles`) to `<web root>/tiles/basemap.pmtiles`, so the page reads
@@ -95,7 +101,9 @@ written into the repo (D35); below, `https://<demo-host>` is a placeholder for w
 
 What the static demo does: tiles, fonts and sprites come only from the page origin (0 requests to any other host). Search
 and the coordinate card's nearest place show «Хайлт түр ажиллахгүй байна» with «Дахин оролдох» without sending anything
-(`src/search/unavailableClient.ts`; the real client also gets a fetch that refuses every call). Offline still shows
+(`src/search/unavailableClient.ts`; the real client also gets a fetch that refuses every call). The route preview shows
+«Маршрутын үйлчилгээ түр ажиллахгүй байна» and never builds a route request (`RouteClient` with `enabled: false` and a
+refusing fetch, `src/route/routeClient.ts`). Offline still shows
 «Интернэт холболт алга» (state precedence offline > unavailable). Pointing the public site at a backend is a story change
 recorded after the NAV-008 AC 24 legal review (AC 54), not a setting to flip here.
 
@@ -137,6 +145,16 @@ src/search/                      NAV-003 pure core (no DOM): text.ts (settled qu
 src/ui/searchBox.ts              combobox, results list, state rows, live region
 src/ui/placeCard.ts              place card, coordinate card, the single pin
 src/ui/searchFeature.ts          wiring: camera (fitBounds / centre), right-click and long-press (src/ui/longPress.ts)
+src/route/                       NAV-004 pure core (no DOM): routeClient.ts (postRoute body, 12 s timeout, outcome
+                                 classes, Retry-After, static-build guard), osrm.ts (contract types, response parsing),
+                                 polyline.ts, routeController.ts (settle, one request in flight, states, 429 wait,
+                                 offline, same point), instructions.ts (ADR-0008 rule table, language-neutral keys) with
+                                 maneuvers.fixture.json (shared cases, reused by NAV-005), format.ts (distance, duration,
+                                 «Хүрэх цаг»), routeLayers.ts (map-style §7.2 sources and layers, part of buildStyle)
+src/ui/routePreview.ts, .css     route panel, fields, tabs, avoid switch, result region, markers, camera, the
+                                 coordinate card during the preview
+src/ui/routeField.ts             origin / destination combobox (reuses the NAV-003 SearchController)
+src/ui/routeIcons.ts             mode, swap and manoeuvre icons (own paths)
 src/i18n/{mn,en}.json            every UI string (mn default); src/i18n/i18n.ts
 fixtures/label-rule.html         AC 8 fixture page (test hook)
 scripts/                         vendor-assets.sh, check-i18n.mjs, check-glossary.mjs, gen-third-party-notices.mjs
@@ -162,6 +180,23 @@ scripts/                         vendor-assets.sh, check-i18n.mjs, check-glossar
   offline|rate-limited|error`), `place-nearest-name`, `place-retry`, `place-pin` (`role="img"`, `aria-label`).
   Option ids are `search-option-<index>` (`aria-activedescendant`).
 - Dev builds only: `window.__nav003 = { search, map }` (`search.controller.view`, `search.reverse.view`).
+- NAV-004 (screen spec › Components): `route-open` («Маршрут гаргах» on the place and coordinate card), `route-slot`,
+  `route-panel` (`data-state` = `empty|pending|loading|route|same-point|no-route|out-of-area|too-far|unavailable|offline|
+  rate-limited|error|static`), `route-title`, `route-close`, `route-origin`, `route-destination` (comboboxes; listboxes
+  `#route-origin-results`, `#route-destination-results`), `route-field-list` (`data-field` = `origin|destination`,
+  `data-state`), `route-my-location`, `route-field-option`, `route-field-state`, `route-field-retry`, `route-swap`
+  (`aria-disabled`), `route-tab-car|walk|bike`, `route-avoid` (`role="switch"`, hidden on walk/bike), `route-result`
+  (`aria-busy`), `route-state` (`data-state` as the panel), `route-retry` (`aria-disabled="true"` during a 429 wait),
+  `route-avoid-hint`, `route-summary`, `route-duration`, `route-distance`, `route-eta`, `route-next-day`,
+  `route-snap-notice`, `route-options` (radiogroup), `route-option` (`data-index`, `aria-checked`), `route-steps`,
+  `route-step` (`data-index`, `data-key` = the ADR-0008 key), `route-live` (polite live region), `route-origin-marker`,
+  `route-point-card`, `route-point-title`, `route-point-close`, `route-point-coords`, `route-set-origin`,
+  `route-set-destination`, `route-point-nearest`, `route-point-retry`, `route-candidate-pin`. The destination marker is
+  the NAV-003 `place-pin`. Map sources `nav-route` (one LineString per route, `index`, `selected`) and `nav-route-step`.
+- Dev builds only: `window.__nav004 = { route, map }` (`route.controller.view`, `.origin`, `.destination`, `.mode`).
+- Simulate route failures with route interception on `**/v1/route` (POST; let `OPTIONS` continue). For a 429 add
+  `Access-Control-Expose-Headers: Retry-After`. Playwright treats `aria-disabled="true"` as disabled and waits before a
+  `click()`; use `click({ force: true })` or the keyboard to check that the disabled retry button does nothing.
 - `http://localhost:5173/fixtures/label-rule.html` renders the three AC 8 features with the exported label expression, plus
   one feature with no name keys. `window.__labelRule.ready` resolves on the first `idle`.
 - Simulate search failures with route interception on `**/v1/search?**` and `**/v1/reverse?**`. For a 429 add
@@ -238,3 +273,35 @@ scripts/                         vendor-assets.sh, check-i18n.mjs, check-glossar
   Point results are centred in the viewport at zoom 13 (area types) or 16; the layout keeps the viewport centre
   uncovered. Reduced motion jumps.
 - **Privacy.** Query text and coordinates are never logged, stored or put in the console.
+
+## Route preview (NAV-004)
+
+- **Open.** «Маршрут гаргах» on the place card or coordinate card opens the panel (the search field and the card are
+  hidden, not closed). Destination = the card's point («Сонгосон цэг» for a coordinate card). Origin = «Миний байршил»
+  when my location is on (activated, last fix ≤ 60 s old, no Geolocation call), otherwise empty with focus in the
+  origin field and its «Миний байршил» option (picking it starts the NAV-002 location request; 10 s wait).
+- **Fields.** Each field is a NAV-003 search box (same request rules, bias, states, typed coordinates) with its own list
+  in the panel. Esc, Tab or a click elsewhere without a pick restores the point's text. Right-click / long-press during
+  the preview opens a coordinate card in the panel's place with «Эхлэх цэг болгох» / «Очих газар болгох».
+- **Requests.** `POST /v1/route` only, body per the openapi web client profile: 6-decimal coordinates, `costing`
+  `auto|pedestrian|bicycle`, `alternates: 2`, `format: "osrm"`, `banner_instructions: true`, `units: "kilometers"`,
+  `language` `mn-MN|en-US`; `costing_options.auto.exclude_unpaved` only on «Машин» with the switch on (the switch is
+  hidden on «Явган» and «Дугуй»); no `voice_instructions`, no toll option. One request per triggering action (point set,
+  swap, switch, retry, back online); mode tabs settle 300 ms; a newer action aborts the older request. No request when
+  start and destination are ≤ 10 m apart, while offline, during a 429 wait or in the static build. Client timeout 12 s.
+- **States.** Loading after 300 ms; «Маршрут олдсонгүй» (NoRoute; DistanceExceeded on car; hint when the switch is on);
+  outside the service area (NoSegment, error 171); too far on foot or by bike (DistanceExceeded on walk/bike);
+  «Маршрутын үйлчилгээ түр ажиллахгүй байна» + one retry (network, CORS, 5xx, timeout); «Түр хүлээгээд дахин оролдоно уу»
+  with the retry disabled for `Retry-After` s (5 s if unreadable), nothing sent automatically; «Интернэт холболт алга»
+  and one request when back online; «Алдаа гарлаа» (other 400, 413, unparsable 200). Precedence: same point > offline >
+  429 wait > unavailable/static > errors > loading > route.
+- **Result.** Up to 3 lines (selected above, alternatives narrower; click an alternative or a route option to select it:
+  0 requests, no camera move), summary «13 мин · 4,6 км» / «Хүрэх цаг 14:03» (refreshed every 60 s from the clock),
+  snap notice above 500 m, route options (k ≥ 2), turn list (one Tab stop, arrow keys; Enter/click centres the map on the
+  step at zoom ≥ 17). Turn text comes from `src/route/instructions.ts` and the `maneuver.*` resource keys in both UI
+  languages, so a language switch sends 0 requests. The camera fits all lines and both markers into the uncovered map
+  area (max zoom 17; jump with reduced motion).
+- **Close.** «Хаах» or Esc: lines, origin marker and candidate pin removed, the request aborted, focus back to
+  «Маршрут гаргах».
+- **Privacy.** Coordinates, request bodies and the device position are never logged, stored or put in the URL. The device
+  position leaves the browser only as the origin of a route request whose origin is «Миний байршил».

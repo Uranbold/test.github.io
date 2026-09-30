@@ -149,6 +149,9 @@ test.describe('NAV-002 G. Language and strings (repository checks)', () => {
     const quoted = (x) => [...x.matchAll(/«([^»]+)»/g)].map((m) => norm(m[1]));
     const sentences = (x) => x.split(/(?<=[.;])\s+|\s+e\.g\.\s+/);
     const NEG = /\b(never|Avoid|avoid|not|Rejected|rejected|previous proposal|Previous proposal|instead of)\b/;
+    // English UI labels quoted with “…” or "…" (e.g. the NAV-004 option "Avoid unpaved roads", glossary N12, 2026-09-30)
+    // are text, not the glossary's Avoid marker or a negation: they are removed before the Avoid / NEG checks.
+    const plain = (x) => x.replace(/“[^”]*”|"[^"]*"/g, '');
     const approved = new Set();
     const banned = new Set();
     let section = '';
@@ -164,7 +167,7 @@ test.describe('NAV-002 G. Language and strings (repository checks)', () => {
       if (!kind || !(num >= 1 && num <= 9)) continue;
       // Banned: «…» in any sentence that says Avoid (Rule/Definition/Notes cells), except "not marked Avoid".
       for (const c of cells.slice(1)) for (const snt of sentences(c)) {
-        if (/\bAvoid\b/.test(snt) && !/not marked Avoid/.test(snt)) for (const q of quoted(snt)) if (!q.includes('<')) banned.add(q);
+        if (/\bAvoid\b/.test(plain(snt)) && !/not marked Avoid/.test(snt)) for (const q of quoted(snt)) if (!q.includes('<')) banned.add(q);
       }
       if (num === 9) continue; // team-internal terms are not UI terms
       if (kind === 'terms' && cells.length >= 5) {
@@ -172,9 +175,9 @@ test.describe('NAV-002 G. Language and strings (repository checks)', () => {
         for (const q of quoted(mn)) approved.add(q);
         const rest = mn.replace(/«[^»]*»/g, '|').replace(/\([^)]*\)/g, '|').replace(/\b(Banner|Layer|UI|Mute icon|Rationale prompt|Voice)\b/g, '|');
         for (const piece of rest.split(/[|/,;:.]/)) if (norm(piece) && /[А-Яа-яӨөҮүЁё]|^[A-Z][a-z]+$/.test(norm(piece))) approved.add(norm(piece));
-        for (const snt of sentences(def)) if (!NEG.test(snt)) for (const q of quoted(snt)) approved.add(q);
+        for (const snt of sentences(def)) if (!NEG.test(plain(snt))) for (const q of quoted(snt)) approved.add(q);
       } else if (kind === 'conventions' && cells.length >= 5) {
-        for (const snt of sentences(cells[2])) if (!NEG.test(snt)) for (const q of quoted(snt)) approved.add(q);
+        for (const snt of sentences(cells[2])) if (!NEG.test(plain(snt))) for (const q of quoted(snt)) approved.add(q);
       }
     }
     return { approved, banned, norm };

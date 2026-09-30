@@ -78,7 +78,10 @@ async function netQuiet(list, quietMs = 700, timeout = 20_000) {
 /** In-page recorder for the NAV-003 search box and the coordinate card (production build: DOM only, no test hooks). */
 function sdInit() {
   const sd = (window.__sd = { keys: [], clicks: [], ctx: [], states: [], near: [] });
+  // Last input event (NAV-003 AC 3 clock): Playwright types non-US-layout characters (Cyrillic) with insertText, which fires
+  // `input` but no `keydown` per character, so both are recorded and the later one counts.
   document.addEventListener('keydown', () => sd.keys.push(performance.now()), true);
+  document.addEventListener('input', () => sd.keys.push(performance.now()), true);
   document.addEventListener('click', (e) => sd.clicks.push({ t: performance.now(), id: e.target?.closest?.('[data-testid]')?.dataset.testid ?? null }), true);
   document.addEventListener('contextmenu', () => sd.ctx.push(performance.now()), true);
   let lastS = '';
@@ -147,7 +150,7 @@ async function typeSettled(page, text) {
   await page.waitForTimeout(1300); // debounce 250 ms + the 1 s budget, then measured in the page
 }
 
-/** From the in-page record: ms from the last keydown to the first unavailable row with message and retry. */
+/** From the in-page record: ms from the last keydown / input event to the first unavailable row with message and retry. */
 async function unavailableAfterLastKey(page, message) {
   return page.evaluate((message) => {
     const sd = window.__sd;
@@ -183,7 +186,7 @@ test.describe('NAV-002 M. Static public demo (D44), local static server', () => 
       expect(await page.evaluate(() => document.documentElement.dataset.theme), 'AC 26 first visit: day').toBe('day');
       expect(await attributionProblems(page), `${base}: AC 34 «© OpenStreetMap contributors» visible`).toEqual([]);
       await expect(page).toHaveTitle(S.mn.map);
-      await expect(tid(page, 'map-canvas')).toBeVisible();
+      await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
       await ctx.close();
     }
     test.info().annotations.push({ type: 'AC51 ready (first idle with tiles, ms since navigation start, local server)', description: JSON.stringify(ready) });
@@ -195,6 +198,14 @@ test.describe('NAV-002 M. Static public demo (D44), local static server', () => 
 
   test('AC51 subset: language switch (AC31), theme toggle (AC26), ESA credit at z <= 7 (AC35), Tab order (AC48) on the static build', async ({ page }) => {
     await openDemo(page, HOST_A);
+    // AC 48: Tab order from the page top as on the dev server (NAV-003 order: search input first; the canvas has no test id,
+    // it is named "map-canvas" from its MapLibre class, as in a11y-layout › AC48)
+    const seq = [];
+    for (let i = 0; i < 9; i++) {
+      await page.keyboard.press('Tab');
+      seq.push(await page.evaluate(() => { const e = document.activeElement; return e?.dataset.testid || (e?.classList.contains('maplibregl-canvas') ? 'map-canvas' : e?.tagName); }));
+    }
+    expect(seq).toEqual(['search-input', 'language-toggle', 'theme-toggle', 'compass', 'map-canvas', 'zoom-in', 'zoom-out', 'my-location', 'attribution-osm']);
     // AC 31: English within 500 ms, <html lang="en">, title "Map"
     const t0 = Date.now();
     await tid(page, 'language-toggle').click();
@@ -217,15 +228,6 @@ test.describe('NAV-002 M. Static public demo (D44), local static server', () => 
     await expect(tid(page, 'attribution-esa')).toBeVisible();
     expect(await attributionProblems(page, 'attribution-esa', S.esa)).toEqual([]);
     expect(await attributionProblems(page)).toEqual([]);
-    // AC 48: Tab order as on the dev server (NAV-003 order: search input first)
-    await page.keyboard.press('Escape');
-    await page.evaluate(() => document.activeElement?.blur());
-    const seq = [];
-    for (let i = 0; i < 9; i++) {
-      await page.keyboard.press('Tab');
-      seq.push(await page.evaluate(() => document.activeElement?.dataset.testid ?? document.activeElement?.tagName));
-    }
-    expect(seq).toEqual(['search-input', 'language-toggle', 'theme-toggle', 'compass', 'map-canvas', 'zoom-in', 'zoom-out', 'my-location', 'attribution-osm']);
   });
 
   test('AC52: every basemap read is an HTTP Range request answered 206 (browser and server log), no response > 10 MB or anywhere near the whole archive, no Content-Encoding, page origin only; zoom z12 -> z18 -> z3 and pans', async ({ page, context }) => {
@@ -312,6 +314,11 @@ test.describe('NAV-002 M. Static public demo (D44), local static server', () => 
       await expect(tid(page, 'search-retry')).toHaveText(T[lang].retry);
       await expect(page.locator('#search-state-text')).toHaveText(msg);
       // 2. «Дахин оролдох»
+      await page.evaluate(() => {
+        const live = document.querySelector('[data-testid=search-live]');
+        window.__sdLive = [];
+        new MutationObserver(() => window.__sdLive.push({ t: performance.now(), text: live.textContent })).observe(live, { subtree: true, childList: true, characterData: true });
+      });
       await tid(page, 'search-retry').click();
       await page.waitForTimeout(1000);
       const r2 = await page.evaluate(() => {
@@ -322,6 +329,10 @@ test.describe('NAV-002 M. Static public demo (D44), local static server', () => 
         return { clickAt: c.t, changes: after.map((s) => ({ ...s, t: Math.round(s.t - c.t) })), current: cur };
       });
       test.info().annotations.push({ type: `AC53 ${lang} retry`, description: JSON.stringify(r2) });
+      // Screen spec › Static public demo, «Дахин оролдох» pressed: focus to the input, the row shown again and announced
+      // again. Design details beyond the AC 53 wording: recorded here, reported, not asserted.
+      const design = await page.evaluate((c) => ({ focus: document.activeElement?.dataset.testid ?? document.activeElement?.tagName, live: (window.__sdLive || []).map((x) => ({ t: Math.round(x.t - c), text: x.text })) }), r2.clickAt);
+      test.info().annotations.push({ type: `AC53 ${lang} retry design (focus, live region after the click)`, description: JSON.stringify(design) });
       expect(r2.current.row, 'after «Дахин оролдох»: still the unavailable row').toBe('unavailable');
       expect(r2.current.text).toBe(msg);
       expect(r2.current.retry).toBe(true);
@@ -349,8 +360,21 @@ test.describe('NAV-002 M. Static public demo (D44), local static server', () => 
       await tid(page, 'place-retry').click();
       await page.waitForTimeout(800);
       await expect(tid(page, 'place-nearest')).toContainText(msg);
+      // 3b. Routing is off too (AC 53): if the card shows the NAV-004 route button, pressing it must send nothing (checked
+      // by the request assertions below). What the static build shows then is NAV-004's spec, so it is only recorded.
+      const routeBtn = tid(page, 'route-open');
+      if (await routeBtn.isVisible().catch(() => false)) {
+        await routeBtn.click();
+        await page.waitForTimeout(2000);
+        const after = await page.evaluate(() => ({ panel: [...document.querySelectorAll('[data-testid^=route-]')].filter((e) => !e.hidden && !e.closest('[hidden]')).map((e) => e.dataset.testid).slice(0, 12), text: document.querySelector('[data-testid=route-panel]')?.innerText?.replace(/\s+/g, ' ').slice(0, 200) ?? null }));
+        test.info().annotations.push({ type: `AC53 ${lang} route button pressed (NAV-004 UI, recorded)`, description: JSON.stringify(after) });
+        await page.keyboard.press('Escape');
+        await page.keyboard.press('Escape');
+      } else {
+        test.info().annotations.push({ type: `AC53 ${lang} route button`, description: 'not shown on the coordinate card' });
+      }
       // 4. The map, attribution and other controls keep working (NAV-003 AC 39)
-      await tid(page, 'place-card-close').click();
+      if (await tid(page, 'place-card-close').isVisible()) await tid(page, 'place-card-close').click();
       const before = (await tid(page, 'scale-label').textContent())?.trim();
       await tid(page, 'zoom-in').click();
       await expect.poll(async () => (await tid(page, 'scale-label').textContent())?.trim(), { timeout: 3000 }).not.toBe(before);
@@ -359,7 +383,8 @@ test.describe('NAV-002 M. Static public demo (D44), local static server', () => 
       await netQuiet(net);
       const during = net.slice(netBefore);
       expect(backendOrForeign(net, HOST_A), 'AC 53: 0 backend-path or other-host requests (browser)').toEqual([]);
-      expect(during.filter((e) => !e.url.includes('/tiles/') && !e.url.startsWith('data:') && !e.url.startsWith('blob:')).map((e) => e.url), 'after start-up, only tile reads (zoom) go out').toEqual([]);
+      // After start-up only static files of the page origin go out (tile reads, and fonts/sprites MapLibre loads lazily)
+      expect(during.filter((e) => /^https?:/.test(e.url) && !STATIC_PATH.test(new URL(e.url).pathname)).map((e) => e.url), 'after start-up, only static files of the page origin').toEqual([]);
       const server = accessLog().slice(logBefore);
       const enc = [query, encodeURIComponent(query), 'q=', 'lat=', 'lon='];
       expect(server.filter((l) => !STATIC_PATH.test(l.uri.split('?')[0]) || l.uri.includes('?')).map((l) => l.uri), 'server log: only static files, no query strings').toEqual([]);
@@ -400,8 +425,20 @@ test.describe('NAV-002 M. Static public demo (D44), local static server', () => 
     test.info().annotations.push({ type: 'offline row', description: JSON.stringify(offlineRow) });
     expect(offlineRow.text, 'offline: «Интернэт холболт алга»').toBe(T.mn.offline);
     await context.setOffline(false);
+    await page.waitForTimeout(1500);
+    const backOnline = await page.evaluate(() => ({ popup: document.querySelector('#search-popup')?.hidden ? 'hidden' : document.querySelector('#search-popup')?.dataset.state, text: document.querySelector('#search-state-text')?.textContent }));
+    test.info().annotations.push({ type: 'back online (screen spec: the unavailable row again, 0 requests; recorded)', description: JSON.stringify(backOnline) });
+    // Typed coordinates work without a backend: one option «Сонгосон цэг», Enter opens the coordinate card, whose
+    // nearest-place area shows the unavailable row (screen spec; NAV-003 AC 26, 30)
+    await page.keyboard.press('Escape');
+    await typeSettled(page, '47.9189, 106.9176');
+    const opts = await page.evaluate(() => [...document.querySelectorAll('#search-results [role=option]')].map((li) => ({ kind: li.dataset.kind, name: li.querySelector('[data-testid=search-option-name]')?.textContent })));
+    expect(opts).toEqual([{ kind: 'coordinate', name: T.mn.selectedPoint }]);
+    await page.keyboard.press('Enter');
+    await expect(tid(page, 'place-card-title')).toHaveText(T.mn.selectedPoint);
+    await expect(tid(page, 'place-nearest')).toContainText(T.mn.unavailable, { timeout: 1000 });
     await netQuiet(net);
-    expect(net.slice(n0).filter((e) => !e.url.includes('/tiles/')).map((e) => e.url), 'no request except tile reads').toEqual([]);
+    expect(net.slice(n0).filter((e) => /^https?:/.test(e.url) && (new URL(e.url).origin !== HOST_A || !STATIC_PATH.test(new URL(e.url).pathname))).map((e) => e.url), 'no request except static files of the page origin').toEqual([]);
   });
 
   test('AC54: 5-minute session (3 queries, 1 coordinate card): search, reverse and routing stay off; 0 requests to any host but the page origin; the server log holds only static files', async ({ page, context }) => {
@@ -453,7 +490,7 @@ test.describe('NAV-002 M. Static public demo (D44), local static server', () => 
     expect(mode).toMatch(/^VITE_GATEWAY_BASE_URL=same-origin$/m);
     // D35: committed config and the README's static-demo section name no real host (placeholders and localhost only)
     const sec = md.slice(md.indexOf('## Static public demo'), md.indexOf('\n## ', md.indexOf('## Static public demo') + 5));
-    const hosts = [...`${mode}\n${envEx.join('\n')}\n${sec}`.matchAll(/https?:\/\/([^/\s`)'"*]+)/g)].map((m) => m[1]);
+    const hosts = [...`${mode}\n${envEx.join('\n')}\n${sec}`.matchAll(/https?:\/\/([^/\s`)'"*]+)/g)].map((m) => m[1].replace(/[.,;:]+$/, ''));
     const bad = hosts.filter((h) => !/^(<[a-z-]+>|localhost(:\d+)?|127\.0\.0\.1(:\d+)?)$/.test(h));
     test.info().annotations.push({ type: 'hosts named', description: JSON.stringify([...new Set(hosts)]) });
     expect(bad, 'no real hostname in the static-demo config or README section').toEqual([]);

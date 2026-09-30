@@ -10,6 +10,7 @@ import type {
   SymbolLayerSpecification,
 } from "maplibre-gl";
 import { customRoadColours, locationColours, tokenFlavor, type Theme } from "./tokens";
+import { EMPTY_ROUTE_STYLE, routeLayers, routeSources, type RouteStyleData } from "../route/routeLayers";
 
 export type { Theme };
 
@@ -253,14 +254,23 @@ export interface StyleConfig {
   assetBaseUrl: string;
 }
 
-export function buildStyle(theme: Theme, cfg: StyleConfig, location: LocationData = EMPTY_LOCATION): StyleSpecification {
+/**
+ * `route`: NAV-004 route lines and manoeuvre point (map-style.md §7.2), placed below the location layers, so a
+ * day/night switch keeps them with their current data (AC 20). Empty unless a route preview is shown.
+ */
+export function buildStyle(
+  theme: Theme,
+  cfg: StyleConfig,
+  location: LocationData = EMPTY_LOCATION,
+  route: RouteStyleData = EMPTY_ROUTE_STYLE,
+): StyleSpecification {
   let ls = protomapsLayers(SOURCE_ID, flavorFor(theme), { lang: "en" }) as LayerSpecification[];
   ls = applyLabelRule(ls);
   ls = applyTextSizes(ls);
   ls = applyRoadColours(ls, theme);
   const firstSymbol = ls.findIndex((l) => l.type === "symbol");
   const at = firstSymbol === -1 ? ls.length : firstSymbol;
-  ls = [...ls.slice(0, at), ...locationLayers(theme), ...ls.slice(at)];
+  ls = [...ls.slice(0, at), ...routeLayers(theme), ...locationLayers(theme), ...ls.slice(at)];
 
   return {
     version: 8,
@@ -270,6 +280,7 @@ export function buildStyle(theme: Theme, cfg: StyleConfig, location: LocationDat
     sources: {
       [SOURCE_ID]: { type: "vector", url: cfg.sourceUrl },
       [LOCATION_SOURCE_ID]: { type: "geojson", data: location },
+      ...routeSources(route),
     },
     layers: ls,
   };

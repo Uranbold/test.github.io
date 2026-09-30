@@ -84,6 +84,22 @@ export function pinColours(theme: Theme): PinColours {
   return modeGroup(theme, "pin") as unknown as PinColours;
 }
 
+export interface RouteColours {
+  selected: string;
+  "selected-casing": string;
+  alternative: string;
+  "alternative-casing": string;
+  "origin-fill": string;
+  "origin-stroke": string;
+  "step-fill": string;
+  "step-stroke": string;
+}
+
+/** NAV-004 route lines and markers (tokens.json › color.<mode>.route, map-style.md §7.2–7.3). */
+export function routeColours(theme: Theme): RouteColours {
+  return modeGroup(theme, "route") as unknown as RouteColours;
+}
+
 type Scalar = string | number;
 
 function cssDeclarations(theme: Theme): string[] {
@@ -91,6 +107,7 @@ function cssDeclarations(theme: Theme): string[] {
   for (const [k, v] of Object.entries(uiColours(theme))) decl.push(`--ui-${k}:${v}`);
   for (const [k, v] of Object.entries(locationColours(theme))) decl.push(`--loc-${k}:${v}`);
   for (const [k, v] of Object.entries(pinColours(theme))) decl.push(`--pin-${k}:${v}`);
+  for (const [k, v] of Object.entries(routeColours(theme))) decl.push(`--route-${k}:${v}`);
   const flavor = tokenFlavor(theme) as unknown as Record<string, unknown>;
   decl.push(`--map-earth:${String(flavor.earth)}`);
   decl.push(`color-scheme:${theme === "night" ? "dark" : "light"}`);

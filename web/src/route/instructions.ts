@@ -140,7 +140,7 @@ export function instructionText(m: ManeuverInput, lang: Lang, t: (key: MessageKe
 }
 
 /** Zero-width characters removed from street names (AC 26, NAV-007 F4). */
-const ZERO_WIDTH = /[\u200B\u200C\u200D\uFEFF]/g;
+const ZERO_WIDTH = /\u200B|\u200C|\u200D|\uFEFF/g;
 
 /**
  * `step.name` for display: zero-width characters removed, traditional Mongolian script removed as in NAV-003 AC 18

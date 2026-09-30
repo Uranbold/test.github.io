@@ -39,6 +39,33 @@ describe("check-glossary", () => {
     });
   }
 
+  // NAV-004 AC 27/48: derivation rules a–c (placeholder, left/right mirror, cardinal set) are reported as derived.
+  it.each([
+    ["Тойрог: {n}-р гарц", /derived: placeholder/],
+    ["Баруун талаас замд нийлнэ үү", /derived: left\/right mirror/],
+    ["Баруун хойд зүг рүү явна уу", /derived: .*cardinal set/],
+    ["Өмнө зүг рүү явна уу", /derived: .*cardinal set/],
+  ])("accepts the pattern form «%s» as derived", (value, how) => {
+    const r = run({ "maneuver.test": value });
+    expect(r.status, r.stdout).toBe(0);
+    expect(r.stdout).toMatch(how);
+  });
+
+  it.each([
+    "Тойрог: {n} дахь гарц", // placeholder over wording that is not approved
+    "{n} дахь гарц",
+    "Баруун эргэнэ үү", // bare left/right (C2); its mirror is not approved either
+    "Зүүн эргэ",
+    "Баруун руу чиглүүл",
+    "Өмнөд зүг рүү явна уу", // «өмнөд» is not in the cardinal set
+    "Зүүн хойд зүг рүү яв", // wrong register (C1)
+    "Хойд тийш эргэнэ үү",
+  ])("still rejects «%s»", (value) => {
+    const r = run({ "maneuver.test": value });
+    expect(r.status, r.stdout).toBe(1);
+    expect(r.stdout).toMatch(/MISSING\s+maneuver\.test/);
+  });
+
   it("still accepts an approved term next to a banned one and reports only the banned one", () => {
     const r = run({ "a.ok": "Дахин оролдох", "b.bad": "навигаци" });
     expect(r.status).toBe(1);

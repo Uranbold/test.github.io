@@ -1,0 +1,613 @@
+/* NAV-004 route preview. Screen spec: docs/design/screens/NAV-004-route-preview.md › Layout, Components.
+   Colours, sizes and motion are the token custom properties from src/style/tokens.ts (docs/design/tokens.json).
+   Breakpoints (tokens.json › breakpoint): 600 px medium, 840 px expanded. */
+
+/* ---- Route slot: one element; below 840 px it is the bottom sheet in RC (grid row 6); from 840 px it is its own
+   left grid column (432 px) and every NAV-002/NAV-003 row moves to column 2 (layout rules 1–4). */
+.route {
+  grid-row: 6;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* 20 px bottom keeps the NAV-002 attribution link's hit area clear (NAV-002 layout rule 6a). */
+  padding: 0 var(--spacing-gutter) 20px;
+}
+.route > * {
+  pointer-events: auto;
+}
+/* While the panel is open the NAV-003 search field, results popup and place card are hidden, not closed (rule 4). */
+.ui.route-open .search,
+.ui.route-open > .rs,
+.ui.route-open > .place {
+  display: none !important;
+}
+@media (max-width: 839px) {
+  .ui.route-open .r4 {
+    padding-bottom: 8px;
+  }
+}
+@media (min-width: 840px) {
+  .ui.route-open {
+    grid-template-columns: var(--size-side-panel) minmax(0, 1fr);
+  }
+  .ui.route-open > *:not(#map) {
+    grid-column: 2;
+  }
+  .ui.route-open > #map,
+  .ui.route-open > #attribution {
+    grid-column: 1 / -1;
+  }
+  .ui.route-open > #route {
+    grid-column: 1;
+    grid-row: 1 / 7;
+    padding: calc(12px + env(safe-area-inset-top)) var(--spacing-gutter) 20px;
+  }
+}
+
+.route-panel,
+.route .rp-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: var(--size-route-sheet-max);
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--ui-surface);
+  color: var(--ui-on-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-2);
+}
+.route .rp-card {
+  padding: 4px 4px 16px 16px;
+}
+@media (min-width: 600px) {
+  .route-panel,
+  .route .rp-card {
+    max-width: var(--size-search-width);
+  }
+}
+@media (min-width: 840px) {
+  .route-panel,
+  .route .rp-card {
+    max-height: none;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .route-panel {
+    animation: card-in var(--motion-duration-short, 150ms) linear;
+  }
+}
+/* WCAG 2.2 SC 2.4.11: focused elements scroll fully below the sticky header. */
+.route-panel :is(button, input, [tabindex]) {
+  scroll-margin-top: 64px;
+}
+
+/* ---- Header (sticky) */
+.rp-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 4px 4px 4px 16px;
+  background: var(--ui-surface);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+.rp-head h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.rp-head h2:focus,
+.rp-card h2:focus {
+  outline: none;
+}
+.rp-head h2:focus-visible,
+.rp-card h2:focus-visible {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: var(--size-focus-ring-offset);
+}
+
+/* ---- Fields and swap */
+.rp-fields {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* 4 px top: room for the fields' 2 px focus ring + 2 px offset below the sticky header. */
+  padding: 4px 4px 0 16px;
+}
+.rp-fcol {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rfield {
+  box-sizing: border-box;
+  height: var(--size-control);
+  display: flex;
+  align-items: center;
+  background: var(--ui-surface-container);
+  border-radius: var(--radius-md);
+}
+.rfield:focus-within {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: var(--size-focus-ring-offset);
+}
+.rfield .lead {
+  display: flex;
+  margin: 0 0 0 12px;
+  flex: none;
+}
+.rfield .lead svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+.rfield .lead.o svg {
+  fill: var(--ui-on-surface-variant);
+}
+.rfield .lead.d svg {
+  fill: var(--pin-fill);
+}
+.rfield input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--size-control);
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: var(--ui-on-surface);
+  font-size: 1rem;
+  line-height: 1.5rem;
+  padding: 0 12px 0 8px;
+  text-overflow: ellipsis;
+}
+.rfield input:focus,
+.rfield input:focus-visible {
+  outline: none;
+}
+.rfield input::placeholder {
+  color: var(--ui-on-surface-variant);
+  opacity: 1;
+}
+#route-swap[aria-disabled="true"] {
+  color: var(--ui-disabled-content);
+}
+
+/* ---- Field results list: in flow below the fields (layout rule 6) */
+.rp-list {
+  margin: 8px 16px 0;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-outline-variant);
+  border-radius: var(--radius-md);
+  padding: 8px 0;
+}
+.rp-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- Mode tabs (Material 3 primary tabs) */
+.rp-tabs {
+  display: flex;
+  margin-top: 8px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ui-outline-variant);
+}
+.tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--size-control);
+  border: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 4px;
+  color: var(--ui-on-surface-variant);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  position: relative;
+  cursor: pointer;
+}
+.tab:hover {
+  background: var(--ui-state-hover);
+}
+.tab[aria-selected="true"] {
+  color: var(--ui-primary);
+}
+.tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--ui-primary);
+}
+.tab .ti {
+  display: flex;
+}
+.tab svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: currentColor;
+  flex: none;
+}
+.tab:focus-visible {
+  outline-offset: -2px;
+}
+
+/* ---- Avoid switch (Material 3 switch in a list row) */
+.rp-avoid {
+  display: flex;
+  width: 100%;
+  min-height: var(--size-control);
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ui-on-surface);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  text-align: left;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.rp-avoid:hover {
+  background: var(--ui-state-hover);
+}
+.rp-avoid:focus-visible {
+  outline-offset: -2px;
+}
+.track {
+  flex: none;
+  width: var(--size-switch-width);
+  height: var(--size-switch-height);
+  box-sizing: border-box;
+  border-radius: 16px;
+  border: 2px solid var(--ui-outline);
+  background: var(--ui-surface-container);
+  position: relative;
+}
+.handle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ui-outline);
+}
+.rp-avoid[aria-checked="true"] .track {
+  background: var(--ui-primary);
+  border-color: var(--ui-primary);
+}
+.rp-avoid[aria-checked="true"] .handle {
+  top: 2px;
+  left: 22px;
+  width: 24px;
+  height: 24px;
+  background: var(--ui-on-primary);
+}
+
+/* ---- Result region */
+.rp-result {
+  padding: 4px 0 12px;
+}
+.rp-result > .state {
+  padding: 4px 8px 4px 16px;
+}
+.rp-result .state .txt .hint {
+  display: block;
+  color: var(--ui-on-surface-variant);
+  margin-top: 2px;
+}
+.rp-result .state .txt .msg-main {
+  display: block;
+}
+.state[data-state="static"] .icon svg {
+  fill: var(--ui-error);
+}
+.rp-sum {
+  padding: 8px 16px 4px;
+}
+.rp-sum .dur {
+  margin: 0;
+  font-size: 1.375rem;
+  line-height: 1.75rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.rp-sum .dur .d,
+.rp-sum .dur .dist {
+  white-space: nowrap;
+}
+.rp-sum .dist {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 400;
+  color: var(--ui-on-surface-variant);
+}
+.rp-sum .dist::before {
+  content: "·";
+  margin: 0 0.4em;
+}
+.rp-sum .eta {
+  margin: 2px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+.rp-sum .eta .nd {
+  color: var(--ui-on-surface-variant);
+}
+.rp-note {
+  display: grid;
+  grid-template-columns: var(--size-icon) minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: start;
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.rp-note .icon,
+.rp-result .state .icon {
+  display: flex;
+}
+.rp-note svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: var(--ui-on-surface-variant);
+}
+
+/* ---- Route options (radio list) */
+.rp-opts {
+  margin-top: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--ui-outline-variant);
+}
+.rp-opt {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: var(--size-list-row-min);
+  box-sizing: border-box;
+  padding: 4px 16px;
+  cursor: pointer;
+}
+.rp-opt:hover {
+  background: var(--ui-state-hover);
+}
+.rp-opt:focus-visible {
+  outline-offset: -2px;
+}
+.radio {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--ui-on-surface-variant);
+  display: grid;
+  place-items: center;
+}
+.rp-opt[aria-checked="true"] .radio {
+  border-color: var(--ui-primary);
+}
+.rp-opt[aria-checked="true"] .radio::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ui-primary);
+}
+.sw {
+  flex: none;
+  width: 24px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--route-alternative);
+  box-shadow: 0 0 0 1px var(--route-alternative-casing);
+}
+.sw.sel {
+  background: var(--route-selected);
+  box-shadow: 0 0 0 1px var(--route-selected-casing);
+}
+.rp-opt .tx {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rp-opt .nm {
+  font-weight: 500;
+}
+
+/* ---- Turn list */
+.rp-dir-h {
+  margin: 8px 0 0;
+  padding: 12px 16px 4px;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+  border-top: 1px solid var(--ui-outline-variant);
+}
+.rp-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+}
+.step {
+  width: 100%;
+  display: grid;
+  grid-template-columns: var(--size-icon) minmax(0, 1fr) auto;
+  column-gap: 16px;
+  align-items: start;
+  min-height: var(--size-list-row-min);
+  box-sizing: border-box;
+  padding: 8px 16px;
+  border: 0;
+  border-left: 4px solid transparent;
+  background: transparent;
+  text-align: left;
+  color: var(--ui-on-surface);
+  cursor: pointer;
+  font: inherit;
+}
+.step.active {
+  border-left-color: var(--route-selected);
+}
+.step:hover {
+  background: var(--ui-state-hover);
+}
+.step:focus-visible {
+  outline-offset: -2px;
+}
+.step .si {
+  display: flex;
+}
+.step .si svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: var(--ui-on-surface-variant);
+}
+svg.mirror {
+  transform: scaleX(-1);
+}
+.step .tx {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.step .in {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  overflow-wrap: anywhere;
+}
+.step .st {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--ui-on-surface-variant);
+  overflow-wrap: anywhere;
+}
+.step .dd {
+  font-size: 0.875rem;
+  line-height: 1.5rem;
+  color: var(--ui-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- Card actions: «Маршрут гаргах» (filled) and, on the preview-time card, the two outlined set buttons */
+.cacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 12px 0 0;
+}
+.fbtn,
+.obtn {
+  box-sizing: border-box;
+  min-height: var(--size-control);
+  padding: 0 24px 0 16px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+.fbtn {
+  border: 0;
+  background: var(--ui-primary);
+  color: var(--ui-on-primary);
+}
+.fbtn:hover {
+  background-image: linear-gradient(var(--ui-state-hover), var(--ui-state-hover));
+}
+.obtn {
+  border: 1px solid var(--ui-outline);
+  background: transparent;
+  color: var(--ui-primary);
+  padding: 0 24px;
+}
+.obtn:hover {
+  background: var(--ui-state-hover);
+}
+.fbtn svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  flex: none;
+}
+
+/* ---- Markers (map-style.md §7.3) */
+.route-origin-marker {
+  width: var(--size-origin-marker);
+  height: var(--size-origin-marker);
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--route-origin-fill);
+  border: 4px solid var(--route-origin-stroke);
+  box-shadow: var(--elevation-1);
+  pointer-events: none;
+}
+.place-pin.candidate .pin-body {
+  fill: var(--ui-surface);
+  stroke: var(--pin-fill);
+}
+.place-pin.candidate .pin-center {
+  fill: var(--pin-fill);
+}
+
+@media (forced-colors: active) {
+  .route-panel,
+  .route .rp-card,
+  .rfield {
+    border: 1px solid CanvasText;
+  }
+  .tab[aria-selected="true"]::after {
+    background: Highlight;
+  }
+  .track {
+    border-color: CanvasText;
+  }
+  .fbtn,
+  .obtn {
+    border: 1px solid ButtonBorder;
+  }
+}
+
+/* Marker stacking (map-style.md §7.3): origin < destination pin < candidate pin < location dot. */
+.route-origin-marker {
+  z-index: 1;
+}
+.ui.route-open .place-pin {
+  z-index: 2;
+}
+.ui.route-open .place-pin.candidate {
+  z-index: 3;
+}
+.ui.route-open .loc-dot {
+  z-index: 4;
+}
