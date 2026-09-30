@@ -1,4 +1,5 @@
-// NAV-003 B. Autocomplete timing (AC 12, 13) and D. Results list content (AC 17–19) with fixtures F1–F13.
+// NAV-003 B. Autocomplete timing (AC 12, 13) and D. Results list content (AC 17–19) with fixtures F1–F13 and F14a/F14b/F15/F16
+// (story amended 2026-09-30, PO approval F2, D33: Latin name endings for rules 1–4, rule 4a, same rule row in both UI languages).
 import { test, expect } from '@playwright/test';
 import { FIXTURES, FX, REF, SEARCH_GLOB, T, TRAD, expectNoTrad, fc, feature, jumpTo, mock, openApp, options, pace, tid, typeQuery, waitSettled } from './helpers.mjs';
 
@@ -59,19 +60,30 @@ test('AC13: a request pending > 300 ms shows «Ачаалж байна…» with
   await expect(tid(page, 'search-popup')).toHaveAttribute('aria-busy', 'true');
 });
 
-/** Serves the fixtures in two batches (at most 10 options per list, AC 7). */
+/**
+ * Serves the fixtures in batches (at most 10 options per list, AC 7). F14a and F14b are the lang=en and lang=mn forms of
+ * the same OSM object (R 9014), so they are served in separate lists.
+ */
+const BATCHES = [
+  ['Тест нэг', ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7']],
+  ['Тест 2', ['F8', 'F9', 'F10', 'F11', 'F13', 'F12']], // F12 (CN) is sent first upstream, listed last (AC 8)
+  ['Тест 3', ['F14a', 'F15', 'F16']],
+  ['Тест 4', ['F14b']],
+];
 async function mockFixtures(page) {
-  const batch1 = ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7'].map((id) => FX[id].feature);
-  const batch2 = ['F12', 'F8', 'F9', 'F10', 'F11', 'F13'].map((id) => FX[id].feature); // F12 (CN) first upstream
-  return mock(page, SEARCH_GLOB, (p) => ({ body: fc(/2/.test(p.q) ? batch2 : batch1) }));
+  const upstream = { 'Тест 2': ['F12', 'F8', 'F9', 'F10', 'F11', 'F13'] };
+  return mock(page, SEARCH_GLOB, (p) => {
+    const b = BATCHES.find(([q]) => q === p.q) ?? BATCHES[0];
+    return { body: fc((upstream[b[0]] ?? b[1]).map((id) => FX[id].feature)) };
+  });
 }
 
 for (const lang of ['mn', 'en']) {
-  test(`AC17/AC18/AC19 ${lang}: fixture options F1–F13 show name, type label and context line as the story rules say`, async ({ page }) => {
+  test(`AC17/AC18/AC19 ${lang}: fixture options F1–F16 show name, type label and context line as the story rules say`, async ({ page }) => {
     await mockFixtures(page);
     await openApp(page, { lang });
     const got = {};
-    for (const [q, ids] of [['Тест нэг', ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7']], ['Тест 2', ['F8', 'F9', 'F10', 'F11', 'F13', 'F12']]]) {
+    for (const [q, ids] of BATCHES) {
       await typeQuery(page, q);
       await waitSettled(page, q);
       const o = await options(page);
@@ -95,5 +107,12 @@ for (const lang of ['mn', 'en']) {
     expect(problems).toEqual([]);
     // AC 8 inside batch 2: the CN feature F12 is last although upstream sent it first
     expect(got.F12.id).toBe('search-option-5');
+    // AC 19 (F2): the lang=en form "Chingeltei" and the lang=mn form «Чингэлтэй» of the same object get the same row
+    // (4a), and no F14–F16 option falls back to «Газар» / "Place" or rule 7 / rule 28.
+    expect(got.F14a.type, 'F14 en form and mn form: same type-label row').toBe(got.F14b.type);
+    expect(got.F14a.type).toBe(lang === 'mn' ? 'Дүүрэг' : 'District');
+    for (const id of ['F14a', 'F14b', 'F15', 'F16']) expect(got[id].type, id).not.toBe(lang === 'mn' ? 'Газар' : 'Place');
+    expect(got.F15.type, 'F15 rule 2 (Latin " khoroo"), not rule 28').not.toBe(lang === 'mn' ? 'Төрийн байгууллага' : 'Government office');
+    expect(got.F16.type, 'F16 rule 1 before rule 7').not.toBe(lang === 'mn' ? 'Хороолол' : 'Neighbourhood');
   });
 }

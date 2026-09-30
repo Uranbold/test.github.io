@@ -1,6 +1,6 @@
 # ADR-0006: Web search. Query assistance (Latin to Cyrillic, vowel fallback, district abbreviations) and request orchestration in the client, over the unchanged Photon pass-through
 
-- **Status:** accepted (Phase 0, web demo). Revisit when NAV-005 starts native search (see Consequences).
+- **Status:** accepted (Phase 0, web demo). Amended 2026-09-30 for PO approvals D33 F2–F4: type-label rule 4a and Latin name endings (§2.6), the 200-character cap (§2.3, §6), and rule A confirmed. There is no wire change and no openapi change. Revisit when NAV-005 starts native search (see Consequences).
 - **Date:** 2026-09-30
 - **Stories:** NAV-003 (answers "the algorithm is the architect's and mobile-engineer's choice" in AC 15, and risks R1, R2, R3, R11). Affects NAV-005 (native search later).
 
@@ -52,7 +52,8 @@ Location: `web/src/search/`. It is plain TypeScript with no new runtime dependen
 - A token attached to a suffix by a hyphen («БЗД-ийн») is **not** a separate word, so it is not expanded (it matches OSM names as typed, F4).
 - `ifEmpty`: the secondary request is sent only after the primary returned **200 with zero features**, so a correct ү/ө query, or a correct у/о query, is never "corrected" (story edge case "Russian keyboard layout"). «Сүхбаатар» contains neither у nor о, so it sends exactly **1** request (AC 3).
 - If `secondary` equals `primary` after normalisation, it is dropped (mode `none`).
-- Rule A's second request and rule C are **technical choices within the story's "at most 2" budget**. The BA is asked to align the AC 3 and AC 16 wording (handoff). The switch is one constant, `ABBREVIATION_SENDS_AS_TYPED = true`. If the PO rejects it, set it to `false` and rule A becomes `none` with the expanded query only.
+- Rule A's second request and rule C are **technical choices within the story's "at most 2" budget**. The PO approved both on 2026-09-30 (D33 F3), and story AC 3, 15 and 16 now say the same thing. The switch stays one constant, `ABBREVIATION_SENDS_AS_TYPED = true`. Setting it to `false` would make rule A `none` with only the expanded query, which would need a new change request.
+- **Length cap (D33 F4):** every planned `q` (primary and secondary, all rules) is at most **200** UTF-16 code units, the contract's `maxLength`. This is stricter than JSON Schema's code-point count, so it is always within the contract. The cut never splits a surrogate pair and then trims. Only rule A can make a query longer than the settled query (for example СХД adds 18 characters). An expansion that would go over 200 is **cut to 200**, not skipped, because the parallel as-typed request still carries the full text. The duplicate check (previous bullet) runs after the cut.
 
 **2.4 `latinToCyrillic`** (normative, lower-case output; Photon is case-insensitive):
 1. Lower-case. Map `ö ő` → `ө` and `ü ű` → `ү`. Strip every other combining diacritic (NFD, then remove U+0300–U+036F).
@@ -70,7 +71,7 @@ Location: `web/src/search/`. It is plain TypeScript with no new runtime dependen
 
 **2.5 Merging** (AC 8, AC 15): for `parallel`, interleave `p1, s1, p2, s2, …`, drop later duplicates by `osm_type` + `osm_id`, stable-partition `countrycode == "MN"` first, and keep the first **10**. For `ifEmpty`, the list is the secondary response (then MN-first, top 10). For `none`, it is the primary (MN-first, top 10). Each request sends `limit=8` (inside the story's 5–10).
 
-**2.6 Display rules** (AC 17–19): implement exactly the story's name, context-line and type-label tables as pure functions. Traditional Mongolian script is removed by deleting every run of characters in U+1800–U+18AF, **together with** adjacent U+202F (narrow no-break space, used inside Mongolian-script words), U+200C/U+200D and whitespace, then trimming and collapsing spaces (F10). Coordinates are shown as `lat.toFixed(5) + ", " + lon.toFixed(5)`, independent of locale.
+**2.6 Display rules** (AC 17–20): implement exactly the story's name, context-line and type-label tables as pure functions. The type-label table has 33 ordered rules, 1–32 plus 4a (amended with D33 F2). Rules 1–4 match the Cyrillic **and** the Latin name endings from `lexicon.json`. The comparison is NFC and case-insensitive, and the ending must follow a space. Rule 4a (`osm_key=boundary`, `osm_value=administrative`, `type=district`) and rules 5–31 read only Photon properties that do not depend on `lang`. So the same OSM object gets the same row, and therefore the same zoom (§5), in both UI languages (F6, story R13). Photon's `type` comes from the OSM administrative rank, not from Mongolian administrative meaning. Rule 4a is therefore measured only for the UB düüregs, and tier C row C6 records what else it catches. Traditional Mongolian script is removed by deleting every run of characters in U+1800–U+18AF, **together with** adjacent U+202F (narrow no-break space, used inside Mongolian-script words), U+200C/U+200D and whitespace, then trimming and collapsing spaces (F10). Coordinates are shown as `lat.toFixed(5) + ", " + lon.toFixed(5)`, independent of locale.
 
 ### 3. Request orchestration (one controller, `web/src/search/searchController.ts`)
 - **Debounce** 250 ms after the last input event. Enter skips the debounce (AC 41).
@@ -130,6 +131,7 @@ One `reverse` request per coordinate card: `lat`/`lon` with `toFixed(6)` (the us
 | «Улаанбаатар Sukhbaatar» (mixed) | as typed | — | `none` |
 | "47.9189, 106.9176" / "47.9189 106.9176" | — | — | coordinate option, no request |
 | "106.9176, 47.9189" / "47,9189, 106,9176" | as typed | — | text (`none`) |
+| 192 × «а» + « СХД» (196 characters; the expansion would be 214) | the expansion cut to exactly 200 (… «Сонгино») | the query as typed (196) | `parallel` (D33 F4: no planned `q` over 200) |
 
 ## Alternatives considered
 | Option | Pros | Cons |
@@ -148,4 +150,5 @@ One `reverse` request per coordinate card: `lat`/`lon` with `toFixed(6)` (the us
 - **R1 (düüreg in the context line):** not solvable from this dump's address fields (F7). Candidate fixes for NAV-006: (a) our own Nominatim import (ADR-0003 production direction) with a check of whether Photon then exposes the düüreg (for example as `district` or `county`), or (b) build-time enrichment of the dump with the düüreg from the district boundaries. Both are backend and data work, so they go through triage as a follow-up.
 - **R4 (khoroo boundaries missing):** OSM data issue. Mapping tasks go through triage lane `osm-data` for human mappers only.
 - Rate budget: at most 2 search requests per settled query and 1 reverse per card, well under the staging 30 requests/s per IP (F14), including several testers behind one carrier NAT.
+- **Golden row A8 / AC 10 (architect's note, 2026-09-30 integration review, recorded here on the BA's request):** F2 measured the store «Улсын их дэлгүүр» at 374–375 m from P2. So the ≤ 300 m condition passes today only through the bus stop «Наран их дэлгүүр» (268 m, QA test plan §6.1). The earlier review flagged this but did **not** file a change request. The architect recommends story Open question 7 option (b): the name contains «Улсын их дэлгүүр», ≤ 400 m, top 3, for both A8 and AC 10. This is a tier A change, so the PO decides it.
 - Privacy: bias coordinates are rounded to 3 decimals. Query text and coordinates are never written to storage or the console. The gateway logs paths only (ADR-0002 §3.4), and Photon logs no queries at INFO (backend README). The D9 legal review still gates outside testers on staging.

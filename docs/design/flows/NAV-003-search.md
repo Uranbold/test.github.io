@@ -175,7 +175,16 @@ stateDiagram-v2
     Highlighted --> Closed: Tab (no selection)
     Selected --> CardFocused: card opens, focus on heading
     CardFocused --> Closed: «Хаах» or Esc, focus back to input
+    Closed --> StateRetry: unavailable / rate-limited row shown
+    StateRetry --> StateRetry: Tab / Shift+Tab (row stays open, AC 41 F5)
+    StateRetry --> RetryFocused: Tab reaches «Дахин оролдох»
+    RetryFocused --> StateRetry: Shift+Tab / Tab on
+    RetryFocused --> Closed: Enter / Space (active), focus to input, request sent
+    RetryFocused --> Closed: Esc, focus to input
+    StateRetry --> Closed: Esc / new settled query / clear / map click / coordinate card
 ```
+
+- **Tab with a state row (AC 41 exception, PO approval F5, D33):** a list of options, or a state row without a button, closes on Tab. A state row with «Дахин оролдох» (unavailable, rate-limited) stays open so the button is reached with Tab after the top-bar cluster (screen spec › Accessibility › Tab order). In the rate-limited state it is reached while `aria-disabled="true"`. It closes with Esc, a new settled query or clearing the input (story AC 41), and, as a design addition, with a map click or a new coordinate card (screen spec › Interactions › Tab). "StateRetry" is shown next to the option states for readability; the popup is one element.
 
 - Focus stays in the input while the highlight moves (`aria-activedescendant`, AC 41).
 - The live region announces once per settled query: count, «Илэрц олдсонгүй», or the state message (AC 42).

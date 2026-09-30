@@ -1,5 +1,5 @@
 {
-  "$comment": "NAV-003 query-assistance data (ADR-0006 §2.3, §2.4, §2.6). Not UI text: nothing here is ever displayed. It only rewrites what is SENT to GET /v1/search, or matches name suffixes for the type-label rules 1-4 (story section D). Kept in JSON so the src/**/*.ts hard-coded-text scan (npm run check:i18n) stays strict. District names follow the glossary row 'Düüreg' (story AC 16 table).",
+  "$comment": "NAV-003 query-assistance data (ADR-0006 §2.3, §2.4, §2.6). Not UI text: nothing here is ever displayed. It only rewrites what is SENT to GET /v1/search, or matches name endings (Cyrillic and the common Latin forms returned with lang=en) for the type-label rules 1-4 (story section D, amended 2026-09-30, PO approval F2). Kept in JSON so the src/**/*.ts hard-coded-text scan (npm run check:i18n) stays strict. District names follow the glossary row 'Düüreg' (story AC 16 table).",
   "districtAbbreviations": {
     "СБД": "Сүхбаатар дүүрэг",
     "БЗД": "Баянзүрх дүүрэг",
@@ -38,9 +38,9 @@
     }
   },
   "typeLabelNameSuffixes": {
-    "district": " дүүрэг",
-    "khoroo": " хороо",
-    "aimag": " аймаг",
-    "soum": " сум"
+    "district": [" дүүрэг", " duureg", " düüreg", " district"],
+    "khoroo": [" хороо", " khoroo", " horoo"],
+    "aimag": [" аймаг", " aimag", " province"],
+    "soum": [" сум", " sum", " soum"]
   }
 }

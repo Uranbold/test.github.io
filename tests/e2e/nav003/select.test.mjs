@@ -1,4 +1,5 @@
-// NAV-003 E. Selecting a result: fly-to, pin and place card (AC 20–24). Fixture features by request interception.
+// NAV-003 E. Selecting a result: fly-to, pin and place card (AC 20–24), and AC 19 on the card. Fixture features F1–F16 by
+// request interception (F14a/F14b/F15/F16: story amendment 2026-09-30, PO approval F2: same row and zoom in both UI languages).
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import {
@@ -6,11 +7,11 @@ import {
 } from './helpers.mjs';
 
 
-/** Every fixture is found by its id as query: «F5 тест» -> [F5]. Plus «олон» -> several. */
+/** Every fixture is found by its id as query: «F5 тест» -> [F5], «F14a тест» -> [F14a]. Plus «олон» -> several. */
 async function mockById(page) {
   return mock(page, SEARCH_GLOB, (p) => {
-    const m = /F(\d+)/.exec(p.q);
-    if (m) return { body: fc([FX[`F${m[1]}`].feature]) };
+    const m = /F\d+[ab]?/.exec(p.q);
+    if (m && FX[m[0]]) return { body: fc([FX[m[0]].feature]) };
     return { body: fc(['F5', 'F9', 'F10', 'F2'].map((id) => FX[id].feature)) };
   });
 }
@@ -80,6 +81,44 @@ test('AC20: point results are centred (±5 px) at zoom 13 (area types) or 16 (ot
   test.info().annotations.push({ type: 'AC20 rows', description: JSON.stringify(rows) });
 });
 
+test('AC19/AC20 (F2) mn and en: F14a/F14b/F15/F16 get the same type-label row on the place card and the same camera (extent fit, or area zoom 13) in both UI languages', async ({ page }) => {
+  test.setTimeout(120_000);
+  await mockById(page);
+  const seen = {};
+  for (const lang of ['mn', 'en']) {
+    await openApp(page, { lang });
+    for (const id of ['F14a', 'F14b', 'F15', 'F16']) {
+      const f = FX[id];
+      await jumpTo(page, { lat: 47.9, lng: 106.9 }, 11);
+      const ms = await selectFixture(page, id);
+      const cam = await camera(page);
+      const c = await card(page);
+      const label = lang === 'mn' ? f.expect.mn : f.expect.en;
+      expect.soft(c.type, `${lang} ${id} card type label (rule ${f.expect.rule})`).toBe(label);
+      if (f.expect.zoomClass === 'extent') {
+        const [minLon, maxLat, maxLon, minLat] = f.feature.properties.extent;
+        const a = await project(page, minLon, maxLat);
+        const b = await project(page, maxLon, minLat);
+        expect.soft(Math.min(a.x, a.y, a.vw - b.x, a.vh - b.y), `${lang} ${id} extent padding`).toBeGreaterThanOrEqual(39.5);
+      } else {
+        const [lon, lat] = f.feature.geometry.coordinates;
+        const pr = await project(page, lon, lat);
+        expect.soft(Math.hypot(pr.x - pr.cx, pr.y - pr.cy), `${lang} ${id} centred ±5 px`).toBeLessThanOrEqual(5);
+        expect.soft(Math.abs(cam.zoom - f.expect.zoom), `${lang} ${id} zoom ${cam.zoom} expected ${f.expect.zoom} (area label)`).toBeLessThanOrEqual(0.01);
+      }
+      expect.soft(ms, `${lang} ${id} camera arrived within 2 s`).toBeLessThanOrEqual(2000);
+      (seen[id] ??= {})[lang] = { type: c.type, zoom: +cam.zoom.toFixed(2) };
+      await page.keyboard.press('Escape');
+    }
+  }
+  test.info().annotations.push({ type: 'AC19/AC20 F14–F16 mn/en', description: JSON.stringify(seen) });
+  // Same row in both languages: the mn/en label pair of one table row, and the same zoom
+  for (const id of ['F14a', 'F14b', 'F15', 'F16']) {
+    expect.soft([seen[id].mn.type, seen[id].en.type], `${id} same row mn/en`).toEqual([FX[id].expect.mn, FX[id].expect.en]);
+    expect.soft(seen[id].en.zoom, `${id} same zoom mn/en`).toBeCloseTo(seen[id].mn.zoom, 1);
+  }
+});
+
 test('AC20: prefers-reduced-motion -> the camera jumps without animation within 500 ms', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await mockById(page);
@@ -140,7 +179,7 @@ test('AC21: one pin at the feature point (±2 px) named with the result; card wi
   }
 });
 
-test('AC19 on the place card: every fixture F1–F13 card shows the story type label (mn and en)', async ({ page }) => {
+test('AC19 on the place card: every fixture F1–F16 card shows the story type label (mn and en)', async ({ page }) => {
   test.setTimeout(120_000);
   await mockById(page);
   await openApp(page);

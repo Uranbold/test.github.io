@@ -1,4 +1,5 @@
-// NAV-003 H. Keyboard and screen reader (AC 40–43).
+// NAV-003 H. Keyboard and screen reader (AC 40–43; AC 41 amended 2026-09-30 by PO approval F5, D33: Tab exception for state rows
+// with «Дахин оролдох»).
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { CORS, FX, REF, REVERSE_GLOB, SEARCH_GLOB, T, card, fc, feature, jumpTo, mock, openApp, options, rightClick, tid, typeQuery, view, waitSettled } from './helpers.mjs';
@@ -109,6 +110,105 @@ test('AC41: ArrowDown/Up move the highlight with wrapping, focus stays in the in
   expect((await card(page)).open).toBe(false);
   expect(await focused()).not.toBe('search-input');
   await expect(input).toHaveValue('Олон');
+});
+
+/**
+ * AC 41 exception (story amended 2026-09-30, PO approval F5, D33) and screen spec › Interactions › Tab / Accessibility ›
+ * Tab order: a state row that offers «Дахин оролдох» (unavailable AC 33, rate-limited AC 35) stays open when focus leaves
+ * the input with Tab, and the retry button is reached with Tab after the top-bar cluster
+ * (input → clear → language → theme → compass → retry); in the rate-limited state it is focusable while
+ * aria-disabled="true". It closes with Escape, a new settled query, or clearing the input.
+ */
+async function f5Setup(page) {
+  const ctl = { mode: '503' };
+  await mock(page, SEARCH_GLOB, () => {
+    if (ctl.mode === '503') return { status: 503, headers: CORS, body: '{}' };
+    if (ctl.mode === '429') return { status: 429, headers: { ...CORS, 'Access-Control-Expose-Headers': 'Retry-After', 'Retry-After': '30' }, body: '{}' };
+    if (ctl.mode === 'empty') return { body: fc([]) };
+    return { body: fc(FIVE) };
+  });
+  await openApp(page);
+  return ctl;
+}
+const F5_ORDER = ['search-clear', 'language-toggle', 'theme-toggle', 'compass', 'search-retry'];
+const focusedId = (page) => page.evaluate(() => document.activeElement?.dataset.testid ?? document.activeElement?.tagName);
+async function tabWalk(page, n = F5_ORDER.length) {
+  const seq = [];
+  for (let i = 0; i < n; i++) {
+    await page.keyboard.press('Tab');
+    seq.push({ id: await focusedId(page), open: await tid(page, 'search-popup').isVisible() });
+  }
+  return seq;
+}
+
+test('AC41 (F5): Tab keeps an unavailable / rate-limited state row open and reaches «Дахин оролдох» after compass (aria-disabled while rate-limited); a new settled query and clearing the input close it', async ({ page }) => {
+  const ctl = await f5Setup(page);
+  const input = tid(page, 'search-input');
+  const popup = tid(page, 'search-popup');
+  // Unavailable (AC 33)
+  await typeQuery(page, 'Тест алдаа');
+  await waitSettled(page, 'Тест алдаа');
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'unavailable');
+  let seq = await tabWalk(page);
+  test.info().annotations.push({ type: 'AC41 F5 unavailable Tab sequence', description: JSON.stringify(seq) });
+  expect(seq.map((x) => x.id), 'Tab order input → clear → language → theme → compass → retry').toEqual(F5_ORDER);
+  expect(seq.every((x) => x.open), 'the unavailable state row stays open while tabbing').toBe(true);
+  await expect(tid(page, 'search-retry')).toHaveAccessibleName(new RegExp(T.mn.retry));
+  // Screen spec › State row: the retry reached with Tab reads its message too («Дахин оролдох, Хайлт түр ажиллахгүй байна»)
+  await expect(tid(page, 'search-retry')).toHaveAccessibleDescription(T.mn.unavailable);
+  // A new settled query closes (replaces) it
+  ctl.mode = 'ok';
+  await typeQuery(page, 'Олон');
+  await waitSettled(page, 'Олон');
+  await expect(tid(page, 'search-state')).toBeHidden();
+  await expect(tid(page, 'search-results')).toBeVisible();
+  await page.keyboard.press('Escape');
+  // Rate-limited (AC 35): retry reached with Tab while aria-disabled="true"
+  ctl.mode = '429';
+  await typeQuery(page, 'Тест хязгаар');
+  await waitSettled(page, 'Тест хязгаар');
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'rate-limited');
+  seq = await tabWalk(page);
+  test.info().annotations.push({ type: 'AC41 F5 rate-limited Tab sequence', description: JSON.stringify(seq) });
+  expect(seq.map((x) => x.id)).toEqual(F5_ORDER);
+  expect(seq.every((x) => x.open), 'the rate-limited state row stays open while tabbing').toBe(true);
+  await expect(tid(page, 'search-retry')).toHaveAttribute('aria-disabled', 'true');
+  // Clearing the input closes it
+  await input.focus();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.press('Backspace');
+  await expect(popup, 'clearing the input closes the rate-limited row').toBeHidden({ timeout: 2000 });
+});
+
+test('AC41 (F5): Escape closes a state row with «Дахин оролдох», from the input and from the focused retry button (focus → input, text kept; screen spec › Interactions › Tab)', async ({ page }) => {
+  await f5Setup(page);
+  const input = tid(page, 'search-input');
+  const popup = tid(page, 'search-popup');
+  // From the input
+  await typeQuery(page, 'Тест алдаа');
+  await waitSettled(page, 'Тест алдаа');
+  await page.keyboard.press('Escape');
+  await expect(popup, 'Escape in the input closes the unavailable row').toBeHidden();
+  await expect(input).toHaveValue('Тест алдаа');
+  // From the retry button reached with Tab
+  await typeQuery(page, 'Тест алдаа 2');
+  await waitSettled(page, 'Тест алдаа 2');
+  await tabWalk(page);
+  expect(await focusedId(page)).toBe('search-retry');
+  await page.keyboard.press('Escape');
+  await expect(popup, 'Escape on the retry button closes the unavailable row').toBeHidden({ timeout: 1000 });
+  expect(await focusedId(page), 'focus returns to the input (never <body>)').toBe('search-input');
+  await expect(input).toHaveValue('Тест алдаа 2');
+});
+
+test('AC41 screen spec › Interactions › Tab: a state row without a button (no results) closes on Tab, like a list of results', async ({ page }) => {
+  const ctl = await f5Setup(page);
+  ctl.mode = 'empty';
+  await typeQuery(page, 'Хийх');
+  await waitSettled(page, 'Хийх');
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'no-results');
+  await page.keyboard.press('Tab');
+  await expect(tid(page, 'search-popup'), 'no-results row (no button) closes on Tab').toBeHidden();
 });
 
 test('AC41: Enter without highlight selects the first option; before the list renders it searches at once (no debounce) and selects the first option on arrival; not for empty or state results', async ({ page }) => {

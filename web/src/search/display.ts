@@ -4,7 +4,7 @@ import lexicon from "./lexicon.json";
 import type { PhotonFeature, PhotonProperties } from "./photon";
 import { stripTraditionalScript } from "./text";
 
-/** Resource keys of the 32 type-label rules (src/i18n/{mn,en}.json). */
+/** Resource keys of the type-label rules 1–32 (src/i18n/{mn,en}.json); rule 4a reuses "placeType.district". */
 export type PlaceTypeKey =
   | "placeType.district"
   | "placeType.khoroo"
@@ -39,20 +39,36 @@ export type PlaceTypeKey =
   | "placeType.address"
   | "placeType.place";
 
-const SUFFIX = lexicon.typeLabelNameSuffixes;
+/**
+ * Name endings of rules 1–4: Cyrillic plus the common Latin forms that Photon returns with `lang=en` (`name:en`, for
+ * example "Chingeltei duureg, 5-g khoroo"). Every ending starts with a space, so it must follow a space ("Khoroo 5" and
+ * a bare "Хороо" do not match). PO approval F2 (story D33).
+ */
+const SUFFIX: Readonly<Record<"district" | "khoroo" | "aimag" | "soum", readonly string[]>> = lexicon.typeLabelNameSuffixes;
 
 const is = (p: PhotonProperties, key: string, values?: readonly string[]): boolean =>
   p.osm_key === key && (values === undefined || (p.osm_value !== undefined && values.includes(p.osm_value)));
-const endsWith = (name: string, suffix: string): boolean => name.toLowerCase().endsWith(suffix.toLowerCase());
+/** Case-insensitive, NFC on both sides, so a decomposed "düüreg" matches too. */
+const fold = (s: string): string => s.normalize("NFC").toLowerCase();
+const endsWithAny = (name: string, endings: readonly string[]): boolean => {
+  const n = fold(name);
+  return endings.some((e) => n.endsWith(fold(e)));
+};
 
 type Rule = readonly [PlaceTypeKey, (p: PhotonProperties, name: string) => boolean];
 
-/** Story section D, table "Type labels": applied top to bottom, the first match wins. */
+/**
+ * Story section D, table "Type labels" (rows 1, 2, 3, 4, 4a, 5–31; row 32 is the fallback in typeLabelKey): applied
+ * top to bottom, the first match wins. Rules 1–4 read the name ending (it differs between `lang=mn` and `lang=en`);
+ * rules 4a–31 read Photon's `osm_key` / `osm_value` / `type`, which are the same in both languages (AC 19).
+ */
 export const TYPE_LABEL_RULES: readonly Rule[] = [
-  ["placeType.district", (_, n) => endsWith(n, SUFFIX.district)],
-  ["placeType.khoroo", (_, n) => endsWith(n, SUFFIX.khoroo)],
-  ["placeType.aimag", (_, n) => endsWith(n, SUFFIX.aimag)],
-  ["placeType.soum", (p, n) => endsWith(n, SUFFIX.soum) && (p.osm_key === "boundary" || p.osm_key === "place")],
+  ["placeType.district", (_, n) => endsWithAny(n, SUFFIX.district)],
+  ["placeType.khoroo", (_, n) => endsWithAny(n, SUFFIX.khoroo)],
+  ["placeType.aimag", (_, n) => endsWithAny(n, SUFFIX.aimag)],
+  ["placeType.soum", (p, n) => endsWithAny(n, SUFFIX.soum) && (p.osm_key === "boundary" || p.osm_key === "place")],
+  // Rule 4a: a düüreg boundary by Photon's place type, whatever its name ("Chingeltei" with lang=en). Story R13.
+  ["placeType.district", (p) => is(p, "boundary", ["administrative"]) && p.type === "district"],
   ["placeType.city", (p) => is(p, "place", ["city", "town"])],
   ["placeType.settlement", (p) => is(p, "place", ["village", "hamlet", "isolated_dwelling", "locality"])],
   ["placeType.neighbourhood", (p) => is(p, "place", ["suburb", "neighbourhood", "quarter"])],
@@ -91,7 +107,10 @@ export function typeLabelKey(p: PhotonProperties): PlaceTypeKey {
   return "placeType.place";
 }
 
-/** Type labels whose point results are shown at zoom 13; all others at 16 (AC 20). */
+/**
+ * Type labels whose point results are shown at zoom 13; all others at 16 (AC 20). The zoom follows the type-label row,
+ * which rules 4a–31 derive from language-independent properties, so both UI languages get the same zoom.
+ */
 const AREA_TYPES = new Set<PlaceTypeKey>([
   "placeType.city",
   "placeType.settlement",

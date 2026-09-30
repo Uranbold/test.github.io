@@ -1,7 +1,7 @@
 // NAV-003 A. Search box and request rules (AC 1–11).
 import { test, expect } from '@playwright/test';
 import {
-  CORS, REF, SEARCH_GLOB, REVERSE_GLOB, T, camera, decimals, fc, feature, geoSpyInit, jumpTo, lastInputAt, mock, openApp,
+  ABBR, CORS, REF, SEARCH_GLOB, REVERSE_GLOB, T, camera, decimals, expectedPlan, fc, feature, geoSpyInit, jumpTo, lastInputAt, mock, openApp,
   options, pace, params, requestCount, requests, tid, typeQuery, view, waitSettled, haversine,
 } from './helpers.mjs';
 
@@ -45,6 +45,8 @@ test('AC2: at most 200 characters; a longer paste keeps the first 200 with no er
   expect(['error', 'unavailable']).not.toContain(st.state);
 });
 
+// AC 3 as amended 2026-09-30 (PO approval F3, D33): the FIRST request starts 200–350 ms after the last keystroke; at most 2
+// per settled query; «Сүхбаатар» (no Latin, no у/о, no abbreviation) sends exactly 1.
 test('AC3: debounce 200–350 ms after the last keystroke; «Сүхбаатар» at 100 ms/key sends exactly 1 request, no intermediate texts', async ({ page }) => {
   const log = await mock(page, SEARCH_GLOB, (p) => ({ body: fc([feature(p.q, 106.9176, 47.9189)]) }));
   await openApp(page);
@@ -58,19 +60,121 @@ test('AC3: debounce 200–350 ms after the last keystroke; «Сүхбаатар�
   expect(dt).toBeGreaterThanOrEqual(200);
   expect(dt).toBeLessThanOrEqual(350);
   expect(log.length).toBe(1);
-  // With transliteration help (Latin): at most 2 requests, still no intermediate texts
+  // Latin (AC 15 a): as typed + one transliteration, both in parallel right after the debounce; no intermediate texts
   await tid(page, 'search-clear').click();
   await typeQuery(page, 'Sukhbaatar', { delay: 100 });
   await waitSettled(page, 'Sukhbaatar');
   await page.waitForTimeout(600);
   const latin = (await requests(page, 'search')).slice(1);
-  expect(latin.length).toBeGreaterThanOrEqual(1);
-  expect(latin.length).toBeLessThanOrEqual(2);
-  expect(params(latin[0].url).q).toBe('Sukhbaatar');
+  expect(latin.length).toBe(2);
+  expect(latin.map((r) => params(r.url).q)).toContain('Sukhbaatar');
   for (const r of latin) {
     const d = r.t - (await lastInputAt(page));
     expect(d).toBeGreaterThanOrEqual(200);
     expect(d).toBeLessThanOrEqual(350);
+  }
+});
+
+/**
+ * AC 3 / 15 / 16 request plan (story amended 2026-09-30, PO approval F3 = ADR-0006 §2.3 rules A–D). Each case: the query,
+ * what the mock answers per q, the q values expected (order-free for `parallel`), and whether the second request must be
+ * parallel (started before the first response) or sequential (only after an empty first response).
+ */
+const PLAN_CASES = [
+  // rule A: expansion + as typed, parallel
+  { q: 'БЗД 4-р хороо', expect: ['Баянзүрх дүүрэг 4-р хороо', 'БЗД 4-р хороо'], parallel: true, sameFeature: true },
+  { q: 'бзд', expect: ['Баянзүрх дүүрэг', 'бзд'], parallel: true },
+  { q: 'Сонгино СХД', expect: ['Сонгино Сонгинохайрхан дүүрэг', 'Сонгино СХД'], parallel: true },
+  // hyphen-attached abbreviation: not expanded; Cyrillic with о -> rule C, non-empty -> 1 request
+  { q: 'БЗД-ийн 4-р хороо', expect: ['БЗД-ийн 4-р хороо'] },
+  // rule B: Latin, as typed + one Cyrillic transliteration, parallel
+  { q: 'Ikh delguur', expect: ['Ikh delguur', 'CYRILLIC'], parallel: true },
+  // rule C: у/о, variant only after 200 + zero features
+  { q: 'Сухбаатар', empty: ['Сухбаатар'], expect: ['Сухбаатар', 'Сүхбаатар'], sequential: true, listFrom: 'Сүхбаатар' },
+  { q: 'Улаанбаатар', expect: ['Улаанбаатар'] }, // correct у with results: never "corrected"
+  { q: 'Толгойт', status503: ['Толгойт'], expect: ['Толгойт'] }, // first request fails: no ү/ө variant
+  // rule D: Cyrillic without у/о, mixed scripts -> 1 request
+  { q: 'Их дэлгүүр', expect: ['Их дэлгүүр'] },
+  { q: 'Улаанбаатар Sukhbaatar', expect: ['Улаанбаатар Sukhbaatar'] },
+];
+
+test('AC3/AC15/AC16 (F3): at most 2 requests per settled query; 2nd only for Latin transliteration (parallel), ү/ө variant after an empty Cyrillic result, or as typed next to an abbreviation expansion', async ({ page }) => {
+  test.setTimeout(90_000);
+  let cur = null;
+  const log = await mock(page, SEARCH_GLOB, (p) => {
+    if (cur?.empty?.includes(p.q)) return { delay: 150, body: fc([]) };
+    if (cur?.status503?.includes(p.q)) return { status: 503, headers: CORS, body: '{}' };
+    if (cur?.sameFeature) return { delay: 150, body: fc([feature('Баянзүрх дүүргийн 4-р хороо', 106.95, 47.92, {}, 4242)]) };
+    return { delay: 150, body: fc([feature(`Р ${p.q}`, 106.9176, 47.9189)]) };
+  });
+  await openApp(page);
+  const problems = [];
+  for (const c of PLAN_CASES) {
+    cur = c;
+    const before = log.length;
+    const b = await page.evaluate(() => window.__req.length);
+    await typeQuery(page, c.q);
+    await waitSettled(page, c.q);
+    await page.waitForTimeout(700);
+    const qs = log.slice(before).map((l) => l.p.q);
+    const recs = (await page.evaluate((b) => window.__req.slice(b), b)).filter((r) => r.op === 'search');
+    const lastKey = await lastInputAt(page);
+    const plan = expectedPlan(c.q);
+    const tag = `«${c.q}» (rule ${plan.rule})`;
+    if (qs.length > 2) problems.push(`${tag}: ${qs.length} requests`);
+    const exp = c.expect.map((e) => (e === 'CYRILLIC' ? null : e));
+    const gotSorted = [...qs].sort();
+    const expFixed = exp.filter(Boolean).sort();
+    if (qs.length !== exp.length) problems.push(`${tag}: ${qs.length} requests ${JSON.stringify(qs)}, expected ${exp.length}`);
+    for (const e of expFixed) if (!qs.includes(e)) problems.push(`${tag}: «${e}» not sent (${JSON.stringify(qs)})`);
+    if (c.expect.includes('CYRILLIC') && !qs.some((q) => q !== c.q && /[Ѐ-ӿ]/.test(q) && !/[A-Za-z]/.test(q))) problems.push(`${tag}: no Cyrillic transliteration (${JSON.stringify(qs)})`);
+    if (qs.some((q) => q.length > 200)) problems.push(`${tag}: q longer than 200`);
+    // debounce: the first request 200–350 ms after the last keystroke (AC 3)
+    const d0 = recs[0] ? recs[0].t - lastKey : null;
+    if (d0 === null || d0 < 200 || d0 > 350) problems.push(`${tag}: first request ${d0?.toFixed(0)} ms after the last keystroke`);
+    if (c.parallel && recs.length === 2 && recs[1].t > (recs[0].end ?? Infinity)) problems.push(`${tag}: second request started after the first response (not parallel)`);
+    if (c.sequential && recs.length === 2) {
+      if (qs[0] !== c.q) problems.push(`${tag}: first request «${qs[0]}» is not the query as typed`);
+      if (recs[1].t < (recs[0].end ?? Infinity)) problems.push(`${tag}: ү/ө variant sent before the first (empty) response`);
+    }
+    const o = await options(page);
+    if (c.listFrom && !(o.length === 1 && o[0].name === `Р ${c.listFrom}`)) problems.push(`${tag}: list does not show the variant's response (${JSON.stringify(o.map((x) => x.name))})`);
+    if (c.sameFeature && o.length !== 1) problems.push(`${tag}: merged list has ${o.length} options for one osm_type+osm_id`);
+    await expect(tid(page, 'search-input'), `${tag}: the input shows what the user typed`).toHaveValue(c.q);
+    test.info().annotations.push({ type: `plan ${c.q}`, description: `rule ${plan.rule}: ${JSON.stringify(qs)} first +${d0?.toFixed(0)} ms` });
+    await tid(page, 'search-clear').click();
+    await page.waitForTimeout(200);
+  }
+  expect(problems).toEqual([]);
+});
+
+test('AC16 (F4): an abbreviation expansion never produces a q longer than 200 characters (cut to 200 or skipped); the query as typed is still sent', async ({ page }) => {
+  const log = await mock(page, SEARCH_GLOB, () => ({ body: fc([]) }));
+  await openApp(page);
+  const cases = [
+    'Тест '.repeat(39) + 'СХД', // 198 chars; the expansion (+18) would give 216
+    'СХД ' + 'Тест '.repeat(39).trim(), // abbreviation first, 198 chars
+    'ЧД ' + 'БЗД '.repeat(49).trim(), // many abbreviations, 198 chars
+  ];
+  for (const q of cases) {
+    expect(q.length).toBeLessThanOrEqual(200);
+    const before = log.length;
+    await tid(page, 'search-input').focus();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.insertText(q);
+    await waitSettled(page, q);
+    await page.waitForTimeout(500);
+    const qs = log.slice(before).map((l) => l.p.q);
+    test.info().annotations.push({ type: `F4 ${q.length} chars`, description: JSON.stringify(qs.map((x) => `${x.length}: ${x.slice(0, 30)}…${x.slice(-25)}`)) });
+    expect(qs.length).toBeGreaterThanOrEqual(1);
+    expect(qs.length).toBeLessThanOrEqual(2);
+    for (const x of qs) expect(x.length, 'q <= 200 (openapi maxLength)').toBeLessThanOrEqual(200);
+    expect(qs, 'the query as typed is sent').toContain(q);
+    const other = qs.filter((x) => x !== q);
+    const expanded = q.split(' ').map((w) => ABBR[w.toUpperCase()] ?? w).join(' ');
+    for (const x of other) expect(expanded.startsWith(x), `the other request is the expansion, cut to 200 («${x.slice(0, 40)}…»)`).toBe(true);
+    await page.waitForTimeout(600);
   }
 });
 

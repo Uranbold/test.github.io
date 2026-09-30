@@ -8,7 +8,7 @@
   20,
   21
  ],
- "description": "Fixture features F1-F13 (F13 extra). Expected values derived by QA from the story tables, not from web/ code.",
+ "description": "Fixture features F1-F13 (F13 extra) and F14a/F14b/F15/F16 (story amendment 2026-09-30, PO approval F2, D33). Expected values derived by QA from the story tables, not from web/ code.",
  "fixtures": [
   {
    "id": "F1",
@@ -33,7 +33,7 @@
      "city": "Улаанбаатар",
      "extent": [
       106.9,
-      48.0,
+      48,
       107.1,
       47.88
      ]
@@ -458,6 +458,151 @@
     "context": null,
     "zoom": 16,
     "note": "extra: no name/street -> type label as name; no context line (omitted, no \"undefined\")"
+   }
+  },
+  {
+   "id": "F14a",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.905,
+      47.93
+     ]
+    },
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 9014,
+     "countrycode": "MN",
+     "country": "Mongolia",
+     "type": "district",
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "name": "Chingeltei",
+     "city": "Ulaanbaatar",
+     "extent": [
+      106.86,
+      47.99,
+      106.95,
+      47.915
+     ]
+    }
+   },
+   "expect": {
+    "rule": "4a",
+    "name": "Chingeltei",
+    "mn": "Дүүрэг",
+    "en": "District",
+    "context": "Ulaanbaatar",
+    "zoomClass": "extent",
+    "note": "F14, lang=en form of the düüreg boundary (name:en, no suffix): rule 4a boundary/administrative + type=district (AC 19, QA D2)"
+   }
+  },
+  {
+   "id": "F14b",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.905,
+      47.93
+     ]
+    },
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 9014,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "district",
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "name": "Чингэлтэй",
+     "city": "Улаанбаатар",
+     "extent": [
+      106.86,
+      47.99,
+      106.95,
+      47.915
+     ]
+    }
+   },
+   "expect": {
+    "rule": "4a",
+    "name": "Чингэлтэй",
+    "mn": "Дүүрэг",
+    "en": "District",
+    "context": "Улаанбаатар",
+    "zoomClass": "extent",
+    "note": "F14, lang=mn form of the same OSM object (R 9014): same rule row 4a as F14a (AC 19)"
+   }
+  },
+  {
+   "id": "F15",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9082,
+      47.9265
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9015,
+     "countrycode": "MN",
+     "country": "Mongolia",
+     "type": "house",
+     "osm_key": "office",
+     "osm_value": "government",
+     "name": "Chingeltei duureg, 5-g khoroo",
+     "district": "Chingeltei",
+     "city": "Ulaanbaatar"
+    }
+   },
+   "expect": {
+    "rule": 2,
+    "name": "Chingeltei duureg, 5-g khoroo",
+    "mn": "Хороо",
+    "en": "Khoroo",
+    "context": "Chingeltei, Ulaanbaatar",
+    "zoom": 13,
+    "note": "F15: Latin ending ' khoroo' (rule 2) wins over rule 28 office=government; point result -> area zoom 13 (AC 20)"
+   }
+  },
+  {
+   "id": "F16",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9345,
+      47.9235
+     ]
+    },
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 9016,
+     "countrycode": "MN",
+     "country": "Монгол улс",
+     "type": "district",
+     "osm_key": "place",
+     "osm_value": "suburb",
+     "name": "Сүхбаатар дүүрэг",
+     "city": "Улаанбаатар"
+    }
+   },
+   "expect": {
+    "rule": 1,
+    "name": "Сүхбаатар дүүрэг",
+    "mn": "Дүүрэг",
+    "en": "District",
+    "context": "Улаанбаатар",
+    "zoom": 13,
+    "note": "F16: düüreg mapped as place=suburb with type=district: rule 1 (name ending) before rule 7 «Хороолол» (rule order)"
    }
   }
  ]

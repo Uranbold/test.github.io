@@ -1,6 +1,7 @@
 // ADR-0006 §6 test vectors (normative), plus §2.1–2.4 details. Story AC 3, 4, 15, 16, 26.
 import { describe, expect, it } from "vitest";
 import { ABBREVIATION_SENDS_AS_TYPED, planQuery } from "./queryPlan";
+import { MAX_QUERY_LENGTH, capQueryLength } from "./text";
 import { latinToCyrillic } from "./transliterate";
 
 type Row = [input: string, primary: string | null, secondary: string | null, mode: "none" | "parallel" | "ifEmpty" | "skip" | "coordinate"];
@@ -69,6 +70,42 @@ describe("ADR-0006 §6 query-plan vectors", () => {
     expect(planQuery("БГД 1-р хороо")).toMatchObject({ primary: "Баянгол дүүрэг 1-р хороо" });
     expect(planQuery("СХД")).toMatchObject({ primary: "Сонгинохайрхан дүүрэг" });
     expect(planQuery("БЗДД")).toMatchObject({ rule: "D", mode: "none" });
+  });
+
+  it("no planned q is longer than 200 characters, even when the expansion would exceed it (AC 16, F4)", () => {
+    // 196 characters as typed; «СХД» → «Сонгинохайрхан дүүрэг» would make it 214.
+    const typed = `${"а".repeat(192)} СХД`;
+    expect(typed).toHaveLength(196);
+    const p = planQuery(typed);
+    expect(p).toMatchObject({ kind: "text", rule: "A", mode: "parallel", secondary: typed });
+    if (p.kind !== "text") throw new Error("text plan expected");
+    expect(p.primary.length).toBeLessThanOrEqual(MAX_QUERY_LENGTH);
+    expect(p.primary).toBe(`${"а".repeat(192)} Сонгино`);
+    expect(p.primary).toHaveLength(MAX_QUERY_LENGTH);
+    // Abbreviation first: the expansion is kept, the tail is cut.
+    const first = planQuery(`СБД ${"б".repeat(196)}`);
+    if (first.kind !== "text") throw new Error("text plan expected");
+    expect(first.primary).toHaveLength(MAX_QUERY_LENGTH);
+    expect(first.primary.startsWith("Сүхбаатар дүүрэг ")).toBe(true);
+    expect(first.secondary).toHaveLength(200);
+    // Many abbreviations in a 200-character query.
+    const many = planQuery(Array.from({ length: 50 }, () => "СХД").join(" ").slice(0, 200));
+    if (many.kind !== "text") throw new Error("text plan expected");
+    expect(many.primary.length).toBeLessThanOrEqual(MAX_QUERY_LENGTH);
+    expect(many.secondary?.length ?? 0).toBeLessThanOrEqual(MAX_QUERY_LENGTH);
+    // Over-long pasted input: every rule stays within 200.
+    for (const input of ["Sukhbaatar ".repeat(30), "Сухбаатар ".repeat(30), "БЗД ".repeat(80), "Сүхбаатар ".repeat(30)]) {
+      const q = planQuery(input);
+      if (q.kind !== "text") throw new Error("text plan expected");
+      expect(q.primary.length, input.slice(0, 12)).toBeLessThanOrEqual(MAX_QUERY_LENGTH);
+      expect(q.secondary?.length ?? 0, input.slice(0, 12)).toBeLessThanOrEqual(MAX_QUERY_LENGTH);
+    }
+  });
+
+  it("capQueryLength keeps ≤ 200 code units without splitting a surrogate pair", () => {
+    expect(capQueryLength("x".repeat(250))).toHaveLength(200);
+    expect(capQueryLength(`${"x".repeat(199)}😀`)).toBe("x".repeat(199));
+    expect(capQueryLength("short")).toBe("short");
   });
 
   it("settled query: NFC, trim, collapsed whitespace (story Terms)", () => {
