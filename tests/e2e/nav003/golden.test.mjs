@@ -132,7 +132,7 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
   for (const r of GOLDEN.rows.filter((x) => x.expect.c6)) {
     for (const o of results[r.id].top3) (c6Seen[o.osm] ??= {})[r.ui] ??= { row: r.id, name: o.name, label: o.type, rule: rowOf(o.type, r.ui), photon: `${o.osm_key}/${o.osm_value}/type=${o.type_photon}` };
   }
-  const c6Same = Object.entries(c6Seen).filter(([, v]) => v.en && v.mn).map(([osm, v]) => `${osm} ${v.photon}: en ${v.en.row} "${v.en.name}" [${v.en.label}] row ${v.en.rule} / mn ${v.mn.row} «${v.mn.name}» [${v.mn.label}] row ${v.mn.rule} → ${v.en.rule === v.mn.rule ? 'same row' : 'DIFFERENT ROW'}`);
+  const c6Same = Object.entries(c6Seen).filter(([, v]) => v.en && v.mn).map(([osm, v]) => `${osm} ${v.en.photon}: en ${v.en.row} "${v.en.name}" [${v.en.label}] row ${v.en.rule} / mn ${v.mn.row} «${v.mn.name}» [${v.mn.label}] row ${v.mn.rule} → ${v.en.rule === v.mn.rule ? 'same row' : 'DIFFERENT ROW'}`);
   // C7 (D34, R13): rule row of the top 3 options of the soum rows (C6g/C6h) and UB's outlying düüregs (C7a–C7c); lists
   // every option given row 4 «Сум» whose name has no soum ending (caught by rule 4 (b) only). Recorded, never fails (tier C)
   const SOUM_END = / (сум|sum|soum)$/iu;
