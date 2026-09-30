@@ -5,7 +5,7 @@
 - **Date:** 2026-09-30. Two passes on the same day:
   1. a timeboxed **desk pass** from the public SDK, before any API key was received
   2. **first live probes** by the orchestrator: one call per service with a key provided by the PO. The key is stored outside the repository and appears nowhere in this document
-- **Status:** a recommendation for the PO, who makes the decision (backlog owed decision 4 and NAV-010 AC 7). The draft decision on the integration pattern is [ADR-0007](../adr/0007-third-party-data-behind-gateway.md) (status `proposed`).
+- **Status:** a recommendation for the PO. **PO decision 2026-09-30 ("go ahead with recommendations"):** [ADR-0007](../adr/0007-third-party-data-behind-gateway.md) is **accepted for the mechanism** (gateway only, no client SDK, separate stores never merged with OSM, per-environment IP-restricted server keys, routing **R1**; §1.1). Search/POI, transit, traffic and R2a stay open until the live tests in §5 and the written internal ICT Group agreement (§3.4 item 5).
 - **Relationship to ICT Group (stated plainly).** The PO works for ICT Group, which makes Hamuga. Hamuga is therefore an **internal platform of the PO's company, not an outside vendor**. So:
   - ICT Group can adapt its endpoints or deliver data to fit our contract (option (d), §3.3).
   - The "terms of use" in §3.4 become an internal approval and a written internal agreement, not a vendor negotiation.
@@ -25,7 +25,7 @@
   - **D:** documented in the SDK README or TypeScript types
   - **C:** read from the SDK's compiled code (`dist/index.mjs`, what the SDK actually sends)
   - **M:** measured by us from a public, unauthenticated resource on 2026-09-30
-  - **L:** live authenticated call by the orchestrator on 2026-09-30 (one sample per service, relayed to the architect)
+  - **L:** live authenticated call by the orchestrator on 2026-09-30 (one sample per service, relayed to the architect; §2.5 and §2.6)
   - **I:** inferred by the architect (a reasoned guess, not a fact)
   - **U:** unknown; the "how/when" column says how it will be found out
 
@@ -41,7 +41,7 @@
    - a **custom search engine**, likely address-rich (Radar-shaped TypeScript types, GeoJSON-feature rendering). **Live: 403, the key is not subscribed (L).** Suggest has **no `lang` and no location-bias parameter** (C), and the style has almost no `name:en` (M).
    - a **custom POI index** with 336 Mongolian categories. **Live: 403 (L).**
    - a **Valhalla routing endpoint.** **Live: it accepts our full request body and returns Ferrostar-compatible OSRM JSON with banner and voice instructions in `mn-MN` (L).**
-   - an **OpenTripPlanner REST** `plan` endpoint for bus and train, backed by 1,534 UB bus stops. **Live: 200 with `plan` (L).** However, every stop is `isActive: false, isVerified: false`, and upstream OTP removed this REST API in 2025. So transit is **promising but not production-ready**.
+   - an **OpenTripPlanner REST** `plan` endpoint for bus and train, backed by 1,534 UB bus stops. **Live: 200 with `plan` (L).** The server is **OpenTripPlanner 2.5.0** with one GTFS feed (L, §2.6). However, every stop is `isActive: false, isVerified: false`, and the REST API is deprecated in OTP 2.5 and removed upstream in 2.8. So transit is **promising but not production-ready**, and any integration must use OTP's GTFS GraphQL API.
    - Kong behind Cloudflare
    
    **No traffic capability is visible** in the public SDK or the style.
@@ -71,10 +71,21 @@
 | Tiles | **Do not use** as the basemap. **Use later**, optionally, as a separate overlay (khoroo boundaries and labels, house numbers, khashaa). Preferred form: an **enrichment PMTiles overlay delivered by ICT Group** (option d/e) | PMTiles gives offline use, no key, no per-tile dependency, and an already-accepted style (ADR-0004). Switching schema (Protomaps → OMT) would redo the UX style work. Live tile access works (L) |
 | Search / POI | **Blocked, then use later (Phase 1–2), conditional on the revised live test (§5.2)** | 403 today. No `lang`, no location bias and almost no `name:en`, so the English UI (D28) and distance ranking (D30) are exit criteria. Photon stays the primary engine and the fallback. Options (d) (endpoint with `lang` and bias) or (e) (separate index we run) remove those gaps |
 | Routing (car/foot) | **PO option: R1 (our Valhalla) or R2 (Hamuga primary or fallback, behind our gateway)** | Ferrostar-compatible output is proven (L). Open: correctness, UB latency, traffic, SLA, NAV-007 wording fixes (§5.3) |
-| Transit (bus/train) | **Promising, not production-ready. Phase 4 candidate** | No OSM equivalent. Endpoint answers (L). But all 1,534 stops are `isActive: false` / `isVerified: false` (M), and the OTP REST `plan` API was removed upstream in OTP 2.8.0 (2025-09-10). Needs ICT Group to confirm stop data status and an API roadmap (GraphQL or a GTFS export) |
+| Transit (bus/train) | **Promising, not production-ready. Phase 4 candidate. Integrate via OTP's GTFS GraphQL API, never the REST `plan` API** | No OSM equivalent. Endpoint answers (L). ICT Group runs **OTP 2.5.0**, one GTFS feed (L, §2.6). All 1,534 stops are `isActive: false` / `isVerified: false` (M). The REST `plan` API is deprecated in 2.5, disabled by default in 2.6 and removed in 2.8.0 (2025-09-10), so an OTP upgrade at ICT Group breaks the SDK's `routingBus`. Needs ICT Group to confirm stop data status and an upgrade/API roadmap (GraphQL, or a GTFS export) |
 | Traffic | **Unknown. Ask ICT Group** | Nothing in the public SDK or the style. Backlog owed decision 4 stays open. The §5.3 time-of-day test detects traffic-aware costing |
 
 The choice is the PO's decision. The internal ICT Group terms and approval in §3.4 must be in writing before any integration story starts.
+
+### 1.1 PO decision (2026-09-30)
+The PO accepted the recommendations above ("go ahead with recommendations"). Recorded in ADR-0007 (status **accepted for the mechanism**):
+1. Hamuga is used **only through our gateway** (option (b)), as **separate optional upstreams or separate stores**. Options **(d) and (e) are requested from ICT Group**.
+2. **No client SDK** in web, Android or iOS.
+3. **Separate stores only, never merged with OSM.** A merge needs its own ADR.
+4. **Per-environment server keys, IP-restricted** to our gateway. No key, IP address or hostname of any environment is written into this repository.
+5. **Routing stays R1** (our Valhalla). **R2a is re-decided** after the §5.3 tests pass and ICT Group states an SLA.
+6. A **written internal ICT Group agreement** (§3.4 item 5) comes before any integration story.
+
+`openapi.yaml` stays 0.4.1.
 
 ---
 
@@ -127,12 +138,12 @@ The choice is the PO's decision. The internal ICT Group terms and approval in §
 
 | Value | Tiles | Search / POI | Routing | Transit | Traffic |
 |---|---|---|---|---|---|
-| Endpoint | `/tile/tiles/{z}/{x}/{y}.pbf` (D, C, **L: 200**) | `/engine/suggest`, `/engine/poi`, `/engine/poi/coordinate` (C; **L: 403, not subscribed**) | `/route/other/v1/route` (C, **L: 200**) | `/route/routers/default/plan` (C, **L: 200**) | U: ask ICT Group |
+| Endpoint | `/tile/tiles/{z}/{x}/{y}.pbf` (D, C, **L: 200**) | `/engine/suggest`, `/engine/poi`, `/engine/poi/coordinate` (C; **L: 403, not subscribed**) | `/route/other/v1/route` (C, **L: 200**) | `/route/routers/default/plan` (C, **L: 200**). Engine **OTP 2.5.0**, router `default`, one feed (L, §2.6) | U: ask ICT Group |
 | Auth | `x-api-key`, per-service subscription (D, L) | same | same | same | U |
-| Format | MVT `application/x-protobuf`, OMT schema (M, L) | JSON envelope + GeoJSON-like items (C). Exact fields U until search is enabled | **Native Valhalla `trip` by default, OSRM JSON with banner and voice instructions on request (L)** | OTP `plan` (C, L). Itinerary content not yet assessed | U |
+| Format | MVT `application/x-protobuf`, OMT schema (M, L) | JSON envelope + GeoJSON-like items (C). Exact fields U until search is enabled | **Native Valhalla `trip` by default, OSRM JSON with banner and voice instructions on request (L)** | OTP 2 REST `plan` (deprecated API) with OTP 2 fields (L, §2.6). Itinerary content not yet assessed | U |
 | Instruction language | — | No `lang` parameter (C) | **`mn-MN` honoured (L)**, with glossary C1/C2 defects (§2.5) | U | — |
 | Reverse geocoding | — | **No address reverse endpoint in the SDK.** `poi/coordinate` is a POI lookup near a point (C). Address reverse U: ask | — | — | — |
-| Coverage | UB and Mongolia? Style center UB; `State`/`Town` layers suggest national (I). U: measure (§5) | U: measure | UB shown (L). National U: measure (X1 Erdenet) | UB (1,534 stops, M), stop status unclear. Intercity U | U |
+| Coverage | UB and Mongolia? Style center UB; `State`/`Town` layers suggest national (I). U: measure (§5) | U: measure | UB shown (L). National U: measure (X1 Erdenet) | Router polygon covers Mongolia (L, §2.6); timetable data from one GTFS feed. UB (1,534 stops, M), stop status unclear. Intercity service U | U |
 | Update frequency | Style changed 2026-09-30 (M). Data U | U | U | Stops updated 2026-08/09 (M) | U |
 | Rate limits, SLA, pricing | U: internal ICT Group agreement (§3.4) | U | U | U | U |
 | Licence and attribution | SDK Apache-2.0 (D). **Data terms U**. Style declares none (M) | U | U | U | U |
@@ -165,6 +176,24 @@ Also, the road reference «AH3» is spoken in Latin script inside a Mongolian pr
 
 Interpretation (I): Hamuga probably runs the **upstream Valhalla `mn-MN` locale** without the NAV-007 fixes. If Hamuga routing is adopted (R2), the NAV-007 locale fixes must be applied in ICT Group's Valhalla too (option d). Rewriting instruction strings in our gateway would be fragile and is not proposed. Contributing the fixed locale file upstream to Valhalla would help both deployments.
 
+### 2.6 Live finding: the transit engine is OpenTripPlanner 2.5.0 (orchestrator, 2026-09-30)
+
+Further reads through the Hamuga gateway by the orchestrator, with the same key as §2.5 (held outside the repository). Raw responses are not committed.
+
+| Request (path via the Hamuga gateway) | Result | Label |
+|---|---|---|
+| `GET /route/` (OTP server root) | OTP server info: **version 2.5.0**, commit `b301ea7c70f2ce7bb22c7f8e7fba6f8654cea3a5`, branch `master`, commitTime **2024-03-13**. The response also contains **server hardware details (CPU model and core count)**, not recorded here | L |
+| Router list | One router, **`default`**, whose polygon **covers Mongolia** | L |
+| `GET /route/routers/default/index/feeds` | `["1"]`: **one GTFS feed** loaded | L |
+| `GET /route/routers/default/plan` (the §2.5 sample) | The response carries **OTP 2** fields: `pageCursors`, `realTime` and `arrivalDelay` on legs, `fare`, `elevationMetadata`, `debugOutput` | L |
+
+**Consequences:**
+1. **The version question is answered.** §3.1 previously inferred "OTP 2.7 or older, or OTP 1.x". It is **OTP 2.5.0**, a release from March 2024. The `pageCursors` and `elevationMetadata` fields confirm an OTP 2 response shape.
+2. **The REST API is on its way out upstream.** It is deprecated in 2.5 (#5580), **disabled by default in 2.6** (#5948) and **removed in 2.8.0** (#6578, 2025-09-10). An OTP upgrade at ICT Group to 2.6 or later would break the REST `plan` path unless they re-enable it, and 2.8 or later breaks it for good. **The SDK's transit call `routingBus` (the REST `plan` request in §2.1) would break with it.**
+3. **Any transit integration must use OTP's GTFS GraphQL API**, which OTP 2.5 already provides (upstream's recommended API for GTFS input; the Transmodel GraphQL API is meant for NeTEx input). Our contract (`/v1/transit/...`, not yet specified) defines **its own itinerary schema** and does not mirror OTP REST or GraphQL types, so an engine upgrade does not change our clients (§3.3 contract sketch). The GraphQL endpoint path behind the Hamuga gateway is U: ask ICT Group (§3.4 question 10).
+4. **One GTFS feed.** Which agency and modes it covers (UB bus only, or rail as well), its validity period and whether GTFS-Realtime is attached are U (§3.4 question 10, §5.4).
+5. **Security note for ICT Group** (not a defect of ours; to be relayed by the PO). The OTP root endpoint is reachable through the Hamuga gateway and discloses the OTP version, commit and **server hardware details (CPU model, core count)**. That helps an attacker fingerprint the host and pick known issues for that version. **Recommendation:** in Kong, block the OTP root and other diagnostic paths, and **allow-list only the paths that are needed** (for example the GraphQL endpoint and, while it is still used, `routers/default/plan`). The same allow-list approach is what our own gateway does for its upstreams (§3.5 item 2).
+
 ---
 
 ## 3. Analysis
@@ -177,7 +206,7 @@ Interpretation (I): Hamuga probably runs the **upstream Valhalla `mn-MN` locale*
 | **Search** | `/v1/search` = Photon 1.3.0 pass-through (GET, `q`, `lat/lon` bias, `lang`, `limit`). Known gaps (QA run 6): **B4** «Сүхбатар» (typo) returns far-away soums; **B13** «Галт тэрэгний буудал» (category phrase) returns a hotel 527 km away; no ү/у folding (ADR-0006 client workaround); sparse house numbers | POST, `value/page/perPage`, **no bias, no `lang`**, own envelope. Separate POI endpoint with category IDs and opening-hours filter. **Not reachable with the current key (403)** | **Different contract shape.** Clients cannot switch without a gateway adapter or a second parser. NAV-003 already parses Photon's GeoJSON `FeatureCollection` with `osm_*` properties. **No `lang`** breaks the English UI rule (D28: English result names from the `lang=en` response). **No bias** breaks distance ranking (D30: device position or map centre). **Possible value:** addresses, house numbers, khoroo names, a Mongolian category taxonomy. Whether its fuzzy matching handles «Сүхбатар» is U (§5.2) |
 | **Reverse** | `/v1/reverse` = Photon `/reverse` | Only `poi/coordinate` (POI near a point, with zoom) | **No equivalent documented.** Keep Photon |
 | **Routing** | `/v1/route` = Valhalla 3.9.0 pass-through, `format: osrm` + `banner_instructions` + `voice_instructions` + `language: mn-MN` + `units: kilometers`, parsed by Ferrostar's OSRM adapter. NAV-007 patches `mn-MN` wording | **Valhalla endpoint that accepts the same body and returns OSRM JSON with banner and voice instructions in `mn-MN` (L)** | **Technically compatible (L)**, so the gateway could forward `/v1/route` to Hamuga with no client change. Open points: `units`, `costing: pedestrian`, `costing_options.auto.exclude_unpaved` (NAV-001 AC 19) and `alternates` are untested; the Valhalla version is U; turn-restriction and one-way correctness are U; the NAV-007 wording fixes are missing (§2.5); p95 < 500 ms from the production host is U (the one sample was about 1.1 s from outside Mongolia); reroute volume (every client reroute is one upstream request) needs a quota |
-| **Transit** | **None** (research §4.9: MOTIS or OTP plus GTFS, roadmap Phase 4) | OTP REST `plan`, modes WALK/BUS/TRAIN, 1,534 UB stops. **Answers 200 (L)** | **New capability, no OSM equivalent, but not production-ready.** Ferrostar does not do transit guidance, so this is itinerary display (list + map), not turn-by-turn. Risks: (1) **all 1,534 stops are `isActive: false, isVerified: false`** (M), meaning unknown; (2) the OTP REST API was deprecated in OTP 2.5 (2024-03), disabled by default in 2.6 (2024-09) and **removed in 2.8.0 (2025-09-10)** in favour of the GraphQL APIs. So ICT Group runs an OTP of version 2.7 or older, or OTP 1.x, and the endpoint must change when they upgrade; (3) GTFS-Realtime and timetable freshness are U; (4) OTP is **LGPL-3.0**, which does not matter to us while ICT Group runs it as a service, and would matter only if we self-host (still fine as an unmodified server) |
+| **Transit** | **None** (research §4.9: MOTIS or OTP plus GTFS, roadmap Phase 4) | OTP REST `plan`, modes WALK/BUS/TRAIN, 1,534 UB stops. **Answers 200 (L)** | **New capability, no OSM equivalent, but not production-ready.** Ferrostar does not do transit guidance, so this is itinerary display (list + map), not turn-by-turn. Risks: (1) **all 1,534 stops are `isActive: false, isVerified: false`** (M), meaning unknown; (2) the OTP REST API was deprecated in OTP 2.5 (2024-03), disabled by default in 2.6 (2024-09) and **removed in 2.8.0 (2025-09-10)** in favour of the GraphQL APIs. ICT Group runs **OTP 2.5.0** (L, §2.6), so the REST endpoint breaks when they upgrade; the GTFS GraphQL API is already available on their version; (3) GTFS-Realtime and timetable freshness are U; (4) OTP is **LGPL-3.0**, which does not matter to us while ICT Group runs it as a service, and would matter only if we self-host (still fine as an unmodified server) |
 | **Traffic** | None yet (Phase 3, backlog owed decision 4). Valhalla supports live and predicted speeds | **Nothing visible** | U. Ask ICT Group. The §5.3 time-of-day routing test detects whether Hamuga's routing durations vary with congestion |
 
 ### 3.2 Hamuga layers that could fix our known search gaps
@@ -214,7 +243,7 @@ Interpretation (I): Hamuga probably runs the **upstream Valhalla `mn-MN` locale*
 
 **Contract sketch (not applied; `openapi.yaml` stays 0.4.1 until the PO decides).**
 - **Routing (R2a/R2b):** **no contract change.** `/v1/route` keeps its request and OSRM response shape; only the gateway's upstream changes. Optionally, a diagnostic response header `X-Upstream: valhalla | hamuga` (minor bump) so QA and clients' bug reports can tell which engine answered. `x-upstream` in the spec would list both upstreams. The gateway allow-list gains `/route/other/v1/route`.
-- **Transit:** `GET /v1/transit/plan`, a pass-through of Hamuga `…/routers/default/plan` (`fromPlace`, `toPlace`, `mode`, later `date`, `time`, `arriveBy`). Key injected, `x-upstream: {service: hamuga-otp}`, errors 400/429/502/503/504 as `GatewayError`. **Because upstream OTP removed this REST API, the contract must not mirror OTP's REST shape blindly.** Decide in the transit story whether we define our own itinerary schema (stable against an OTP GraphQL migration) or pass through.
+- **Transit:** `GET /v1/transit/plan` (`from`, `to`, `modes`, later `date`, `time`, `arriveBy`). Key injected, `x-upstream: {service: hamuga-otp}`, errors 400/429/502/503/504 as `GatewayError`. **The upstream is OTP 2.5.0's GTFS GraphQL API, not the deprecated REST `plan`** (§2.6). The gateway (or a small adapter) sends a fixed GraphQL query and maps the result to **our own itinerary schema**, which the transit story defines. We do not pass through OTP REST or GraphQL types, so an OTP upgrade at ICT Group does not change our contract.
 - **Search**, two shapes to decide in a follow-up ADR after §5.2:
   - **(i)** `GET /v1/places/suggest` and `/v1/places/poi` as pass-through (clients parse a second shape)
   - **(ii)** keep `/v1/search`, and have a small adapter (or ICT Group under option d, or our second index under option e) return one Photon-compatible `FeatureCollection` with `properties.source: "osm" | "hamuga"`
@@ -258,9 +287,10 @@ Interpretation (I): Hamuga probably runs the **upstream Valhalla `mn-MN` locale*
    7. **Server-side key per environment:** can we get **server keys, IP-restricted to our gateway**, one each for dev, staging and production, rather than the browser "client-safe" key? What are the rotation and revocation process and the SLA? **Please also enable search and POI on the key** (currently 403).
    8. Privacy: what does Hamuga log about requests (queries, coordinates, IP)? Retention? Is Cloudflare TLS termination outside Mongolia acceptable under D9?
    9. Traffic: is there a live or historical traffic product, and in what form (OSM way IDs, own network)? Does routing already use it?
-   10. Transit: what do `isActive` / `isVerified` mean, and when will stops be verified? Which OTP version runs? Is a move to the GraphQL API planned, and when? Is GTFS / GTFS-RT available for export?
+   10. Transit: what do `isActive` / `isVerified` mean, and when will stops be verified? **OTP 2.5.0 is confirmed (§2.6).** When is an OTP upgrade planned, and will the GTFS GraphQL API be exposed through the Hamuga gateway (path, auth)? Which agency, modes and validity period does the single GTFS feed cover? Is GTFS / GTFS-RT available for export?
    11. May we publish evaluation results (result names and coordinates) in our **public** repository (decisions "Items to confirm" 5)?
    12. **Routing (option d):** will ICT Group apply the NAV-007 `mn-MN` locale fixes and support our costing options (`pedestrian`, `exclude_unpaved`, `alternates`)? Which Valhalla version runs, and how are changes announced?
+   13. **Security (for ICT Group's own benefit):** please block the OTP root endpoint, which exposes the OTP version and server hardware details through the gateway, and allow-list only the needed paths (§2.6 item 5).
 
 ### 3.5 Security (the repository is PUBLIC, D35)
 
@@ -280,7 +310,8 @@ Interpretation (I): Hamuga probably runs the **upstream Valhalla `mn-MN` locale*
    - Add a `gitleaks` pre-commit/CI check with a custom rule once the key format is known.
    - QA test harnesses read the key from the environment and **redact** it in reports and Playwright traces (request headers appear in traces).
 5. **Blast radius:** per-environment keys, quotas set at ICT Group, a documented rotation runbook, and a gateway circuit breaker. A revoked key then degrades to the OSM stack (search; routing under R2a) or to a localised "transit unavailable" state, rather than failing the app.
-6. **Supply chain (option a only):** the SDK is 0.x, has no repository link and no licence field, and its UI builds `innerHTML` from API data. That is one more reason not to ship it.
+6. **Upstream exposure (ICT Group side, §2.6).** The OTP root endpoint behind the Hamuga gateway discloses version and server hardware details. Our gateway's allow-list never forwards it to our clients. ICT Group is asked to block it at its own gateway (§3.4 question 13).
+7. **Supply chain (option a only):** the SDK is 0.x, has no repository link and no licence field, and its UI builds `innerHTML` from API data. That is one more reason not to ship it.
 
 ---
 
@@ -326,7 +357,7 @@ Owner split: QA (harness, golden set, runs) and architect (analysis, recommendat
 | 2 | `POST /engine/poi` with `categoryIds:[186]` and a bbox of about 1 km around P5; `GET /engine/poi/coordinate` at P1, zoom 16 | **Blocked: 403** (L) |
 | 3a | `POST /route/other/v1/route` with the SDK body | **Done: 200, native `trip`** (L) |
 | 3b | the same with **our body** (`format:"osrm"`, banner/voice instructions, `language:"mn-MN"`) | **Done: 200, `code:"Ok"`, banner and voice instructions present** (L). **Still to check:** `units:"kilometers"`, `voiceLocale:"mn-MN"`, polyline6 geometry, `costing:"pedestrian"`, `costing_options.auto.exclude_unpaved`, `alternates:2`, and a **parse by Ferrostar's OSRM adapter** (Rust/wasm unit test by mobile or QA) |
-| 4 | `GET /route/routers/default/plan` P6 → P1, `mode=WALK,BUS` | **Reachable: 200 with `plan`** (L). **Still to record:** `plan.itineraries[].legs[]` (mode, route, `realTime`, agency), stop names and language |
+| 4 | `GET /route/routers/default/plan` P6 → P1, `mode=WALK,BUS` | **Reachable: 200 with `plan`, OTP 2 fields; engine OTP 2.5.0, one feed** (L, §2.6). **Still to record:** `plan.itineraries[].legs[]` (mode, route, `realTime`, agency), stop names and language. **Add:** the same query through the GTFS GraphQL API once ICT Group exposes it |
 | 5 | Tiles: fetch z14 tiles at P1 and P6; record the vector layers and fields, including any TileJSON `attribution` | **Reachable: z12 tile 200, 968 bytes** (L). Layers not decoded yet |
 
 ### 5.2 Search comparison (NAV-010 AC 2), revised after the skeptic review
@@ -382,7 +413,8 @@ Otherwise the result is "do not use" or "use later, with option d/e".
 6. **Availability:** a synthetic probe from staging every 5 minutes for 7 days (one P1→P3 route per probe, well within any quota). Record the error rate and p95. Compare with the SLA ICT Group states (§3.4 question 7).
 
 ### 5.4 Transit samples (NAV-010 AC 4)
-- **First, from ICT Group:** the meaning of `isActive` / `isVerified`, the OTP version, the GraphQL migration plan, and GTFS / GTFS-RT availability (§3.4 question 10). Until the stop status is explained, transit results are not treated as reliable.
+- **First, from ICT Group:** the meaning of `isActive` / `isVerified`, the OTP upgrade plan and GTFS GraphQL access (the version, 2.5.0, is known from §2.6), the coverage of the single GTFS feed, and GTFS / GTFS-RT availability (§3.4 question 10). Until the stop status is explained, transit results are not treated as reliable.
+- Run the samples through the **GTFS GraphQL API** where it is exposed, and through REST `plan` only as a fallback for this spike.
 - **10 OD pairs** across UB, each run at weekday 08:00, weekday 14:00 and Sunday 11:00:
   - P6→P1, P3→P5, P1→P4, P2→P6
   - Bayanzürkh east → Songinokhairkhan west
@@ -413,15 +445,16 @@ See the handoff (`follow_up_items`). In short:
 3. Secret scanning and key-handling guardrails on the public repo (tech-debt)
 4. Gateway support for keyed upstreams, including optional `/v1/route` failover (feature, only after the PO decides)
 5. Search augmentation with Hamuga, via adapter, option (d) or option (e) (feature, conditional on §5.2)
-6. Public transport trip planning via Hamuga (feature, Phase 4, after ICT Group confirms the stop status and API roadmap)
+6. Public transport trip planning via Hamuga (feature, Phase 4, after ICT Group confirms the stop status and API roadmap). It must target OTP's GTFS GraphQL API and our own itinerary schema, not the REST `plan` API (§2.6)
 7. ADR on the search aggregation contract shape (adr, after §5.2)
 8. Multi-source attribution UI and strings (change for UX/BA)
 9. Share the NAV-007 `mn-MN` locale fixes with ICT Group, and consider contributing them upstream to Valhalla (change, after the NAV-007 panel)
+10. Relay the OTP root-endpoint security note to ICT Group (§2.6 item 5), and request options (d) and (e) and the written internal agreement (§1.1). These are PO actions, not repository work
 
 ## 7. What this pass did not do
 - **Live probes were one call per service** from a non-Mongolian cloud container. No coverage, quality, correctness, latency distribution or rate limit was measured.
 - **Search and POI were not reachable (403).** Everything about their responses is still C or U.
-- The transit `plan` content and the tile layers were not analysed.
+- The transit `plan` content and the tile layers were not analysed. For transit, only the engine identity (OTP 2.5.0), the router, the feed count and the presence of OTP 2 fields are known (§2.6).
 - No vendor documentation was available. Everything labelled C comes from reading SDK 0.1.0 code and may differ from the server.
 - The Hamuga web app's JavaScript bundles were not analysed (outside the agreed scope). They may reveal more endpoints, such as traffic.
 - Timings from our sandbox are not meaningful for UB. The 1.1 s routing figure is recorded only to show that the NFR is unproven.
@@ -439,5 +472,7 @@ See the handoff (`follow_up_items`). In short:
 - OSMF Collective Database guideline (all-OSM or all-non-OSM per feature type and region; no deduplication-based combination): https://osmfoundation.org/wiki/Licence/Community_Guidelines/Collective_Database_Guideline_Guideline
 - OSMF Geocoding guideline: https://osmfoundation.org/wiki/Licence/Community_Guidelines/Geocoding_-_Guideline
 - OpenTripPlanner changelog (2.5.0 "Deprecate REST API" #5580; 2.6.0 "Disable Legacy REST API by default" #5948; 2.8.0, 2025-09-10, "Remove REST API" #6578) and APIs: https://docs.opentripplanner.org/en/latest/Changelog/ , https://docs.opentripplanner.org/en/latest/apis/Apis/
+- OpenTripPlanner 2.5 API overview (GTFS GraphQL and Transmodel GraphQL recommended; REST deprecated): https://docs.opentripplanner.org/en/v2.5.0/apis/Apis/
+- Live OTP server info, router and feed list: orchestrator relay, 2026-09-30 (raw responses not committed; hardware details deliberately omitted)
 - Kong "no Route matched with those values" 404: https://github.com/Kong/kong/issues/5679
 - Internal: `docs/architecture/api/openapi.yaml` 0.4.1 (P-point examples, route NFR); `docs/qa/test-plans/NAV-003.md` (run 6 golden results); `tests/e2e/nav003/fixtures/golden-set.json`; `docs/requirements/decisions.md` (D9, D10, D25, D26, D28, D30, D35); `docs/requirements/stories/NAV-007-mongolian-voice-native-review.md` (F6/F7, glossary C1/C2); `docs/osm-navigation-research.md` §4.9

@@ -1,7 +1,7 @@
 # ADR-0007: Hamuga (ICT Group) data and services are used only through our gateway and our contract, as separate optional upstreams or separate stores; our OSM stack remains the fallback
 
-- **Status:** proposed (the PO decides; backlog owed decision 4 and NAV-010 AC 7). Must not be applied before the internal ICT Group terms and approval in the spike (§3.4 item 5) are in writing.
-- **Date:** 2026-09-30 (amended the same day after the first live probes and the skeptic review)
+- **Status:** **accepted for the mechanism** (PO decision 2026-09-30, "go ahead with recommendations"; NAV-010 AC 7). Decided: gateway-only access (option B), no client SDK, separate stores never merged with OSM, per-environment IP-restricted server keys, and routing engine **R1**. Still open and **not** decided by this ADR: R2a (re-decided after the spike §5.3 tests and an ICT Group SLA), adoption of search/POI (after spike §5.2), transit (Phase 4), traffic, and any merge of Hamuga data with OSM (needs its own ADR). **Precondition:** no integration story starts before a written internal ICT Group agreement exists (spike §3.4 item 5).
+- **Date:** 2026-09-30 (amended the same day after the first live probes and the skeptic review; accepted the same day for the mechanism, see "PO decision record")
 - **Stories:** NAV-010 (spike). Would affect NAV-003/NAV-005 (search), NAV-001/NAV-005 (routing, if R2 is chosen), NAV-007 (`mn-MN` wording), the Phase 4 transit story (new) and the Phase 3 traffic planning.
 - **Evidence:** [spike nav-010-hamuga](../spikes/nav-010-hamuga.md):
   - a desk study of the public `hamuga-imap-sdk@0.1.0`, the public style and the public web pages
@@ -16,9 +16,9 @@ The PO pointed us to Hamuga, ICT Group's map platform. The PO works for ICT Grou
 - A **Valhalla routing endpoint.** Live: with our full request body (`format: "osrm"`, banner and voice instructions, `language: "mn-MN"`) it returns `code: "Ok"` with `bannerInstructions` and `voiceInstructions`. **This is Ferrostar-compatible output, passed through.**
   - The `mn-MN` wording has the defects NAV-007 fixes (glossary C1 register, C2 left/east ambiguity).
   - One sample took about 1.1 s from a cloud container outside Mongolia (not representative of UB).
-- An **OpenTripPlanner REST `plan`** endpoint for bus and train. Live: 200 with `plan`. However:
+- An **OpenTripPlanner REST `plan`** endpoint for bus and train. Live: 200 with `plan`. The server identifies itself as **OpenTripPlanner 2.5.0** (released 2024-03), router `default` covering Mongolia, **one GTFS feed** (spike §2.6). However:
   - all 1,534 published UB stops are `isActive: false, isVerified: false`
-  - upstream OTP removed this REST API in 2.8.0 (2025-09-10)
+  - the REST API the SDK uses is **deprecated in OTP 2.5**, disabled by default in 2.6 and removed in 2.8.0 (2025-09-10). Any OTP upgrade at ICT Group breaks it. OTP's **GTFS GraphQL API**, already available in 2.5, is the supported alternative.
   
   So transit is promising but not production-ready.
 
@@ -36,29 +36,40 @@ Forces:
 - **Privacy** (D9). Queries and coordinates sent to another service need a legal basis. Routing sends trip origins, destinations and reroute positions. Direct client calls would also expose user IPs.
 - **Control.** `mn-MN` guidance fixes (NAV-007), costing options and the p95 route NFR are fully in our hands only with our own Valhalla. With Hamuga routing, they depend on ICT Group applying the same fixes and meeting the NFR.
 
-## Decision (proposed)
+## PO decision record (2026-09-30)
+The PO accepted the architect's recommendations ("go ahead with recommendations"):
+1. **Mechanism:** Hamuga is used **only through our gateway** (option B). Each adopted capability is a **separate optional upstream** or a **separate store**. Options D (ICT Group adapts its endpoints to our contract) and E (ICT Group delivers non-OSM data that we run as a separate store) are **requested from ICT Group**.
+2. **No client SDK.** Web, Android and iOS never use the Hamuga SDK or call Hamuga directly.
+3. **Separate stores only, never merged with OSM.** Merging Hamuga data into our OSM-derived stores (option F) needs its own ADR.
+4. **Keys:** one server key per environment (dev, staging, production), IP-restricted to our gateway. No key, IP address or hostname of any environment is written into this repository.
+5. **Routing stays R1** (our Valhalla; Hamuga is a comparison source only). **R2a is re-decided** after the spike §5.3 tests pass and ICT Group states an SLA. R2b is not pursued.
+6. **Precondition:** a **written internal ICT Group agreement** (spike §3.4 item 5) exists before any Hamuga integration story starts.
+
+`openapi.yaml` is unchanged (0.4.1). R1 needs no contract change.
+
+## Decision (accepted for the mechanism; content choices per capability as stated)
 1. **Mechanism: gateway upstreams only.** Every Hamuga capability we adopt is reached through our gateway:
    - The gateway injects `x-api-key` from a server-side environment variable (`HAMUGA_API_KEY`, empty in `.env.example`). The key is a **server key per environment, IP-restricted to our gateway**.
    - It strips any client-supplied key.
    - It forwards only allow-listed upstream paths, with TLS verification.
-   - Clients (web, Android, iOS) **never** hold a Hamuga key and never call `gateway.hamuga.mn` directly.
+   - Clients (web, Android, iOS) **never** hold a Hamuga key and never call the Hamuga gateway directly.
    - The Hamuga browser SDK is **not** a dependency of `web/` or `mobile/`.
-2. **Scope: hybrid, with the routing engine as an explicit PO choice.**
+2. **Scope: hybrid. The routing engine is R1 (PO decision 2026-09-30).**
    - **Basemap** (PMTiles) stays on our OSM stack. A Hamuga enrichment overlay is optional later, preferably delivered as a separate PMTiles file (option E below).
-   - **Routing:** `/v1/route` keeps its contract. The PO chooses:
-     - **R1:** our Valhalla (Hamuga as a comparison source)
-     - **R2a:** Hamuga primary, with our Valhalla as fallback
-     - **R2b:** our Valhalla primary, with Hamuga as fallback
+   - **Routing:** `/v1/route` keeps its contract. The options were:
+     - **R1:** our Valhalla (Hamuga as a comparison source): **chosen**
+     - **R2a:** Hamuga primary, with our Valhalla as fallback: **re-decided later**
+     - **R2b:** our Valhalla primary, with Hamuga as fallback: not pursued
      
-     **Architect's lean:** R1 now. Move to R2a only after:
-     - the remaining live tests pass: turn-restriction and one-way correctness on P1–P6, p95 < 500 ms from UB via our gateway, the Ferrostar parse test, and a 7-day availability probe
+     The PO re-decides R2a (a new amendment to this ADR) only after:
+     - the remaining live tests pass: turn-restriction and one-way correctness on P1–P6, p95 < 500 ms from UB via our gateway, the Ferrostar parse test, and a 7-day availability probe (spike §5.3)
      - ICT Group applies the NAV-007 `mn-MN` fixes and states an SLA
      
-     Evidence of traffic-aware routing would strengthen R2a.
+     Evidence of traffic-aware routing would strengthen R2a. Until then the gateway does **not** forward `/v1/route` to Hamuga.
    - Hamuga **search/POI** may be added as a **secondary** source. Conditions:
      - the key is subscribed
      - the revised live comparison meets its exit criteria (spike §5.2): ≥ 100 independently labelled rows, a paired significance rule, English UI (D28) and distance ranking (D30)
-   - Hamuga **transit** may become a new gateway operation (Phase 4), after ICT Group explains the stop status flags and states the API roadmap (OTP GraphQL or a GTFS export).
+   - Hamuga **transit** may become a new gateway operation (Phase 4), after ICT Group explains the stop status flags and states the API roadmap. Because ICT Group runs OTP 2.5.0, whose REST API is deprecated (spike §2.6), a transit integration **must target OTP's GTFS GraphQL API** (or a GTFS export we self-host), **not** the REST `plan` endpoint the SDK uses. Our contract defines its own itinerary schema so that an OTP upgrade at ICT Group does not change it.
    - Traffic stays undecided until ICT Group states what exists.
 3. **Separation of data.**
    - Hamuga data stays in separate upstream responses, separate stores and separate map sources/layers. It is never imported into our Photon index, Valhalla graph or basemap PMTiles.
@@ -99,13 +110,16 @@ Forces:
   - Under R2, the NAV-007 wording fixes must be maintained in two Valhalla deployments (ours and ICT Group's), and the route NFR depends on another team.
   - Staging latency for Hamuga-backed operations will not represent production until NAV-009 moves production to Mongolia.
 - **Follow-up:**
+  - the written internal ICT Group agreement (spike §3.4 item 5), before any integration story
+  - ask ICT Group for options D and E (endpoints that fit our contract; a non-OSM data delivery with provenance and a written licence)
   - enable search/POI on the key, then the rest of the live evaluation (spike §5)
   - per-environment, IP-restricted server keys
+  - security note to ICT Group: the OTP root endpoint is reachable through the Hamuga gateway and exposes server hardware details; block it or allow-list only the paths that are needed (spike §2.6)
   - secret-scanning guardrails on the public repo
   - an ADR on the search aggregation shape (pass-through `/v1/places/*`, a Photon-compatible merged `/v1/search`, option D or option E)
   - a transit story with UX and contract, after ICT Group states the OTP roadmap
   - multi-source attribution strings (BA/UX)
   - sharing the NAV-007 locale fixes with ICT Group (and upstream Valhalla)
-- **Reversal cost:** low while nothing is adopted. After adoption:
+- **Reversal cost:** low while nothing is adopted (the state after this acceptance: R1, no Hamuga upstream live). After adoption:
   - removing a Hamuga upstream is a gateway change, plus either the removal of an optional client feature (transit) or a silent quality change (search, routing)
   - option E adds a pipeline to retire
