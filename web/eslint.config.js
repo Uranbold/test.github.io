@@ -22,7 +22,7 @@ const noHardcodedText = [
 ];
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", "public/**"] },
+  { ignores: ["dist/**", "dist-static-demo/**", "node_modules/**", "public/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

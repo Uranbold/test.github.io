@@ -59,14 +59,24 @@ type Rule = readonly [PlaceTypeKey, (p: PhotonProperties, name: string) => boole
 
 /**
  * Story section D, table "Type labels" (rows 1, 2, 3, 4, 4a, 5–31; row 32 is the fallback in typeLabelKey): applied
- * top to bottom, the first match wins. Rules 1–4 read the name ending (it differs between `lang=mn` and `lang=en`);
- * rules 4a–31 read Photon's `osm_key` / `osm_value` / `type`, which are the same in both languages (AC 19).
+ * top to bottom, the first match wins. Rules 1–3 and 4 (a) read the name ending (it differs between `lang=mn` and
+ * `lang=en`); rules 4 (b), 4a–31 read Photon's `osm_key` / `osm_value` / `type`, which are the same in both languages
+ * (AC 19; rule 4 (b) added by PO decision D34).
  */
 export const TYPE_LABEL_RULES: readonly Rule[] = [
   ["placeType.district", (_, n) => endsWithAny(n, SUFFIX.district)],
   ["placeType.khoroo", (_, n) => endsWithAny(n, SUFFIX.khoroo)],
   ["placeType.aimag", (_, n) => endsWithAny(n, SUFFIX.aimag)],
-  ["placeType.soum", (p, n) => endsWithAny(n, SUFFIX.soum) && (p.osm_key === "boundary" || p.osm_key === "place")],
+  // Rule 4: (a) a soum name ending on a boundary or place, or (b) Photon's soum boundary class, whatever its name
+  // ("Bayan-Undur" with lang=en). One row, so a soum gets the same row in both UI languages (AC 19). The en value of
+  // placeType.soum is the Mongolian word «Сум», untranslated (PO decision D34). After rules 1–3, so a type=county
+  // boundary named «… дүүрэг» stays «Дүүрэг» (R13).
+  [
+    "placeType.soum",
+    (p, n) =>
+      (endsWithAny(n, SUFFIX.soum) && (p.osm_key === "boundary" || p.osm_key === "place")) ||
+      (is(p, "boundary", ["administrative"]) && p.type === "county"),
+  ],
   // Rule 4a: a düüreg boundary by Photon's place type, whatever its name ("Chingeltei" with lang=en). Story R13.
   ["placeType.district", (p) => is(p, "boundary", ["administrative"]) && p.type === "district"],
   ["placeType.city", (p) => is(p, "place", ["city", "town"])],

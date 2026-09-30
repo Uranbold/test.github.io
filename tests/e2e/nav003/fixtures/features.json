@@ -8,7 +8,7 @@
   20,
   21
  ],
- "description": "Fixture features F1-F13 (F13 extra) and F14a/F14b/F15/F16 (story amendment 2026-09-30, PO approval F2, D33). Expected values derived by QA from the story tables, not from web/ code.",
+ "description": "Fixture features F1-F13 (F13 extra), F14a/F14b/F15/F16 (story amendment 2026-09-30, PO approval F2, D33) and F17a/F17b/F17c (soum boundary R 7297914 in the lang=en and lang=mn forms plus a variant without extent; PO decision D34, 2026-09-30, «Сум» in both UI languages). Expected values derived by QA from the story tables, not from web/ code.",
  "fixtures": [
   {
    "id": "F1",
@@ -603,6 +603,117 @@
     "context": "Улаанбаатар",
     "zoom": 13,
     "note": "F16: düüreg mapped as place=suburb with type=district: rule 1 (name ending) before rule 7 «Хороолол» (rule order)"
+   }
+  },
+  {
+   "id": "F17a",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      102.0,
+      46.0
+     ]
+    },
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7297914,
+     "countrycode": "MN",
+     "type": "county",
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "country": "Mongolia",
+     "name": "Bayan-Undur",
+     "state": "Uvurkhangai",
+     "extent": [
+      101.75,
+      46.2,
+      102.25,
+      45.8
+     ]
+    }
+   },
+   "expect": {
+    "rule": 4,
+    "name": "Bayan-Undur",
+    "mn": "Сум",
+    "en": "Сум",
+    "context": "Uvurkhangai",
+    "zoomClass": "extent",
+    "note": "F17 (D34), lang=en form of the soum boundary R 7297914 (name:en, no ' soum' ending): rule 4 (b) boundary/administrative + type=county -> «Сум» in BOTH UI languages (English UI untranslated, not 'Soum', not 'Place'); AC 19"
+   }
+  },
+  {
+   "id": "F17b",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      102.0,
+      46.0
+     ]
+    },
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7297914,
+     "countrycode": "MN",
+     "type": "county",
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "country": "Монгол улс",
+     "name": "Баян-Өндөр сум",
+     "state": "Өвөрхангай ᠥᠪᠦᠷ ᠬᠠᠩᠭ᠋ᠠᠢ",
+     "extent": [
+      101.75,
+      46.2,
+      102.25,
+      45.8
+     ]
+    }
+   },
+   "expect": {
+    "rule": 4,
+    "name": "Баян-Өндөр сум",
+    "mn": "Сум",
+    "en": "Сум",
+    "context": "Өвөрхангай",
+    "zoomClass": "extent",
+    "note": "F17 (D34), lang=mn form of the same OSM object R 7297914 (live properties, traditional script in state kept and stripped by AC 18): rule 4 (a) name ending « сум» -> «Сум»; same row 4 as F17a (AC 19)"
+   }
+  },
+  {
+   "id": "F17c",
+   "feature": {
+    "type": "Feature",
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      102.0,
+      46.0
+     ]
+    },
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 9017,
+     "countrycode": "MN",
+     "type": "county",
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "country": "Mongolia",
+     "name": "Bayan-Undur",
+     "state": "Uvurkhangai"
+    }
+   },
+   "expect": {
+    "rule": 4,
+    "name": "Bayan-Undur",
+    "mn": "Сум",
+    "en": "Сум",
+    "context": "Uvurkhangai",
+    "zoom": 13,
+    "note": "F17 (D34) variant without extent (osm_id 9017 so it is not merged with F17a): rule 4 (b) -> «Сум», area label -> point centred at zoom 13 in both UI languages (AC 20)"
    }
   }
  ]

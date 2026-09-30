@@ -1,5 +1,6 @@
-// NAV-003 E. Selecting a result: fly-to, pin and place card (AC 20–24), and AC 19 on the card. Fixture features F1–F16 by
-// request interception (F14a/F14b/F15/F16: story amendment 2026-09-30, PO approval F2: same row and zoom in both UI languages).
+// NAV-003 E. Selecting a result: fly-to, pin and place card (AC 20–24), and AC 19 on the card. Fixture features F1–F17 by
+// request interception (F14a/F14b/F15/F16: story amendment 2026-09-30, PO approval F2: same row and zoom in both UI languages;
+// F17a/F17b/F17c: PO decision D34, soum «Сум» in both UI languages, extent fit or area zoom 13).
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import {
@@ -7,10 +8,10 @@ import {
 } from './helpers.mjs';
 
 
-/** Every fixture is found by its id as query: «F5 тест» -> [F5], «F14a тест» -> [F14a]. Plus «олон» -> several. */
+/** Every fixture is found by its id as query: «F5 тест» -> [F5], «F14a тест» -> [F14a], «F17c тест» -> [F17c]. Plus «олон» -> several. */
 async function mockById(page) {
   return mock(page, SEARCH_GLOB, (p) => {
-    const m = /F\d+[ab]?/.exec(p.q);
+    const m = /F\d+[a-c]?/.exec(p.q);
     if (m && FX[m[0]]) return { body: fc([FX[m[0]].feature]) };
     return { body: fc(['F5', 'F9', 'F10', 'F2'].map((id) => FX[id].feature)) };
   });
@@ -81,13 +82,13 @@ test('AC20: point results are centred (±5 px) at zoom 13 (area types) or 16 (ot
   test.info().annotations.push({ type: 'AC20 rows', description: JSON.stringify(rows) });
 });
 
-test('AC19/AC20 (F2) mn and en: F14a/F14b/F15/F16 get the same type-label row on the place card and the same camera (extent fit, or area zoom 13) in both UI languages', async ({ page }) => {
+test('AC19/AC20 (F2, D34) mn and en: F14a/F14b/F15/F16/F17a/F17b/F17c get the same type-label row on the place card and the same camera (extent fit, or area zoom 13) in both UI languages', async ({ page }) => {
   test.setTimeout(120_000);
   await mockById(page);
   const seen = {};
   for (const lang of ['mn', 'en']) {
     await openApp(page, { lang });
-    for (const id of ['F14a', 'F14b', 'F15', 'F16']) {
+    for (const id of ['F14a', 'F14b', 'F15', 'F16', 'F17a', 'F17b', 'F17c']) {
       const f = FX[id];
       await jumpTo(page, { lat: 47.9, lng: 106.9 }, 11);
       const ms = await selectFixture(page, id);
@@ -111,9 +112,9 @@ test('AC19/AC20 (F2) mn and en: F14a/F14b/F15/F16 get the same type-label row on
       await page.keyboard.press('Escape');
     }
   }
-  test.info().annotations.push({ type: 'AC19/AC20 F14–F16 mn/en', description: JSON.stringify(seen) });
+  test.info().annotations.push({ type: 'AC19/AC20 F14–F17 mn/en', description: JSON.stringify(seen) });
   // Same row in both languages: the mn/en label pair of one table row, and the same zoom
-  for (const id of ['F14a', 'F14b', 'F15', 'F16']) {
+  for (const id of ['F14a', 'F14b', 'F15', 'F16', 'F17a', 'F17b', 'F17c']) {
     expect.soft([seen[id].mn.type, seen[id].en.type], `${id} same row mn/en`).toEqual([FX[id].expect.mn, FX[id].expect.en]);
     expect.soft(seen[id].en.zoom, `${id} same zoom mn/en`).toBeCloseTo(seen[id].mn.zoom, 1);
   }
@@ -179,7 +180,7 @@ test('AC21: one pin at the feature point (±2 px) named with the result; card wi
   }
 });
 
-test('AC19 on the place card: every fixture F1–F16 card shows the story type label (mn and en)', async ({ page }) => {
+test('AC19 on the place card: every fixture F1–F17 card shows the story type label (mn and en)', async ({ page }) => {
   test.setTimeout(120_000);
   await mockById(page);
   await openApp(page);

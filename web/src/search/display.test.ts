@@ -18,7 +18,9 @@ const RULES: Array<[number | "4a", PhotonProperties, PlaceTypeKey, string, strin
   [1, { name: "Баянзүрх дүүрэг", osm_key: "boundary", osm_value: "administrative" }, "placeType.district", "Дүүрэг", "District"],
   [2, { name: "БЗД-ийн 4-р хороо", osm_key: "office", osm_value: "government" }, "placeType.khoroo", "Хороо", "Khoroo"],
   [3, { name: "Сэлэнгэ аймаг", osm_key: "boundary", osm_value: "administrative" }, "placeType.aimag", "Аймаг", "Aimag"],
-  [4, { name: "Баруунхараа сум", osm_key: "place", osm_value: "village" }, "placeType.soum", "Сум", "Soum"],
+  // Row 4: «Сум» in both UI languages (PO decision D34, untranslated in en).
+  [4, { name: "Баруунхараа сум", osm_key: "place", osm_value: "village" }, "placeType.soum", "Сум", "Сум"],
+  [4, { name: "Bayan-Undur", osm_key: "boundary", osm_value: "administrative", type: "county" }, "placeType.soum", "Сум", "Сум"],
   ["4a", { name: "Chingeltei", osm_key: "boundary", osm_value: "administrative", type: "district" }, "placeType.district", "Дүүрэг", "District"],
   [5, { name: "Эрдэнэт", osm_key: "place", osm_value: "city" }, "placeType.city", "Хот", "City or town"],
   [6, { name: "Тэрэлж", osm_key: "place", osm_value: "hamlet" }, "placeType.settlement", "Суурин", "Settlement"],
@@ -102,6 +104,19 @@ describe("type labels (story table, AC 19)", () => {
     expect(typeLabelKey({ name: "Bornuur sum", osm_key: "boundary", osm_value: "administrative", type: "district" })).toBe("placeType.soum");
     expect(typeLabelKey({ name: "Сэлэнгэ аймаг", osm_key: "boundary", osm_value: "administrative", type: "district" })).toBe("placeType.aimag");
   });
+  it("rule 4 (b) needs boundary=administrative and type=county, and runs after rules 1–3 (D34, R13)", () => {
+    expect(typeLabelKey({ name: "Bayan-Undur", osm_key: "boundary", osm_value: "administrative", type: "county" })).toBe("placeType.soum");
+    expect(typeLabelKey({ name: "Bayan-Undur", osm_key: "boundary", osm_value: "administrative" })).toBe("placeType.place");
+    expect(typeLabelKey({ name: "Bayan-Undur", osm_key: "boundary", osm_value: "protected_area", type: "county" })).toBe("placeType.place");
+    // place=village with type=county and no soum ending stays rule 6 (only boundaries use rule 4 (b)).
+    expect(typeLabelKey({ name: "Bayan-Undur", osm_key: "place", osm_value: "village", type: "county" })).toBe("placeType.settlement");
+    // Name endings of rules 1–3 win over rule 4 (b): a county boundary named «… дүүрэг» stays «Дүүрэг».
+    expect(typeLabelKey({ name: "Налайх дүүрэг", osm_key: "boundary", osm_value: "administrative", type: "county" })).toBe("placeType.district");
+    expect(typeLabelKey({ name: "Nalaikh duureg", osm_key: "boundary", osm_value: "administrative", type: "county" })).toBe("placeType.district");
+    expect(typeLabelKey({ name: "Сэлэнгэ аймаг", osm_key: "boundary", osm_value: "administrative", type: "county" })).toBe("placeType.aimag");
+    // Aimags are not part of D34 (story Open question 9): Photon's type=state is not read, so no ending → «Газар».
+    expect(typeLabelKey({ name: "Uvurkhangai", osm_key: "boundary", osm_value: "administrative", type: "state" })).toBe("placeType.place");
+  });
   it("uses the name after removing traditional script (AC 18)", () => {
     expect(typeLabelKey({ name: "Сэлэнгэ аймаг ᠰᠡᠯᠡᠩᠭᠡ", osm_key: "boundary" })).toBe("placeType.aimag");
   });
@@ -154,6 +169,39 @@ describe("fixtures F14–F16 (AC 19, 20; F2)", () => {
   it("F16: «Сүхбаатар дүүрэг» mapped as place=suburb, type=district is rule 1 «Дүүрэг», not rule 7 «Хороолол»", () => {
     expect(labels(f16)).toEqual(["placeType.district", "Дүүрэг", "District"]);
     expect(labels(feature({ ...f16.properties, name: "Sukhbaatar duureg" }))).toEqual(["placeType.district", "Дүүрэг", "District"]);
+  });
+});
+
+/**
+ * Story fixture F17 (PO decision D34, QA defect D4): the soum boundary R 7297914 returned with lang=en ("Bayan-Undur")
+ * and with lang=mn («Баян-Өндөр сум»). Both get row 4 and the label «Сум» in both UI languages, never "Soum" or "Place".
+ */
+describe("fixture F17 (AC 19, 20, 45; D34)", () => {
+  // Extent as Photon returns it: [minLon, maxLat, maxLon, minLat]. Illustrative box around Bayan-Öndör, Övörkhangai.
+  const EXTENT: [number, number, number, number] = [101.9, 46.6, 102.6, 46.2];
+  const soum = { osm_type: "R", osm_id: 7297914, osm_key: "boundary", osm_value: "administrative", type: "county", countrycode: "MN" } as const;
+  const f17en = feature({ ...soum, name: "Bayan-Undur", state: "Uvurkhangai", extent: EXTENT }, 102.25, 46.4);
+  const f17mn = feature({ ...soum, name: "Баян-Өндөр сум", state: "Өвөрхангай", extent: EXTENT }, 102.25, 46.4);
+
+  const labels = (f: PhotonFeature): [PlaceTypeKey, string, string] => {
+    const k = resultInfo(f).typeKey;
+    return [k, mn[k], en[k]];
+  };
+
+  it("\"Bayan-Undur\" (condition b) and «Баян-Өндөр сум» (condition a) are both row 4, «Сум» in mn and en", () => {
+    expect(labels(f17en)).toEqual(["placeType.soum", "Сум", "Сум"]);
+    expect(labels(f17mn)).toEqual(["placeType.soum", "Сум", "Сум"]);
+    expect(resultInfo(f17en).typeKey).toBe(resultInfo(f17mn).typeKey);
+    expect(en["placeType.soum"]).not.toBe("Soum");
+    expect(resultInfo(f17en).context).toBe("Uvurkhangai");
+    expect(resultInfo(f17mn).context).toBe("Өвөрхангай");
+  });
+
+  it("fits the extent when present and flies to zoom 13 without it (AC 20)", () => {
+    expect(resultInfo(f17en).bounds).toEqual([[101.9, 46.2], [102.6, 46.6]]);
+    const noExtent = feature({ ...soum, name: "Bayan-Undur" });
+    expect(resultInfo(noExtent).bounds).toBeNull();
+    expect(zoomForType(resultInfo(noExtent).typeKey)).toBe(13);
   });
 });
 

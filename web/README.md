@@ -2,7 +2,8 @@
 
 MapLibre GL JS page that shows the Mongolia basemap from the NAV-001 gateway (`GET /tiles/basemap.pmtiles`, read with the
 PMTiles protocol over HTTP Range), with place search, a place card and a coordinate card (NAV-003). Plain TypeScript +
-Vite, no UI framework. **Local dev only** (hosting is a separate backlog item).
+Vite, no UI framework. Local dev, plus a **map-only static build** for the PO's public web hosting (PO decision D44,
+NAV-002 section M): see [Static public demo](#static-public-demo-d44-nav-002-ac-5154).
 
 - Story: `docs/requirements/stories/NAV-002-web-demo-map.md`
 - Screen spec, flows, style, tokens: `docs/design/screens/NAV-002-web-map.md`, `docs/design/flows/NAV-002-web-demo-map.md`,
@@ -41,6 +42,7 @@ Run everything from `web/`.
 | Install | `npm ci` |
 | Dev server (http://localhost:5173) | `npm run dev` |
 | Production build (to `dist/`) | `npm run build` |
+| Static public demo build (to `dist-static-demo/`, map only, D44) | `npm run build:static-demo` |
 | Serve the build (http://localhost:4173) | `npm run preview` |
 | Typecheck | `npm run typecheck` |
 | Unit tests (Vitest) | `npm test` |
@@ -60,18 +62,47 @@ story-only fallback any more. `scripts/check-glossary.test.mjs` (part of `npm te
 
 | Key | Default | Meaning |
 |---|---|---|
-| `VITE_GATEWAY_BASE_URL` | `http://localhost:8080` | Gateway base URL. Tiles are read from `<base>/tiles/basemap.pmtiles`; trailing slashes are ignored. |
+| `VITE_GATEWAY_BASE_URL` | `http://localhost:8080` (static demo: the page origin) | Gateway base URL. Tiles are read from `<base>/tiles/basemap.pmtiles`; trailing slashes are ignored. **`same-origin`** (or `/`) means the page's own origin at runtime (`window.location.origin`), so one build works on any host without a rebuild. A value starting with one `/` (e.g. `/gw`) means the page origin plus that path. An absolute URL is used as is. |
+| `VITE_STATIC_DEMO` | `false` | **Static public demo build setting** (NAV-002 AC 51, 53, 54). `true` (or `1`) turns **search, reverse and routing off**: 0 requests to `/v1/search`, `/v1/reverse` or `/v1/route` on any host, and the search box and the coordinate card show «Хайлт түр ажиллахгүй байна» with «Дахин оролдох» at once (250 ms after the last keystroke). The map, day/night, my location and attribution work as usual. `false`, `0` or unset = normal build. Any other value fails the build (and would count as `true` at runtime). In code: `cfg.staticDemo` and `cfg.features` (`search`, `reverse`, `routing`) in `src/config.ts`; routing (NAV-004) should check `cfg.features.routing`. |
 
 Copy `.env.example` to `.env` and edit it, or pass the variable on the command line
 (`VITE_GATEWAY_BASE_URL=http://localhost:8081 npm run dev`). Vite reads it at start-up, so restart the dev server after a change.
+
+Mode files: `.env.static-demo` (committed, no hostnames) holds the keys for `npm run build:static-demo` and overrides
+`.env` / `.env.local`. Use `.env.static-demo.local` (ignored by git) for a local override.
 
 **CORS:** the gateway must allow the web origin. Its `CORS_ALLOWED_ORIGINS` setting (NAV-001, default `*`) must include
 `http://localhost:5173` (dev) and `http://localhost:4173` (preview) if it is ever narrowed. If it does not, the browser blocks
 the tile requests and the page shows «Газрын зургийг ачаалж чадсангүй» (tiles unavailable).
 
+## Static public demo (D44, NAV-002 AC 51–54)
+
+The public demo on the PO's shared web hosting has **no backend**, so it is built map-only. Real hostnames are never
+written into the repo (D35); below, `https://<demo-host>` is a placeholder for whatever (sub)domain serves the site.
+
+1. Build: `npm run build:static-demo` (uses `.env.static-demo`: `VITE_STATIC_DEMO=true`, `VITE_GATEWAY_BASE_URL=same-origin`).
+   The output is `dist-static-demo/`. The build log prints "static demo build: search, reverse and routing are off".
+2. Upload the **contents** of `dist-static-demo/` to the web root of the site (the domain root: asset URLs start with `/`,
+   so a sub-folder is not supported).
+3. Upload the basemap archive (NAV-001 `basemap.pmtiles`) to `<web root>/tiles/basemap.pmtiles`, so the page reads
+   `https://<demo-host>/tiles/basemap.pmtiles`. The page origin is read at runtime, so a changed (sub)domain needs **no
+   rebuild**, only the same files under the new host.
+4. Hosting checks before sharing the link (NAV-002 AC 51–52, R10), for example with
+   `curl -sI -H "Range: bytes=0-16383" https://<demo-host>/tiles/basemap.pmtiles`: the answer must be **206** with a
+   `Content-Range` header and **no** `Content-Encoding` (the host must not gzip the archive, or range reads break);
+   `http://` must redirect with 301/308 to `https://` (enable the host's "force HTTPS" setting); the host's file-size
+   limit must allow the archive (about 112 MiB for Mongolia at z14).
+
+What the static demo does: tiles, fonts and sprites come only from the page origin (0 requests to any other host). Search
+and the coordinate card's nearest place show «Хайлт түр ажиллахгүй байна» with «Дахин оролдох» without sending anything
+(`src/search/unavailableClient.ts`; the real client also gets a fetch that refuses every call). Offline still shows
+«Интернэт холболт алга» (state precedence offline > unavailable). Pointing the public site at a backend is a story change
+recorded after the NAV-008 AC 24 legal review (AC 54), not a setting to flip here.
+
 ## What is bundled
 
-Only two hosts are contacted at runtime: the page origin and the gateway (AC 46).
+Only two hosts are contacted at runtime: the page origin and the gateway (AC 46). The static demo contacts the page
+origin only.
 
 - `public/fonts/Noto Sans {Regular,Medium,Italic}/` holds all 256 glyph ranges for each font stack, including Cyrillic
   `1024-1279` with Ө ө Ү ү. `public/sprites/v4/` holds the light (day) and dark (night) sprites. They are pinned to
@@ -89,7 +120,7 @@ Only two hosts are contacted at runtime: the page origin and the gateway (AC 46)
 ```
 src/main.ts                      entry: tokens CSS fallback, PMTiles protocol, App
 src/boot/bootLoading.ts          pre-module script inlined into index.html by vite.config.ts (loading pill at 300 ms)
-src/config.ts                    gateway URL normalisation, asset base URL
+src/config.ts                    gateway URL (absolute, same-origin), asset base URL, static demo switch, features
 src/style/tokens.ts              reads docs/design/tokens.json (flavors, UI and location colours, CSS variables)
 src/style/buildStyle.ts          buildStyle(), LABEL_EXPRESSION, applyLabelRule(), road colours, text sizes
 src/state/status.ts              loading / tiles unavailable / offline state machine (precedence offline > tiles > loading)
@@ -101,6 +132,7 @@ src/search/                      NAV-003 pure core (no DOM): text.ts (settled qu
                                  display.ts (type labels 1–32, name, context line, zoom), photon.ts (contract types),
                                  gateway.ts (typed client, 8 s timeout, outcome classes, Retry-After, cooldown),
                                  searchController.ts (debounce, generations, states), reverseController.ts,
+                                 unavailableClient.ts (static demo: "unavailable" at once, no network),
                                  lexicon.json (abbreviations, transliteration tables, name suffixes: data, never displayed)
 src/ui/searchBox.ts              combobox, results list, state rows, live region
 src/ui/placeCard.ts              place card, coordinate card, the single pin
@@ -196,6 +228,9 @@ scripts/                         vendor-assets.sh, check-i18n.mjs, check-glossar
   the compass. Esc on the input or on the retry button closes that row and focuses the input (text kept). The retry
   button has `aria-describedby="search-state-text"`. If the focused retry button disappears (popup closed, options or
   another state row), focus goes to the input, never to `<body>`.
+- **Map click versus drag (AC 41, D43).** A click on the map (the MapLibre `click` event) closes the popup (options or
+  any state row) without selecting; a drag, pinch, rotate or wheel zoom never closes it. Opening a coordinate card closes
+  it too. There is no close-on-blur: focus moves to the canvas on pointer down, which is also the start of a drag.
 - **Coordinate card.** Right-click (desktop) or a 600 ms long-press (touch, ≤ 10 px movement) on a ready map, or a typed
   coordinate. Exactly one `reverse` request (6 decimals, `limit=1`, `radius=0.5`). The camera does not move for
   right-click / long-press.

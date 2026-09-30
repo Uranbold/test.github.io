@@ -1,9 +1,9 @@
 # Map style spec (MapLibre)
 
 - **Owner:** ux-designer
-- **Stories:** NAV-002 (AC 5–10, 15, 26–29, 35, 46), NAV-003 (§7.1 selected-place pin; AC 21, 23, 25). Later stories add sections (route line: NAV-004, active navigation camera: NAV-005, traffic: Phase 3).
+- **Stories:** NAV-002 (AC 5–10, 15, 26–29, 35, 46), NAV-003 (§7.1 selected-place pin; AC 21, 23, 25), NAV-004 (§7.2 route lines and alternatives, §7.3 route markers; AC 9, 16–18, 20, 30). Later stories add sections (active navigation camera: NAV-005, traffic: Phase 3).
 - **Colour values:** `docs/design/tokens.json` is the single source of truth. The tables below quote it for readability. `node docs/design/prototypes/check-contrast.mjs` fails if a table value here drifts from `tokens.json`, or if a listed text/background pair drops below WCAG AA.
-- **Status:** v0.3, 2026-09-30 (§1 zoom range: D1 max zoom 14 read from the archive header; §7.1 NAV-003 pin). v0.2, 2026-09-30 (§1 post-processing moved to runtime per ADR-0004 §3; PO decisions D11–D13, D16 recorded). v0.1, 2026-09-29. Colours are a first proposal. The PO judges them on real tiles in the NAV-002 demo (story goal: "is the open basemap good enough for Mongolian users").
+- **Status:** v0.4, 2026-09-30 (§7.2–7.3 NAV-004 route lines, origin marker, destination = NAV-003 pin, candidate point, manoeuvre point). v0.3, 2026-09-30 (§1 zoom range: D1 max zoom 14 read from the archive header; §7.1 NAV-003 pin). v0.2, 2026-09-30 (§1 post-processing moved to runtime per ADR-0004 §3; PO decisions D11–D13, D16 recorded). v0.1, 2026-09-29. Colours are a first proposal. The PO judges them on real tiles in the NAV-002 demo (story goal: "is the open basemap good enough for Mongolian users").
 - **Checked on real tiles (2026-09-29, design preview only, not app code):** both styles were generated from `tokens.json` with `@protomaps/basemaps` 5.7.2 plus the §3.2, §3.3 and §4 post-processing (the same steps `buildStyle` now runs at runtime, §1), validated with the MapLibre style validator (0 errors, 0 layers left reading `name:ru` / `pgf:*` / `name2` / `name3`), and rendered against the NAV-001 gateway archive at P1 z12, z14, z16.5 and Mongolia z6/z7, day and night. Result: Cyrillic labels incl. ө/ү render, Энх тайваны өргөн чөлөө shows as trunk, and the night map has no bright areas. Two things to watch in the demo: the low-zoom road *widths* are thin Protomaps defaults (colours fixed in §3.3; widths: PO decision D16, 2026-09-30, the PO judges them in the demo and a later widening comes back to this spec as a change), and some POI names are Latin because that is the OSM `name` (story R2).
 
 ## 1. Base and build approach
@@ -177,10 +177,66 @@ One pin marks the selected search result or the selected point of a coordinate c
 - The pin is not a style layer: it survives `setStyle` without re-adding, but its colours switch with the theme through the UI custom properties (like the location dot).
 - No POI highlighting or label changes in the basemap: the selected feature's own label stays as the style draws it (Cyrillic, §4.1).
 
+### 7.2 Route lines and alternatives (NAV-004)
+Story NAV-004 AC 16–18, 20, 32. Screen spec: [`screens/NAV-004-route-preview.md`](screens/NAV-004-route-preview.md) › Map.
+
+**Source.** One GeoJSON source `nav-route` with one `LineString` feature per route of the current response (1–3), decoded from the OSRM `geometry` (the request asks for `format: osrm`; polyline6 unless the architect's ADR says otherwise). Properties: `index` (0-based, Valhalla order) and `selected` (boolean). Selecting another route only rewrites the `selected` property (`setData`), so the camera and the request state are untouched (AC 18: 0 requests, no camera move). At the start of every request the source is emptied (AC 32).
+
+**Layers** (bottom → top). All are inserted **below the first symbol layer** (`address_label`), so road names, place labels and POIs stay readable on top of the line (Google Maps order), and **below** the NAV-002 location accuracy layers (§7), so the accuracy circle is not hidden by the line. Everything is inside the map canvas, which is below the UI grid, so a route line can never cover the attribution, the scale bar or a control (AC 16).
+
+| Layer id | Type | Filter | Colour token | Width (px, linear by zoom z5 / z10 / z14 / z18) | Notes |
+|---|---|---|---|---|---|
+| `nav-route-alt-casing` | `line` | `selected == false` | `route.alternative-casing` | 4 / 6 / 8 / 11 | round cap and join |
+| `nav-route-alt` | `line` | `selected == false` | `route.alternative` | 2 / 4 / 6 / 9 | |
+| `nav-route-sel-casing` | `line` | `selected == true` | `route.selected-casing` | 8 / 10 / 12 / 16 | drawn above every alternative (AC 16) |
+| `nav-route-sel` | `line` | `selected == true` | `route.selected` | 4 / 6 / 8 / 12 | |
+| `nav-route-hit` | `line` | `selected == false` | any, `line-opacity: 0` | alternative casing width + 20 (24 / 26 / 28 / 31) | invisible hit area: ≥ 10 px on each side of an alternative line (AC 18). Only this layer is queried for clicks and hover (`cursor: pointer`) |
+| `nav-route-step` | `circle` | one `Point` in source `nav-route-step` | fill `route.step-fill`, stroke `route.step-stroke` 3 px | radius 6 | manoeuvre point after a turn-list row is activated (AC 30), see §7.3 |
+
+- **Width rule (AC 16):** at every zoom stop the alternative is **≥ 2 px narrower** than the selected line, both in fill (2 px less) and in total width with casing (4–5 px less).
+- **Colour rule (AC 16):** the selected fill is ≥ 3:1 against `earth`, `major` and `minor_a` in both modes (checker, `tokens.json › contrastPairs`). Where the fill alone is lower (night trunk and motorway fills, day motorway), the casing is ≥ 3:1 against that road fill, so the line edge stays visible. Alternatives use a different token (`route.alternative`), are muted blue-grey, and differ from the selected fill by ≥ 2:1.
+- **Colour values** (quoted from `tokens.json`; checked by `check-contrast.mjs`):
+
+| Key | Day | Night |
+|---|---|---|
+| `route.selected` | #1967D2 | #8AB4F8 |
+| `route.selected-casing` | #0B3D91 | #10151C |
+| `route.alternative` | #8FA7CC | #5A7396 |
+| `route.alternative-casing` | #5F7CAB | #10151C |
+| `route.step-fill` | #FFFFFF | #10151C |
+| `route.step-stroke` | #0B3D91 | #8AB4F8 |
+
+- **No labels on the route** in NAV-004 (no duration callouts on the lines, no road shields added). Route options in the panel carry a colour swatch that matches their line (screen spec › Route options).
+- **Unpaved segments** are not styled differently (story Out of scope; the tiles have no `surface`, §3.1).
+- **Day / night (AC 20):** `setStyle` drops our layers. After every style switch, re-add the `nav-route` and `nav-route-step` sources with their **current data** and the layers above with the new mode's colours, in the same frame as the §7 location layers. The selection is the `selected` property, so it survives; 0 route requests.
+- **Blue next to blue:** the selected line and the NAV-002 location dot (#1A73E8 / #669DF6) are both blue, as in Google Maps. The dot keeps its 3 px light stroke and elevation-1 shadow, and the selected line's dark casing separates the two; the dot is an HTML marker, so it is always drawn on top of the line.
+
+### 7.3 Route markers (NAV-004)
+Story NAV-004 AC 3, 7, 9, 30. At most **one origin marker and one destination marker** exist while the route panel is open (AC 9).
+
+| Marker | Type | Look (day / night tokens) | Accessible name |
+|---|---|---|---|
+| **Origin = «Миний байршил»** | The NAV-002 location dot (§7). **No second marker** (AC 3, 9) | Unchanged, including its stale grey variant (NAV-002 AC 23) | NAV-002 name «Миний байршил» (equals the field text) |
+| **Origin = any other point** (search result, «Сонгосон цэг») | HTML marker (MapLibre `Marker`, custom element), circle `size.origin-marker` 18 px incl. a 4 px ring, anchor `center`, shadow elevation 1 | fill `route.origin-fill`, ring `route.origin-stroke` | `role="img"`, `aria-label` = origin field text (AC 9). Test id `route-origin-marker` |
+| **Destination** | **The NAV-003 pin (§7.1), moved to the destination.** The one-pin rule of NAV-003 stays: the pin *is* the destination marker while the panel is open | §7.1 | `aria-label` = destination field text (AC 9). Test id stays `place-pin` |
+| **Candidate point** (coordinate card opened during the preview, AC 7) | HTML marker, the §7.1 pin shape, 28×40 px, anchor `bottom` | **Outline variant:** body fill `ui.surface`, 2 px stroke `pin.fill`, head dot `pin.fill`. It reads as "not yet chosen", next to the filled destination pin | «Сонгосон цэг». Removed when that card closes (either button, «Хаах», Esc). Test id `route-candidate-pin` |
+| **Manoeuvre point** | Style layer `nav-route-step` (§7.2), not an HTML marker, so it never counts as a marker | radius 6, fill `route.step-fill`, 3 px ring `route.step-stroke` | none (decorative: the focused turn-list row carries the name). Shown at `maneuver.location` of the last activated turn-list row (AC 30); removed when the route changes or the panel closes |
+
+Origin marker colour values (checked):
+
+| Key | Day | Night |
+|---|---|---|
+| `route.origin-fill` | #FFFFFF | #10151C |
+| `route.origin-stroke` | #1F1F1F | #E3E6EA |
+
+- Marker stacking (all HTML markers, above every style layer and below the UI grid): origin marker < destination pin < candidate pin < location dot. The location dot stays on top because it is the live position.
+- When the panel closes (AC 41), the origin marker, the candidate pin, the manoeuvre point and the route lines are removed. The pin goes back to what the NAV-003 card shows: the point of the card that opened the panel, or no pin if that card no longer exists.
+- Contrast (checker): origin ring ≥ 3:1 on `earth`, `major` and the selected route (day); at night the dark centre is ≥ 3:1 on the selected route. Candidate pin: the `pin.fill` stroke and head dot on its `ui.surface` body are ≥ 3:1 (pair `pin.fill` / `ui.surface` in `contrastPairs`: 5.8:1 day, 6.3:1 night).
+
 ## 8. Day / night switching
 - NAV-002: manual toggle, day on first visit, choice remembered (AC 26–28; PO decision D12, 2026-09-30).
-- The switch calls `map.setStyle(buildStyle(otherTheme, cfg))` with diffing on (ADR-0004 §3): the other style object is generated at runtime from `tokens.json`, not loaded from a static JSON file. The camera must not move (AC 27). Re-add §7 layers. The UI chrome switches through CSS custom properties from `tokens.json › color.<mode>.ui` in the same frame.
+- The switch calls `map.setStyle(buildStyle(otherTheme, cfg))` with diffing on (ADR-0004 §3): the other style object is generated at runtime from `tokens.json`, not loaded from a static JSON file. The camera must not move (AC 27). Re-add §7 layers (and the §7.2 route source and layers with their current data). The UI chrome switches through CSS custom properties from `tokens.json › color.<mode>.ui` in the same frame.
 - Automatic switching by sunrise/sunset (design principle) is specified with mobile night mode in Phase 1, not here.
 
 ## 9. Reserved (later stories)
-- Route line and alternatives (NAV-004), active-navigation camera and puck (NAV-005), traffic colours (Phase 3), unpaved-road styling (needs `surface`, §3.1). Tokens are added to `tokens.json` when those stories are designed.
+- Active-navigation camera and puck, remaining-route and travelled-route colours (NAV-005; they start from the §7.2 tokens), traffic colours (Phase 3), unpaved-road styling (needs `surface`, §3.1). Tokens are added to `tokens.json` when those stories are designed.

@@ -334,7 +334,13 @@ test('AC9 (a): while following with a fresh fix the bias is the device position 
   await ctx.close();
 });
 
-test('AC10 (live): «Их дэлгүүр» biased to P2 has a result within 300 m of P2 in the top 3 (X1 bias recorded)', async ({ page }) => {
+// AC 10 as changed 2026-09-30 by PO decision D42 (story Open question 7 option (b)): with the P2 bias, an option whose
+// name contains «Улсын их дэлгүүр» and that lies within 400 m of P2 is in the top 3. Replaces "any result within 300 m",
+// which passed only through the bus stop «Наран их дэлгүүр» (268 m). The name is read from the rendered option (what the
+// user sees) and from the response feature; both must carry the store name. X1 bias: recorded, not asserted.
+const AC10_NAME = 'Улсын их дэлгүүр';
+const AC10_M = 400;
+test('AC10 (live, D42): «Их дэлгүүр» biased to P2 has an option named «Улсын их дэлгүүр» within 400 m of P2 in the top 3 (X1 bias recorded)', async ({ page }) => {
   await openApp(page);
   const out = {};
   for (const [label, ref] of [['P2', REF.P2], ['X1', REF.X1]]) {
@@ -343,11 +349,20 @@ test('AC10 (live): «Их дэлгүүр» biased to P2 has a result within 300 
     await typeQuery(page, 'Их дэлгүүр');
     await waitSettled(page, 'Их дэлгүүр');
     const v = await view(page);
-    out[label] = v.options.slice(0, 5).map((o, i) => `${i + 1}. ${o.props.name} (${o.props.osm_key}=${o.props.osm_value}) ${Math.round(haversine(REF.P2, { lat: o.coords[1], lng: o.coords[0] }))} m from P2`);
+    const dom = await options(page);
+    const places = v.options.filter((o) => o.kind === 'place');
+    out[label] = places.slice(0, 5).map((o, i) => `${i + 1}. ${dom[i]?.name} / ${o.props.name} (${o.props.osm_key}=${o.props.osm_value}) ${Math.round(haversine(REF.P2, { lat: o.coords[1], lng: o.coords[0] }))} m from P2`);
     if (label === 'P2') {
-      const top3 = v.options.slice(0, 3).map((o) => haversine(REF.P2, { lat: o.coords[1], lng: o.coords[0] }));
-      test.info().annotations.push({ type: 'AC10 P2 top 3 (m from P2)', description: top3.map((d) => d.toFixed(0)).join(', ') });
-      expect(Math.min(...top3)).toBeLessThanOrEqual(300);
+      const top3 = places.slice(0, 3).map((o, i) => ({
+        shown: dom[i]?.name ?? '',
+        name: o.props.name ?? '',
+        m: haversine(REF.P2, { lat: o.coords[1], lng: o.coords[0] }),
+      }));
+      test.info().annotations.push({ type: 'AC10 P2 top 3', description: top3.map((t, i) => `${i + 1}. «${t.shown}» ${t.m.toFixed(0)} m`).join(' | ') });
+      const hit = top3.findIndex((t) => t.shown.includes(AC10_NAME) && t.m <= AC10_M);
+      test.info().annotations.push({ type: 'AC10 hit rank', description: hit >= 0 ? `#${hit + 1}` : 'miss' });
+      expect(hit, `AC 10 (D42): an option whose name contains «${AC10_NAME}» within ${AC10_M} m of P2 in the top 3; got ${JSON.stringify(top3)}`).toBeGreaterThanOrEqual(0);
+      expect(top3[hit].name, 'the response feature of the hit carries the same name').toContain(AC10_NAME);
     }
     await tid(page, 'search-clear').click();
   }

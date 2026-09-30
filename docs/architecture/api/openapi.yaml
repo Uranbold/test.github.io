@@ -1,15 +1,32 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.4.1
+  version: 0.5.0
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
     and clients consume it. Neither side changes it on its own.
 
     Design decisions: ADR-0002 (gateway, pass-through, CORS, paths), ADR-0003 (Photon index source),
-    ADR-0005 (staging hosting; deployment in `docs/architecture/deployment-staging.md`) and ADR-0006 (web search
-    client: query assistance and request orchestration over `search` / `reverse`).
+    ADR-0005 (staging hosting; deployment in `docs/architecture/deployment-staging.md`), ADR-0006 (web search
+    client: query assistance and request orchestration over `search` / `reverse`) and ADR-0008 (on-screen route
+    instruction text is generated on the client from OSRM manoeuvre fields, not taken from Valhalla's narrative).
+
+    **Changes in 0.5.0 (2026-09-30, NAV-004 design, ADR-0008).** Backward compatible, additive only. No path,
+    status code, header or gateway behaviour change, so there is nothing for backend to implement (backend re-runs
+    the contract check, which now also sends the new request examples):
+    - `ValhallaRouteRequest.costing`: `bicycle` is now **contracted** (NAV-004 «Дугуй» tab), next to `auto` and
+      `pedestrian`.
+    - `ValhallaCostingOptions.exclude_unpaved` is contracted for `auto` only. There is **no** contracted
+      unpaved-road option for `pedestrian` or `bicycle`, so clients do not send `costing_options` for them
+      (NAV-004 AC 12). Semantics of `exclude_unpaved` documented (the route may still start or end on an unpaved road).
+    - `OsrmManeuver`: new documented field `exit` (roundabout/rotary exit number; Valhalla always sent it, the schema
+      did not list it), `bearing_after` range and meaning, type values `exit roundabout`, `exit rotary`,
+      `notification`, and the rule that `instruction` and banner/voice **text** in `mn-MN` are not displayed
+      as-is (Valhalla 3.9.0 narrative defects, NAV-007 F1-F10; ADR-0008).
+    - `postRoute`: NAV-004 web route-preview client profile, measured per-costing distance limits behind
+      400 `DistanceExceeded`, and new request examples (`previewCar`, `previewBicycle`, `walkTooFar`).
+    - `OsrmWaypoint.distance` and `OsrmStep.name` descriptions: snap-distance notice and zero-width characters.
 
     **Changes in 0.4.1 (2026-09-30, NAV-003 design, ADR-0006).** Documentation only. No path, parameter,
     status code, header or schema change, so nothing for backend to implement:
@@ -98,7 +115,7 @@ info:
     per-IP rate limits (PO decision D8). Authentication is decided before any public release.
 
     Story traceability: NAV-001 (all operations), NAV-003 (`search`, `reverse` web client profile),
-    NAV-008 (staging server, 429).
+    NAV-004 (`postRoute` web route-preview client profile, `bicycle`), NAV-008 (staging server, 429).
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -296,6 +313,41 @@ paths:
 
         NFR: p95 <= 500 ms via the gateway for UB routes (NAV-001 AC 35), measured on the default Mongolia
         build. The gateway read timeout is 10 s.
+
+        **Distance limits (400 `DistanceExceeded`).** Valhalla checks the straight-line distance between
+        consecutive locations against a per-costing limit **before** snapping (dev `valhalla.json`
+        `service_limits`: `auto` 5,000 km, `bicycle` 500 km, `pedestrian` 250 km). So on foot or by bike a far
+        point outside coverage (for example P1 to X2 Beijing) gives `DistanceExceeded`, not `NoSegment`.
+        Measured 2026-09-30: P1 to X1 Erdenet on foot (about 245 km straight line) is **200**
+        (route 315 km, 222,213 s); P1 to X2 on foot or by bike is 400 `DistanceExceeded`.
+
+        **Instruction text (ADR-0008).** Valhalla 3.9.0's `mn-MN` narrative (`maneuver.instruction`,
+        `bannerInstructions[].*.text`, `voiceInstructions[].announcement`) has known defects (NAV-007 F1-F10:
+        English roundabout phrases, an unfilled `<ORDINAL VALUE>`, bare «зүүн»/«баруун», mixed register, the Avoid
+        term «зорьсон газар»). Clients do **not** show that text on screen. They build it from `maneuver.type`,
+        `modifier`, `exit` and `bearing_after` with the glossary templates in their resource files (both UI
+        languages). `language` is still sent so the response stays readable in logs and debugging tools and
+        matches what Ferrostar expects later (NAV-005).
+
+        **Web route-preview client profile (NAV-004, `web/`).** Informative for backend and QA; the binding rules
+        are the NAV-004 acceptance criteria:
+        - POST only (never `getRoute`; no coordinates in URLs). Body: two `locations` (origin, destination) with
+          >= 5 decimals, `costing` `auto` | `pedestrian` | `bicycle`, `alternates: 2`, `format: "osrm"`,
+          `banner_instructions: true`, `units: "kilometers"`, `language` `mn-MN` | `en-US`.
+          `voice_instructions` is omitted (the preview speaks nothing). `costing_options` only as
+          `{ "auto": { "exclude_unpaved": true } }` when the avoid toggle is on; nothing for walk or bike, and no
+          toll, highway or ferry option.
+        - At most 1 request in flight; a newer triggering action aborts the older one (`AbortController`). Mode
+          tabs settle for 300 ms before a request. Client timeout 12 s (gateway read timeout 10 s + margin).
+        - Errors: 400 `NoRoute` → no route (no retry offered); 400 `NoSegment` or `ValhallaError` 171 → outside the
+          service area; 400 `DistanceExceeded` → too far on foot / by bike (walk, bike) or no route (car); other
+          400, 413 and unparsable 200 → generic error, never retried; network error, CORS failure, 502, 503, 504
+          or client timeout → routing unavailable with a single user-triggered retry; 429 → the rate-limit rules
+          above (no request for `Retry-After` seconds, 5 s if unreadable; then one request on user action).
+        - A `waypoints[].distance` above 500 m shows a snap notice (the route ends at the nearest mapped road).
+        - Static public demo build (`VITE_STATIC_DEMO`, D44, NAV-002 AC 53-54): **0** requests to this path from
+          any host; the client shows "routing unavailable" without calling the network.
+        - Expected load: at most one request per settled user action, typically well under 1 request/s per client.
       x-stories: [NAV-001, NAV-004, NAV-005, NAV-008]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route, docs: "https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/" }
       requestBody:
@@ -350,6 +402,43 @@ paths:
                   alternates: 2
                   language: mn-MN
                   units: kilometers
+              previewCar:
+                summary: NAV-004 web preview profile, RS1 P1 to P3 by car, Mongolian UI, avoid unpaved on (measured 3 routes)
+                value:
+                  locations:
+                    - { lat: 47.91890, lon: 106.91760 }
+                    - { lat: 47.88580, lon: 106.91730 }
+                  costing: auto
+                  costing_options: { auto: { exclude_unpaved: true } }
+                  alternates: 2
+                  format: osrm
+                  banner_instructions: true
+                  units: kilometers
+                  language: mn-MN
+              previewBicycle:
+                summary: NAV-004 web preview profile, RS4 P4 Gandan to P5 railway station by bike, English UI (measured 3 routes)
+                value:
+                  locations:
+                    - { lat: 47.92150, lon: 106.89500 }
+                    - { lat: 47.90950, lon: 106.88350 }
+                  costing: bicycle
+                  alternates: 2
+                  format: osrm
+                  banner_instructions: true
+                  units: kilometers
+                  language: en-US
+              walkTooFar:
+                summary: P1 to X2 Beijing on foot. 400 DistanceExceeded (straight line over the 250 km pedestrian limit, checked before snapping)
+                value:
+                  locations:
+                    - { lat: 47.91890, lon: 106.91760 }
+                    - { lat: 39.90420, lon: 116.40740 }
+                  costing: pedestrian
+                  alternates: 2
+                  format: osrm
+                  banner_instructions: true
+                  units: kilometers
+                  language: mn-MN
       responses:
         "200":
           $ref: "#/components/responses/RouteOk"
@@ -374,7 +463,8 @@ paths:
       operationId: getRoute
       summary: Same as POST, with the request JSON URL-encoded in `json`
       description: |
-        For quick manual tests and cacheable links. Clients use POST. Keep URLs under 8 KB: longer
+        For quick manual tests and cacheable links. Clients use POST (the NAV-004 web preview never uses GET, so no
+        coordinates appear in URLs). Keep URLs under 8 KB: longer
         request lines get 414 from the gateway with an HTML body, which is not part of the contract.
         The query string is redacted from all service logs (ADR-0002 §3.4).
       x-stories: [NAV-001, NAV-008]
@@ -725,6 +815,9 @@ components:
               value: { code: InvalidOptions, message: "Options are invalid." }
             notJson:
               value: { error_code: 100, error: "Failed to parse json request", status_code: 400, status: "Bad Request" }
+            distanceExceeded:
+              summary: P1 to X2 on foot or by bike (per-costing straight-line limit, see postRoute "Distance limits")
+              value: { code: DistanceExceeded, message: "Path distance exceeds the max distance limit." }
     PhotonOk:
       description: GeoJSON FeatureCollection (possibly empty)
       content:
@@ -860,7 +953,12 @@ components:
       properties:
         code:
           type: string
-          description: OSRM-style code. Known values are listed. Treat unknown values as a generic failure.
+          description: |
+            OSRM-style code. Known values are listed. Treat unknown values as a generic failure.
+            `NoSegment`: a location could not snap to a road (far outside coverage). `NoRoute`: both snapped but no
+            path exists with the given options (for example `exclude_unpaved`). `DistanceExceeded`: the straight-line
+            distance between consecutive locations is over the costing's limit (checked before snapping; see
+            `postRoute`). `InvalidOptions` / `InvalidValue` / `TooBig`: request problems, never retried.
           examples: [NoSegment, NoRoute, InvalidOptions, InvalidValue, InvalidUrl, TooBig, DistanceExceeded]
         message: { type: string }
 
@@ -908,12 +1006,16 @@ components:
         costing:
           type: string
           description: |
-            Contracted for NAV-001: `auto`, `pedestrian`. Also accepted by Valhalla and expected in later stories:
-            `bicycle`, `motorcycle`, `taxi`, `bus`, `truck`, `motor_scooter`.
+            Contracted: `auto`, `pedestrian` (NAV-001) and `bicycle` (NAV-004, since 0.5.0). Also accepted by Valhalla
+            and expected in later stories: `motorcycle`, `taxi`, `bus`, `truck`, `motor_scooter`.
           enum: [auto, pedestrian, bicycle, motorcycle, taxi, bus, truck, motor_scooter]
         costing_options:
           type: object
-          description: "Keyed by costing name, for example `{ \"auto\": { \"exclude_unpaved\": true } }`"
+          description: |
+            Keyed by costing name, for example `{ "auto": { "exclude_unpaved": true } }`. Contracted keys (since 0.5.0):
+            `auto.exclude_unpaved` only. Valhalla silently ignores options a costing does not support (measured
+            2026-09-30: `pedestrian.exclude_unpaved` and `bicycle.exclude_unpaved` return exactly the same route as
+            without them), so clients must not send an option for a costing it is not contracted for.
           additionalProperties:
             $ref: "#/components/schemas/ValhallaCostingOptions"
         format:
@@ -921,7 +1023,7 @@ components:
           enum: [osrm, json]
           description: Clients send `osrm`. `json` (Valhalla native) is forwarded but not contracted.
         banner_instructions: { type: boolean, description: "OSRM `bannerInstructions` per step (needs format=osrm)" }
-        voice_instructions: { type: boolean, description: "OSRM `voiceInstructions` per step (needs format=osrm)" }
+        voice_instructions: { type: boolean, description: "OSRM `voiceInstructions` per step (needs format=osrm). Needed for guidance (NAV-005); omitted by previews (NAV-004)." }
         language:
           type: string
           description: Narrative language. Unknown values silently fall back to `en-US`.
@@ -967,7 +1069,12 @@ components:
       properties:
         exclude_unpaved:
           type: boolean
-          description: Avoid unpaved roads. A route may still be impossible, which gives 400 `NoRoute` (NAV-001 AC 19).
+          description: |
+            Contracted for `auto` only (since 0.5.0; NAV-004 AC 12). Excludes unpaved roads from the **middle** of the
+            route; Valhalla still allows the route to start and end on unpaved roads, so a ger-district destination
+            stays reachable through its last unpaved street. "Unpaved" comes from OSM `surface` tagging, so untagged
+            dirt roads may still be used (NAV-004 R2). A route may still be impossible, which gives 400 `NoRoute`
+            (NAV-001 AC 19).
         use_highways: { type: number, minimum: 0, maximum: 1 }
         use_tolls: { type: number, minimum: 0, maximum: 1 }
         use_ferry: { type: number, minimum: 0, maximum: 1 }
@@ -994,7 +1101,12 @@ components:
       properties:
         location: { $ref: "#/components/schemas/LonLat" }
         name: { type: string }
-        distance: { type: number, description: Snap distance in metres }
+        distance:
+          type: number
+          description: |
+            Snap distance in metres between the requested location and the road point the route starts or ends at.
+            Normal values are tens of metres (measured at P1: 106 m). Large values mean the point is far from any
+            mapped road or just outside coverage; the NAV-004 web preview shows a notice above 500 m.
 
     OsrmRoute:
       type: object
@@ -1033,7 +1145,12 @@ components:
         duration: { type: number }
         weight: { type: number }
         geometry: { type: string, description: polyline6 }
-        name: { type: string, description: Street name from OSM (usually Cyrillic Mongolian in UB) }
+        name:
+          type: string
+          description: |
+            Street name from OSM (usually Cyrillic Mongolian in UB). Often empty (unnamed ger-district streets).
+            May contain zero-width characters (U+200B etc., NAV-007 F4) and Latin text from OSM (for example
+            "Erdenet-Selenge sum"); clients remove zero-width characters and otherwise show it as returned.
         ref: { type: string }
         mode: { type: string, example: driving }
         driving_side: { type: string, enum: [left, right] }
@@ -1053,12 +1170,33 @@ components:
       required: [type, location]
       additionalProperties: true
       properties:
-        type: { type: string, examples: [depart, turn, "new name", continue, merge, "on ramp", "off ramp", fork, "end of road", roundabout, rotary, arrive] }
-        modifier: { type: string, examples: [left, right, "slight left", "slight right", "sharp left", "sharp right", straight, uturn] }
+        type:
+          type: string
+          description: |
+            OSRM manoeuvre type. Clients map unknown values to "continue" (ADR-0008) and never show raw text instead.
+          examples: [depart, turn, "new name", continue, merge, "on ramp", "off ramp", fork, "end of road", roundabout, "exit roundabout", rotary, "exit rotary", notification, arrive]
+        modifier:
+          type: string
+          description: Absent on `depart` and on some `arrive` steps.
+          examples: [left, right, "slight left", "slight right", "sharp left", "sharp right", straight, uturn]
         location: { $ref: "#/components/schemas/LonLat" }
-        bearing_before: { type: integer }
-        bearing_after: { type: integer }
-        instruction: { type: string, description: Narrative in the requested `language` }
+        bearing_before: { type: integer, minimum: 0, maximum: 360 }
+        bearing_after:
+          type: integer
+          minimum: 0
+          maximum: 360
+          description: Degrees clockwise from true north after the manoeuvre. Present on every step; clients derive the `depart` heading from it (ADR-0008). Valhalla may send 360 for due north (measured 2026-09-30), so clients normalise modulo 360.
+        exit:
+          type: integer
+          minimum: 1
+          description: |
+            Since 0.5.0 (documented; Valhalla always sent it). Exit number on `roundabout` and `rotary` steps
+            (measured 2026-09-30: present on 40 of 40 such steps). Clients handle its absence (ADR-0008).
+        instruction:
+          type: string
+          description: |
+            Narrative in the requested `language`. Informative only: in `mn-MN` it is **not** shown on screen as-is
+            (Valhalla 3.9.0 defects NAV-007 F1-F10; ADR-0008). Clients build on-screen text from the fields above.
 
     OsrmIntersection:
       type: object
@@ -1086,7 +1224,7 @@ components:
       additionalProperties: true
       properties:
         distanceAlongGeometry: { type: number, description: Metres before the end of the step at which to speak }
-        announcement: { type: string, description: Plain text for TTS in the requested language }
+        announcement: { type: string, description: "Plain text for TTS in the requested language. The `mn-MN` text has the NAV-007 defects; how NAV-005 voices it is decided there (ADR-0008 Consequences)." }
         ssmlAnnouncement: { type: string, description: "SSML `<speak>` wrapper around the announcement" }
 
     BannerInstruction:
@@ -1107,7 +1245,7 @@ components:
       required: [text]
       additionalProperties: true
       properties:
-        text: { type: string }
+        text: { type: string, description: "Banner text in the requested language. In `mn-MN` not shown on screen as-is (ADR-0008)." }
         type: { type: string }
         modifier: { type: string }
         degrees: { type: number }

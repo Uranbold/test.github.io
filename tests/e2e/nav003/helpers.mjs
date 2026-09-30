@@ -64,9 +64,13 @@ export const T = {
   },
 };
 
-/** Type labels, story section D (order = rule number). Rule 4a (amended 2026-09-30, F2) reuses row 1's label «Дүүрэг» / "District". */
+/**
+ * Type labels, story section D (order = rule number). Rule 4a (amended 2026-09-30, F2) reuses row 1's label «Дүүрэг» / "District".
+ * Row 4 (PO decision D34, 2026-09-30, resolves QA defect D4): the English UI shows the Mongolian word «Сум», untranslated
+ * (was "Soum"). It is the only row whose en value is Cyrillic.
+ */
 export const TYPE_LABELS = [
-  [1, 'Дүүрэг', 'District'], [2, 'Хороо', 'Khoroo'], [3, 'Аймаг', 'Aimag'], [4, 'Сум', 'Soum'], [5, 'Хот', 'City or town'],
+  [1, 'Дүүрэг', 'District'], [2, 'Хороо', 'Khoroo'], [3, 'Аймаг', 'Aimag'], [4, 'Сум', 'Сум'], [5, 'Хот', 'City or town'],
   [6, 'Суурин', 'Settlement'], [7, 'Хороолол', 'Neighbourhood'], [8, 'Талбай', 'Square'], [9, 'ШТС', 'Petrol station'],
   [10, 'Эмнэлэг', 'Hospital or clinic'], [11, 'Эмийн сан', 'Pharmacy'], [12, 'Сургууль', 'School'], [13, 'Их сургууль', 'University or college'],
   [14, 'Хоолны газар', 'Restaurant or café'], [15, 'Зочид буудал', 'Hotel'], [16, 'Худалдааны төв', 'Shopping centre'], [17, 'Дэлгүүр', 'Shop'],

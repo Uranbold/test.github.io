@@ -83,6 +83,19 @@ describe("SearchBox Tab / Esc / retry focus (AC 41, F5, D33)", () => {
     input.focus();
   });
 
+  describe("focus moving to the map (pointer down, start of a drag; D43)", () => {
+    it.each(["results", "coordinate", "unavailable", "rate-limited"])("does not close the popup in state %s", (name) => {
+      c.set(VIEWS[name]!);
+      const canvas = document.createElement("canvas");
+      canvas.tabIndex = 0;
+      document.getElementById("map")!.append(canvas);
+      canvas.focus(); // what a mouse down on the MapLibre canvas does
+      expect(document.activeElement).toBe(canvas);
+      expect(c.close).not.toHaveBeenCalled();
+      expect(popup.hidden).toBe(false);
+    });
+  });
+
   describe("Tab from the input", () => {
     it.each(["results", "coordinate", "loading", "no-results", "offline", "error"])("closes the popup in state %s", (name) => {
       c.set(VIEWS[name]!);
@@ -196,5 +209,36 @@ describe("SearchBox Tab / Esc / retry focus (AC 41, F5, D33)", () => {
       c.set(VIEWS.results!);
       expect(document.activeElement).toBe(lang);
     });
+  });
+});
+
+// Screen spec › Result content rules › Language of parts (UX decision 2026-09-30, D34): a type label written in Cyrillic
+// in the English UI («Сум») gets lang="mn"; English labels and the Mongolian UI get no attribute.
+describe("SearchBox type label language of parts (D34)", () => {
+  const soum = {
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [106.2, 47.3] },
+    properties: { name: "Bayan-Undur", osm_type: "R", osm_id: 7297914, osm_key: "boundary", osm_value: "administrative", type: "county" },
+  } as unknown as PhotonFeature;
+
+  function render(lang: "mn" | "en"): HTMLElement[] {
+    document.documentElement.innerHTML = html.replace(/^[\s\S]*?<html[^>]*>/, "").replace(/<\/html>\s*$/, "");
+    const c = new FakeController();
+    const tooltip = { attach: vi.fn(), hide: vi.fn() } as unknown as Tooltip;
+    new SearchBox({ i18n: new I18n(lang), controller: c as unknown as SearchController, tooltip, onSelect: vi.fn(), onOpenChange: vi.fn() });
+    c.set({ state: "results", options: [{ kind: "place", feature: soum }, { kind: "place", feature }], retry: "none", busy: false, query: "bayan" });
+    return [...document.querySelectorAll<HTMLElement>('[data-testid="search-option-type"]')];
+  }
+
+  it("English UI: «Сум» is lang=mn, an English label has no lang", () => {
+    const [soumType, squareType] = render("en");
+    expect(soumType!.textContent).toBe("Сум");
+    expect(soumType!.lang).toBe("mn");
+    expect(squareType!.textContent).not.toMatch(/[Ѐ-ӿ]/);
+    expect(squareType!.hasAttribute("lang")).toBe(false);
+  });
+
+  it("Mongolian UI: no lang attribute on type labels", () => {
+    for (const t of render("mn")) expect(t.hasAttribute("lang")).toBe(false);
   });
 });

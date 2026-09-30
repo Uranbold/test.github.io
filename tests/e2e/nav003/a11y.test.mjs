@@ -2,7 +2,7 @@
 // with «Дахин оролдох»).
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { CORS, FX, REF, REVERSE_GLOB, SEARCH_GLOB, T, card, fc, feature, jumpTo, mock, openApp, options, rightClick, tid, typeQuery, view, waitSettled } from './helpers.mjs';
+import { CORS, FX, REF, REVERSE_GLOB, SEARCH_GLOB, T, camera, card, fc, feature, haversine, jumpTo, mock, openApp, options, rightClick, tid, typeQuery, view, waitCameraStill, waitSettled } from './helpers.mjs';
 
 const FIVE = ['F5', 'F9', 'F6', 'F7', 'F8'].map((id) => FX[id].feature);
 const seriousOrCritical = (r) => r.violations.filter((v) => ['serious', 'critical'].includes(v.impact)).flatMap((v) => v.nodes.map((n) => `${v.id} (${v.impact}): ${n.target.join(' ')} ${n.failureSummary?.split('\n')[1] ?? ''}`));
@@ -201,6 +201,117 @@ test('AC41 (F5): Escape closes a state row with «Дахин оролдох», f
   await expect(input).toHaveValue('Тест алдаа 2');
 });
 
+// AC 41 as amended in the working-tree story (2026-09-30, BA, from the UX design addition): a state row with «Дахин оролдох»
+// also closes on a click on the map and when a coordinate card opens (right-click, AC 25), so the new card is never hidden.
+// The drag case (PO decision D43) is the separate test below.
+test('AC41 (amended): a state row with «Дахин оролдох» closes on a click on the map and when a coordinate card opens (right-click); the card is visible', async ({ page }) => {
+  await mock(page, REVERSE_GLOB, () => ({ body: fc([feature('Сүхбаатарын талбай', REF.P1.lng, REF.P1.lat, { osm_key: 'place', osm_value: 'square' })]) }));
+  await f5Setup(page);
+  const popup = tid(page, 'search-popup');
+  // Click on the map (unavailable row)
+  await typeQuery(page, 'Тест алдаа');
+  await waitSettled(page, 'Тест алдаа');
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'unavailable');
+  await page.mouse.click(900, 400);
+  await expect(popup, 'a click on the map closes the unavailable row').toBeHidden({ timeout: 1000 });
+  expect((await card(page)).open, 'a plain click opens no card').toBe(false);
+  // Opening a coordinate card (right-click) closes it and the card is not hidden under the row
+  await typeQuery(page, 'Тест алдаа 2');
+  await waitSettled(page, 'Тест алдаа 2');
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'unavailable');
+  await rightClick(page, 900, 400);
+  await expect(popup, 'opening a coordinate card closes the unavailable row').toBeHidden({ timeout: 1000 });
+  await expect.poll(async () => (await card(page)).open, { timeout: 1500 }).toBe(true);
+  const c = await card(page);
+  expect(c.kind).toBe('point');
+  expect(c.title).toBe(T.mn.selectedPoint);
+  await expect(tid(page, 'place-card')).toBeVisible();
+});
+
+// AC 41 as changed 2026-09-30 by PO decision D43: a state row with «Дахин оролдох» stays open while the map is dragged
+// (panned), and closes on a map click (MapLibre `click`, which does not fire after a drag). Screen spec › Interactions ›
+// Tab (D43 table). The drag is a real mouse drag on the canvas (down, 10 moves, up); the camera must have moved, so the
+// test cannot pass on a drag that never happened. Checked for the unavailable row (AC 33) with focus in the input and with
+// focus on «Дахин оролдох» (reached with Tab), and for the rate-limited row (AC 35).
+async function dragMap(page, dx = 180, dy = 90) {
+  const before = await camera(page);
+  await page.mouse.move(700, 450);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(700 + (dx * i) / 10, 450 + (dy * i) / 10);
+  await page.mouse.up();
+  await waitCameraStill(page).catch(() => {});
+  const after = await camera(page);
+  return haversine({ lat: before.lat, lng: before.lng }, { lat: after.lat, lng: after.lng });
+}
+test('AC41 (D43): dragging the map keeps a state row with «Дахин оролдох» open (unavailable and rate-limited, focus in the input or on the retry); a map click afterwards closes it', async ({ page }) => {
+  const ctl = await f5Setup(page);
+  const popup = tid(page, 'search-popup');
+  const retry = tid(page, 'search-retry');
+  // 1. Unavailable row, focus in the input
+  await typeQuery(page, 'Тест алдаа');
+  await waitSettled(page, 'Тест алдаа');
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'unavailable');
+  let moved = await dragMap(page);
+  test.info().annotations.push({ type: 'AC41 D43 drag 1 camera moved (m)', description: moved.toFixed(0) });
+  expect(moved, 'the drag really panned the map').toBeGreaterThan(50);
+  await page.waitForTimeout(300);
+  await expect(popup, 'D43: the unavailable row stays open after a map drag').toBeVisible();
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'unavailable');
+  await expect(retry, 'D43: «Дахин оролдох» is still shown after the drag').toBeVisible();
+  await expect(retry).toHaveAccessibleName(new RegExp(T.mn.retry));
+  expect((await card(page)).open, 'a drag opens no card').toBe(false);
+  // 2. Same row, focus on «Дахин оролдох» (reached with Tab from the input), then a drag
+  await tid(page, 'search-input').focus();
+  await expect(popup).toBeVisible();
+  await tabWalk(page);
+  expect(await focusedId(page)).toBe('search-retry');
+  moved = await dragMap(page, -160, -60);
+  expect(moved).toBeGreaterThan(50);
+  await page.waitForTimeout(300);
+  await expect(popup, 'D43: the row stays open after a drag that started with focus on the retry button').toBeVisible();
+  await expect(retry).toBeVisible();
+  // Screen spec D43 table: "keeps focus if it had it" (design detail beyond the AC wording; recorded, not asserted)
+  test.info().annotations.push({ type: 'AC41 D43 focus after a drag that started with focus on the retry', description: String(await focusedId(page)) });
+  // 3. A plain map click (no movement) closes it
+  await page.mouse.click(900, 400);
+  await expect(popup, 'D43: a map click closes the unavailable row').toBeHidden({ timeout: 1000 });
+  expect((await card(page)).open, 'a plain click opens no card').toBe(false);
+  // 4. Rate-limited row (AC 35): drag keeps it, click closes it
+  ctl.mode = '429';
+  await typeQuery(page, 'Тест хязгаар');
+  await waitSettled(page, 'Тест хязгаар');
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'rate-limited');
+  moved = await dragMap(page, 120, -120);
+  expect(moved).toBeGreaterThan(50);
+  await page.waitForTimeout(300);
+  await expect(popup, 'D43: the rate-limited row stays open after a map drag').toBeVisible();
+  await expect(retry).toBeVisible();
+  await page.mouse.click(900, 400);
+  await expect(popup, 'D43: a map click closes the rate-limited row').toBeHidden({ timeout: 1000 });
+});
+
+// Screen spec › Interactions › "Click on the map" (revision 2026-09-30, D43): dragging the map never closes the popup, also
+// when it shows options; a map click closes it without selecting. Design conformance beyond the AC 41 wording (which
+// covers state rows); traced to AC 41 / D43 and the screen spec.
+test('AC41 (D43, screen spec): dragging the map keeps a list of results open; a map click closes it without selecting', async ({ page }) => {
+  await f5Setup(page).then((ctl) => (ctl.mode = 'ok'));
+  const popup = tid(page, 'search-popup');
+  await typeQuery(page, 'Олон');
+  await waitSettled(page, 'Олон');
+  await expect(tid(page, 'search-results')).toBeVisible();
+  const n = (await options(page)).length;
+  expect(n).toBeGreaterThan(0);
+  const moved = await dragMap(page);
+  expect(moved, 'the drag really panned the map').toBeGreaterThan(50);
+  await page.waitForTimeout(300);
+  await expect(popup, 'screen spec (D43): a map drag does not close a list of results').toBeVisible();
+  expect((await options(page)).length).toBe(n);
+  await page.mouse.click(900, 400);
+  await expect(popup, 'a map click closes the list').toBeHidden({ timeout: 1000 });
+  expect((await card(page)).open, 'no selection, no card').toBe(false);
+  await expect(tid(page, 'search-input')).toHaveValue('Олон');
+});
+
 test('AC41 screen spec › Interactions › Tab: a state row without a button (no results) closes on Tab, like a list of results', async ({ page }) => {
   const ctl = await f5Setup(page);
   ctl.mode = 'empty';
@@ -324,4 +435,51 @@ test('AC43: focus moves to the card heading (result and coordinate card); «Ха
   for (const s of seen.filter((s) => ['place-card-close', 'place-retry'].includes(s.id))) expect(s.ring && s.fv, JSON.stringify(s)).toBe(true);
   await expect(tid(page, 'place-retry')).toHaveAccessibleName(T.mn.retry);
   await expect(tid(page, 'place-card-close')).toHaveAccessibleName(T.mn.close);
+});
+
+// AC 45 (row 4 en value «Сум», D34) and screen spec › Result content rules › Language of parts for type labels (revision
+// 2026-09-30, WCAG 2.2 SC 3.1.2): in the English UI the Cyrillic type label «Сум» carries lang="mn" in the result option,
+// the place card meta line and the coordinate card's nearest-place type. Latin labels carry no lang="mn". Control: in the
+// Mongolian UI the same label has no lang override (it is in the page language).
+test('AC45 (D34, screen spec language of parts): English UI «Сум» type label has lang="mn" in the option, the place card and the nearest place', async ({ page }) => {
+  const soum = FX.F17a.feature; // "Bayan-Undur", boundary/administrative, type=county → row 4 «Сум»
+  const school = feature('School 5', REF.P1.lng, REF.P1.lat); // amenity=school → "School" (Latin label)
+  await mock(page, SEARCH_GLOB, () => ({ body: fc([soum, school]) }));
+  await mock(page, REVERSE_GLOB, () => ({ body: fc([soum]) }));
+  await openApp(page, { lang: 'en' });
+  await typeQuery(page, 'Bayan');
+  await waitSettled(page, 'Bayan');
+  const opt = await page.evaluate(() =>
+    [...document.querySelectorAll('#search-results [role=option]')].map((li) => {
+      const ty = li.querySelector('[data-testid=search-option-type]');
+      return { type: ty?.textContent ?? null, lang: ty?.closest('[lang]')?.getAttribute('lang') ?? null, own: ty?.getAttribute('lang') ?? null };
+    }),
+  );
+  test.info().annotations.push({ type: 'AC45 option type labels (en UI)', description: JSON.stringify(opt) });
+  expect(opt[0].type).toBe('Сум');
+  expect(opt[0].own, 'option type «Сум» has lang="mn" (en UI)').toBe('mn');
+  expect(opt[1].type).toBe('School');
+  expect(opt[1].lang, 'a Latin type label resolves to the page language en').not.toBe('mn');
+  // Place card meta line
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await card(page)).open).toBe(true);
+  expect((await card(page)).type).toBe('Сум');
+  await expect(page.locator('#place-card-type'), 'place card type «Сум» has lang="mn"').toHaveAttribute('lang', 'mn');
+  await tid(page, 'place-card-close').click().catch(() => page.keyboard.press('Escape'));
+  // Coordinate card, nearest place
+  await rightClick(page, 900, 400);
+  await expect.poll(async () => (await card(page)).near, { timeout: 3000 }).toBe('place');
+  await expect(page.locator('#place-nearest-type')).toHaveText('Сум');
+  await expect(page.locator('#place-nearest-type'), 'nearest-place type «Сум» has lang="mn"').toHaveAttribute('lang', 'mn');
+});
+
+test('AC45 control: Mongolian UI «Сум» type label has no lang override', async ({ page }) => {
+  await mock(page, SEARCH_GLOB, () => ({ body: fc([FX.F17b.feature]) }));
+  await openApp(page, { lang: 'mn' });
+  await typeQuery(page, 'Баян');
+  await waitSettled(page, 'Баян');
+  const ty = page.locator('#search-results [role=option] [data-testid=search-option-type]').first();
+  await expect(ty).toHaveText('Сум');
+  expect(await ty.getAttribute('lang')).toBeNull();
 });
