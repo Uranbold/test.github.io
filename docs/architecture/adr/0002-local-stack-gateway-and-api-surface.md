@@ -1,6 +1,6 @@
 # ADR-0002: Local dev stack. Nginx gateway in front of pass-through Valhalla, Photon and a static PMTiles file
 
-- **Status:** accepted (amended 2026-09-29, see Amendments)
+- **Status:** accepted (amended 2026-09-29 and 2026-09-30, see Amendments)
 - **Date:** 2026-09-29
 - **Stories:** NAV-001 (enables NAV-002 to NAV-005)
 
@@ -57,12 +57,13 @@ Long-running services use `depends_on: condition: service_completed_successfully
 3. **Its own JSON errors** for unknown path (404 `NotFound`), wrong method (405 `MethodNotAllowed`) and oversized body (413 `PayloadTooLarge`, with `client_max_body_size 256k`).
 4. **Privacy in logs.** The access log format records method, `$uri` (path **without** query string), status, bytes and `$request_time`. It records no `$request_uri`, `$args`, request body or `Origin` beyond that. Coordinates and search text are location data and are treated as PII (see `system-overview.md`, NFR-P1). nginx's own `error_log` level defaults to `crit` (`GATEWAY_ERROR_LOG_LEVEL`), because `error`-level lines such as "connect() failed" quote the request line with its query string.
    *Correction (NAV-001 integration review):* the original text said Valhalla's `*.logging.long_request` thresholds would be raised. Valhalla 3.9.0 has no such setting. Its HTTP server instead logs every request line, so `GET /route?json=…` wrote coordinates to the Docker log. The decision is now: `valhalla_service` output is piped through `sed`, which replaces every query string with `?<redacted>` before it reaches the log (`backend/scripts/valhalla-serve.sh`). `valhalla_service` stays PID 1. POST bodies are not logged by Valhalla 3.9.0, including on 400 errors (checked in review). Re-check this whenever the Valhalla pin changes.
-5. **Tiles.** `location = /tiles/basemap.pmtiles` uses `alias` to the read-only mount, with `Accept-Ranges: bytes`, ETag on, `Cache-Control: public, max-age=300` (dev value), and `Content-Type: application/octet-stream`. No gzip on this location, because range offsets must be byte-exact. An unsatisfiable range returns 416 with a JSON `GatewayError` (`RangeNotSatisfiable`) and single CORS headers (Amendment 2).
+5. **Tiles.** `location = /tiles/basemap.pmtiles` uses `alias` to the read-only mount, with `Accept-Ranges: bytes`, ETag on, `Cache-Control: public, max-age=300` (dev value), and `Content-Type: application/octet-stream`. No gzip on this location, because range offsets must be byte-exact. An unsatisfiable range returns 416 with a JSON `GatewayError` (`RangeNotSatisfiable`), single CORS headers (Amendment 2) and `Cache-Control: no-store` (Amendment 3).
 
 ### 4. Data build contract (`backend/data/`, git-ignored)
 - Layout (backend may add files): `data/sources/` (PBF, Photon dump, Planetiler auxiliary files, reused between builds), `data/tiles/basemap.pmtiles`, `data/valhalla/`, `data/photon/`, `data/build-info.json`.
 - **Atomic artefacts.** Each builder writes to a staging path (`<artefact>.tmp` or `<dir>.staging`), validates the result (PMTiles header magic plus `pmtiles show`, Valhalla tile tar non-empty, Photon `/status` smoke), then renames it into place and writes a `.complete` marker last. A builder whose marker exists **skips the build and logs `reused`**. A builder that finds a `.tmp` or a missing marker deletes the partial output and rebuilds it.
 - **Default dev source:** the full Mongolia extract (Amendment 1). BBBike UB is an optional small build.
+- **Tile zoom range:** z0 to `TILES_MAXZOOM`, default **14** (PO decision D1, Amendment 3). The Protomaps default of 15 is still selectable.
 - **Source resolution.** If `OSM_PBF_FILE` is set and readable, it is used and **no request is made to `OSM_PBF_URL`**. Otherwise the file is downloaded with `curl --fail`. On failure the builder exits non-zero with the URL and HTTP status. The same rule applies to `PHOTON_DUMP_FILE` / `PHOTON_DUMP_URL`. Every Planetiler auxiliary file has its own `*_URL` key and is pre-fetched into `data/sources/`, so Planetiler runs without `--download`.
 - **Force rebuild.** `make rebuild-data` (or an equivalent documented one-liner) deletes the markers and artefacts, **but not the cached auxiliary sources**, and re-runs all builders.
 - **`data/build-info.json`** is the machine-readable record QA reads (NAV-001 AC 5). Minimum fields: `built_at`, and `osm.source` (URL or `file:`), `osm.sha256`, `osm.replication_timestamp` (from `osmium fileinfo`-equivalent header or PBF header), `osm.bbox`, `photon_dump.source`, `photon_dump.data_timestamp`, and `versions.{valhalla,photon,protomaps_commit,planetiler}`.
@@ -74,7 +75,7 @@ Long-running services use `depends_on: condition: service_completed_successfully
 | Photon | `photon-1.3.0.jar` from GitHub release `1.3.0` | Apache-2.0 |
 | Protomaps basemap (tiles) | git commit `42ffaaa4a85a41bfcb23e43cc0f5b492a5eca123` (Tiles 4.15.2) | BSD-3 (code), ODbL (output data) |
 | Planetiler | 0.10.2 (through the Protomaps `pom.xml`) | Apache-2.0 |
-| nginx | `ghcr.io/nginxinc/nginx-unprivileged:1.27.4-alpine` | BSD-2 |
+| nginx | `ghcr.io/nginxinc/nginx-unprivileged:1.27.4-alpine`, with its bundled njs module `ngx_http_js_module` (Amendment 3) | BSD-2 (nginx and njs) |
 | Java runtime | `mcr.microsoft.com/openjdk/jdk:21-ubuntu` | GPLv2 + Classpath Exception (runtime only, standard for Java, no copyleft effect on our code) |
 | go-pmtiles (verification only) | `ghcr.io/protomaps/go-pmtiles:v1.31.2` | BSD-3 |
 
@@ -115,7 +116,7 @@ Every image reference is a `.env` key (`GATEWAY_IMAGE`, `VALHALLA_IMAGE`, `JAVA_
 **Consequences.**
 - Dev coverage for tiles, routing and search is now the same area (all of Mongolia). The ADR-0003 caveat that "search returns places routing can't reach" applies only to the optional BBBike build.
 - Out-of-coverage tests use X2 Beijing on the default build (NAV-001 AC 32).
-- The build gets bigger. Measured: source switch 336 s (Planetiler 229 s, graph 22 s), PMTiles 243 MB, `data/` 2.9 GB, peak build memory 4.24 GB on the source switch and 5.5 GB on the cold first run (sampled every 3 s). All are within the AC 39 limits (build peak ≤ 12 GB, `data/` ≤ 10 GB). **AC 12 (PMTiles ≤ 200 MB) is exceeded.** That limit was written for UB and is a PO decision (NAV-001 Open question 4). Architect note on option (b): building to `--maxzoom=14` stays inside the contract (`maxzoom >= 14`), because MapLibre overzooms z14 tiles.
+- The build gets bigger. Measured: source switch 336 s (Planetiler 229 s, graph 22 s), PMTiles 243 MB, `data/` 2.9 GB, peak build memory 4.24 GB on the source switch and 5.5 GB on the cold first run (sampled every 3 s). All are within the AC 39 limits (build peak ≤ 12 GB, `data/` ≤ 10 GB). **AC 12 (PMTiles ≤ 200 MB) is exceeded.** That limit was written for UB and is a PO decision (NAV-001 Open question 4). Architect note on option (b): building to `--maxzoom=14` stays inside the contract (`maxzoom >= 14`), because MapLibre overzooms z14 tiles. *Resolved 2026-09-30 by PO decision D1: default max zoom 14, measured 117,536,866 bytes (Amendment 3).*
 - The cold first run (AC 1, ≤ 30 min) was re-measured on 2026-09-29: **462 s** with an empty `data/` and images already pulled (downloads 149 s for about 2.5 GB, of which 70 MB is the PBF). The BBBike cold run was 530 s; the difference is download speed on the day, not data size. Image pulls are not included (Docker Hub rate limits in the dev container).
 - **Third-party mirror risk (dev only).** Availability and integrity of geo2day.com are not guaranteed, and its PBF header has no replication timestamp. `data/build-info.json` records `sha256`, HTTP `Last-Modified` and the node-scan bbox, which is enough to reproduce a dev build. `OSM_PBF_FILE` stays the offline fallback. The OSM data license (ODbL) is unchanged.
 
@@ -153,3 +154,19 @@ Scratch-container results, each `Access-Control-*` header counted once:
 **Rejected alternatives:**
 - Compute the file size in nginx and reject the range before the static handler. This needs njs or Lua, which means a new module for one edge case.
 - Drop `always` from the tiles location's CORS headers. This also avoids the duplicate, but it needs a second, non-`always` copy of the shared CORS snippet. Any error in that location that is not redirected to a named location (for example a 403 or 500 from an unreadable file) would then lose its CORS headers, so browsers would again report a CORS error instead of the status.
+
+### Amendment 3 (2026-09-30): default tile max zoom 14; the tiles 416 is `no-store`
+**Trigger.** PO decision D1 on NAV-001 (2026-09-30, "all recommended"): build the tiles to max zoom 14 (`TILES_MAXZOOM=14`) and re-measure; if the archive is still above 200 MB, the Mongolia dev limit becomes 400 MB. Architect follow-up: `openapi.yaml` 0.2.0 was silent on how a 416 on `TILES` may be cached.
+
+**Decision.**
+- **Zoom range.** The tiles builder takes `TILES_MAXZOOM` from `.env` (default **14**, passed to Planetiler as `--maxzoom`). The default dev and staging archive covers **z0-14**. 15 (the Protomaps default) stays available for comparison. Changing the value rebuilds only the tiles.
+- **Contract.** The client-facing guarantee stays `maxzoom >= 14` (`openapi.yaml`). Clients read the zoom range from the PMTiles header and overzoom above it. They never hard-code 14 or 15. The web demo (ADR-0004) needs no change: the pmtiles protocol passes the header `maxzoom` into the generated TileJSON, and MapLibre overzooms to the map `maxZoom` of 19.
+- **Measured (backend README, 2026-09-30, and checked by the architect against the running gateway):** the header reads `minzoom 0`, `maxzoom 14`, and the archive is **117,536,866 bytes** (112.1 MiB), inside the primary AC 12 limit, so the 400 MB fallback is not used. The z0-15 archive was 243,254,233 bytes. Tile range p95 was 1.1 ms (AC 38). The tiles-only rebuild took 382 s in a shared-CPU run (an upper bound).
+- **416 caching.** A 416 on `GET/HEAD /tiles/basemap.pmtiles` carries exactly one `Cache-Control: no-store` and no `Accept-Ranges`. `ETag` may remain. This is `openapi.yaml` 0.3.0, an additive change. The reason: the file's `public, max-age=300` survives the internal redirect to `@range_not_satisfiable` (Amendment 2 root cause), and a cached error under the archive URL could make a browser or a later CDN answer a valid range from a stale 416 after an archive swap.
+- **Mechanism (implemented by backend).** Stock nginx cannot remove a header that the first header-filter pass has set. The backend uses the **njs module that ships in the pinned nginx image** (`load_module modules/ngx_http_js_module.so`), with a two-line `js_header_filter` that runs only in `@range_not_satisfiable`. It sets `Cache-Control: no-store` and deletes `Accept-Ranges`. It is not a fork and not a new image, the module is BSD-2 like nginx, and the official `nginx:*-alpine` images that `GATEWAY_IMAGE` may point to also ship it. This narrows the Amendment 2 rejection of njs: njs is still not used to compute file sizes or reject ranges, only to rewrite response headers on this one named location. Any wider njs use needs its own amendment.
+
+**Consequences.**
+- The Amendment 1 "AC 12 exceeded" note is resolved. `data/` shrinks by about 125 MB, and less is served to clients at z15-level views. Detail above z14 comes from overzoom, which is acceptable for Phase 0 (PO decision 16 for NAV-002: judge road widths in the demo, widen later if needed).
+- QA checks: header max zoom exactly 14 on the default build (NAV-001 AC 12), and `Cache-Control: no-store` exactly once plus single CORS headers on the 416 (AC 43, `openapi.yaml` 0.3.0). The unsatisfiable range start must be derived from the measured size `S`, never hard-coded.
+- If a staging CDN is added later (NAV-008), it must honour `no-store` on 416 and cache 206 per `Range`.
+

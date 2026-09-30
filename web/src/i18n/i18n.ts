@@ -1,5 +1,6 @@
 // UI strings (NAV-002 AC 30–33). Mongolian is the default regardless of the browser language.
-// Every value comes from docs/requirements/glossary.md (or the story's proposed rows G1–G7).
+// Every mn value is an approved term in docs/requirements/glossary.md, including the NAV-002 rows G1–G7
+// (added to the glossary on 2026-09-29). Checked by scripts/check-glossary.mjs (AC 33).
 import en from "./en.json";
 import mn from "./mn.json";
 

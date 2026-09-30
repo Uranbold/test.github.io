@@ -16,7 +16,7 @@ status: ready
 As a **UB commuter by car**, I want **to open a web map of Ulaanbaatar and Mongolia with Mongolian street and place names, move it freely, see where I am, and switch between a day and a night look**, so that **I can orient myself on real OSM data in my own language, and the team and PO can judge whether the open basemap is good enough for Mongolian users before the mobile apps are built**.
 
 Secondary personas:
-- **Tourist (English UI)**: switches the interface to English. Map labels stay in the local script in NAV-002 (see Open question 1).
+- **Tourist (English UI)**: switches the interface to English. Map labels stay in the local script in NAV-002 (PO decision D11, 2026-09-30, see Open question 1).
 - **Pedestrian**: uses "my location" and zooms into street level (z16 to z18) to read small streets and footways.
 - **Taxi / delivery driver**: uses the night style during long winter evenings (UB sunset is about 17:00 in December).
 - **Intercity / countryside driver**: pans and zooms across the whole Mongolia extract, including areas with few features. The map must not show an error just because an area is empty.
@@ -32,6 +32,13 @@ Secondary personas:
   - Mongolian is the default UI language, with English second (glossary language policy).
   - NAV-002 is **frontend-only**. It adds no backend endpoint and makes no change under `backend/`, `infra/` or `openapi.yaml`. The map style, glyphs (fonts including Cyrillic) and sprites are **bundled as static assets inside `web/`**, for example from the Protomaps basemaps assets, with licences recorded. If the architect decides a backend endpoint is really needed, it is recorded as a follow-up story and not built here.
   - The gateway is a **shared, read-only service** for this story. Tests never restart it, and they simulate failures on the client side (see "Test approach").
+- **PO decisions of 2026-09-30** (`docs/requirements/decisions.md`, the answers to Open questions 1–6):
+  - D11: the English UI keeps the Cyrillic map labels (`name:mn` → `name` → `name:en` in both UI languages).
+  - D12: day style by default, manual toggle, choice remembered.
+  - D13: the opening view is Ulaanbaatar, centred on Sükhbaatar Square (P1).
+  - D14: supported browsers are current desktop Chrome, Edge and Firefox, plus Android Chrome. Safari and iOS come later. Automated tests run on Chromium only.
+  - D15: the page title is «Газрын зураг» ("Map") until a product name exists.
+  - D16: the PO judges low-zoom road widths in the demo, and they are widened later if needed. This is not an acceptance gate.
 - **Reference points:** P1 to P6, X1 and X2 are the ones in NAV-001 (`NAV-001-backend-stack-docker-compose.md`, "Reference test locations"). P1 = Sükhbaatar Square (47.9189, 106.9176). X2 = Beijing (39.9042, 116.4074, outside coverage).
 - **Reference environment** for timings: the NAV-001 reference machine (4 CPU, 15 GB RAM), NAV-001 stack healthy and warm (`GET /health` = 200), desktop Chromium from `/opt/pw-browsers`, viewport 1366×768, web app served by the Vite dev server at `http://localhost:5173`.
 - **UX inputs this story depends on** (owner: ux-designer): screen spec `docs/design/screens/NAV-002-web-map.md`, map style spec `docs/design/map-style.md` (day and night), design tokens `docs/design/tokens.json` (light and night).
@@ -77,7 +84,7 @@ All strings come from `docs/requirements/glossary.md`. The terms NAV-002 needed 
 4. **Given** the `web/` project, **When** the build and typecheck commands from the README run, **Then** both exit 0.
 
 ### B. Basemap and labels
-5. **Given** the stack is healthy, **When** the page is opened for the first time, **Then** the map shows centre P1 (±100 m), zoom 12 (±0.1), bearing 0°, and it reaches MapLibre `idle` with visible roads and labels within **5 s** of navigation start on the reference environment.
+5. **Given** the stack is healthy, **When** the page is opened for the first time, **Then** the map shows centre P1 (±100 m; Sükhbaatar Square, PO decision D13), zoom 12 (±0.1), bearing 0°, and it reaches MapLibre `idle` with visible roads and labels within **5 s** of navigation start on the reference environment.
 6. **Given** the map at z14 centred on P1 in the default (Mongolian) UI, **When** rendered label features are queried (for example `queryRenderedFeatures` on symbol layers), **Then** at least **10** labels are rendered, at least one contains a Mongolian-specific letter (`ө`, `ү`, `Ө` or `Ү`), and every glyph request for the Cyrillic range (`1024-1279`) of each font stack in use returns **200** from a bundled asset (so the letters are drawn, not blank boxes).
 7. **Given** the style used for the day **and** night modes, **When** every symbol layer that shows a feature name is inspected, **Then** its `text-field` resolves names in the order `name:mn` → `name` → `name:en` (for example `["coalesce", ["get","name:mn"], ["get","name"], ["get","name:en"]]`). No layer uses `name:ru` or any other `name:*` key.
 8. **Given** three test features injected into a symbol layer that uses the label expression (QA test hook or fixture page), with properties (a) `name:mn`=«Тест А», `name`=«Тест Б», `name:en`="Test C"; (b) only `name`=«Тест Б» and `name:en`="Test C"; (c) only `name:en`="Test C", **When** rendered, **Then** the labels read (a) «Тест А», (b) «Тест Б», (c) "Test C". A feature with none of the three keys renders **no** label and causes no error.
@@ -106,14 +113,14 @@ All strings come from `docs/requirements/glossary.md`. The terms NAV-002 needed 
 25. **Given** the mocked position is X2 (outside Mongolia), **When** the user presses the button, **Then** the camera and marker move there as in AC 19, and no error message appears (AC 10 applies to the empty map).
 
 ### F. Day and night style
-26. **Given** a first visit (no saved preference), **When** the page loads, **Then** the day style is active. *(BA recommendation, see Open question 2.)*
+26. **Given** a first visit (no saved preference), **When** the page loads, **Then** the day style is active. *(PO decision D12, 2026-09-30, see Open question 2.)*
 27. **Given** the theme toggle («өдрийн горим» / «шөнийн горим»), **When** the user switches mode, **Then** within **2 s** the map style and the UI controls switch to that mode's values in `docs/design/map-style.md` and `docs/design/tokens.json` (QA compares at least the background, water, major-road and label colours with the spec). The camera does not change (centre ±1 px, zoom ±0.01, bearing ±0.5°). The label rule (AC 7), the location marker (if shown) and the attribution stay in place.
 28. **Given** the user chose a mode, **When** the page is reloaded, **Then** the same mode is active.
 29. **Given** each mode, **When** checked with an automated accessibility checker (for example axe-core), **Then** all UI control text and message text meet WCAG 2.1 AA contrast (**≥ 4.5:1**), including the attribution text on its background.
 
 ### G. Language and strings
 30. **Given** a first visit, **When** the page loads with the browser language set to `en-US`, **Then** the UI is still Mongolian and `<html lang="mn">` is set (Mongolian first regardless of browser language).
-31. **Given** the language toggle («Хэл»: «Монгол» / «English», each shown in its own language), **When** the user switches to English, **Then** within **500 ms** every UI string (buttons, tooltips, accessible names, messages, scale units, page title) is English and `<html lang="en">` is set, with no page reload and no camera change. The map labels do **not** change *(Open question 1, option a)*. The choice survives a reload.
+31. **Given** the language toggle («Хэл»: «Монгол» / «English», each shown in its own language), **When** the user switches to English, **Then** within **500 ms** every UI string (buttons, tooltips, accessible names, messages, scale units, page title) is English and `<html lang="en">` is set, with no page reload and no camera change. The map labels do **not** change *(PO decision D11, 2026-09-30)*. The choice survives a reload.
 32. **Given** the `web/` sources, **When** the check documented in the README runs (lint rule or scripted scan), **Then** no user-facing text literal is hard-coded outside the `mn` and `en` resource files. The two files have **identical key sets**, and no value is empty.
 33. **Given** the `mn` resource file, **When** each value is compared with `docs/requirements/glossary.md` (including rows G1 to G7, added 2026-09-29), **Then** 100 % of values match a glossary term exactly. Any mismatch fails the check.
 
@@ -140,6 +147,9 @@ All strings come from `docs/requirements/glossary.md`. The terms NAV-002 needed 
 ### K. Accessibility and layout
 48. **Given** keyboard-only use, **When** the user presses Tab from the page top, **Then** every control (zoom, reset bearing, my location, theme, language, retry, close, attribution link) is reachable in a logical order, shows a visible focus indicator, and has an accessible name in the current UI language.
 49. **Given** viewports 320×568, 360×640 and 1920×1080, **When** the page is shown, **Then** no two controls overlap, no control covers the attribution or the scale bar, and every touch target is at least **44×44 CSS px**.
+
+### L. Supported browsers (added 2026-09-30, PO decision D14)
+50. **Given** `web/README.md`, **When** it is read, **Then** it has a "Supported browsers" section that names exactly: current desktop Chrome, Edge and Firefox, and Android Chrome. It states that Safari and iOS are **not supported yet**, and that automated tests run on desktop Chromium only.
 
 ## Edge cases
 - **GPS or location lost:** AC 23 (stale marker, G5). Desktop browsers often locate by Wi-Fi or IP, so accuracy may be hundreds of metres or more. The accuracy circle shows the real value (AC 19) and is not hidden.
@@ -175,10 +185,11 @@ All strings come from `docs/requirements/glossary.md`. The terms NAV-002 needed 
 - Any backend change, new endpoint, or `openapi.yaml` change. Serving the style, glyphs or sprites from the gateway is a possible follow-up, only if the architect asks for it.
 - Hosting or deploying the web demo (a separate backlog item). Service worker or offline map caching.
 - Tilt/pitch, 3D buildings, satellite, traffic and layer menus. Tilt may stay enabled by default but is not tested.
-- English or transliterated map labels for the English UI (unless the user picks option b or c in Open question 1).
-- Automatic day/night switching (unless the user picks option b or c in Open question 2).
+- English or transliterated map labels for the English UI (PO decision D11: a later tourist story may add two-line labels).
+- Automatic day/night switching (PO decision D12: revisited with mobile night mode in Phase 1).
 - Paved/unpaved road styling (R6).
-- Browsers other than desktop Chromium in automated tests (Open question 4).
+- Browsers other than desktop Chromium in automated tests. Safari and iOS support (PO decision D14: later).
+- Widening low-zoom roads (PO decision D16: judged in the demo, a later change if needed).
 
 ## Test approach (for QA, binding)
 - Run the NAV-002 browser tests (Playwright, Chromium from `/opt/pw-browsers`) **only when `http://localhost:8080/health` returns 200**. If it does not, wait and retry. Never restart, stop or rebuild the gateway, and never run docker, docker compose or make commands in `backend/`.
@@ -186,12 +197,13 @@ All strings come from `docs/requirements/glossary.md`. The terms NAV-002 needed 
 - Tests live under `tests/e2e/nav002/`. NAV-001 tests stay unchanged.
 
 ## Open questions
-None of these block design. The AC above follow the BA recommendation for each, and they change only if the user chooses a different option.
-1. **Map labels in the English UI.** Options: (a) keep the rule-7 order `name:mn` → `name` → `name:en` in both UI languages, so the English UI shows Mongolian Cyrillic labels; (b) the English UI uses `name:en` → `name`; (c) the English UI shows two-line labels (`name` plus `name:en` when present). *Recommendation: (a) for NAV-002, because it matches CLAUDE.md rule 7 and `name:en` coverage is low (R3). Consider (c) in a later tourist story.*
-2. **Default theme.** Options: (a) day by default, manual toggle, choice remembered; (b) follow the OS `prefers-color-scheme` («автомат» in the glossary); (c) switch by UB sunrise and sunset. *Recommendation: (a) for the demo. Add (b) or (c) with mobile night mode in Phase 1.*
-3. **Initial view.** Options: (a) UB, centre P1 at z12; (b) whole-Mongolia overview. *Recommendation: (a), because UB comes first.*
-4. **Browser support for the demo.** Options: (a) current desktop Chrome/Edge/Firefox plus Android Chrome, with automated tests on Chromium only; (b) also Safari/iOS. *Recommendation: (a) while the demo is local dev only. Revisit with hosting.*
-5. **Page title and product name.** The product has only a working name. *Recommendation: use «Газрын зураг» / "Map" until the user picks a name.*
+All decided by the PO on 2026-09-30 ("all recommended", `docs/requirements/decisions.md` D11–D16). None remain open for NAV-002.
+1. **Map labels in the English UI.** Options: (a) keep the rule-7 order `name:mn` → `name` → `name:en` in both UI languages, so the English UI shows Mongolian Cyrillic labels; (b) the English UI uses `name:en` → `name`; (c) the English UI shows two-line labels (`name` plus `name:en` when present). *Recommendation: (a) for NAV-002, because it matches CLAUDE.md rule 7 and `name:en` coverage is low (R3). Consider (c) in a later tourist story.* **Decided (D11): (a).** AC 7 and AC 31 apply.
+2. **Default theme.** Options: (a) day by default, manual toggle, choice remembered; (b) follow the OS `prefers-color-scheme` («автомат» in the glossary); (c) switch by UB sunrise and sunset. *Recommendation: (a) for the demo. Add (b) or (c) with mobile night mode in Phase 1.* **Decided (D12): (a).** AC 26 and AC 28 apply.
+3. **Initial view.** Options: (a) UB, centre P1 at z12; (b) whole-Mongolia overview. *Recommendation: (a), because UB comes first.* **Decided (D13): (a), Sükhbaatar Square.** AC 5 applies.
+4. **Browser support for the demo.** Options: (a) current desktop Chrome/Edge/Firefox plus Android Chrome, with automated tests on Chromium only; (b) also Safari/iOS. *Recommendation: (a) while the demo is local dev only. Revisit with hosting.* **Decided (D14): (a), Safari/iOS later.** New AC 50 makes the list visible in the README.
+5. **Page title and product name.** The product has only a working name. *Recommendation: use «Газрын зураг» / "Map" until the user picks a name.* **Decided (D15):** «Газрын зураг» / "Map" until a product name exists.
+6. **Low-zoom road widths** (raised after the UX map-style work; the colour fix is in `docs/design/map-style.md` §3.3). Options: (a) the PO judges the widths in the demo and they are widened later if needed; (b) widen now. **Decided (D16): (a).** No AC. A later widening goes through the UX map-style spec as a change.
 
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
@@ -207,9 +219,11 @@ None of these block design. The AC above follow the BA recommendation for each, 
 | AC37–45 | NAV-002 screen spec, states (TBD) | `getBasemapPmtiles` (200/206/404/5xx) | TBD | TBD | |
 | AC46–47 | — | `getBasemapPmtiles` | TBD | TBD | NFR-P1 |
 | AC48–49 | NAV-002 screen spec (TBD) | — | TBD | TBD | |
+| AC50 | — | — | `web/README.md` ("Supported browsers" section, mobile-engineer) | README doc check (QA, TBD) | PO decision D14 2026-09-30 |
 
 ## Change log
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-09-29 | — | Created from the backlog draft row (team design §5) and the NAV-002 feature request. 49 AC covering start-up/config, labels, pan/zoom/rotate, scale bar, my location, day/night, mn/en UI, attribution and licences, loading / tiles-unavailable / offline states, network hygiene and accessibility. Proposed glossary additions G1–G7. Five non-blocking open questions. | Refine NAV-002 to `ready` for UX and architect. Frontend-only, and it runs alongside the NAV-001 change request. |
 | 2026-09-29 | NAV-002 AC 33 blocker | Rows G1–G7 added to `glossary.md` with the exact strings from this story and `web/src/i18n/mn.json`. G1–G6 are in section 7 with status `needs native review`, and G7 is in section 8 with status `n/a (not translated)`. The G1–G7 table now has a "Glossary" column, the "User-facing strings" intro no longer calls them pending, the AC 33 wording refers to the added rows, and the AC30–33 traceability row is updated. No AC changed in substance. | AC 33 needs every `mn` value to match a glossary term. The web app already uses these strings, so acceptance was waiting only on the glossary rows. |
+| 2026-09-30 | PO decisions D11–D16 (`docs/requirements/decisions.md`, PO answer "all recommended", relayed by the orchestrator) | **Context:** new bullet listing D11–D16. **Open questions 1–5** marked decided, each with the BA-recommended option, and **Open question 6** (low-zoom road widths) added and marked decided (D16, no AC). **AC 5** notes D13, **AC 26** now cites D12 instead of "BA recommendation", and **AC 31** cites D11. The numbers in these AC are unchanged. **New AC 50** (section L): `web/README.md` names the supported browsers (D14). It is numbered after AC 49 so existing numbers stay stable. **Out of scope** lines for labels, automatic day/night, browsers and low-zoom widths now cite the decisions. **Traceability** row AC50 added. Secondary persona "tourist" cites D11. | The PO accepted every BA recommendation, so the AC that already followed them stay the same in substance. AC 50 makes the D14 browser decision checkable, because `web/README.md` currently has no browser list. |

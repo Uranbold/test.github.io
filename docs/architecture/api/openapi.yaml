@@ -1,13 +1,24 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.2.0
+  version: 0.3.0
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
     and clients consume it. Neither side changes it on its own.
 
     Design decisions: ADR-0002 (gateway, pass-through, CORS, paths) and ADR-0003 (Photon index source).
+
+    **Changes in 0.3.0 (2026-09-30, NAV-001 PO decision D1 and architect follow-up).**
+    Backward compatible, additive only (a new server-side guarantee; no path, parameter or schema change):
+    - The tiles 416 (`GET` and `HEAD /tiles/basemap.pmtiles`) now **must** carry `Cache-Control: no-store`,
+      so no browser or proxy cache stores the error for the archive URL. It no longer carries `Accept-Ranges`.
+      `ETag` may still be present. 0.2.0 was silent on this ("may also be present").
+    - Tiles guarantees text: the default dev build is now max zoom **14** (`TILES_MAXZOOM=14`, PO decision D1,
+      ADR-0002 Amendment 3). The client-facing guarantee stays `maxzoom >= 14`, and clients overzoom above the
+      archive max zoom. The size note now reflects the measured z14 archive.
+    - Editorial: quoted the `OsrmRoute.duration` description, whose unquoted comma made it an invalid
+      flow mapping (found by `redocly lint`). No semantic change.
 
     **Changes in 0.2.0 (2026-09-29, NAV-001 change request "Default dev OSM data = all of Mongolia").**
     Backward compatible, additive only:
@@ -115,12 +126,15 @@ paths:
         Guarantees for the dev build (NAV-001 AC 9-12). The default dev extract is all of Mongolia
         (ADR-0002 Amendment 1):
         - bytes 0-6 are `PMTiles` and byte 7 is `0x03`
-        - bounds cover UB reference points P1-P6, `maxzoom` >= 14 (Protomaps default 15)
+        - bounds cover UB reference points P1-P6, `maxzoom` >= 14. The default dev build is exactly
+          z0-14 (`TILES_MAXZOOM=14`, PO decision D1 of 2026-09-30, ADR-0002 Amendment 3). Clients read
+          `minzoom`/`maxzoom` from the archive header and overzoom above it (MapLibre does this for a
+          vector source whose `maxzoom` is lower than the map zoom). Clients must not hard-code 14 or 15.
         - the metadata `attribution` contains `OpenStreetMap`
-        - size: NAV-001 AC 12 says <= 200 MB, a limit written for the UB extract. The Mongolia build
-          measured 243 MB at z0-15, and the PO has not yet decided the limit (NAV-001 Open question 4).
-          Clients must not assume any archive size. They read `Content-Length` from HEAD or the
-          `Content-Range` total.
+        - size (NAV-001 AC 12, D1): <= 200 MB (2^20-byte MB) for the default Mongolia build, with a
+          fallback limit of <= 400 MB if a z14 build ever exceeds 200 MB. Measured 2026-09-30:
+          117,536,866 bytes at z0-14 (the z0-15 build was 243,254,233 bytes). Clients must not assume
+          any archive size. They read `Content-Length` from HEAD or the `Content-Range` total.
 
         A `Range` whose start is at or beyond the archive size returns **416** with a JSON
         `GatewayError` body and `Content-Range: bytes */<size>` (NAV-001 AC 43). PMTiles readers never
@@ -190,9 +204,10 @@ paths:
         "404":
           description: Tiles archive missing (headers only, no body on HEAD)
         "416":
-          description: Unsatisfiable Range (headers only, no body on HEAD). Headers as in the GET 416 response.
+          description: "Unsatisfiable Range (headers only, no body on HEAD). Headers as in the GET 416 response, including `Cache-Control: no-store`."
           headers:
             Content-Range: { $ref: "#/components/headers/ContentRangeUnsatisfied" }
+            Cache-Control: { $ref: "#/components/headers/CacheControlNoStore" }
             Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
             Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
     options:
@@ -575,7 +590,12 @@ components:
     AcceptRanges:
       schema: { type: string, enum: [bytes] }
     CacheControl:
+      description: Caching policy of the archive on 200/206 (dev value, ADR-0002 §5).
       schema: { type: string, example: "public, max-age=300" }
+    CacheControlNoStore:
+      description: Exactly one header with this value. Used on responses that must never be cached (tiles 416, since 0.3.0).
+      required: true
+      schema: { type: string, const: no-store }
 
   responses:
     CorsPreflight:
@@ -675,10 +695,16 @@ components:
       description: |
         The `Range` start is at or beyond the end of the archive (NAV-001 AC 43). Answered by the gateway
         with a JSON body. Each CORS header appears exactly once, so a browser `fetch` sees status 416
-        instead of a CORS error. Other headers on the file (`ETag`, `Cache-Control`, `Accept-Ranges`) may also
-        be present. Clients must not rely on them for a 416.
+        instead of a CORS error.
+
+        Caching (since 0.3.0): the response carries exactly one `Cache-Control` header with the value
+        `no-store`, never the file's `public, max-age=300`. A 416 is an error about the request, not a
+        representation of the archive, and must not be stored by a browser, proxy or CDN under the archive
+        URL. `Accept-Ranges` is absent (it describes the file, not the error). `ETag` of the current file
+        may be present. Clients must not rely on `ETag` or `Accept-Ranges` for a 416.
       headers:
         Content-Range: { $ref: "#/components/headers/ContentRangeUnsatisfied" }
+        Cache-Control: { $ref: "#/components/headers/CacheControlNoStore" }
         Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
         Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
       content:
@@ -877,7 +903,7 @@ components:
       additionalProperties: true
       properties:
         distance: { type: number, description: Metres }
-        duration: { type: number, description: Seconds (road-class defaults where `maxspeed` is missing, no traffic) }
+        duration: { type: number, description: "Seconds (road-class defaults where `maxspeed` is missing, no traffic)" }
         weight: { type: number }
         weight_name: { type: string }
         geometry: { type: string, description: "Encoded polyline, precision 6 (polyline6)" }

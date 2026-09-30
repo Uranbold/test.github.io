@@ -143,7 +143,10 @@ server {
     # Target of the TILES location only. No cors-headers.conf on purpose: the TILES location's
     # headers survive the internal redirect, and including the snippet here duplicates every
     # Access-Control-* header (browsers then reject the response as a CORS error).
+    # The file's Cache-Control/Accept-Ranges survive too; the njs filter turns them into
+    # "Cache-Control: no-store" and no Accept-Ranges (the error must not be cached).
     location @range_not_satisfiable {
+        js_header_filter headers.range416;
         default_type application/json;
         return 416 '{"code":"RangeNotSatisfiable","message":"Requested range not satisfiable"}';
     }

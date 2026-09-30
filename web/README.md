@@ -29,8 +29,15 @@ Run everything from `web/`.
 | Unit tests (Vitest) | `npm test` |
 | Lint (ESLint + i18n scan) | `npm run lint` |
 | Hard-coded text scan only (AC 32) | `npm run check:i18n` |
-| Glossary match of the `mn` strings (AC 33) | `npm run check:glossary` (add `-- --with-story-proposals` to accept the story's rows G1–G7 until the BA adds them to the glossary) |
+| Glossary match of the `mn` strings (AC 33) | `npm run check:glossary` (G1–G7 are glossary rows now; `-- --mn <file>` checks another resource file) |
 | Re-fetch bundled fonts and sprites | `npm run vendor-assets` (then `node scripts/gen-third-party-notices.mjs`) |
+
+**Glossary check (AC 33).** Every `mn` value must equal an approved term in `docs/requirements/glossary.md`: the
+"Approved Mongolian" column of the term tables, the «quoted» usage forms in their "Definition" column, or the «quoted»
+examples in the "Rule" column of the conventions table (C1–C8). Notes, Status, the change log and any sentence about
+Avoid / Rejected / Alternative / previous-proposal wording never count, so a banned term such as «навигаци» fails the
+check although the glossary quotes it. The NAV-002 rows G1–G7 are in the glossary (sections 7 and 8), so there is no
+story-only fallback any more. `scripts/check-glossary.test.mjs` (part of `npm test`) covers the banned-term cases.
 
 ## Configuration
 
@@ -63,7 +70,8 @@ Only two hosts are contacted at runtime: the page origin and the gateway (AC 46)
 ## Layout of the code
 
 ```
-src/main.ts                      entry: tokens CSS, PMTiles protocol, App
+src/main.ts                      entry: tokens CSS fallback, PMTiles protocol, App
+src/boot/bootLoading.ts          pre-module script inlined into index.html by vite.config.ts (loading pill at 300 ms)
 src/config.ts                    gateway URL normalisation, asset base URL
 src/style/tokens.ts              reads docs/design/tokens.json (flavors, UI and location colours, CSS variables)
 src/style/buildStyle.ts          buildStyle(), LABEL_EXPRESSION, applyLabelRule(), road colours, text sizes
@@ -96,6 +104,19 @@ scripts/                         vendor-assets.sh, check-i18n.mjs, check-glossar
 - **Mongolian first.** The UI language is `mn` unless the user picked English, whatever the browser language is. The theme
   and language choices are stored in `localStorage` (`navmn.theme`, `navmn.lang`). If storage is unavailable, the
   defaults apply.
+- **PO decisions D11–D15.** Map labels use `name:mn` → `name` → `name:en` in both UI languages, so the English UI keeps
+  Cyrillic labels (D11). Day mode by default; the manual toggle is remembered (D12). The page opens on Sükhbaatar
+  Square, zoom 12 (D13). Page title `app.title` «Газрын зураг» / "Map" (D15). D14 (browsers) needs no code.
+- **Loading before the modules load (AC 37).** `vite.config.ts` (plugin `navmn-boot-indicator`) adds to `index.html`
+  the design-token CSS, the default-language `<title>` and `src/boot/bootLoading.ts` as a small inline script. It shows
+  the loading pill 300 ms after navigation start (in the saved language, with the saved theme), even while MapLibre is
+  still downloading. `styles.css` is a render-blocking `<link>` for the same reason. The app cancels the boot timer when
+  it starts and takes over the pill without a blink. All text comes from `src/i18n/{mn,en}.json`.
+- **Start-up errors.** Before the first render, only a basemap error without `e.tile` (archive header / TileJSON)
+  fails the attempt and shows the blocking card at once. Tile errors count towards the 3-consecutive-error tiles
+  banner, so one transient tile failure never shows the card. If no tile loads at all, the 10 s watchdog shows the card.
+- **Attribution link target (AC 49).** The OSM link is at least 44 × 44 CSS px. The extra height is transparent space
+  inside the strip (no overhang over the map or the bottom controls), so the strip is 44 px high without the ESA line.
 - **No location access before the first press.** Neither the Geolocation API nor the Permissions API is called before
   the first press of the my-location button. Coordinates never leave the page.
 - **Retry uses a fresh PMTiles instance, then sets the style again without diffing.**

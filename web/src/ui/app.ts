@@ -100,10 +100,11 @@ export class App {
     this.ui.root.dataset.theme = this.theme;
     this.ui.locateDesc.id = "locate-desc";
     this.bindChrome();
-    this.applyI18n();
-    this.status.onChange((v) => this.renderStatus(v));
+    // Start the status first, so the first render already has the right view: if the pre-module loading
+    // pill from index.html is showing (more than 300 ms since navigation start), it stays on (AC 37).
     this.status.start(performance.now());
-    this.renderStatus(this.status.view);
+    this.status.onChange((v) => this.renderStatus(v));
+    this.applyI18n(); // also renders the status view
 
     try {
       this.map = this.deps.createMap({
@@ -138,6 +139,12 @@ export class App {
         return;
       }
       if (!navigator.onLine) return; // caused by being offline; the offline state covers it
+      if ((e as { tile?: unknown }).tile) {
+        // One tile failed: counts towards the 3-error banner, never the blocking card on its own (AC 41).
+        this.status.tileError();
+        return;
+      }
+      // Archive header / TileJSON failed: before the first render this attempt is over (AC 38–39).
       if (!this.status.state.ready) this.attemptErrored = true;
       this.status.sourceError();
     });

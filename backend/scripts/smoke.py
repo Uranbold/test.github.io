@@ -4,7 +4,7 @@
     python3 scripts/smoke.py [--base-url http://localhost:8080] [--perf] [--cors-allowlist ORIGIN]
 
 Runs the story's smoke set (AC 9, 13-16, 18, 21-23, 25, 28-30, 32 per AC 40) plus cheap extras
-(AC 10, 11, 17, 19, 20, 24, 26, 27, 33, 43, gateway 404/405). Prints PASS/FAIL/INFO lines, and each
+(AC 10, 11, 12, 17, 19, 20, 24, 26, 27, 33, 43, gateway 404/405). Prints PASS/FAIL/INFO lines, and each
 FAIL shows expected and actual values. Exit code 0 only if no check failed (AC 41).
 --perf adds the AC 35-38 latency baselines (20 sequential requests each, p95).
 --cors-allowlist ORIGIN checks AC 31 against a gateway started with CORS_ALLOWED_ORIGINS=ORIGIN.
@@ -353,6 +353,14 @@ def run_checks(s):
                 f"416, bytes */{size}, no repeated headers, ACAO, application/json RangeNotSatisfiable",
                 f"{st}, content-range={h.get('content-range')}, repeated={dup}, ACAO={h.get('access-control-allow-origin')}, "
                 f"type={h.get('content-type')}, body={raw[:80]!r}")
+        # openapi.yaml 0.2.0 only says file headers "may be present" on a 416; the gateway makes the
+        # error explicitly non-cacheable and drops the file's Accept-Ranges (backend choice, see README).
+        s.check(f"AC43 TILES {method} 416 is not cacheable: Cache-Control no-store, no Accept-Ranges",
+                st == 416 and h.get("cache-control") == "no-store" and "accept-ranges" not in h
+                and sum(1 for k, _ in s.last_raw_headers if k == "cache-control") == 1,
+                "416, one Cache-Control: no-store, no Accept-Ranges",
+                f"{st}, cache-control={[v for k, v in s.last_raw_headers if k == 'cache-control']}, "
+                f"accept-ranges={h.get('accept-ranges')}")
 
     # AC 10 / 11 PMTiles header, metadata, z14 tile at P1
     try:
@@ -363,6 +371,26 @@ def run_checks(s):
         s.check("AC10 tile bounds cover P1-P6", all(inside.values()), "all of P1-P6 inside",
                 "outside: " + ",".join(k for k, v in inside.items() if not v))
         s.check("AC10 tile max zoom >= 14", pm.max_zoom >= 14, ">= 14", pm.max_zoom)
+        # AC 12 (PO decision D1): default Mongolia build = max zoom exactly 14, <= 200 MB, fallback <= 400 MB.
+        # The limits apply only to the default Mongolia build (bounds cover P1-P6); BBBike UB has none.
+        if all(inside.values()):
+            s.check("AC12 default build max zoom is exactly 14", pm.max_zoom == 14, 14, pm.max_zoom)
+            s.check("AC12 PMTiles size <= 400 MB (D1 fallback; primary limit 200 MB)", 0 < size <= 400 * 2**20,
+                    "<= 209715200 bytes, fallback <= 419430400 bytes", f"{size} bytes")
+            s.note("AC12 PMTiles size bytes", size)
+            if 0 < size <= 200 * 2**20:
+                s.note("AC12", f"{size} bytes: primary limit (<= 209715200 bytes) met")
+            elif size <= 400 * 2**20:
+                s.note("AC12", f"{size} bytes: AC 12 fallback limit (D1) applied")
+        else:
+            s.note("AC12", "skipped: not the default Mongolia build (bounds miss a reference point), no size limit")
+        missing = []
+        for k in ("P1", "P2", "P3", "P4", "P5", "P6"):
+            tx, ty = lonlat_to_tile(*P[k], 14)
+            t, _ = pm.tile(14, tx, ty)
+            if not t:
+                missing.append(f"{k}:{tx}/{ty}")
+        s.check("AC10 z14 tile exists at each of P1-P6", not missing, "6 non-empty z14 tiles", "missing " + ",".join(missing))
         meta = pm.metadata()
         s.check("AC10 metadata attribution contains OpenStreetMap", "OpenStreetMap" in str(meta.get("attribution", "")),
                 "contains OpenStreetMap", str(meta.get("attribution"))[:120])

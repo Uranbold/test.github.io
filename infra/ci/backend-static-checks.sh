@@ -4,7 +4,7 @@
 # 1. shell/python syntax  2. compose config renders with defaults only (no .env), no :latest
 # 3. nginx config test of the real gateway files  4. gateway behaviour without upstreams
 #    (health, CORS preflight, JSON 404/405/413, 502 when upstreams are absent,
-#    AC 43: 416 with single CORS headers + JSON, missing archive -> JSON 404)
+#    AC 43: 416 with single CORS headers + JSON + Cache-Control: no-store, missing archive -> JSON 404)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 B=$ROOT/backend
@@ -27,7 +27,7 @@ docker run -d --name navmn-ci-gw -p 127.0.0.1:18089:8080 \
   -e CORS_ALLOWED_ORIGINS=http://localhost:5173 -e GATEWAY_ERROR_LOG_LEVEL=crit \
   -e VALHALLA_UPSTREAM=valhalla:8002 -e PHOTON_UPSTREAM=photon:2322 -e NGINX_ENTRYPOINT_QUIET_LOGS=1 \
   -v "$B/gateway/nginx.conf:/etc/nginx/nginx.conf:ro" -v "$B/gateway/templates:/etc/nginx/templates:ro" \
-  -v "$B/gateway/snippets:/etc/nginx/snippets:ro" \
+  -v "$B/gateway/snippets:/etc/nginx/snippets:ro" -v "$B/gateway/njs:/etc/nginx/njs:ro" \
   -v "$B/gateway/entrypoint/15-cors-origins.sh:/docker-entrypoint.d/15-cors-origins.sh:ro" \
   -v "$TMP:/srv/data:ro" "$IMG" >/dev/null
 for _ in $(seq 30); do curl -fs localhost:18089/health >/dev/null && break; sleep 1; done
@@ -52,6 +52,12 @@ grep -q '"code":"RangeNotSatisfiable"' "$TMP/416.json" || fail "416 body: $(head
 DUP=$(echo "$H" | grep -i '^access-control-[a-z-]*:' | cut -d: -f1 | tr 'A-Z' 'a-z' | sort | uniq -d)
 [[ -z "$DUP" ]] || fail "416 repeated headers: $DUP"
 [[ $(echo "$H" | grep -ci '^access-control-allow-origin: http://localhost:5173') == 1 ]] || fail "416 ACAO"
+# 416 must not be cacheable (njs filter in @range_not_satisfiable): exactly one Cache-Control: no-store, no Accept-Ranges
+[[ $(echo "$H" | grep -ci '^cache-control:') == 1 ]] && echo "$H" | grep -qi '^cache-control: no-store$' || fail "416 Cache-Control: $(echo "$H" | grep -i '^cache-control:' | tr '\n' ' ')"
+echo "$H" | grep -qi '^accept-ranges:' && fail "416 carries Accept-Ranges"
+H=$(curl -s -I -H 'Origin: http://localhost:5173' -H "Range: bytes=$S-" $G/tiles/basemap.pmtiles | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 416' && echo "$H" | grep -qi '^cache-control: no-store$' || fail "HEAD 416 Cache-Control"
+curl -s -D - -o /dev/null -H 'Range: bytes=0-7' $G/tiles/basemap.pmtiles | tr -d '\r' | grep -qi '^cache-control: public, max-age=300$' || fail "206 Cache-Control"
 curl -s -D - -o /dev/null -H 'Origin: http://evil.example' -H "Range: bytes=$S-" $G/tiles/basemap.pmtiles | grep -qi '^access-control-allow-origin' && fail "416 disallowed origin got ACAO"
 DUP=$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' -H 'Range: bytes=0-7' $G/tiles/basemap.pmtiles | tr -d '\r' | grep -i '^access-control-[a-z-]*:' | cut -d: -f1 | tr 'A-Z' 'a-z' | sort | uniq -d)
 [[ -z "$DUP" ]] || fail "206 repeated headers: $DUP"

@@ -175,6 +175,7 @@ services:
       - { type: bind, source: ./gateway/nginx.conf, target: /etc/nginx/nginx.conf, read_only: true }
       - { type: bind, source: ./gateway/templates, target: /etc/nginx/templates, read_only: true }
       - { type: bind, source: ./gateway/snippets, target: /etc/nginx/snippets, read_only: true }
+      - { type: bind, source: ./gateway/njs, target: /etc/nginx/njs, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
       - { type: bind, source: ./data, target: /srv/data, read_only: true }
     # Starts once the data is built, but NOT gated on valhalla/photon health (AC 34: one upstream down

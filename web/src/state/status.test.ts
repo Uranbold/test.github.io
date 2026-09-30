@@ -62,9 +62,20 @@ describe("StatusMachine timing", () => {
   it("counts time already spent since navigation start", () => {
     const t = new FakeTimers();
     const m = new StatusMachine(true, t);
-    m.start(450);
-    t.advance(0);
+    m.start(250);
+    t.advance(49);
+    expect(m.view.kind).toBe("none");
+    t.advance(1);
     expect(m.view.kind).toBe("loading");
+  });
+
+  it("is loading at once when started after 300 ms, so the pre-module pill never blinks off (AC 37)", () => {
+    const m = new StatusMachine(true, new FakeTimers());
+    const seen: string[] = [];
+    m.onChange((v) => seen.push(v.kind));
+    m.start(450);
+    expect(m.view.kind).toBe("loading");
+    expect(seen).toEqual(["loading"]);
   });
 
   it("ends in the tiles card after a source error or the 10 s watchdog, never an endless spinner (AC 38–39)", () => {
@@ -104,15 +115,76 @@ describe("StatusMachine timing", () => {
     const m = new StatusMachine(true, new FakeTimers());
     m.start();
     m.markReady();
-    m.sourceError();
-    m.sourceError();
+    m.tileError();
+    m.tileError();
     m.tileLoaded();
+    m.tileError();
+    m.tileError();
+    expect(m.view.kind).toBe("none");
+    m.tileError();
+    expect(m.view).toEqual({ kind: "banner", reason: "tiles" });
+    m.tileLoaded();
+    expect(m.view.kind).toBe("none");
+  });
+
+  it("counts a source (header) error after the first render like a tile error", () => {
+    const m = new StatusMachine(true, new FakeTimers());
+    m.start();
+    m.markReady();
     m.sourceError();
-    m.sourceError();
+    m.tileError();
     expect(m.view.kind).toBe("none");
     m.sourceError();
     expect(m.view).toEqual({ kind: "banner", reason: "tiles" });
+  });
+
+  it("a tile error before the first render never raises the blocking card on its own", () => {
+    const t = new FakeTimers();
+    const m = new StatusMachine(true, t);
+    m.start();
+    m.tileError();
+    t.advance(LOADING_DELAY_MS);
+    expect(m.view.kind).toBe("loading");
+    expect(m.state.startFailed).toBe(false);
     m.tileLoaded();
+    m.markReady();
+    expect(m.view.kind).toBe("none");
+  });
+
+  it("tile errors before the first render count towards the banner once the map is ready", () => {
+    const m = new StatusMachine(true, new FakeTimers());
+    m.start();
+    m.tileError();
+    m.tileError();
+    m.tileError();
+    expect(m.view.kind).toBe("none");
+    m.markReady();
+    expect(m.view).toEqual({ kind: "banner", reason: "tiles" });
+    m.tileLoaded();
+    expect(m.view.kind).toBe("none");
+  });
+
+  it("only tile errors and no tile at all: the 10 s watchdog ends in the card (AC 38)", () => {
+    const t = new FakeTimers();
+    const m = new StatusMachine(true, t);
+    m.start();
+    for (let i = 0; i < 5; i++) m.tileError();
+    t.advance(START_WATCHDOG_MS - 1);
+    expect(m.view.kind).toBe("loading");
+    t.advance(1);
+    expect(m.view).toEqual({ kind: "card", reason: "tiles", busy: false });
+  });
+
+  it("a card retry starts the tile error count again", () => {
+    const m = new StatusMachine(true, new FakeTimers());
+    m.start();
+    m.tileError();
+    m.tileError();
+    m.sourceError();
+    m.retryStart();
+    expect(m.state.consecutiveTileErrors).toBe(0);
+    m.tileError();
+    m.markReady();
     expect(m.view.kind).toBe("none");
   });
 

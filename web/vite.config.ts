@@ -1,15 +1,68 @@
 /// <reference types="vitest/config" />
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, runnerImport, type Plugin } from "vite";
+import { bootLoading, type BootConfig } from "./src/boot/bootLoading";
+import en from "./src/i18n/en.json";
+import mn from "./src/i18n/mn.json";
+import { DEFAULT_LANG } from "./src/i18n/i18n";
+import { LANG_KEY, THEME_KEY } from "./src/prefs";
+import { LOADING_DELAY_MS } from "./src/state/status";
 
 // docs/design/tokens.json is the single source of truth for colours (owner: ux-designer).
 // It is imported read-only through the @design alias; web/ never copies the values by hand.
 const designDir = fileURLToPath(new URL("../docs/design", import.meta.url));
+const alias = { "@design": designDir };
+
+const escapeHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** JSON that is safe inside an inline <script> (no "</script>"; U+2028/2029 are valid in ES2019+ strings). */
+const inlineJson = (v: unknown): string => JSON.stringify(v).replace(/</g, "\\u003c");
+
+/**
+ * NAV-002 AC 37: index.html gets, before any module loads,
+ *  - the design-token CSS variables (so the pill, the map earth colour and night mode are styled at once),
+ *  - the default-language page title (D15, from src/i18n/mn.json),
+ *  - a tiny classic script (src/boot/bootLoading.ts) that shows the loading pill 300 ms after navigation start.
+ * All text comes from the resource files; index.html itself stays free of UI text (AC 32).
+ */
+function bootIndicator(): Plugin {
+  const cfg: BootConfig = {
+    delayMs: LOADING_DELAY_MS,
+    defaultLang: DEFAULT_LANG,
+    langKey: LANG_KEY,
+    themeKey: THEME_KEY,
+    strings: {
+      mn: { loading: mn["status.loading"], title: mn["app.title"] },
+      en: { loading: en["status.loading"], title: en["app.title"] },
+    },
+  };
+  // src/style/tokens.ts imports tokens.json through the @design alias, which the config bundler does not
+  // resolve, so it is loaded through Vite's module runner (once per process).
+  let tokensCssText: Promise<string> | null = null;
+  const loadTokensCss = (): Promise<string> =>
+    (tokensCssText ??= runnerImport<typeof import("./src/style/tokens")>(
+      fileURLToPath(new URL("./src/style/tokens.ts", import.meta.url)),
+      { configFile: false, logLevel: "warn", resolve: { alias } },
+    ).then((r) => r.module.tokensCss()));
+  return {
+    name: "navmn-boot-indicator",
+    async transformIndexHtml(html, ctx) {
+      if (basename(ctx.filename) !== "index.html") return html;
+      const tokensCss = await loadTokensCss();
+      return {
+        html: html.replace("<title></title>", `<title>${escapeHtml(mn["app.title"])}</title>`),
+        tags: [
+          { tag: "style", attrs: { id: "design-tokens" }, children: tokensCss, injectTo: "head-prepend" },
+          { tag: "script", children: `(${bootLoading.toString()})(${inlineJson(cfg)});`, injectTo: "body" },
+        ],
+      };
+    },
+  };
+}
 
 export default defineConfig({
-  resolve: {
-    alias: { "@design": designDir },
-  },
+  plugins: [bootIndicator()],
+  resolve: { alias },
   server: {
     host: "localhost",
     port: 5173,

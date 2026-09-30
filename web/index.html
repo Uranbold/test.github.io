@@ -2,12 +2,16 @@
 <!--
   NAV-002 web demo map. Screen spec: docs/design/screens/NAV-002-web-map.md
   No user-facing text in this file: every string is filled from src/i18n/{mn,en}.json (AC 32).
+  vite.config.ts (bootIndicator) adds the design-token CSS, the default-language <title> and the pre-module
+  loading script (src/boot/bootLoading.ts) at transform time, so the loading pill can appear 300 ms after
+  navigation start before the module graph loads (AC 37). styles.css is a render-blocking <link> for the same reason.
 -->
 <html lang="mn" data-theme="day">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title></title>
+    <link rel="stylesheet" href="/src/styles.css" />
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>

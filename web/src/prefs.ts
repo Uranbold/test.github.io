@@ -3,8 +3,8 @@
 import { DEFAULT_LANG, isLang, type Lang } from "./i18n/i18n";
 import type { Theme } from "./style/tokens";
 
-const THEME_KEY = "navmn.theme";
-const LANG_KEY = "navmn.lang";
+export const THEME_KEY = "navmn.theme";
+export const LANG_KEY = "navmn.lang";
 
 function read(key: string): string | null {
   try {

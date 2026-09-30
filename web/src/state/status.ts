@@ -18,7 +18,7 @@ export interface StatusState {
   /** The first `idle` with tiles has happened for the current attempt (or earlier). */
   ready: boolean;
   loadingDelayElapsed: boolean;
-  /** A start-up attempt failed (source error before ready, or the 10 s watchdog). */
+  /** A start-up attempt failed (header/TileJSON error before ready, or the 10 s watchdog). Tile errors never set it. */
   startFailed: boolean;
   /** A retry from the blocking card is in progress (the card stays, its button is busy). */
   retrying: boolean;
@@ -90,10 +90,12 @@ export class StatusMachine {
    *   so the indicator appears 300 ms after navigation start, not after script start (AC 37).
    */
   start(elapsedMs = 0): void {
-    this.update({ ready: false, startFailed: false, retrying: false, loadingDelayElapsed: false, consecutiveTileErrors: 0 });
     this.clearTimers();
     const delay = Math.max(0, LOADING_DELAY_MS - Math.max(0, elapsedMs));
-    this.loadingTimer = this.timers.setTimeout(() => this.update({ loadingDelayElapsed: true }), delay);
+    // Already past 300 ms (e.g. the pre-module indicator from index.html is showing): loading at once, so the
+    // pill does not blink off and on when the app takes over.
+    this.update({ ready: false, startFailed: false, retrying: false, loadingDelayElapsed: delay === 0, consecutiveTileErrors: 0 });
+    if (delay > 0) this.loadingTimer = this.timers.setTimeout(() => this.update({ loadingDelayElapsed: true }), delay);
     this.armWatchdog();
   }
 
@@ -112,13 +114,21 @@ export class StatusMachine {
     this.armWatchdog();
   }
 
-  /** MapLibre `idle` with the basemap source loaded and at least one tile received. */
+  /**
+   * MapLibre `idle` with the basemap source loaded and at least one tile received.
+   * Consecutive tile errors are kept: if the last tiles before the first render failed and none has loaded
+   * since, the tiles banner shows at once once the map is ready (AC 41).
+   */
   markReady(): void {
     this.clearTimers();
-    this.update({ ready: true, startFailed: false, retrying: false, consecutiveTileErrors: 0 });
+    this.update({ ready: true, startFailed: false, retrying: false });
   }
 
-  /** An `error` event for the basemap source (TileJSON/header or a tile). */
+  /**
+   * An `error` event for the basemap source itself, without `e.tile` (archive header / TileJSON).
+   * Before the first render the start-up attempt has failed: blocking card (AC 38–39).
+   * After it, it counts like a tile error (e.g. the source rebuild of a banner retry fails).
+   */
   sourceError(): void {
     if (!this.s.ready) {
       this.timers.clearTimeout(this.watchdog);
@@ -126,6 +136,15 @@ export class StatusMachine {
       this.update({ startFailed: true, retrying: false });
       return;
     }
+    this.tileError();
+  }
+
+  /**
+   * An `error` event for one basemap tile (`e.tile` set). Never fails the start-up attempt on its own, so one
+   * transient tile failure cannot raise the blocking card: it counts towards the 3-error tiles banner (AC 41).
+   * If no tile loads at all, the 10 s watchdog ends the attempt with the card (AC 38).
+   */
+  tileError(): void {
     this.update({ consecutiveTileErrors: this.s.consecutiveTileErrors + 1 });
   }
 

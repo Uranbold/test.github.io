@@ -229,17 +229,29 @@ button {
   color: var(--ui-on-surface-variant);
   font-size: 0.75rem;
   line-height: 1rem;
-  padding: 4px var(--spacing-gutter) calc(4px + env(safe-area-inset-bottom));
+  padding: 0 var(--spacing-gutter) env(safe-area-inset-bottom);
   box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.15);
   position: relative;
   z-index: 1;
 }
+/* AC 49: the OSM link's hit area is at least 44 × 44 CSS px. The extra height is transparent space inside the
+   strip (it replaces the strip's 4 px top/bottom padding), so nothing overhangs the map or R4 and the strip grows
+   only by what the target needs (24 → 44 px). The text keeps its 12/16 caption size, centred in the target. */
 .attr a {
   color: inherit;
   text-decoration: underline;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  min-width: 44px;
+  vertical-align: top;
 }
 .attr p {
   margin: 0;
+}
+#attribution-esa {
+  padding-bottom: 4px;
 }
 
 /* Banners and messages */

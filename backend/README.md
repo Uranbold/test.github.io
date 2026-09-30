@@ -35,7 +35,7 @@ Only the gateway publishes a port (`GATEWAY_BIND:GATEWAY_PORT`, default `127.0.0
 | Story symbol | Gateway path | Upstream |
 |---|---|---|
 | `HEALTH` | `GET /health` | answered by nginx: `{"status":"ok"}` |
-| `TILES` | `GET/HEAD /tiles/basemap.pmtiles` | static file with HTTP Range, ETag, `Cache-Control: public, max-age=300`, no gzip. A range starting at or past the end gives a JSON 416 |
+| `TILES` | `GET/HEAD /tiles/basemap.pmtiles` | static file with HTTP Range, ETag, `Cache-Control: public, max-age=300`, no gzip. Max zoom 14 by default (`TILES_MAXZOOM`); clients overzoom above it. A range starting at or past the end gives a JSON 416 with `Cache-Control: no-store` |
 | `ROUTE` | `POST /v1/route` (also `GET /v1/route?json=`) | Valhalla `/route`, forwarded unchanged |
 | `SEARCH` | `GET /v1/search` | Photon `/api`, forwarded unchanged |
 | `REVERSE` | `GET /v1/reverse` | Photon `/reverse`, forwarded unchanged |
@@ -43,7 +43,7 @@ Only the gateway publishes a port (`GATEWAY_BIND:GATEWAY_PORT`, default `127.0.0
 The gateway alone handles CORS. It answers every `OPTIONS` with 204 and strips the upstreams' own
 `Access-Control-*` headers. Gateway errors are JSON `{code, message}`:
 - 404 `NotFound`, 405 `MethodNotAllowed`, 413 `PayloadTooLarge` (bodies over 256 KB)
-- 416 `RangeNotSatisfiable` on `TILES` when the `Range` start is at or beyond the archive size, with `Content-Range: bytes */<size>` (AC 43). Like every gateway response, it carries each `Access-Control-*` header exactly once, so a browser `fetch` sees the 416 instead of a CORS error. How this is done in nginx: ADR-0002 Amendment 2 and the comments in `gateway/templates/default.conf.template`.
+- 416 `RangeNotSatisfiable` on `TILES` when the `Range` start is at or beyond the archive size, with `Content-Range: bytes */<size>` (AC 43). Like every gateway response, it carries each `Access-Control-*` header exactly once, so a browser `fetch` sees the 416 instead of a CORS error. How this is done in nginx: ADR-0002 Amendment 2 and the comments in `gateway/templates/default.conf.template`. The 416 is not cacheable: it carries exactly one `Cache-Control: no-store` and no `Accept-Ranges`. nginx adds the file's headers before the range filter turns the 200 into a 416, and they survive the internal redirect, so a small njs header filter (`gateway/njs/headers.js`, njs ships in the pinned nginx image) rewrites them in `@range_not_satisfiable` only. openapi.yaml 0.2.0 only says these headers "may be present" on a 416, so `no-store` is a backend choice that has been passed to the architect.
 - 502 `UpstreamUnavailable`: the upstream is stopped, cannot be resolved or refuses the connection. This includes a connect timeout (2 s).
 - 504 `UpstreamTimeout`: the upstream accepted the connection but did not answer within 10 s (route) or 5 s (search/reverse).
 
@@ -170,7 +170,7 @@ short of Zaisan (AC 13/14 fail). The tile bounds do not cover P3/P6 (AC 10 fails
 snapping to the northern edge (AC 19). `build-info` logs a warning listing the uncovered points. Use it only
 for quick gateway or pipeline work, not to judge routing.
 
-## Measured on the reference machine (4 CPU, 15 GB RAM, dev container, 2026-09-29)
+## Measured on the reference machine (4 CPU, 15 GB RAM, dev container, 2026-09-29; tiles, 416 and check rows re-measured 2026-09-30)
 
 | What | **Mongolia, dev default** (geo2day, 70 MB) | BBBike UB, optional (4.4 MB) | Limit |
 |---|---|---|---|
@@ -178,15 +178,16 @@ for quick gateway or pipeline work, not to judge routing.
 | **Warm restart**: `docker compose down` then `up -d --wait` | **8.7 s**. Tiles, graph and index all log `reused`, and no download is made | 8.8 s | AC 2: ≤ 120 s |
 | **Source switch**: `make rebuild-data` after changing `OSM_PBF_URL`, auxiliary files cached | 336 s (BBBike → Mongolia). Graph 22 s, Photon 33 s, Maven 76 s, Planetiler 229 s | n/a | AC 5 |
 | Peak memory during the build (`docker stats`, sum over containers, sampled every 3 s) | 5.5 GB (tiles-build 5.0 GB) | 3.98 GB (tiles-build 3.5 GB) | AC 39: ≤ 12 GB |
-| Memory of the running services | gateway 5 MB, valhalla 133 MB, photon 488 MB | gateway 5 MB, valhalla 97–132 MB, photon 392–785 MB | AC 39: ≤ 6 GB |
-| Total size of `data/` | 2.9 GB (2.4 GB of it is cached auxiliary sources) | 2.6 GB | AC 39: ≤ 10 GB |
-| PMTiles size | **243 MB** (243,254,233 bytes = 232 MiB; z0–15, 732,736 tiles). **Exceeds AC 12.** The limit was written for UB and is waiting on the PO (NAV-001 Open question 4). Known deviation, not a build error | 2.6 MB (z0–15, 177 tiles) | AC 12: ≤ 200 MB |
+| Memory of the running services | gateway 5.7 MB, valhalla 153 MB, photon 554 MB (2026-09-30) | gateway 5 MB, valhalla 97–132 MB, photon 392–785 MB | AC 39: ≤ 6 GB |
+| Total size of `data/` | 2.8 GB (2.4 GB of it is cached auxiliary sources; tiles 113 MB) | 2.6 GB | AC 39: ≤ 10 GB |
+| PMTiles size (default `TILES_MAXZOOM=14`, PO decision D1 of 2026-09-30) | **117,536,866 bytes** (112.1 MiB; z0–14; 2,159,826 addressed tiles, 442,203 entries, 298,530 unique contents). **Meets the primary AC 12 limit**, so the 400 MB fallback is not needed. For comparison, z0–15 was 243,254,233 bytes (232 MiB, 732,736 unique contents) | 2.6 MB (z0–15, 177 tiles; measured before D1, not rebuilt) | AC 12: max zoom exactly 14, ≤ 209,715,200 bytes (fallback ≤ 419,430,400) |
+| **Tiles-only rebuild** after changing `TILES_MAXZOOM` 15 → 14: `make up` (auxiliary files cached; graph and index log `reused`) | 382 s wall time for `make up`, of which Planetiler took 375 s. The gateway kept serving the old archive until the atomic rename. The z15 build took 208 s on 2026-09-29, and the 2026-09-30 run shared the CPU with other checks, so treat 375 s as an upper bound | n/a | |
 | Routing graph / Photon index | 64 MB / 27 MB | 3.9 MB / 27 MB | |
-| p95 of 20 sequential requests through the gateway: route / search / reverse / tile range | `make perf`: 13 / 66 / 36 / 1.4 ms. QA `checks.py --group perf`: 19.7 / 43.4 / 18.9 / 1.5 ms | 12 / 70 / 44 / 1.3 ms | AC 35–38: 500 / 300 / 300 / 100 ms |
-| `scripts/smoke.py` (`--perf`) | **41 pass, 0 fail** (includes AC 43 on GET and HEAD) | 36 pass, 3 fail (AC 10, 13/14: P3/P6 outside the box; measured before the AC 43 checks were added) | AC 40 |
-| `scripts/contract_check.py` | **29 conform** (includes the GET and HEAD 416 and the X2 out-of-coverage route) | 27 conform (before the 416 cases were added) | |
+| p95 of 20 sequential requests through the gateway: route / search / reverse / tile range | `make perf` on the z14 build: 13 / 28 / 16 / 1.1 ms (z15 build: 13 / 66 / 36 / 1.4 ms). QA `checks.py --group perf` on z15: 19.7 / 43.4 / 18.9 / 1.5 ms | 12 / 70 / 44 / 1.3 ms | AC 35–38: 500 / 300 / 300 / 100 ms |
+| `scripts/smoke.py` (`--perf`) | **46 pass, 0 fail** on the z14 build. This adds AC 12 (max zoom exactly 14, size), a z14 tile at each of P1–P6, and 416 `Cache-Control: no-store` on GET and HEAD. QA `make smoke`: 41 pass, 0 fail. QA `checks.py --group full`: 101 pass, 0 fail | 36 pass, 3 fail (AC 10, 13/14: P3/P6 outside the box; measured before the AC 43 checks were added) | AC 40 |
+| `scripts/contract_check.py` | **29 conform** on the z14 build (includes the GET and HEAD 416 and the X2 out-of-coverage route) | 27 conform (before the 416 cases were added) | |
 
-Planetiler with max zoom 15 and `-Xmx3g`. The Natural Earth pass takes about 85 s regardless of the
+Planetiler with `-Xmx3g`, max zoom 14 (the default since 2026-09-30; the earlier rows used 15). The Natural Earth pass takes about 85 s regardless of the
 extract size. Photon's `lang=mn` works (AC 27). The Protomaps tiles carry `name` and `name:en` but not
 `name:mn` (AC 11, as ADR-0002 expected).
 
@@ -207,7 +208,7 @@ extract size. Photon's `lang=mn` works (AC 27). The Protomaps tiles carry `name`
 ## Troubleshooting
 - **`service "data-fetch" didn't complete successfully`**: run `docker compose logs data-fetch`. The last line names the URL and HTTP status. For the OSM or Photon source, set `OSM_PBF_FILE` / `PHOTON_DUMP_FILE` to a local file. For an auxiliary file, put it into `data/sources/` or change its `*_URL` key.
 - **geo2day.com mirror down or changed** (dev default OSM source): download the Mongolia PBF by any other route and set `OSM_PBF_FILE`, or switch `OSM_PBF_URL` to Geofabrik where it is reachable, or to the optional BBBike UB extract for gateway-only work.
-- **A web client reports a CORS error on the tiles file**: check the raw response with `curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' …`. Every `Access-Control-*` header must appear once. `infra/ci/backend-static-checks.sh` guards this for 206 and 416.
+- **A web client reports a CORS error on the tiles file**: check the raw response with `curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' …`. Every `Access-Control-*` header must appear once. `infra/ci/backend-static-checks.sh` guards this for 206 and 416, including the 416's `Cache-Control: no-store`.
 - **TLS errors** (`self-signed certificate in certificate chain`): set `EXTRA_CA_CERT` to your proxy's CA bundle.
 - **Port 8080 in use**: set `GATEWAY_PORT`.
 - **Photon logs `high disk watermark exceeded`**: the host disk is over 90% full. Serving still works. At 95% (OpenSearch flood stage) a new import can fail, so free some disk space.
