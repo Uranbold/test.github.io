@@ -28,7 +28,7 @@ If O-0.1, O-0.2 or O-0.5 fails, stop and report to QA and the orchestrator. The 
 | O-1.2 | `ls /etc/ssh/sshd_config.d/` | `00-nav-hardening.conf` sorts first | |
 | O-1.3 | `systemctl is-enabled unattended-upgrades; apt-config dump \| grep -E 'Unattended-Upgrade::(Allowed-Origins\|Origins-Pattern\|Automatic-Reboot)'` | `enabled`; security origin listed; automatic reboot per design §3 | |
 | O-1.4 | `sudo ufw status verbose` | default deny incoming; 22 (limit), 80, 443 allowed for IPv4 and IPv6; logging off | |
-| O-1.5 | Break-glass: open the provider's browser console once | Console login works (design §3) | |
+| O-1.5 | Break-glass is **offered**, not used (design §3, §17.4). Hostinger: in hPanel, open the VPS **Settings** page and confirm that **Emergency mode** (rescue boot, VPS disk mounted under `/mnt`) is offered for this VPS, and note where the SSH-configuration reset is (last resort; it undoes the hardening, so bootstrap must run again). Other providers: confirm their rescue mode or VNC/serial console is offered. **Do not trigger it** on the live host. The hPanel "Browser terminal" is an SSH client and is **not** break-glass | Emergency mode (or the provider's rescue/VNC console) is listed for this VPS; screenshot or menu path recorded without the IP | |
 | O-1.6 *(QA)* | `tests/staging/nav008/portscan.sh` | Only {22, 80, 443} open per family; `Permission denied (publickey)` for `nav-ops` and `root` | |
 
 ## O-2 Certificate renewal dry run (AC 7)
@@ -60,7 +60,7 @@ sudo bash log-privacy-scan.sh --since 24h --markers log-markers-<time>.txt
 
 ## O-4 Daily data rebuild (AC 15, 16)
 
-Preparation: empty auxiliary cache (move `backend/data/sources/` aside or start from an empty `data/` as the runbook says), `OSM_PBF_URL=https://download.geofabrik.de/asia/mongolia-latest.osm.pbf`.
+Preparation: **AL-05 (push reachability, O-5) passed first**, otherwise RB-08 cannot pass. Empty auxiliary cache (move `backend/data/sources/` aside or start from an empty `data/` as the runbook says), `OSM_PBF_URL=https://download.geofabrik.de/asia/mongolia-latest.osm.pbf`.
 
 - [ ] *(QA)* before the start: `tests/staging/nav008/downtime-probe.sh --route --interval 2` (stop it with Ctrl-C after the smoke run)
 - [ ] In a second shell on the host: `make stats` sampled every ≤ 3 s for the whole build (per runbook), output saved
@@ -74,7 +74,7 @@ Preparation: empty auxiliary cache (move `backend/data/sources/` aside or start 
 | RB-05 | *(QA)* `tests/staging/nav008/smoke-staging.sh` after the build | exit 0 | |
 | RB-06 | Peak build memory + steady-state services, as % of RAM | ≤ 70 % | |
 | RB-07 | `df -h /` after the build | ≥ 50 GB free | |
-| RB-08 | Rebuild heartbeat reached the push monitor | yes | |
+| RB-08 | Rebuild heartbeat reached the push monitor (design §9, AC 15). In Uptime Kuma (UI through the SSH tunnel) open **nav-staging rebuild** | A new green heartbeat at the build end time (UTC) with the message `rebuilt in … s, smoke ok` (or `unchanged, smoke ok`); monitor UP. Record both UTC times. `nav-rebuild.sh` ended with exit 0 but no heartbeat = push not reachable: re-run AL-05 and report to backend-engineer | |
 
 ## O-5 Monitoring and alert drill (AC 17, 18)
 
@@ -86,8 +86,35 @@ Outside the maintenance window. *(QA)* runs `downtime-probe.sh --interval 5` as 
 | AL-02 | First alert on the operator's channel (UTC) | ≤ T0 + 5 min | |
 | AL-03 | T1 = start the gateway; recovery notice (UTC) | ≤ T1 + 5 min | |
 | AL-04 | Uptime monitor settings (screenshot or config export without tokens) | interval ≤ 60 s, on a different provider, expects 200 and `"status":"ok"`, alert after ≤ 2 failures | |
-| AL-05 | Disk push monitor and certificate notification | disk alert at ≥ 85 % (push stops); certificate alert at ≤ 14 days | |
+| AL-05 | **Push reachability** (design §9, §17.4). On the staging host: `sudo infra/staging/bin/nav-diskcheck.sh; echo "exit=$?"`. Then, in Uptime Kuma (UI through the SSH tunnel), open **nav-staging disk** | `exit=0`, a log line with `"msg":"heartbeat sent"`, and a new **green** heartbeat in Kuma at that time (UTC), message `disk ok: …`. Record the UTC time of the command and of the heartbeat. `heartbeat skipped` (no push URL in `.env`) or `heartbeat failed` fails AL-05, even with `exit=0`. No heartbeat in Kuma means the host cannot reach the push URL (ops VM Caddy or UFW 80/443, or the `http://localhost:3001` origin from the Kuma UI left in `UPTIME_PUSH_URL_*`): stop, report to backend-engineer | |
+| AL-05.1 | Push endpoint exposure, from the staging host, **no token used**: `curl -sS -o /dev/null -w '%{http_code}\n' https://<ops-host>/` and `curl -sS https://<ops-host>/api/push/not-a-token` (paste outputs, not the host name) | First: `404` (the Kuma UI is not public). Second: a JSON answer from Uptime Kuma with `"ok":false` (the push path reaches Kuma) | |
+| AL-05.2 | Monitor settings (screenshot or config export without tokens) | **nav-staging disk**: push, heartbeat interval 900 s, retries 0 (no push for 15 min = alert). Liveness monitor: certificate expiry notification at ≤ 14 days | |
 | AL-06 | `sar -u -r -d -f /var/log/sysstat/sa$(date -d '7 days ago' +%d)` | data for 7 days ago exists (retention ≥ 7 days, design: 28) | |
+| AL-07 | **Disk alert drill (AC 18)**, steps below. Needs AL-05 green | Alert on the operator's channel after the heartbeat stops; recovery after the restore; `.env` identical to before | |
+
+**AL-07 disk alert drill (AC 18).** Shows that the ≥ 85 % rule really fires, without filling the disk: `DISK_ALERT_PERCENT` is lowered below the current usage for one push interval, then restored. `nav-diskcheck.sh` reads it from `infra/staging/.env` on every run and the **last** assignment wins (`nav-env.sh`). Run it outside the maintenance window and away from the 19:30 UTC rebuild and 20:30 UTC backup. Tell the alert receiver first. Leave `nav-diskcheck.timer` running. The backup copy of `.env` holds secrets: keep it root-only under `/root`, never paste it, delete it at the end.
+
+```bash
+cd /opt/nav                                                    # path per runbook
+df -P / | awk 'NR==2 {print $5}'                               # D1: current usage, e.g. 23%
+sudo cp -p infra/staging/.env /root/nav-env.al07.bak           # root-only copy (keeps mode 600)
+echo 'DISK_ALERT_PERCENT=1' | sudo tee -a infra/staging/.env >/dev/null   # no inline comment: the value is read to the end of the line
+sudo infra/staging/bin/nav-diskcheck.sh; echo "exit=$?"        # D2: expect exit=1 and "heartbeat withheld"
+# wait for the alert on the operator's channel (design §9: about 15 min after the last green heartbeat)
+sudo cp -p /root/nav-env.al07.bak infra/staging/.env           # restore
+sudo cmp /root/nav-env.al07.bak infra/staging/.env && echo identical   # D5
+sudo rm /root/nav-env.al07.bak
+sudo infra/staging/bin/nav-diskcheck.sh; echo "exit=$?"        # D6: expect exit=0, heartbeat green again
+```
+
+| # | Record | Expected | Result |
+|---|---|---|---|
+| D1 | Usage of `/` before the drill | below 85 % (otherwise the real alert is already active: stop and report) | |
+| D2 | Output of the lowered run (UTC) | `exit=1` and a JSON log line with `"msg":"disk usage at or above the alert limit; heartbeat withheld"` and `"limit_percent":"1"` | |
+| D3 | UTC time of the last green heartbeat in **nav-staging disk** | — | |
+| D4 | UTC time of the DOWN alert on the operator's channel; minutes after D3 | the alert arrives (design §9: about 15 min, push interval 900 s). No alert 30 min after D3: restore at once and report to backend-engineer (AC 18 fails) | |
+| D5 | `cmp` result after the restore | `identical` | |
+| D6 | Restored run, recovery notice (UTC) | `exit=0`, `"msg":"heartbeat sent"`, green heartbeat, recovery notice on the operator's channel | |
 
 ## O-6 Backup review (AC 19)
 

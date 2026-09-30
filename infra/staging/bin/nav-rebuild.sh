@@ -26,6 +26,10 @@
 #   7. age         data/build-info.json osm.replication_timestamp <= REBUILD_MAX_DATA_AGE_HOURS old.
 #   8. heartbeat   UPTIME_PUSH_URL_REBUILD, only when 6 and 7 pass.
 # A failed build or smoke after a build restores the rollback copy (REBUILD_AUTO_ROLLBACK=1) and exits 1.
+# Interrupted (Ctrl-C, SIGTERM from `systemctl stop` or the unit timeout) after Photon was stopped or while
+# Valhalla restarts: the EXIT trap puts the auxiliary cache back, restores the set-aside readiness markers of
+# the still-untouched old Photon index / routing graph, and starts photon and valhalla again; if they do not
+# come up, it restores the rollback copy (REBUILD_AUTO_ROLLBACK=1). Only SIGKILL skips this (RUNBOOK.md 11).
 # shellcheck source=nav-env.sh
 source "$(dirname "$(readlink -f "$0")")/nav-env.sh"
 
@@ -37,7 +41,7 @@ for a in "$@"; do
         --force) FORCE=1 ;;
         --empty-aux-cache) EMPTY_AUX=1; FORCE=1 ;;
         --no-heartbeat) HEARTBEAT=0 ;;
-        -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
         *) nav_die "unknown argument" arg="$a" ;;
     esac
 done
@@ -187,22 +191,83 @@ drop_aux_aside() {
     nav_log info "old auxiliary cache deleted; the fresh downloads are in use"
 }
 
+# Readiness markers. photon-serve.sh and valhalla-serve.sh refuse to start without data/<svc>/.complete. The
+# builders import/build into a staging directory and swap it in whole, so until that swap the served index or
+# graph is the old, intact one. Its marker is therefore renamed to .complete.prev (not deleted): the builder sees
+# no marker and rebuilds, and an interrupted run can rename it back. After a swap, .complete.prev is gone with
+# the old directory.
+set_marker_aside() { if [[ -f "$DATA/$1/.complete" ]]; then mv -f "$DATA/$1/.complete" "$DATA/$1/.complete.prev"; fi; }
+restore_marker_aside() {
+    if [[ ! -f "$DATA/$1/.complete" && -f "$DATA/$1/.complete.prev" ]]; then
+        mv -f "$DATA/$1/.complete.prev" "$DATA/$1/.complete"
+        nav_log info "readiness marker of the untouched old data restored" service="$1"
+    fi
+}
+drop_marker_aside() { rm -f "$DATA/photon/.complete.prev" "$DATA/valhalla/.complete.prev"; }
+
+# 1 from the moment Photon is stopped (or Valhalla is recreated) until both serve again. While 1, any exit that
+# does not go through rollback_and_fail (signal, unexpected error) brings the services back (on_exit).
+SERVICES_DISRUPTED=0
+
+recover_services() {
+    [[ $SERVICES_DISRUPTED -eq 1 ]] || return 0
+    SERVICES_DISRUPTED=0
+    nav_log warn "run ended while photon/valhalla were stopped or restarting; bringing them back"
+    if nav_compose up -d --no-deps --wait valhalla photon; then
+        nav_log info "photon and valhalla serving again after the interrupted run (old data unless a swap had finished)"
+        return 0
+    fi
+    if [[ "$AUTO_ROLLBACK" == 1 && -d "$ROLLBACK" ]]; then
+        nav_log warn "photon/valhalla did not come back; restoring the rollback copy"
+        "$NAV_BIN/nav-rollback-data.sh" --locked && return 0
+    fi
+    nav_log error "photon/valhalla are down after the interrupted run; see RUNBOOK.md section 11 'Rebuild interrupted'"
+    return 1
+}
+
 rollback_and_fail() {
     local why=$1
     nav_log error "rebuild failed" step="$why"
     restore_aux_cache || nav_log error "could not restore the auxiliary cache" aside="$AUX_ASIDE"
+    restore_marker_aside photon
+    restore_marker_aside valhalla
     if [[ "$AUTO_ROLLBACK" == 1 && -d "$ROLLBACK" ]]; then
         "$NAV_BIN/nav-rollback-data.sh" --locked || nav_log error "automatic rollback failed; see RUNBOOK.md 'Incidents'"
     else
         restore_sources || true
         nav_compose up -d --no-deps --wait valhalla photon || true
     fi
+    SERVICES_DISRUPTED=0   # handled here; on_exit must not start a second recovery
     exit 1
 }
 
-# Any other exit while the cache is aside (error, signal) puts it back as well.
-trap 'restore_aux_cache || true' EXIT
-trap 'exit 130' INT TERM
+# Background builders (tiles-build, valhalla-build) ignore Ctrl-C (async jobs in a script) and would keep running
+# after this script and its lock are gone: stop them first (compose forwards SIGTERM to the container).
+stop_background_builds() {
+    local p
+    for p in ${pid_tiles:-} ${pid_valhalla:-}; do
+        if kill -0 "$p" 2>/dev/null; then kill -TERM "$p" 2>/dev/null || true; fi
+    done
+    for p in ${pid_tiles:-} ${pid_valhalla:-}; do wait "$p" 2>/dev/null || true; done
+}
+
+# Any other exit (error, signal): put the auxiliary cache back and bring stopped services up again.
+on_exit() {
+    local rc=$?
+    trap - EXIT
+    trap '' INT TERM   # a second Ctrl-C must not abort the recovery half-way
+    stop_background_builds
+    restore_aux_cache || true
+    # Always (not only while disrupted): a --force run killed during the download would otherwise leave the
+    # running Valhalla without its marker, and it could not start again after the next reboot.
+    restore_marker_aside photon || true
+    restore_marker_aside valhalla || true
+    recover_services || true
+    exit "$rc"
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 if [[ $EMPTY_AUX -eq 0 && -e "$AUX_ASIDE" ]]; then
     nav_log warn "leftover auxiliary cache from an interrupted --empty-aux-cache run; not used (delete it to free disk)" dir="$AUX_ASIDE"
 fi
@@ -233,7 +298,8 @@ if [[ $EMPTY_AUX -eq 1 ]]; then empty_aux_cache; fi
 fetch_env=()
 if [[ $FORCE -eq 1 ]]; then
     # Full rebuild: the builders see no complete artefact and rebuild; the served files stay until the swap.
-    rm -f "$DATA/tiles/.complete" "$DATA/valhalla/.complete"
+    rm -f "$DATA/tiles/.complete"   # tiles are served by the gateway as a file; no serve-side marker check
+    set_marker_aside valhalla
     fetch_env=(-e FETCH_ALL_TOOLS=1)
     nav_log info "forced full rebuild (tiles, routing graph, search index)" empty_aux_cache="$EMPTY_AUX"
 fi
@@ -259,9 +325,10 @@ if [[ $FORCE -eq 1 || "$(cat "$SRC/photon-dump.sha256")" != "$old_dump_sha" ]]; 
     photon_changed=1
     nav_log info "photon stops for the re-import" reason="$([[ $FORCE -eq 1 ]] && echo forced || echo 'dump changed')"
     tp=$(date +%s)
+    SERVICES_DISRUPTED=1
     nav_compose stop photon
     add_photon_to_rollback
-    rm -f "$DATA/photon/.complete"
+    set_marker_aside photon
 fi
 build_rc=0
 nav_compose run --rm --no-deps photon-import || build_rc=1
@@ -279,7 +346,10 @@ build_s=$(( $(date +%s) - tb ))
 
 # ---------------------------------------------------------------- 5. switch to the new data
 tv=$(date +%s)
+SERVICES_DISRUPTED=1
 nav_compose up -d --no-deps --wait --force-recreate valhalla || rollback_and_fail "valhalla restart"
+SERVICES_DISRUPTED=0
+drop_marker_aside
 valhalla_down_s=$(( $(date +%s) - tv ))
 nav_log info "services switched to the new data" build_seconds="$build_s" \
     route_downtime_seconds="$valhalla_down_s" search_downtime_seconds="$photon_down_s" tiles_downtime_seconds=0

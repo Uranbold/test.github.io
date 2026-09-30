@@ -141,11 +141,29 @@ export class SearchBox {
       this.input.focus();
       c.retry();
     });
+    // Esc on «Дахин оролдох» closes its state row and returns focus to the input; the text stays (AC 41,
+    // screen spec › Interactions › Tab). Works while the button is aria-disabled (rate-limited) too.
+    this.retryBtn.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || e.isComposing) return;
+      e.preventDefault();
+      this.input.focus();
+      c.close();
+    });
   }
 
   private hasOptions(): boolean {
     const s = this.view.state;
     return (s === "results" || s === "coordinate") && this.view.options.length > 0;
+  }
+
+  /**
+   * A state row with «Дахин оролдох» (unavailable AC 33, rate-limited AC 35) stays open on Tab so the button can be
+   * reached (AC 41 exception, PO approval F5, D33). Every other open view (options, loading, no results, offline,
+   * bad request) closes on Tab.
+   */
+  private staysOpenOnTab(): boolean {
+    const v = this.view;
+    return (v.state === "unavailable" || v.state === "rate-limited") && v.retry !== "none";
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -184,9 +202,10 @@ export class SearchBox {
         return;
       }
       case "Tab":
-        // Tab leaves the input and closes an options list without selecting (AC 41). A state row stays, so its
-        // «Дахин оролдох» is the next Tab stops after the top-bar buttons (screen spec › Tab order).
-        if (this.hasOptions()) c.close();
+        // Tab (and Shift+Tab) leaves the input and closes the popup without selecting (AC 41). Exception: a state
+        // row with «Дахин оролдох» stays, so the button is the Tab stop after the top-bar cluster (screen spec ›
+        // Interactions › Tab, Accessibility › Tab order). Focus moves on by the default action (not prevented).
+        if (this.view.state !== "closed" && !this.staysOpenOnTab()) c.close();
         return;
     }
   }
@@ -208,6 +227,8 @@ export class SearchBox {
   // ------------------------------------------------------------------ rendering
 
   private render(v: SearchView): void {
+    // Read before anything is hidden: browsers may blur a focused element as soon as it is hidden.
+    const focusOnRetry = document.activeElement === this.retryBtn;
     const open = v.state !== "closed";
     const hasOptions = (v.state === "results" || v.state === "coordinate") && v.options.length > 0;
     this.popup.hidden = !open;
@@ -224,6 +245,10 @@ export class SearchBox {
 
     if (open && !hasOptions) this.renderState(v);
     else this.stateRow.hidden = true;
+
+    // Whenever the focused retry button is removed (popup closed, replaced by options, another state without a
+    // button), focus goes to the input, never to <body> (screen spec › Interactions › Tab, Focus management).
+    if (focusOnRetry && (this.popup.hidden || this.stateRow.hidden || this.retryBtn.hidden)) this.input.focus();
 
     if (open !== this.wasOpen) {
       this.wasOpen = open;
@@ -292,12 +317,10 @@ export class SearchBox {
     const icon = this.stateRow.querySelector<HTMLElement>(".icon")!;
     icon.innerHTML = row.icon ?? '<span class="spin"></span>';
     this.stateText.textContent = this.deps.i18n.t(row.key);
-    const focusOnRetry = document.activeElement === this.retryBtn;
     this.retryBtn.hidden = v.retry === "none";
     this.stateRow.classList.toggle("has-act", v.retry !== "none");
     if (v.retry === "disabled") this.retryBtn.setAttribute("aria-disabled", "true");
     else this.retryBtn.removeAttribute("aria-disabled");
-    if (focusOnRetry && this.retryBtn.hidden) this.input.focus();
   }
 
   private announcementText(a: Announcement): string {

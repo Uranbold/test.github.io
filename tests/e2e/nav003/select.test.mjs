@@ -1,37 +1,49 @@
-// NAV-003 E. Selecting a result: fly-to, pin and place card (AC 20–24). Fixture features by request interception.
+// NAV-003 E. Selecting a result: fly-to, pin and place card (AC 20–24), and AC 19 on the card. Fixture features F1–F16 by
+// request interception (F14a/F14b/F15/F16: story amendment 2026-09-30, PO approval F2: same row and zoom in both UI languages).
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import {
   FIXTURES, FX, SEARCH_GLOB, T, TRAD, attributionProblems, camera, card, fc, jumpTo, mock, openApp, options, pins, project, tid, typeQuery, waitSettled,
 } from './helpers.mjs';
 
-const byName = Object.fromEntries(FIXTURES.map((f) => [f.expect.name ?? f.id, f]));
 
-/** Every fixture is found by its id as query: «F5 тест» -> [F5]. Plus «олон» -> several. */
+/** Every fixture is found by its id as query: «F5 тест» -> [F5], «F14a тест» -> [F14a]. Plus «олон» -> several. */
 async function mockById(page) {
   return mock(page, SEARCH_GLOB, (p) => {
-    const m = /F(\d+)/.exec(p.q);
-    if (m) return { body: fc([FX[`F${m[1]}`].feature]) };
+    const m = /F\d+[ab]?/.exec(p.q);
+    if (m && FX[m[0]]) return { body: fc([FX[m[0]].feature]) };
     return { body: fc(['F5', 'F9', 'F10', 'F2'].map((id) => FX[id].feature)) };
   });
 }
 
-/** Selects the only option for fixture `id` with the given method; returns ms from the action to camera still. */
+/**
+ * Selects the only option for fixture `id` (click or ArrowDown+Enter). Returns ms from the selecting event as the page
+ * received it (capture-phase click / Enter keydown) to the camera's last `moveend`, on the page clock. Measuring from
+ * Node around Playwright's click() adds actionability checks and polling (NAV-002 AC 14 lesson): run 1 saw 2176 ms
+ * from Node for a 1000 ms flyTo.
+ */
 async function selectFixture(page, id, how = 'click') {
   const q = `${id} тест`;
   await typeQuery(page, q);
   await waitSettled(page, q);
-  const t0 = Date.now();
+  await page.evaluate(() => {
+    window.__sel = { t: null, end: null };
+    const mark = (e) => {
+      if (window.__sel.t === null && (e.type === 'click' || e.key === 'Enter')) window.__sel.t = performance.now();
+    };
+    document.addEventListener('click', mark, { capture: true, once: false });
+    document.addEventListener('keydown', mark, { capture: true, once: false });
+    window.__nav002.map.on('moveend', () => (window.__sel.end = performance.now()));
+  });
   if (how === 'click') await tid(page, 'search-option').first().click();
   else {
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
   }
-  await page.waitForFunction(() => !window.__nav002.map.isMoving(), null, { timeout: 5000, polling: 50 }).catch(() => {});
-  // flyTo may not have started on the first poll
-  await page.waitForTimeout(100);
+  await page.waitForFunction(() => window.__sel.end !== null && !window.__nav002.map.isMoving(), null, { timeout: 5000, polling: 50 });
+  await page.waitForTimeout(150);
   await page.waitForFunction(() => !window.__nav002.map.isMoving(), null, { timeout: 5000, polling: 50 });
-  return Date.now() - t0;
+  return page.evaluate(() => window.__sel.end - window.__sel.t);
 }
 
 test('AC20: point results are centred (±5 px) at zoom 13 (area types) or 16 (others) within 2 s; extents fit with >= 40 px padding at zoom <= 17', async ({ page }) => {
@@ -67,6 +79,44 @@ test('AC20: point results are centred (±5 px) at zoom 13 (area types) or 16 (ot
     await page.keyboard.press('Escape'); // close card (focus is on the card heading)
   }
   test.info().annotations.push({ type: 'AC20 rows', description: JSON.stringify(rows) });
+});
+
+test('AC19/AC20 (F2) mn and en: F14a/F14b/F15/F16 get the same type-label row on the place card and the same camera (extent fit, or area zoom 13) in both UI languages', async ({ page }) => {
+  test.setTimeout(120_000);
+  await mockById(page);
+  const seen = {};
+  for (const lang of ['mn', 'en']) {
+    await openApp(page, { lang });
+    for (const id of ['F14a', 'F14b', 'F15', 'F16']) {
+      const f = FX[id];
+      await jumpTo(page, { lat: 47.9, lng: 106.9 }, 11);
+      const ms = await selectFixture(page, id);
+      const cam = await camera(page);
+      const c = await card(page);
+      const label = lang === 'mn' ? f.expect.mn : f.expect.en;
+      expect.soft(c.type, `${lang} ${id} card type label (rule ${f.expect.rule})`).toBe(label);
+      if (f.expect.zoomClass === 'extent') {
+        const [minLon, maxLat, maxLon, minLat] = f.feature.properties.extent;
+        const a = await project(page, minLon, maxLat);
+        const b = await project(page, maxLon, minLat);
+        expect.soft(Math.min(a.x, a.y, a.vw - b.x, a.vh - b.y), `${lang} ${id} extent padding`).toBeGreaterThanOrEqual(39.5);
+      } else {
+        const [lon, lat] = f.feature.geometry.coordinates;
+        const pr = await project(page, lon, lat);
+        expect.soft(Math.hypot(pr.x - pr.cx, pr.y - pr.cy), `${lang} ${id} centred ±5 px`).toBeLessThanOrEqual(5);
+        expect.soft(Math.abs(cam.zoom - f.expect.zoom), `${lang} ${id} zoom ${cam.zoom} expected ${f.expect.zoom} (area label)`).toBeLessThanOrEqual(0.01);
+      }
+      expect.soft(ms, `${lang} ${id} camera arrived within 2 s`).toBeLessThanOrEqual(2000);
+      (seen[id] ??= {})[lang] = { type: c.type, zoom: +cam.zoom.toFixed(2) };
+      await page.keyboard.press('Escape');
+    }
+  }
+  test.info().annotations.push({ type: 'AC19/AC20 F14–F16 mn/en', description: JSON.stringify(seen) });
+  // Same row in both languages: the mn/en label pair of one table row, and the same zoom
+  for (const id of ['F14a', 'F14b', 'F15', 'F16']) {
+    expect.soft([seen[id].mn.type, seen[id].en.type], `${id} same row mn/en`).toEqual([FX[id].expect.mn, FX[id].expect.en]);
+    expect.soft(seen[id].en.zoom, `${id} same zoom mn/en`).toBeCloseTo(seen[id].mn.zoom, 1);
+  }
 });
 
 test('AC20: prefers-reduced-motion -> the camera jumps without animation within 500 ms', async ({ page }) => {
@@ -129,7 +179,7 @@ test('AC21: one pin at the feature point (±2 px) named with the result; card wi
   }
 });
 
-test('AC19 on the place card: every fixture F1–F13 card shows the story type label (mn and en)', async ({ page }) => {
+test('AC19 on the place card: every fixture F1–F16 card shows the story type label (mn and en)', async ({ page }) => {
   test.setTimeout(120_000);
   await mockById(page);
   await openApp(page);
@@ -213,9 +263,48 @@ const overlapProblems = (page) =>
     const nav3 = ['search-field', 'search-popup', 'place-card', 'place-pin'].flatMap((id) => [...document.querySelectorAll(`[data-testid=${id}]`)]).filter(vis);
     const nav2 = ['language-toggle', 'theme-toggle', 'compass', 'zoom-in', 'zoom-out', 'my-location', 'scale-bar', 'attribution-osm', 'attribution-esa', 'status-banner', 'location-message'].flatMap((id) => [...document.querySelectorAll(`[data-testid=${id}]`)]).filter(vis);
     const probs = [];
+    // The pin is a teardrop in a 28x40 box with transparent corners (and a 2 px drop shadow). Its box can touch a
+    // neighbour while the painted pin does not (run 1-2: 16/70 px² box overlap with the scale bar at 320 px, 4x
+    // screenshot showed a clear gap). So for the pin, count only 1 px samples that fall inside the painted path.
+    // Samples every 0.5 px of the box intersection; a sample counts when it is inside the painted pin path (fill or
+    // stroke) AND inside the other element's painted shape (its border-radius corners are not painted). Measured in
+    // run 2 (320 px, en, 5-line card): 4 samples of the pin's 2 px white stroke fell in the scale pill's box but outside
+    // its 4 px rounded corner, i.e. no painted overlap (4x screenshot confirms a gap).
+    const inRounded = (el, x, y) => {
+      const r = R(el);
+      const rad = Math.min(parseFloat(getComputedStyle(el).borderTopRightRadius) || 0, r.width / 2, r.height / 2);
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) return false;
+      const cx = x < r.left + rad ? r.left + rad : x > r.right - rad ? r.right - rad : x;
+      const cy = y < r.top + rad ? r.top + rad : y > r.bottom - rad ? r.bottom - rad : y;
+      return Math.hypot(x - cx, y - cy) <= rad || (cx === x || cy === y);
+    };
+    const pinPainted = (pin, other, r) => {
+      const path = pin.querySelector('svg path');
+      const svg = pin.querySelector('svg');
+      if (!path || !svg) return true; // unknown shape: fall back to the box
+      const m = svg.getScreenCTM()?.inverse();
+      if (!m) return true;
+      for (let x = r.left + 0.25; x < r.right; x += 0.5) {
+        for (let y = r.top + 0.25; y < r.bottom; y += 0.5) {
+          const p = new DOMPoint(x, y).matrixTransform(m);
+          const sp = svg.createSVGPoint();
+          sp.x = p.x;
+          sp.y = p.y;
+          if ((path.isPointInFill(sp) || path.isPointInStroke(sp)) && inRounded(other, x, y)) return true;
+        }
+      }
+      return false;
+    };
     for (const a of nav3) for (const b of nav2) {
-      const area = inter(R(a), R(b));
-      if (area > 0.5) probs.push(`${a.dataset.testid} overlaps ${b.dataset.testid} (${area.toFixed(0)} px²)`);
+      const ra = R(a);
+      const rb = R(b);
+      const area = inter(ra, rb);
+      if (area <= 0.5) continue;
+      if (a.dataset.testid === 'place-pin') {
+        const ir = { left: Math.max(ra.left, rb.left), top: Math.max(ra.top, rb.top), right: Math.min(ra.right, rb.right), bottom: Math.min(ra.bottom, rb.bottom) };
+        if (!pinPainted(a, b, ir)) continue;
+      }
+      probs.push(`${a.dataset.testid} overlaps ${b.dataset.testid} (${area.toFixed(0)} px² box)`);
     }
     // Scale bar not covered (hit test)
     const sb = document.querySelector('[data-testid=scale-bar]');
@@ -244,12 +333,7 @@ for (const width of [320, 360, 768, 1366, 1920]) {
   test(`AC23 ${width}px: card, pin, search box and list cover no attribution, scale bar or NAV-002 control; NAV-003 targets >= 44x44 (day/night × mn/en)`, async ({ page }) => {
     test.setTimeout(120_000);
     const height = { 320: 568, 360: 640, 768: 1024, 1366: 768, 1920: 1080 }[width];
-    await page.setViewportSize({ width, height });
     const longName = 'Монгол Улсын Их Хурлын дэргэдэх Хүний эрхийн үндэсний комиссын байр ба Сүхбаатар дүүргийн 1-р хороо';
-    await mock(page, SEARCH_GLOB, (p) => {
-      if (/урт/.test(p.q)) return { body: fc([{ ...FX.F2.feature, properties: { ...FX.F2.feature.properties, name: longName } }]) };
-      return { body: fc(['F5', 'F9', 'F10', 'F2', 'F6', 'F7', 'F8', 'F11'].map((id) => FX[id].feature)) };
-    });
     const all = [];
     for (const theme of ['day', 'night']) {
       for (const lang of ['mn', 'en']) {
@@ -276,15 +360,30 @@ for (const width of [320, 360, 768, 1366, 1920]) {
         await waitSettled(pg, 'урт нэр');
         await tid(pg, 'search-option').first().click();
         await pg.waitForTimeout(1300);
+        if (process.env.NAV003_AC23_NEGCTL) {
+          // Negative control (test-only, off by default): shift the pin so its body sits on the scale bar; the test must FAIL.
+          await pg.evaluate(() => {
+            const pin = document.querySelector('[data-testid=place-pin]');
+            const a = pin.getBoundingClientRect();
+            const b = document.querySelector('[data-testid=scale-bar]').getBoundingClientRect();
+            pin.style.marginLeft = `${b.left + b.width / 2 - (a.left + a.width / 2)}px`;
+            pin.style.marginTop = `${b.top + b.height / 2 - (a.top + a.height / 3)}px`;
+          });
+        }
         for (const p of await overlapProblems(pg)) all.push(`${tag} long card: ${p}`);
         for (const p of await attributionProblems(pg)) all.push(`${tag} long card: ${p}`);
         // the pin of a centred point result is not covered by the card
         const pinCovered = await pg.evaluate(() => {
           const pin = document.querySelector('[data-testid=place-pin]');
           if (!pin) return 'no pin';
+          // The pin has pointer-events:none, so hit-testing skips it: the pin is uncovered when the topmost hit element
+          // at its centre and tip is the map itself (canvas / marker layer), not a UI element above the map.
           const r = pin.getBoundingClientRect();
-          const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-          return h && (pin.contains(h) || h === pin) ? null : `pin covered by ${h?.tagName}.${h?.className}`;
+          for (const [x, y] of [[r.left + r.width / 2, r.top + r.height / 3], [r.left + r.width / 2, r.bottom - 1]]) {
+            const h = document.elementFromPoint(x, y);
+            if (h && !h.closest('#map')) return `pin covered by ${h.tagName}#${h.id}.${h.className}`;
+          }
+          return null;
         });
         if (pinCovered) all.push(`${tag} long card: ${pinCovered}`);
         await ctx.close();

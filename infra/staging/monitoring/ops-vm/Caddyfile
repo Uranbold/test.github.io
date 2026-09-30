@@ -1,0 +1,36 @@
+# NAV-008 ops VM: push-only front for Uptime Kuma (deployment-staging.md §9 and §17.4). Owner: backend-engineer.
+# Placeholders {$...} come from infra/staging/monitoring/ops-vm/.env through compose.yaml in this directory.
+# Validate: infra/ci/staging-static-checks.sh (`caddy validate` + adapted-config assertions in the pinned image).
+#
+# Only /api/push/* reaches Uptime Kuma: the staging host's disk, rebuild and backup heartbeats. Everything else,
+# including the Kuma UI, its API, badges, status pages and /metrics, gets an empty 404. The UI stays on
+# 127.0.0.1:3001 and is reached through an SSH tunnel only.
+{
+	email {$ACME_EMAIL}
+	acme_ca {$ACME_CA}
+	servers {
+		# Same as staging: HTTP/3 (UDP 443) off, the firewall stays TCP-only.
+		protocols h1 h2
+	}
+	# Same include-list as the staging Caddy (checked against Caddy 2.11.4). Push tokens are in the request
+	# path, so there is no access log (no `log` directive in the site block) and per-request error loggers
+	# (http.log.error, http.handlers.reverse_proxy) are dropped.
+	log default {
+		output stdout
+		format json
+		level INFO
+		include tls http.acme_client http.auto_https
+	}
+}
+
+{$OPS_HOST} {
+	tls {
+		protocols tls1.2 tls1.3
+	}
+	handle /api/push/* {
+		reverse_proxy uptime-kuma:3001
+	}
+	handle {
+		respond 404
+	}
+}

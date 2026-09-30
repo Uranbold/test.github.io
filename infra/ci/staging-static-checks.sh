@@ -3,7 +3,8 @@
 #   infra/ci/staging-static-checks.sh
 # 1. shellcheck (or bash -n)  2. compose config of the overlay (IPv4 and IPv6 variants): only Caddy publishes,
 # gateway forced to 127.0.0.1, rate limits on, trusted proxy = Caddy's address, images pinned
-# 3. `caddy validate` + adapted-config assertions (no access log, h1/h2 only, TLS 1.2-1.3, logger include-list)
+# 3. `caddy validate` + adapted-config assertions (no access log, h1/h2 only, TLS 1.2-1.3, logger include-list) for
+#    the staging Caddyfile and the ops VM push-only Caddyfile (only /api/push/* to Uptime Kuma, all else 404)
 # 4. systemd-analyze verify of the units  5. .env.example: every key has a comment; config parser and guards
 # 6. AC 16 sampler summary maths; backend/Makefile refuses service targets when infra/staging/.env exists
 # 7. no public IPv4 literal anywhere under infra/ (the real host address must never be committed)
@@ -58,8 +59,24 @@ assert (v == "v6") == bool(d["networks"]["edge"].get("enable_ipv6")), "enable_ip
 print(f"   {v}: only caddy publishes 80/443 tcp; gateway 127.0.0.1; rate limit on; trusted proxy {trusted}; {len(ipam)} edge subnet(s)")
 PY
 done
-( cd "$ST/monitoring/ops-vm" && docker compose -f compose.yaml config --quiet ) || fail "ops-vm compose config"
-docker compose -f "$ST/monitoring/ops-vm/compose.yaml" config | grep -q 'host_ip: 127.0.0.1' || fail "uptime kuma must bind to 127.0.0.1"
+OPSD=$ST/monitoring/ops-vm
+docker compose -f "$OPSD/compose.yaml" --env-file "$OPSD/.env.example" config > "$TMP/ops.yaml" || fail "ops-vm compose config"
+python3 - "$TMP/ops.yaml" <<'PY' || fail "ops-vm compose assertions"
+import sys, yaml
+s = yaml.safe_load(open(sys.argv[1]))["services"]
+assert set(s) == {"uptime-kuma", "caddy"}, sorted(s)
+kp = [(p["target"], p.get("host_ip")) for p in s["uptime-kuma"]["ports"]]
+assert kp == [(3001, "127.0.0.1")], f"uptime kuma ports {kp}"
+cp = sorted((p["target"], p.get("protocol"), p.get("host_ip")) for p in s["caddy"]["ports"])
+assert cp == [(80, "tcp", None), (443, "tcp", None)], f"ops caddy ports {cp}"
+assert s["uptime-kuma"]["environment"]["UPTIME_KUMA_DB_TYPE"] == "sqlite"
+for n, x in s.items():
+    assert "@sha256:" in x["image"], f"{n} image not pinned by digest: {x['image']}"
+print("   ops-vm: Kuma on 127.0.0.1:3001 only; Caddy publishes 80/443 tcp; images pinned by digest")
+PY
+if (cd "$TMP" && docker compose -f "$OPSD/compose.yaml" --project-directory "$TMP" config --quiet >/dev/null 2>&1); then
+    fail "ops-vm compose must refuse to start without OPS_HOST"
+fi
 
 echo "== Caddyfile (caddy validate + adapted config)"
 CADDY_IMG=$(python3 -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1]))["services"]["caddy"]["image"])' "$TMP/v4.yaml")
@@ -90,6 +107,38 @@ assert "encode" not in routes, "no encode (byte-exact ranges)"
 print("   no access log; h1+h2; TLS 1.2-1.3; include-list", log["include"], "; JSON backstop; reverse_proxy gateway:8080")
 PY
 
+echo "== ops VM Caddyfile (caddy validate + adapted config)"
+OENV=(-e OPS_HOST=ops-staging.example.invalid -e ACME_EMAIL=ops@example.invalid -e ACME_CA=https://acme-v02.api.letsencrypt.org/directory)
+OPS_CADDY_IMG=$(python3 -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1]))["services"]["caddy"]["image"])' "$TMP/ops.yaml")
+[[ "$OPS_CADDY_IMG" == "$CADDY_IMG" ]] || fail "ops VM Caddy image differs from the staging Caddy image"
+docker run --rm "${OENV[@]}" -v "$OPSD/Caddyfile:/etc/caddy/Caddyfile:ro" "$OPS_CADDY_IMG" \
+    caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >"$TMP/ops-validate.log" 2>&1 || { cat "$TMP/ops-validate.log"; fail "caddy validate (ops)"; }
+docker run --rm "${OENV[@]}" -v "$OPSD/Caddyfile:/etc/caddy/Caddyfile:ro" "$OPS_CADDY_IMG" \
+    caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile > "$TMP/ops-caddy.json" 2>/dev/null || fail "caddy adapt (ops)"
+python3 - "$TMP/ops-caddy.json" "$TMP/caddy.json" <<'PY' || fail "ops Caddy config assertions"
+import json, sys
+c = json.load(open(sys.argv[1])); stg = json.load(open(sys.argv[2]))
+srv = list(c["apps"]["http"]["servers"].values())
+assert len(srv) == 1, "one server block"
+srv = srv[0]
+assert "logs" not in srv, "access logging is on (push tokens are in the path)"
+assert srv.get("protocols") == ["h1", "h2"], f"protocols {srv.get('protocols')}"
+conn = srv["tls_connection_policies"][0]
+assert conn.get("protocol_min") == "tls1.2" and conn.get("protocol_max") == "tls1.3", conn
+assert c["logging"]["logs"]["default"] == stg["logging"]["logs"]["default"], "log config differs from the staging Caddy"
+site = srv["routes"][0]
+assert site["match"] == [{"host": ["ops-staging.example.invalid"]}], site["match"]
+subs = site["handle"][0]["routes"]
+# Caddy groups the two `handle` blocks into one subroute: /api/push/* -> Kuma first, then the catch-all 404.
+push = [r for r in subs if r.get("match") == [{"path": ["/api/push/*"]}]]
+rest = [r for r in subs if "match" not in r]
+assert len(push) == 1 and len(rest) == 1 and len(subs) == 2, json.dumps(subs)
+assert '"upstreams": [{"dial": "uptime-kuma:3001"}]' in json.dumps(push[0]), json.dumps(push[0])
+assert '"status_code": 404' in json.dumps(rest[0]) and "reverse_proxy" not in json.dumps(rest[0]), json.dumps(rest[0])
+assert json.dumps(srv["routes"]).count("reverse_proxy") == 1, "exactly one upstream route"
+print("   ops: no access log; h1+h2; TLS 1.2-1.3; staging log include-list; /api/push/* -> uptime-kuma:3001, all else 404")
+PY
+
 echo "== systemd units"
 mkdir -p "$TMP/units"
 for u in "$ST"/systemd/*; do sed "s|@NAV_ROOT@|$ROOT|g" "$u" > "$TMP/units/$(basename "$u")"; done
@@ -106,7 +155,7 @@ grep -q 'OnCalendar=\*-\*-\* 19:30:00 UTC' "$ST/systemd/nav-rebuild.timer" || fa
 grep -q 'OnCalendar=\*:0/5' "$ST/systemd/nav-diskcheck.timer" || fail "diskcheck every 5 min"
 
 echo "== .env.example and config helpers"
-python3 - "$ST/.env.example" "$ROOT/backend/.env.example" <<'PY' || fail ".env.example comments"
+python3 - "$ST/.env.example" "$ROOT/backend/.env.example" "$ST/monitoring/ops-vm/.env.example" <<'PY' || fail ".env.example comments"
 import re, sys
 for path in sys.argv[1:]:
     lines = open(path).read().splitlines()
@@ -119,7 +168,7 @@ for path in sys.argv[1:]:
                               ("backend" in path and re.match(r"^[A-Z][A-Z0-9_]*=", lines[j]))):
                 j -= 1
             assert j >= 0 and lines[j].startswith("#"), f"{path}:{i+1} {l.split('=')[0]} has no comment line"
-print("   every key in infra/staging/.env.example and backend/.env.example has a comment")
+print("   every key in infra/staging/.env.example, monitoring/ops-vm/.env.example and backend/.env.example has a comment")
 PY
 cat > "$TMP/t.env" <<'EOF'
 STAGING_HOST=first.example.invalid

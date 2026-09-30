@@ -11,13 +11,18 @@ export const MIN_QUERY_LENGTH = 2;
  * (without splitting a surrogate pair).
  */
 export function normalizeQuery(raw: string): string {
-  let s = raw.normalize("NFC").replace(/\s+/gu, " ").trim();
-  if (s.length > MAX_QUERY_LENGTH) {
-    s = s.slice(0, MAX_QUERY_LENGTH);
-    if (/[\uD800-\uDBFF]$/.test(s)) s = s.slice(0, -1);
-    s = s.trim();
-  }
-  return s;
+  return capQueryLength(raw.normalize("NFC").replace(/\s+/gu, " ").trim());
+}
+
+/**
+ * Cuts a query to the contract's `q` maxLength (200 code units) without splitting a surrogate pair, then trims.
+ * Used for the settled query and for every planned `q` (story AC 16, PO approval F4).
+ */
+export function capQueryLength(s: string): string {
+  if (s.length <= MAX_QUERY_LENGTH) return s;
+  let out = s.slice(0, MAX_QUERY_LENGTH);
+  if (/[\uD800-\uDBFF]$/.test(out)) out = out.slice(0, -1);
+  return out.trim();
 }
 
 export const isSearchable = (settled: string): boolean => settled.length >= MIN_QUERY_LENGTH;

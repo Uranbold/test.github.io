@@ -64,7 +64,7 @@ export const T = {
   },
 };
 
-/** Type labels, story section D (order = rule number). */
+/** Type labels, story section D (order = rule number). Rule 4a (amended 2026-09-30, F2) reuses row 1's label «Дүүрэг» / "District". */
 export const TYPE_LABELS = [
   [1, 'Дүүрэг', 'District'], [2, 'Хороо', 'Khoroo'], [3, 'Аймаг', 'Aimag'], [4, 'Сум', 'Soum'], [5, 'Хот', 'City or town'],
   [6, 'Суурин', 'Settlement'], [7, 'Хороолол', 'Neighbourhood'], [8, 'Талбай', 'Square'], [9, 'ШТС', 'Petrol station'],
@@ -76,6 +76,29 @@ export const TYPE_LABELS = [
   [30, 'Зам', 'Road'], [31, 'Хаяг', 'Address'], [32, 'Газар', 'Place'],
 ];
 export const AREA_LABELS_MN = ['Хот', 'Суурин', 'Дүүрэг', 'Хороо', 'Хороолол', 'Аймаг', 'Сум']; // AC 20: zoom 13
+
+/** ADR-0006 §2.3 abbreviation table (story AC 16). */
+export const ABBR = { СБД: 'Сүхбаатар дүүрэг', БЗД: 'Баянзүрх дүүрэг', ХУД: 'Хан-Уул дүүрэг', БГД: 'Баянгол дүүрэг', ЧД: 'Чингэлтэй дүүрэг', СХД: 'Сонгинохайрхан дүүрэг' };
+
+/**
+ * The request plan the story expects for a settled text query (AC 3, 15, 16 as amended 2026-09-30, F3 = ADR-0006 §2.3
+ * rules A–D). Derived by QA from the story wording, not from web/ code. The transliteration itself is the implementer's
+ * choice, so rule B returns `secondary: 'cyrillic'` instead of a string.
+ */
+export function expectedPlan(q) {
+  const tokens = q.split(' ');
+  if (tokens.some((w) => ABBR[w.toUpperCase()])) {
+    const expanded = tokens.map((w) => ABBR[w.toUpperCase()] ?? w).join(' ');
+    return { rule: 'A', mode: 'parallel', primary: expanded, secondary: q };
+  }
+  const letters = [...q.matchAll(/\p{L}/gu)].map((m) => m[0]);
+  if (letters.length >= 2 && letters.every((c) => /\p{Script=Latin}/u.test(c))) return { rule: 'B', mode: 'parallel', primary: q, secondary: 'cyrillic' };
+  if (letters.length && letters.every((c) => /\p{Script=Cyrillic}/u.test(c)) && /[уУоО]/.test(q)) {
+    const v = q.replace(/у/g, 'ү').replace(/У/g, 'Ү').replace(/о/g, 'ө').replace(/О/g, 'Ө');
+    return { rule: 'C', mode: 'ifEmpty', primary: q, secondary: v };
+  }
+  return { rule: 'D', mode: 'none', primary: q };
+}
 
 export const TRAD = /[᠀-᢯]/;
 export const CORS = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json; charset=utf-8' };
@@ -95,11 +118,16 @@ export function nav003Init() {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const m = /\/v1\/(search|reverse)\?/.exec(url);
     if (!m) return of.apply(this, arguments);
-    const rec = { op: m[1], url, t: performance.now(), end: null, outcome: null };
+    const rec = { op: m[1], url, t: performance.now(), end: null, outcome: null, count: null };
     window.__req.push(rec);
     const p = of.apply(this, arguments);
     p.then(
-      (r) => ((rec.end = performance.now()), (rec.outcome = r.status)),
+      (r) => {
+        rec.end = performance.now();
+        rec.outcome = r.status;
+        // Number of features in a 200 response (ADR-0006 rule C "ifEmpty" check); read from a clone, never the original.
+        if (r.status === 200) r.clone().json().then((j) => (rec.count = Array.isArray(j?.features) ? j.features.length : null), () => {});
+      },
       (e) => ((rec.end = performance.now()), (rec.outcome = String(e && e.name))),
     );
     return p;

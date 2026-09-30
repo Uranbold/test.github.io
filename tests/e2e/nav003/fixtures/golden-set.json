@@ -33,9 +33,11 @@
   ]
  },
  "notes": [
-  "A9-A11, B9, B10 use the English type label when ui=en (B10: \"District\"). B10 name condition accepts the Latin or Cyrillic name (lang=en returns name:en where it exists, AC 45).",
-  "C4 (context line for A2 and A6) and C5 (share of Latin names in the mn UI) are computed from the A/B runs.",
-  "Rate: rows are spaced so the whole run stays <= 2 search requests per second (about 70 requests per run)."
+  "A9-A11, B9, B10 use the English type label when ui=en (story: a type-label condition names the mn label; in a row with UI en it means the en label of the same table row). B10 name condition accepts the Latin (any case) or Cyrillic name (lang=en returns name:en where it exists, AC 45).",
+  "B15 amended 2026-09-30 (PO approval F1, D33): name or context line contains «Баянзүрх» or «БЗД». The 80 % tier B threshold is fixed (AC 14).",
+  "A8 unchanged (<= 300 m from P2, top 3): story Open question 7 is still open.",
+  "C4 (context line for A2 and A6) and C5 (share of Latin names in the mn UI) are computed from the A/B runs. C6 (added 2026-09-30, F2) records type labels and Photon osm_key/osm_value/type of the top 3 options.",
+  "Rate: rows are spaced so the whole run stays <= 2 search requests per second (about 80 requests per run with C6)."
  ],
  "rows": [
   {
@@ -352,11 +354,13 @@
    "ui": "en",
    "bias": "P1",
    "expect": {
-    "nameContains": "Chingeltei|Чингэлтэй",
+    "nameContains": "chingeltei|Чингэлтэй",
     "type": "District",
-    "top": 5
+    "top": 5,
+    "flags": "i"
    },
-   "control": "A10"
+   "control": "A10",
+   "note": "Story B10 (amended 2026-09-30, F2): name contains 'Chingeltei' (any case) or «Чингэлтэй», type label 'District', top 5"
   },
   {
    "id": "B11",
@@ -416,9 +420,10 @@
    "bias": "P1",
    "expect": {
     "type": "Хороо",
-    "nameOrContextContains": "Баянзүрх",
+    "nameOrContextContains": "Баянзүрх|БЗД",
     "top": 5
-   }
+   },
+   "note": "Amended 2026-09-30 (PO approval F1, D33): the official abbreviation «БЗД» in the name or context line also passes (OSM names the khoroo office «БЗД-ийн 4-р хороо»)"
   },
   {
    "id": "C1a",
@@ -479,6 +484,72 @@
      47.95,
      106.9
     ]
+   }
+  },
+  {
+   "id": "C6a",
+   "tier": "C",
+   "q": "Bayanzurkh",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
+    "c6": true
+   }
+  },
+  {
+   "id": "C6b",
+   "tier": "C",
+   "q": "Khan-Uul",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
+    "c6": true
+   }
+  },
+  {
+   "id": "C6c",
+   "tier": "C",
+   "q": "Arkhangai",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
+    "c6": true
+   }
+  },
+  {
+   "id": "C6d",
+   "tier": "C",
+   "q": "Erdenet",
+   "ui": "en",
+   "bias": "X1",
+   "expect": {
+    "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
+    "c6": true
+   }
+  },
+  {
+   "id": "C6e",
+   "tier": "C",
+   "q": "Архангай",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
+    "c6": true
+   }
+  },
+  {
+   "id": "C6f",
+   "tier": "C",
+   "q": "Эрдэнэт",
+   "ui": "mn",
+   "bias": "X1",
+   "expect": {
+    "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
+    "c6": true
    }
   }
  ]

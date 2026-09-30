@@ -191,6 +191,11 @@ scripts/                         vendor-assets.sh, check-i18n.mjs, check-glossar
   400 «Алдаа гарлаа»; offline «Интернэт холболт алга» with no request and one search when back online; 429 «Түр
   хүлээгээд дахин оролдоно уу» with the retry disabled for `Retry-After` seconds (5 s if missing or unreadable) and
   nothing sent automatically afterwards. Nothing else retries automatically.
+- **Keyboard (AC 41, PO approval F5, D33).** Tab or Shift+Tab from the input closes the popup without selecting, except
+  a state row with «Дахин оролдох» (unavailable, rate-limited): it stays open so the retry button is the Tab stop after
+  the compass. Esc on the input or on the retry button closes that row and focuses the input (text kept). The retry
+  button has `aria-describedby="search-state-text"`. If the focused retry button disappears (popup closed, options or
+  another state row), focus goes to the input, never to `<body>`.
 - **Coordinate card.** Right-click (desktop) or a 600 ms long-press (touch, ≤ 10 px movement) on a ready map, or a typed
   coordinate. Exactly one `reverse` request (6 decimals, `limit=1`, `radius=0.5`). The camera does not move for
   right-click / long-press.

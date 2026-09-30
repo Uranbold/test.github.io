@@ -14,11 +14,12 @@ const feature = (properties: PhotonProperties, lon = 106.9176, lat = 47.9189): P
 });
 
 /** One fixture per rule of the story table "Type labels" (rule order), with the expected mn / en label. */
-const RULES: Array<[number, PhotonProperties, PlaceTypeKey, string, string]> = [
+const RULES: Array<[number | "4a", PhotonProperties, PlaceTypeKey, string, string]> = [
   [1, { name: "Баянзүрх дүүрэг", osm_key: "boundary", osm_value: "administrative" }, "placeType.district", "Дүүрэг", "District"],
   [2, { name: "БЗД-ийн 4-р хороо", osm_key: "office", osm_value: "government" }, "placeType.khoroo", "Хороо", "Khoroo"],
   [3, { name: "Сэлэнгэ аймаг", osm_key: "boundary", osm_value: "administrative" }, "placeType.aimag", "Аймаг", "Aimag"],
   [4, { name: "Баруунхараа сум", osm_key: "place", osm_value: "village" }, "placeType.soum", "Сум", "Soum"],
+  ["4a", { name: "Chingeltei", osm_key: "boundary", osm_value: "administrative", type: "district" }, "placeType.district", "Дүүрэг", "District"],
   [5, { name: "Эрдэнэт", osm_key: "place", osm_value: "city" }, "placeType.city", "Хот", "City or town"],
   [6, { name: "Тэрэлж", osm_key: "place", osm_value: "hamlet" }, "placeType.settlement", "Суурин", "Settlement"],
   [7, { name: "Бага Тойрог", osm_key: "place", osm_value: "suburb" }, "placeType.neighbourhood", "Хороолол", "Neighbourhood"],
@@ -52,8 +53,10 @@ const RULES: Array<[number, PhotonProperties, PlaceTypeKey, string, string]> = [
 ];
 
 describe("type labels (story table, AC 19)", () => {
-  it("has 31 explicit rules plus the «Газар» fallback, in story order", () => {
-    expect(TYPE_LABEL_RULES).toHaveLength(31);
+  it("has 32 explicit rules (1–4, 4a, 5–31) plus the «Газар» fallback, in story order", () => {
+    expect(TYPE_LABEL_RULES).toHaveLength(32);
+    expect(TYPE_LABEL_RULES[4]?.[0]).toBe("placeType.district");
+    expect(TYPE_LABEL_RULES[5]?.[0]).toBe("placeType.city");
   });
   for (const [rule, props, key, mnLabel, enLabel] of RULES) {
     it(`rule ${rule}: ${props.osm_key}=${props.osm_value} ${props.name ?? ""} → «${mnLabel}» / "${enLabel}"`, () => {
@@ -67,6 +70,38 @@ describe("type labels (story table, AC 19)", () => {
     expect(typeLabelKey({ name: "Сум", osm_key: "place", osm_value: "village" })).toBe("placeType.settlement");
     expect(typeLabelKey({ name: "Хуучин сум", osm_key: "amenity", osm_value: "place_of_worship" })).toBe("placeType.worship");
   });
+  it("rules 1–4 also match the Latin endings returned with lang=en, case-insensitively (F2)", () => {
+    const cases: Array<[string, PlaceTypeKey]> = [
+      ["Bayanzurkh duureg", "placeType.district"],
+      ["Bayanzürkh Düüreg", "placeType.district"],
+      ["Bayanzürkh düüreg".normalize("NFD"), "placeType.district"],
+      ["Khan-Uul District", "placeType.district"],
+      ["Chingeltei duureg, 5-g khoroo", "placeType.khoroo"],
+      ["4-r horoo", "placeType.khoroo"],
+      ["Selenge aimag", "placeType.aimag"],
+      ["Selenge Province", "placeType.aimag"],
+    ];
+    for (const [name, key] of cases) expect(typeLabelKey({ name, osm_key: "office", osm_value: "government" }), name).toBe(key);
+    expect(typeLabelKey({ name: "Baruunkharaa sum", osm_key: "place", osm_value: "village" })).toBe("placeType.soum");
+    expect(typeLabelKey({ name: "Bornuur soum", osm_key: "boundary", osm_value: "administrative" })).toBe("placeType.soum");
+    // «… sum» / "… soum" still needs osm_key boundary or place (rule 4).
+    expect(typeLabelKey({ name: "Bornuur soum", osm_key: "amenity", osm_value: "fuel" })).toBe("placeType.fuel");
+  });
+  it("an ending must follow a space: \"Khoroo 5\", \"Districtbar\" and a bare «Хороо» do not match rules 1–4", () => {
+    expect(typeLabelKey({ name: "Khoroo 5", osm_key: "office", osm_value: "government" })).toBe("placeType.government");
+    expect(typeLabelKey({ name: "Хороо", osm_key: "office", osm_value: "government" })).toBe("placeType.government");
+    expect(typeLabelKey({ name: "Mydistrict", osm_key: "place", osm_value: "suburb" })).toBe("placeType.neighbourhood");
+  });
+  it("rule 4a needs boundary=administrative and type=district", () => {
+    expect(typeLabelKey({ name: "Chingeltei", osm_key: "boundary", osm_value: "administrative" })).toBe("placeType.place");
+    expect(typeLabelKey({ name: "Chingeltei", osm_key: "boundary", osm_value: "administrative", type: "city" })).toBe("placeType.place");
+    expect(typeLabelKey({ name: "Chingeltei", osm_key: "boundary", osm_value: "protected_area", type: "district" })).toBe("placeType.place");
+    // place=suburb with type=district and no district ending stays rule 7 (only boundaries use rule 4a).
+    expect(typeLabelKey({ name: "Bayanzurkh", osm_key: "place", osm_value: "suburb", type: "district" })).toBe("placeType.neighbourhood");
+    // A name ending still wins over rule 4a (R13: a soum boundary that Photon classes as type=district).
+    expect(typeLabelKey({ name: "Bornuur sum", osm_key: "boundary", osm_value: "administrative", type: "district" })).toBe("placeType.soum");
+    expect(typeLabelKey({ name: "Сэлэнгэ аймаг", osm_key: "boundary", osm_value: "administrative", type: "district" })).toBe("placeType.aimag");
+  });
   it("uses the name after removing traditional script (AC 18)", () => {
     expect(typeLabelKey({ name: "Сэлэнгэ аймаг ᠰᠡᠯᠡᠩᠭᠡ", osm_key: "boundary" })).toBe("placeType.aimag");
   });
@@ -76,6 +111,49 @@ describe("type labels (story table, AC 19)", () => {
     }
     expect(zoomForType("placeType.square")).toBe(16);
     expect(zoomForType("placeType.place")).toBe(16);
+  });
+});
+
+/**
+ * Story fixtures F14–F16 (PO approval F2): each rendered in both UI languages. The label key is language-independent;
+ * the UI language only picks mn.json or en.json for that key, so both languages show the label of the same row.
+ */
+describe("fixtures F14–F16 (AC 19, 20; F2)", () => {
+  const CHINGELTEI_EXTENT: [number, number, number, number] = [106.8636, 48.0412, 106.9406, 47.9119];
+  const boundary = { osm_type: "R", osm_id: 2798006, osm_key: "boundary", osm_value: "administrative", type: "district" } as const;
+  const f14en = feature({ ...boundary, name: "Chingeltei", extent: CHINGELTEI_EXTENT, countrycode: "MN" }, 106.9, 47.95);
+  const f14mn = feature({ ...boundary, name: "Чингэлтэй дүүрэг", extent: CHINGELTEI_EXTENT, countrycode: "MN" }, 106.9, 47.95);
+  const f14mnShort = feature({ ...boundary, name: "Чингэлтэй", extent: CHINGELTEI_EXTENT, countrycode: "MN" }, 106.9, 47.95);
+  const f15 = feature({ osm_type: "N", osm_id: 1, name: "Chingeltei duureg, 5-g khoroo", osm_key: "office", osm_value: "government" }, 106.91, 47.93);
+  const f16 = feature({ osm_type: "R", osm_id: 2, name: "Сүхбаатар дүүрэг", osm_key: "place", osm_value: "suburb", type: "district" });
+
+  const labels = (f: PhotonFeature): [PlaceTypeKey, string, string] => {
+    const k = resultInfo(f).typeKey;
+    return [k, mn[k], en[k]];
+  };
+
+  it("F14: the düüreg boundary is «Дүүрэг» / \"District\" for the lang=en name \"Chingeltei\" and the lang=mn names", () => {
+    for (const f of [f14en, f14mn, f14mnShort]) {
+      expect(labels(f), f.properties.name).toEqual(["placeType.district", "Дүүрэг", "District"]);
+      // With extent: fit the box (AC 20), identical in both languages.
+      expect(resultInfo(f).bounds).toEqual([[106.8636, 47.9119], [106.9406, 48.0412]]);
+    }
+    // Same row in both languages (AC 19): never "Place" in one and a specific label in the other.
+    expect(resultInfo(f14en).typeKey).toBe(resultInfo(f14mn).typeKey);
+    // Without extent it would fly to the area zoom.
+    expect(zoomForType(resultInfo(f14en).typeKey)).toBe(13);
+  });
+
+  it("F15: \"Chingeltei duureg, 5-g khoroo\" (office=government, no extent) is «Хороо» / \"Khoroo\" at zoom 13", () => {
+    expect(labels(f15)).toEqual(["placeType.khoroo", "Хороо", "Khoroo"]);
+    const info = resultInfo(f15);
+    expect(info.bounds).toBeNull();
+    expect(zoomForType(info.typeKey)).toBe(13);
+  });
+
+  it("F16: «Сүхбаатар дүүрэг» mapped as place=suburb, type=district is rule 1 «Дүүрэг», not rule 7 «Хороолол»", () => {
+    expect(labels(f16)).toEqual(["placeType.district", "Дүүрэг", "District"]);
+    expect(labels(feature({ ...f16.properties, name: "Sukhbaatar duureg" }))).toEqual(["placeType.district", "Дүүрэг", "District"]);
   });
 });
 
