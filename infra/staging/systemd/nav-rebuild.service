@@ -11,6 +11,9 @@ Type=oneshot
 # The script takes /run/lock/nav-stack.lock (flock) itself, so a manual run, a deploy or a rollback never overlaps.
 ExecStart=@NAV_ROOT@/infra/staging/bin/nav-rebuild.sh
 TimeoutStartSec=2h
+# On stop or start timeout the script's EXIT trap restarts photon/valhalla (up --wait, about 1 min); give it time
+# before systemd sends SIGKILL.
+TimeoutStopSec=5min
 Nice=5
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6

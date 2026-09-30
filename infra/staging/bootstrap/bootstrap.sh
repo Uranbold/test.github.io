@@ -4,14 +4,17 @@
 #
 #   sudo infra/staging/bootstrap/bootstrap.sh --ops-key-file /root/nav-ops.pub            # staging host
 #   sudo infra/staging/bootstrap/bootstrap.sh --copy-root-keys                            # use root's authorized_keys
-#   sudo infra/staging/bootstrap/bootstrap.sh --role ops --ops-key-file /root/nav-ops.pub \
-#        --extra-allow-users nav-backup                                                   # ops VM (SSH only)
+#   sudo /opt/nav-ops/bootstrap/bootstrap.sh --role ops --ops-key-file /root/nav-ops.pub \
+#        --extra-allow-users nav-backup                                                   # ops VM (22, 80, 443)
 #
 # Options
 #   --ops-key-file FILE    PUBLIC key(s) of the named operator for the nav-ops account (added if missing).
 #   --copy-root-keys       also copy the public keys in /root/.ssh/authorized_keys (keys set in the provider
 #                          panel at VM creation) to nav-ops.
-#   --role staging|ops     staging (default): UFW 22/80/443. ops: UFW 22 only (Uptime Kuma stays on 127.0.0.1).
+#   --role staging|ops     staging (default): UFW 22/80/443. ops: also UFW 22/80/443, for the push-only Caddy
+#                          (80 = ACME HTTP-01 + redirect, 443 = /api/push/* to Uptime Kuma, which stays on 127.0.0.1).
+#   --no-web               ops role only: SSH only, 80/443 closed again if a previous run opened them (e.g. when
+#                          heartbeats go to a hosted monitor instead, deployment-staging.md §9 alternative).
 #   --extra-allow-users "a b"   more accounts for sshd AllowUsers (ops VM: the restic SFTP account).
 #   --ssh-port N           SSH port kept open in UFW (default 22; sshd's own port is not changed).
 #   --docker-version V     exact docker-ce apt version to install (default: newest in Docker's repo, then held).
@@ -21,7 +24,7 @@
 # What it sets: UTC clock; nav-ops (sudo, key-only, no password); sshd drop-in 00-nav-hardening.conf (keys
 # only, no root, AllowUsers); unattended-upgrades (security pocket, reboot 21:30 UTC); Docker Engine + Compose
 # plugin from Docker's apt repository (held) with log rotation; journald 1 GB / 14 days; UFW deny-in with
-# limit 22, allow 80/443 (IPv4+IPv6), logging off; 4 GB swap, swappiness 10; sysstat with 28 days history;
+# limit 22, allow 80/443 (IPv4+IPv6; ops role too unless --no-web), logging off; 4 GB swap, swappiness 10; sysstat with 28 days history;
 # /opt/nav owned by nav-ops. Inside a container (for CI) kernel-level steps are reported as skipped.
 # Never prints key material (only fingerprints). Never sets or asks for passwords.
 set -Eeuo pipefail
@@ -34,6 +37,7 @@ EXTRA_ALLOW=""
 SSH_PORT=22
 DOCKER_VERSION=""
 SKIP=","
+NO_WEB=0
 ADMIN=nav-ops
 NAV_DIR=${NAV_DIR:-/opt/nav}
 
@@ -46,7 +50,8 @@ while [[ $# -gt 0 ]]; do
         --ssh-port) SSH_PORT=$2; shift ;;
         --docker-version) DOCKER_VERSION=$2; shift ;;
         --skip) SKIP=",$2,"; shift ;;
-        -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+        --no-web) NO_WEB=1 ;;
+        -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
     shift
@@ -87,6 +92,7 @@ svc() {  # svc <action> <unit>: systemctl when systemd runs, otherwise report
 
 [[ $EUID -eq 0 ]] || die "run as root (sudo)"
 [[ "$ROLE" == staging || "$ROLE" == ops ]] || die "--role must be staging or ops"
+[[ $NO_WEB -eq 0 || "$ROLE" == ops ]] || die "--no-web is for --role ops only (the staging host always serves 80/443)"
 [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || die "--ssh-port must be a number"
 [[ -z "$OPS_KEY_FILE" || ( -f "$OPS_KEY_FILE" && -r "$OPS_KEY_FILE" ) ]] || die "--ops-key-file is not a readable file: $OPS_KEY_FILE"
 . /etc/os-release
@@ -311,9 +317,14 @@ if ! skip ufw; then
     grep -q '^DEFAULT_INPUT_POLICY="DROP"' /etc/default/ufw || ufw default deny incoming >/dev/null
     grep -q '^DEFAULT_OUTPUT_POLICY="ACCEPT"' /etc/default/ufw || ufw default allow outgoing >/dev/null
     ufw limit "$SSH_PORT/tcp" comment 'NAV-008 ssh' >/dev/null
-    if [[ "$ROLE" == staging ]]; then
+    # staging: Caddy in front of the gateway. ops: the push-only Caddy in front of Uptime Kuma (§17.4).
+    if [[ $NO_WEB -eq 0 ]]; then
         ufw allow 80/tcp comment 'NAV-008 http (redirect + ACME)' >/dev/null
         ufw allow 443/tcp comment 'NAV-008 https' >/dev/null
+    else
+        for r in 80/tcp 443/tcp; do
+            if ufw show added 2>/dev/null | grep -qE "^ufw allow $r( |$)"; then ufw delete allow "$r" >/dev/null; fi
+        done
     fi
     # Blocked-packet logs contain source IPs (deployment-staging.md §8).
     grep -q '^LOGLEVEL=off' /etc/ufw/ufw.conf || ufw logging off >/dev/null
@@ -325,7 +336,7 @@ if ! skip ufw; then
     fi
     after=$(ufw_state)
     [[ "$before" == "$after" ]] || changed "ufw rules"
-    ok "ufw ($ROLE)"
+    ok "ufw ($ROLE: $([[ $NO_WEB -eq 1 ]] && echo 'ssh only' || echo 'ssh, 80, 443'))"
 fi
 
 # ------------------------------------------------------------------ swap 4 GB, swappiness 10

@@ -3,7 +3,9 @@
 # monitors once in the UI (RUNBOOK.md "Monitoring"); this file is the reviewed source of truth for their
 # settings. Field names follow the Uptime Kuma 2.x "Add New Monitor" form.
 # Placeholders: <STAGING_HOST> = STAGING_HOST from infra/staging/.env. Push URLs that Uptime Kuma shows after
-# saving a push monitor go ONLY into infra/staging/.env on the staging host (they contain tokens).
+# saving a push monitor go ONLY into infra/staging/.env on the staging host (they contain tokens), with the origin
+# rewritten: the UI (opened through the SSH tunnel) shows http://localhost:3001/api/push/<token>?...; the staging
+# host must use https://<OPS_HOST>/api/push/<token>?... (the ops VM's push-only Caddy, RUNBOOK.md section 10).
 
 uptime_kuma:
   image: louislam/uptime-kuma:2.5.5-slim   # pinned by digest in monitoring/ops-vm/compose.yaml

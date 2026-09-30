@@ -5,14 +5,17 @@
 #   sudo infra/staging/bin/nav-backup.sh init        # once: create the encrypted repository on the ops VM
 #   sudo infra/staging/bin/nav-backup.sh             # = backup: snapshot + forget/prune (nav-backup.timer, daily)
 #   sudo infra/staging/bin/nav-backup.sh check       # restic check (nav-backup-check.timer, weekly)
-#   sudo infra/staging/bin/nav-backup.sh snapshots   # list snapshots
-#   sudo infra/staging/bin/nav-backup.sh paths       # print the path list that would be backed up
+#   sudo infra/staging/bin/nav-backup.sh snapshots   # list snapshots (also a quick "repository reachable" check)
+#   sudo infra/staging/bin/nav-backup.sh unlock      # remove a stale lock left by a killed run
+#   sudo infra/staging/bin/nav-backup.sh paths       # print the paths that would be backed up, then the excludes
 #
 # Config (infra/staging/.env): RESTIC_REPOSITORY (e.g. sftp:nav-backup@<ops-host>:/srv/restic/nav-staging),
 # RESTIC_PASSWORD_FILE (root-only file OUTSIDE git, default /root/.config/nav/restic-password),
 # optional UPTIME_PUSH_URL_BACKUP. SSH for the sftp: backend comes from /root/.ssh/config (RUNBOOK.md).
-# NOT backed up: backend/data/ (rebuildable from OSM, AC 15), the rollback copy, container logs, the git
-# checkout (it is in git), and the restic password and SSH private key themselves.
+# NOT backed up: backend/data/ (rebuildable from OSM, AC 15), and inside /var/lib/nav the rollback copy, a leftover
+# aux-cache.aside (about 2.3 GB of public downloads), the AC 16 sampler output (stats/) and the AC 15 measurement
+# logs (ac15-*.log): all rebuildable or already copied into the runbook log. Also not: container logs, the git
+# checkout (it is in git), and the restic password and SSH private keys themselves.
 # shellcheck source=nav-env.sh
 source "$(dirname "$(readlink -f "$0")")/nav-env.sh"
 
@@ -61,6 +64,18 @@ backup_paths() {
     done
 }
 
+# Large, rebuildable or one-off files under the backed-up directories (restic --exclude patterns).
+backup_excludes() {
+    printf '%s\n' \
+        "$NAV_ROOT/backend/data" \
+        "$NAV_STATE_DIR/rollback" \
+        "$NAV_STATE_DIR/rollback.new" \
+        "$NAV_STATE_DIR/aux-cache.aside" \
+        "$NAV_STATE_DIR/stats" \
+        "$NAV_STATE_DIR/ac15-*.log" \
+        "$RESTIC_PASSWORD_FILE"
+}
+
 existing_paths() { local p; while IFS= read -r p; do [[ -n "$p" && -e "$p" ]] && printf '%s\n' "$p"; done < <(backup_paths); return 0; }
 
 case "$mode" in
@@ -69,15 +84,17 @@ case "$mode" in
         restic init
         nav_log info "restic repository initialised" ;;
     paths)
-        existing_paths ;;
+        existing_paths
+        backup_excludes | sed 's/^/exclude: /' ;;
     backup)
         t0=$(date +%s)
         list=$(mktemp)
         trap 'rm -f "$list"' EXIT
         existing_paths > "$list"
+        excl=()
+        while IFS= read -r x; do excl+=(--exclude "$x"); done < <(backup_excludes)
         restic backup --files-from "$list" --tag nav-staging --host "$(nav_env_get BACKUP_HOST_TAG nav-staging)" \
-            --exclude "$NAV_ROOT/backend/data" --exclude "$NAV_STATE_DIR/rollback" --exclude "$NAV_STATE_DIR/rollback.new" \
-            --exclude "$RESTIC_PASSWORD_FILE" --one-file-system --no-scan -q
+            "${excl[@]}" --one-file-system --no-scan -q
         restic forget --tag nav-staging --keep-daily 7 --keep-weekly 4 --prune -q
         nav_log info "backup finished" seconds="$(( $(date +%s) - t0 ))" paths="$(wc -l < "$list")"
         nav_heartbeat UPTIME_PUSH_URL_BACKUP "backup ok" ;;
@@ -86,6 +103,9 @@ case "$mode" in
         nav_log info "restic check passed" ;;
     snapshots)
         restic snapshots --tag nav-staging ;;
+    unlock)
+        restic unlock
+        nav_log info "stale restic locks removed" ;;
     *)
-        nav_die "unknown mode (init | backup | check | snapshots | paths)" mode="$mode" ;;
+        nav_die "unknown mode (init | backup | check | snapshots | unlock | paths)" mode="$mode" ;;
 esac

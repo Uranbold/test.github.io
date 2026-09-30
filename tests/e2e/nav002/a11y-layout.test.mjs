@@ -33,8 +33,15 @@ async function tabSequence(page, max = 20) {
         const sp = e.querySelector(':scope > span');
         if (sp && hasRing(sp)) ringEl = sp;
       }
+      // NAV-003 screen spec › Components › Search field (2026-09-30): the search input has no outline of its own; the ring
+      // is drawn on its parent [data-testid=search-field] via :focus-within. Counted only for search-input, only when the
+      // input itself has none. Added 2026-09-30 with the NAV-003 Tab-order change (qa-engineer, NAV-003 run 1).
+      if (!hasRing(ringEl) && e.dataset.testid === 'search-input') {
+        const f = e.closest('[data-testid="search-field"]');
+        if (f && hasRing(f)) ringEl = f;
+      }
       const cs = getComputedStyle(ringEl);
-      const on = ringEl === e ? 'self' : 'inner span';
+      const on = ringEl === e ? 'self' : ringEl.dataset?.testid === 'search-field' ? 'search-field (focus-within)' : 'inner span';
       return { id, ring: hasRing(ringEl), outline: `${on}: ${cs.outlineStyle} ${cs.outlineWidth} ${cs.outlineColor}`, focusVisible: e.matches(':focus-visible') };
     });
     if (!info) break;
@@ -46,8 +53,8 @@ async function tabSequence(page, max = 20) {
 }
 
 const NAMES = {
-  mn: { 'language-toggle': S.mn.langButton, 'theme-toggle': S.mn.nightMode, compass: S.mn.northUp, 'zoom-in': S.mn.zoomIn, 'zoom-out': S.mn.zoomOut, 'my-location': S.mn.recenter, 'attribution-osm': S.osm, 'banner-retry': S.mn.retry, 'location-close': S.mn.close, 'location-retry': S.mn.retry, 'card-retry': S.mn.retry },
-  en: { 'language-toggle': S.en.langButton, 'theme-toggle': S.en.nightMode, compass: S.en.northUp, 'zoom-in': S.en.zoomIn, 'zoom-out': S.en.zoomOut, 'my-location': S.en.recenter, 'attribution-osm': S.osm, 'banner-retry': S.en.retry, 'location-close': S.en.close, 'location-retry': S.en.retry, 'card-retry': S.en.retry },
+  mn: { 'search-input': 'Хайх', 'language-toggle': S.mn.langButton, 'theme-toggle': S.mn.nightMode, compass: S.mn.northUp, 'zoom-in': S.mn.zoomIn, 'zoom-out': S.mn.zoomOut, 'my-location': S.mn.recenter, 'attribution-osm': S.osm, 'banner-retry': S.mn.retry, 'location-close': S.mn.close, 'location-retry': S.mn.retry, 'card-retry': S.mn.retry },
+  en: { 'search-input': 'Search', 'language-toggle': S.en.langButton, 'theme-toggle': S.en.nightMode, compass: S.en.northUp, 'zoom-in': S.en.zoomIn, 'zoom-out': S.en.zoomOut, 'my-location': S.en.recenter, 'attribution-osm': S.osm, 'banner-retry': S.en.retry, 'location-close': S.en.close, 'location-retry': S.en.retry, 'card-retry': S.en.retry },
 };
 
 for (const lang of ['mn', 'en']) {
@@ -71,7 +78,10 @@ for (const lang of ['mn', 'en']) {
     await openApp(page, { lang });
     // Ready state
     let seq = await tabSequence(page);
-    expect(seq.map((s) => s.id)).toEqual(['map-canvas', 'language-toggle', 'theme-toggle', 'compass', 'zoom-in', 'zoom-out', 'my-location', 'attribution-osm']);
+    // Tab order changed by NAV-003 AC 1 (search input is the first Tab stop; NAV-003 screen spec › Tab order, 2026-09-30).
+    // Previous NAV-002 expectation: map-canvas, language-toggle, theme-toggle, compass, zoom-in, zoom-out, my-location,
+    // attribution-osm. Updated by qa-engineer in the NAV-003 run (story NAV-003 › Test approach allows it).
+    expect(seq.map((s) => s.id)).toEqual(['search-input', 'language-toggle', 'theme-toggle', 'compass', 'map-canvas', 'zoom-in', 'zoom-out', 'my-location', 'attribution-osm']);
     // With the tiles banner and a location message (retry and close must be reachable)
     await tid(page, 'my-location').click();
     await expect(tid(page, 'location-message')).toBeVisible();
@@ -84,7 +94,7 @@ for (const lang of ['mn', 'en']) {
     }
     await expect(tid(page, 'status-banner')).toBeVisible();
     seq = await tabSequence(page);
-    expect(seq.map((s) => s.id)).toEqual(['map-canvas', 'language-toggle', 'theme-toggle', 'compass', 'banner-retry', 'location-close', 'zoom-in', 'zoom-out', 'my-location', 'attribution-osm']);
+    expect(seq.map((s) => s.id)).toEqual(['search-input', 'language-toggle', 'theme-toggle', 'compass', 'map-canvas', 'banner-retry', 'location-close', 'zoom-in', 'zoom-out', 'my-location', 'attribution-osm']);
     for (const s of seq) {
       expect(s.ring, `visible focus ring on ${s.id}: ${s.outline}`).toBe(true);
       expect(s.focusVisible, `${s.id} :focus-visible`).toBe(true);
@@ -100,7 +110,7 @@ for (const lang of ['mn', 'en']) {
     await tid(p3, 'my-location').click();
     await expect(tid(p3, 'location-retry')).toBeVisible({ timeout: 11_000 });
     const seq3 = await tabSequence(p3);
-    expect(seq3.map((s) => s.id)).toEqual(['map-canvas', 'language-toggle', 'theme-toggle', 'compass', 'location-retry', 'location-close', 'zoom-in', 'zoom-out', 'my-location', 'attribution-osm']);
+    expect(seq3.map((s) => s.id)).toEqual(['search-input', 'language-toggle', 'theme-toggle', 'compass', 'map-canvas', 'location-retry', 'location-close', 'zoom-in', 'zoom-out', 'my-location', 'attribution-osm']);
     for (const s of seq3) expect(s.ring, `focus ring ${s.id}`).toBe(true);
     await expect(tid(p3, 'location-retry')).toHaveAccessibleName(NAMES[lang]['location-retry']);
     await p3ctx.close();

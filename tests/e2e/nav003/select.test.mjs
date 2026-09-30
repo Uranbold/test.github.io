@@ -5,7 +5,6 @@ import {
   FIXTURES, FX, SEARCH_GLOB, T, TRAD, attributionProblems, camera, card, fc, jumpTo, mock, openApp, options, pins, project, tid, typeQuery, waitSettled,
 } from './helpers.mjs';
 
-const byName = Object.fromEntries(FIXTURES.map((f) => [f.expect.name ?? f.id, f]));
 
 /** Every fixture is found by its id as query: «F5 тест» -> [F5]. Plus «олон» -> several. */
 async function mockById(page) {
@@ -244,12 +243,7 @@ for (const width of [320, 360, 768, 1366, 1920]) {
   test(`AC23 ${width}px: card, pin, search box and list cover no attribution, scale bar or NAV-002 control; NAV-003 targets >= 44x44 (day/night × mn/en)`, async ({ page }) => {
     test.setTimeout(120_000);
     const height = { 320: 568, 360: 640, 768: 1024, 1366: 768, 1920: 1080 }[width];
-    await page.setViewportSize({ width, height });
     const longName = 'Монгол Улсын Их Хурлын дэргэдэх Хүний эрхийн үндэсний комиссын байр ба Сүхбаатар дүүргийн 1-р хороо';
-    await mock(page, SEARCH_GLOB, (p) => {
-      if (/урт/.test(p.q)) return { body: fc([{ ...FX.F2.feature, properties: { ...FX.F2.feature.properties, name: longName } }]) };
-      return { body: fc(['F5', 'F9', 'F10', 'F2', 'F6', 'F7', 'F8', 'F11'].map((id) => FX[id].feature)) };
-    });
     const all = [];
     for (const theme of ['day', 'night']) {
       for (const lang of ['mn', 'en']) {
@@ -282,9 +276,14 @@ for (const width of [320, 360, 768, 1366, 1920]) {
         const pinCovered = await pg.evaluate(() => {
           const pin = document.querySelector('[data-testid=place-pin]');
           if (!pin) return 'no pin';
+          // The pin has pointer-events:none, so hit-testing skips it: the pin is uncovered when the topmost hit element
+          // at its centre and tip is the map itself (canvas / marker layer), not a UI element above the map.
           const r = pin.getBoundingClientRect();
-          const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-          return h && (pin.contains(h) || h === pin) ? null : `pin covered by ${h?.tagName}.${h?.className}`;
+          for (const [x, y] of [[r.left + r.width / 2, r.top + r.height / 3], [r.left + r.width / 2, r.bottom - 1]]) {
+            const h = document.elementFromPoint(x, y);
+            if (h && !h.closest('#map')) return `pin covered by ${h.tagName}#${h.id}.${h.className}`;
+          }
+          return null;
         });
         if (pinCovered) all.push(`${tag} long card: ${pinCovered}`);
         await ctx.close();

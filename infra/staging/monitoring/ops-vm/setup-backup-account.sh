@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # NAV-008 ops VM: SFTP-only account that receives the staging host's restic backups (deployment-staging.md §10).
-# Owner: backend-engineer. Idempotent. Run as root on the ops VM AFTER
-#   bootstrap.sh --role ops --ops-key-file <operator.pub> --extra-allow-users nav-backup
+# Owner: backend-engineer. Idempotent. Run as root on the ops VM (files copied to /opt/nav-ops, RUNBOOK.md section 10)
+# AFTER  bootstrap.sh --role ops --ops-key-file <operator.pub> --extra-allow-users nav-backup
 #
-#   sudo infra/staging/monitoring/ops-vm/setup-backup-account.sh /root/nav-staging-backup.pub
+#   sudo /opt/nav-ops/monitoring/ops-vm/setup-backup-account.sh /root/nav-staging-backup.pub
+#
+# Accepted for staging (RUNBOOK.md section 18): the account is not chrooted (sftp-server -d only sets the start
+# directory; the account can read world-readable files elsewhere), and the restic repository is not append-only
+# (the staging host's key can also delete snapshots). Revisit both for production (NAV-009).
 #
 # The argument is the PUBLIC key that nav-backup.sh on the staging host uses (generated there; the private half
 # never leaves the staging host). The key is restricted to the SFTP subsystem (no shell, no forwarding) and to
