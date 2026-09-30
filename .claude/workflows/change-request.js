@@ -159,8 +159,12 @@ let reviews = await verify(0)
 const open = () => reviews.flatMap(r => r.issues || []).filter(i => i.severity !== 'minor')
 let round = 0
 while ((reviews.some(r => !r.passed) || open().length) && round < MAX_ROUNDS) {
-  round++
   const issues = open()
+  if (issues.length && !issues.some(i => ['backend-engineer', 'mobile-engineer'].includes(i.owner))) {
+    log(`Escalating: blocker/major issue(s) need a decision or spec change (${[...new Set(issues.map(i => i.owner))].join(', ')})`)
+    break
+  }
+  round++
   log(`Fix round ${round}: ${issues.length} blocker/major issue(s)`)
   const fix = (owner, prev) => issues.some(i => i.owner === owner)
     ? agent(`${dctx}\n\nFix these review issues:\n${JSON.stringify(issues.filter(i => i.owner === owner), null, 2)}`,

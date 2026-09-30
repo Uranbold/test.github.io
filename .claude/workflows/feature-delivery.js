@@ -148,10 +148,17 @@ let reviews = (await verify(0)).filter(Boolean)
 const openIssues = () => reviews.flatMap(r => r.issues || []).filter(i => i.severity !== 'minor')
 
 let round = 0
+const BUILDERS = ['backend-engineer', 'mobile-engineer']
 while (openIssues().length && round < MAX_FIX_ROUNDS) {
+  const issues = openIssues()
+  // Blockers owned by BA / UX / architect are decisions or spec changes, not code fixes:
+  // stop and escalate instead of re-running verification with nothing changed.
+  if (!issues.some(i => BUILDERS.includes(i.owner))) {
+    log(`Escalating: ${issues.length} blocker/major issue(s) need a decision or spec change (${[...new Set(issues.map(i => i.owner))].join(', ')})`)
+    break
+  }
   round++
   phase('Fix')
-  const issues = openIssues()
   log(`Fix round ${round}: ${issues.length} blocker/major issue(s)`)
   const forOwner = o => issues.filter(i => i.owner === o)
   const fix = (owner, prev) => forOwner(owner).length

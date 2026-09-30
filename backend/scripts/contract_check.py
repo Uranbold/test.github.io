@@ -7,7 +7,8 @@
 Every request example in the spec (route bodies, search/reverse parameter examples) plus the documented
 error cases is sent through the gateway. Each response status must be documented for that operation,
 and JSON bodies must validate (JSON Schema 2020-12) against the documented response schema. Response
-headers listed in the spec for CORS preflight and tiles are checked for presence.
+headers listed in the spec for CORS preflight and tiles are checked for presence, and no Access-Control-*
+header may appear more than once on any response (NAV-001 AC 43).
 Exit code 0 only if every case conforms.
 """
 import argparse
@@ -41,9 +42,16 @@ def http(base, method, path, body=None, headers=None):
     req = urllib.request.Request(base + path, data=data, method=method, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
-            return r.status, {k.lower(): v for k, v in r.headers.items()}, r.read()
+            status, h, raw = r.status, r.headers, r.read()
     except urllib.error.HTTPError as e:
-        return e.code, {k.lower(): v for k, v in e.headers.items()}, e.read()
+        status, h, raw = e.code, e.headers, e.read()
+    return status, {k.lower(): v for k, v in h.items()}, raw, [k.lower() for k in h.keys()]
+
+
+def repeated_cors(names):
+    """openapi.yaml: every response carries each CORS header at most once (NAV-001 AC 43)."""
+    cors = [n for n in names if n.startswith("access-control-")]  # Vary is list-valued, may repeat
+    return sorted({n for n in cors if cors.count(n) > 1})
 
 
 class Checker:
@@ -87,8 +95,8 @@ class Checker:
 
     def case(self, name, method, path, spec_path, body=None, headers=None, response_ref=None):
         """response_ref: validate against this components/responses entry (for paths/methods not in the spec)."""
-        status, hdrs, raw = http(self.base, method, path, body, headers)
-        errors = []
+        status, hdrs, raw, names = http(self.base, method, path, body, headers)
+        errors = [f"response header {n} sent more than once" for n in repeated_cors(names)]
         if response_ref:
             resp = self.deref({"$ref": response_ref})
         else:
@@ -110,7 +118,7 @@ class Checker:
             if hname.lower() not in hdrs:
                 errors.append(f"response header {hname} missing")
         content = (resp.get("content") or {})
-        if "application/json" in content:
+        if "application/json" in content and method != "HEAD":
             try:
                 instance = json.loads(raw)
             except ValueError:
@@ -138,6 +146,11 @@ def main():
 
     c.case("tiles range", "GET", "/tiles/basemap.pmtiles", "/tiles/basemap.pmtiles", headers={**cors, "Range": "bytes=0-126"})
     c.case("tiles head", "HEAD", "/tiles/basemap.pmtiles", "/tiles/basemap.pmtiles")
+    # AC 43: a Range starting at the archive size (read from HEAD) is unsatisfiable on any extract.
+    size = int(http(c.base, "HEAD", "/tiles/basemap.pmtiles")[1].get("content-length") or 0)
+    for m in ("GET", "HEAD"):
+        c.case(f"tiles range beyond end bytes={size}-", m, "/tiles/basemap.pmtiles", "/tiles/basemap.pmtiles",
+               headers={**cors, "Range": f"bytes={size}-"})
 
     # Route: every requestBody example from the spec, POST and GET ?json=
     route_op = spec["paths"]["/v1/route"]["post"]
@@ -146,8 +159,9 @@ def main():
         c.case(f"route example {ex_name}", "POST", "/v1/route", "/v1/route", body=body, headers=cors)
     carmn = route_op["requestBody"]["content"]["application/json"]["examples"]["carMn"]["value"]
     c.case("route GET ?json= carMn", "GET", "/v1/route?json=" + urllib.parse.quote(json.dumps(carmn)), "/v1/route")
-    c.case("route out of coverage (X1)", "POST", "/v1/route", "/v1/route",
-           body={**carmn, "locations": [carmn["locations"][0], {"lat": 49.0270, "lon": 104.0440}]})
+    # X2 Beijing: outside the default (full Mongolia) dev extract. X1 Erdenet is routable on it.
+    c.case("route out of coverage (X2)", "POST", "/v1/route", "/v1/route",
+           body={**carmn, "locations": [carmn["locations"][0], {"lat": 39.9042, "lon": 116.4074}]})
     c.case("route missing locations", "POST", "/v1/route", "/v1/route", body={"costing": "auto", "format": "osrm"})
     c.case("route not JSON", "POST", "/v1/route", "/v1/route", body=b"not json")
     c.case("route body > 256 KB", "POST", "/v1/route", "/v1/route", body=b"{" + b" " * 300_000 + b"}")

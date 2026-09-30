@@ -23,7 +23,8 @@ Secondary personas:
 ## Context
 - Research `docs/osm-navigation-research.md` §4.7 (voice via device TTS, "Mongolian TTS voice availability varies by device. Test it."), §9 items 1 and 7 ("Review the translation quality and contribute fixes upstream", "check Mongolian voice availability on Android/iOS"), §7 Phase 1 (MVP includes "Mongolian voice").
 - NAV-001 risk R7 and out-of-scope item: "Native-speaker review is a separate task, with fixes contributed upstream". This is that task.
-- PO-approved language policy: voice, banners and UI are Mongolian first, and the **glossary** (`docs/requirements/glossary.md`) fixes one approved Mongolian term per concept. Every Mongolian term there is currently `needs native review`. This story is the review that approves or revises them.
+- PO-approved language policy: voice, banners and UI are Mongolian first, and the **glossary** (`docs/requirements/glossary.md`) fixes one approved Mongolian term per concept. This story is the review that approves or revises every Mongolian term there.
+- **PO pre-review (2026-09-29).** The PO, who is **one** native reviewer, rated all 90 glossary rows on the review page (82 approve, 4 change, 4 unsure) and answered the follow-up questions the same day. The glossary now shows 83 rows `PO-approved 2026-09-29 (panel pending)` and 7 rows `PO-revised 2026-09-29 (panel pending)`: C4 voice ordinals «нэгдүгээр / хоёрдугаар …», C7 screen unit «км/цаг», Navigation «Замчлал», Origin «эхлэх цэг» plus the default label «Миний байршил», Enter roundabout «… хоёрдугаар гарцаар …», Recenter «Байршил руу буцах», and Petrol station «ШТС» on screen with «шатахуун түгээх станц» in voice. This is **input** to the panel, not a substitute for it. AC 2 and AC 5–8 still apply to every row. For `PO-revised` rows the panel rates the PO's wording, and the "previous proposal" in Notes is shown as the alternative.
 - Valhalla is pinned at **3.9.0** (ADR-0002). Instructions come from Valhalla `language=mn-MN` (`bannerInstructions`, `voiceInstructions`) via `postRoute` / `getRoute`. Client-generated prompts (off-route, recalculating, GPS lost, no connection) come from our resource files.
 
 ### Pre-review findings in Valhalla 3.9.0 `locales/mn-MN.json` (BA desk check, 2026-09-29)
@@ -39,7 +40,7 @@ The BA collected these from the raw file at tag `3.9.0` through a web fetch. QA 
 | F6 | `relative_directions` and `cardinal_directions` | Bare «зүүн»/«баруун» used for both left/right **and** east/west | «Зүүн руу чиглүүл.» (head east) can be heard as "head left". Safety-relevant (glossary C2) |
 | F7 | Many phrases | Mixed register: bare imperative («эргэ», «яв», «гар»), -аарай («хийгээрэй»), -х («эргэх»), -нэ («эргэнэ») | Sounds curt and inconsistent (glossary C1) |
 | F8 | Phrases with `<STREET_NAMES>-р`, `-д`, `-с`, `-н`, and «руу»/«рүү» | Case suffixes are attached with a hyphen, ignoring the name's vowel harmony | Ungrammatical with many names. TTS may read the hyphen (glossary C5) |
-| F9 | `ordinal_values` «1-р»…«10-р» | Abbreviated ordinals in **voice** text | TTS may say "хоёр эр" instead of «хоёр дахь» (glossary C4) |
+| F9 | `ordinal_values` «1-р»…«10-р» | Abbreviated ordinals in **voice** text | TTS may say "хоёр эр" instead of «хоёрдугаар» (glossary C4) |
 | F10 | `approach_verbal_alert` «<LENGTH>, <CURRENT_VERBAL_CUE>» | No locative: «300 метр, баруун эргэ.» | Unnatural. Should read «300 метрт …» (glossary C3) |
 
 F1–F5 are **defects**, and fixing them upstream is uncontroversial. F6–F10 are **style and structure** issues. Upstream may accept or reject them, so our product must carry its own fix regardless.
@@ -63,7 +64,7 @@ F1–F5 are **defects**, and fixing them upstream is uncontroversial. F6–F10 a
 
 ### A. Review inventory
 1. **Given** Valhalla 3.9.0 `locales/mn-MN.json` and `locales/en-US.json`, **When** the review inventory is produced, **Then** it has one row per phrase string for every instruction key used by `auto`, `taxi` and `pedestrian` costing, **plus** every value of `relative_directions`, `cardinal_directions`, `ordinal_values`, `metric_lengths` and `empty_street_name_labels`. Each row holds the key, the phrase ID, the `en-US` text and the `mn-MN` text. Transit-only, ferry-only and bicycle-only phrases are listed separately as out of scope. The in-scope row count **equals** the count produced by a script over the JSON, and the script and count are recorded with the inventory.
-2. **Given** our `mn` resource files for every banner, voice and navigation-screen string, and every glossary row in sections 1–8 with status `needs native review`, **When** the inventory is produced, **Then** **100 %** of them are included. The number of resource keys in the inventory equals the key count of the `mn` files at the reviewed commit, which is recorded.
+2. **Given** our `mn` resource files for every banner, voice and navigation-screen string, and every glossary row in sections 1–8 with status `needs native review`, `PO-approved … (panel pending)` or `PO-revised … (panel pending)`, **When** the inventory is produced, **Then** **100 %** of them are included. The number of resource keys in the inventory equals the key count of the `mn` files at the reviewed commit, which is recorded.
 3. **Given** the coverage table above, **When** the sample set is built, **Then** it contains **≥ 2 rendered examples per item**. At least one uses a real Ulaanbaatar street or place name. Examples are taken from real Valhalla `mn-MN` responses on UB routes (NAV-001 reference points P1–P6 plus added points, all recorded with coordinates). Where UB has no real instance (e.g. numbered motorway exits), a template rendered with a real UB name is allowed and marked `synthetic`. The sample set has **≥ 20 real routes**.
 4. **Given** findings F1–F10, **When** QA checks the raw 3.9.0 file at byte level (e.g. `jq` plus a hex dump of the affected strings), **Then** each finding is marked `confirmed` or `not reproduced` with the evidence command recorded. Only confirmed findings go into AC 13 and AC 17.
 
@@ -82,7 +83,7 @@ F1–F5 are **defects**, and fixing them upstream is uncontroversial. F6–F10 a
    - (c) spelling and grammar correct: Y/N
    - (d) a proposed wording whenever (b) ≤ 3 or (c) = N
 7. **Given** the ratings, **When** each string is classified, **Then** it is `accepted` only if its **median naturalness is ≥ 4**, **no reviewer** marked it misunderstood, and the editor marked (c) = Y. Otherwise it is `revise`. Every `revise` string ends with **one final wording** agreed by a majority of its reviewers **and** the editor, and that wording is re-rated under the same rule until it is `accepted`.
-8. **Given** the review is complete, **When** the glossary is checked, **Then** **0** rows used by Phase 1 UI or voice still have status `needs native review`. Each such row shows `approved YYYY-MM-DD` or `revised YYYY-MM-DD`. The glossary change log lists the reviewer IDs and resolves the open conventions: decimal separator (C3), ordinal form (C4), name pattern (C5) and the alternatives flagged "for review".
+8. **Given** the review is complete, **When** the glossary is checked, **Then** **0** rows used by Phase 1 UI or voice still have status `needs native review`, `PO-approved … (panel pending)` or `PO-revised … (panel pending)`. Each such row has a Status cell that fully matches `^(approved|revised) \d{4}-\d{2}-\d{2}$`. PO pre-review statuses do not count. The glossary change log lists the reviewer IDs and resolves the open conventions: decimal separator (C3), ordinal form (C4), name pattern (C5) and the alternatives flagged "for review".
 
 ### C. Real TTS on devices
 9. **Given** a device matrix of **≥ 2 Android** phones (at least one budget model widely sold in Mongolia, and at least one on Android 12 or later) and **≥ 2 iOS** phones (the current and the previous major iOS version), **When** Mongolian TTS availability is checked, **Then** a report lists for each device:
@@ -106,7 +107,8 @@ F1–F5 are **defects**, and fixing them upstream is uncontroversial. F6–F10 a
     - **0** characters U+200B–U+200D or U+FEFF (F4)
     - **0** occurrences of the confirmed misspellings from AC 4 (e.g. «Үргэлжүүлэн», F3)
     - every relative «зүүн» / «баруун» in a turn, keep, merge, exit or destination prompt is followed by one of the glossary forms («тийш», «талаа», «талд», «талаас», «эгнээ…»), and every cardinal direction is followed by «зүг» (F6, C2)
-    - voice strings contain **0** matches of `\d\s?(м|км|км/ц)(\s|-|$)` and **0** matches of `\d+-р` (C3, C4, F9)
+    - voice strings contain **0** matches of `\d\s?(м|км)(\s|-|/|$)` (this also catches «км/цаг» and «км/ц»), **0** matches of `\d+-р`, **0** matches of `(\d+|нэг|хоёр|гурав|дөрөв|тав|зургаа|долоо|найм|ес|арав)\s(дахь|дэх)` (old ordinal form; standalone «дахь»/«дэх» meaning "located in" is not matched) and **0** occurrences of «ШТС» (C3, C4, C7, F9, glossary "Petrol station")
+    - banner and UI strings contain **0** matches of `км/ц(?!аг)`. The screen speed unit is «км/цаг» (C7).
 14. **Given** a route that triggers each confirmed defect (F1 roundabout variants 3/6/11/14, F2 variant 10, F3 `bear` 2, F5 `sharp` 1, F4 an unnamed footway), **When** `postRoute` is called with `language=mn-MN` through the product stack, **Then** the response contains the agreed Mongolian wording for each, **and** the checks in AC 13 pass for that response. If no UB route triggers a variant (marked `synthetic` in AC 3), the check is instead run on the served `mn-MN` template for that phrase ID, rendered with a real UB name.
 15. **Given** the same golden routes requested with `language=en-US`, **When** the output is compared with the pre-change snapshot, **Then** it is **byte-identical**. This proves the fixes are scoped to `mn-MN`.
 16. **Given** every term marked "Avoid" in the glossary Notes column, **When** the `mn` resource files and the golden announcement set are scanned, **Then** there are **0** occurrences (e.g. «зогсоол» used for waypoint, «карт», «км/ч», «траффик»).
@@ -186,7 +188,7 @@ Decisions for the PO or user:
    - (b) short imperative on banners, polite in voice
    - (c) let the panel choose
 
-   *Recommendation: (a), confirmed by the panel.*
+   *Recommendation: (a), confirmed by the panel.* The PO approved C1 (polite form) in the pre-review on 2026-09-29. The panel still confirms it.
 4. **TTS fallback if AC 9 finds no usable `mn` voice** on target devices. Options:
    - (a) server-side neural TTS (e.g. Piper with a Mongolian model)
    - (b) pre-recorded prompt packs for fixed phrases, with names shown only on banners
@@ -212,7 +214,7 @@ Technical question for the architect (not a user decision): where the `mn-MN` ov
 | AC5 | — | — | — | panel record (QA report, TBD) | |
 | AC6 | — | — | — | review sheet (QA report, TBD) | |
 | AC7 | — | — | — | review sheet (QA report, TBD) | |
-| AC8 | — | — | `docs/requirements/glossary.md` | glossary status check | |
+| AC8 | — | — | `docs/requirements/glossary.md` | glossary status check (anchored regex, see AC 8) | PO pre-review 2026-09-29 (input only, not the panel) |
 | AC9 | — | — | TTS harness or NAV-005 build (mobile, TBD) | device report (QA, TBD) | |
 | AC10 | NAV-005 voice spec (TBD) | — | TTS harness or NAV-005 build (mobile, TBD) | listening test (QA, TBD) | |
 | AC11 | NAV-005 voice spec (TBD) | — | — | prompt-duration test (QA, TBD) | |
@@ -228,3 +230,4 @@ Technical question for the architect (not a user decision): where the `mn-MN` ov
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-09-29 | — | Created. Includes the BA desk-check findings F1–F10 against Valhalla 3.9.0 `mn-MN.json`. | PO-approved language policy (glossary terms need native approval). Follows up NAV-001 R7 ("native-speaker review is a separate task"). |
+| 2026-09-29 | PO pre-review of the glossary (review page + follow-up in chat) | Added the Context bullet "PO pre-review". **AC 2:** the inventory now also includes rows with `PO-approved … (panel pending)` / `PO-revised … (panel pending)`, so the panel scope does not shrink to unreviewed rows. **AC 8:** PO statuses do not count as done, and the status check uses an anchored regex (the PO statuses contain the substring "approved <date>"). **AC 13:** the voice unit regex now also catches «км/цаг» (a slash after «км» counts as a match), plus the old ordinal form «<number> дахь/дэх», and «ШТС»; a new check covers banner and UI «км/ц» (`км/ц(?!аг)`). **F9:** example changed to «хоёрдугаар». **Open question 3:** noted the PO's C1 pre-approval. The panel ACs (AC 5–8) are **unchanged in substance**. | The PO is one native reviewer, and the decisions (C4 -дугаар/-дүгээр, C7 «км/цаг», «ШТС» screen-only, «Замчлал», origin/recenter labels) must be reflected in the automated checks. Without the AC 2 fix, the PO statuses would have dropped 86 of 90 rows out of the panel inventory. |

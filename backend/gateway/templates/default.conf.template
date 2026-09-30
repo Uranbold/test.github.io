@@ -3,7 +3,7 @@
 # ${GATEWAY_ERROR_LOG_LEVEL} are substituted; nginx's own $variables are left alone.
 #
 #   GET  /health                   -> answered here
-#   GET  /tiles/basemap.pmtiles    -> static file, HTTP Range / ETag
+#   GET  /tiles/basemap.pmtiles    -> static file, HTTP Range / ETag (416 = JSON RangeNotSatisfiable)
 #   POST /v1/route, GET ?json=     -> Valhalla /route   (pass-through)
 #   GET  /v1/search                -> Photon /api       (pass-through)
 #   GET  /v1/reverse               -> Photon /reverse   (pass-through)
@@ -68,6 +68,13 @@ server {
         types { }
         default_type application/octet-stream;
         alias /srv/data/tiles/basemap.pmtiles;
+        # NAV-001 AC 43 (ADR-0002 Amendment 2). An unsatisfiable Range makes the range filter turn
+        # the 200 into a 416 *after* the header filter has already added the CORS headers above,
+        # so the 416 target must not add them again. A location that declares any error_page stops
+        # inheriting the server-level ones, so 404/405 are re-declared here (missing archive = JSON 404).
+        error_page 404 = @not_found;
+        error_page 405 = @method_not_allowed;
+        error_page 416 = @range_not_satisfiable;
     }
 
     # ---------------------------------------------------------------- ROUTE
@@ -132,6 +139,13 @@ server {
         include /etc/nginx/snippets/cors-headers.conf;
         default_type application/json;
         return 405 '{"code":"MethodNotAllowed","message":"Method not allowed"}';
+    }
+    # Target of the TILES location only. No cors-headers.conf on purpose: the TILES location's
+    # headers survive the internal redirect, and including the snippet here duplicates every
+    # Access-Control-* header (browsers then reject the response as a CORS error).
+    location @range_not_satisfiable {
+        default_type application/json;
+        return 416 '{"code":"RangeNotSatisfiable","message":"Requested range not satisfiable"}';
     }
     location @payload_too_large {
         include /etc/nginx/snippets/cors-headers.conf;

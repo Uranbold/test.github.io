@@ -19,7 +19,7 @@ x-build-env: &build-env
   PHOTON_VERSION: "1.3.0"
   VALHALLA_VERSION: "3.9.0"
   PLANETILER_VERSION: "0.10.2"
-  TILES_MAXZOOM: ${TILES_MAXZOOM:-15}
+  TILES_MAXZOOM: ${TILES_MAXZOOM:-14}
   TILES_BOUNDS: ${TILES_BOUNDS:-}
   TILES_JAVA_OPTS: ${TILES_JAVA_OPTS:--Xmx3g}
 
@@ -49,7 +49,7 @@ services:
     command: ["fetch"]
     environment:
       <<: *build-env
-      OSM_PBF_URL: ${OSM_PBF_URL:-https://download.bbbike.org/osm/bbbike/UlanBator/UlanBator.osm.pbf}
+      OSM_PBF_URL: ${OSM_PBF_URL:-https://geo2day.com/asia/mongolia.pbf}
       OSM_PBF_FILE: ${OSM_PBF_FILE:-}
       PHOTON_DUMP_URL: ${PHOTON_DUMP_URL:-https://download1.graphhopper.com/public/asia/mongolia/photon-dump-mongolia-1.0-latest.jsonl.zst}
       PHOTON_DUMP_FILE: ${PHOTON_DUMP_FILE:-}

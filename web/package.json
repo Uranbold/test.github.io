@@ -1,0 +1,38 @@
+{
+  "name": "navmn-web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NAV-002 web demo map (MapLibre GL JS + gateway PMTiles). Local dev only.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint . && node scripts/check-i18n.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "check:glossary": "node scripts/check-glossary.mjs",
+    "vendor-assets": "bash scripts/vendor-assets.sh"
+  },
+  "dependencies": {
+    "@protomaps/basemaps": "5.7.2",
+    "maplibre-gl": "6.11.2",
+    "pmtiles": "4.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@maplibre/maplibre-gl-style-spec": "26.4.4",
+    "@types/geojson": "7946.0.16",
+    "@types/node": "22.20.4",
+    "eslint": "10.11.0",
+    "jsdom": "30.1.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.0",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  }
+}

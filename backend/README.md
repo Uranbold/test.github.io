@@ -35,7 +35,7 @@ Only the gateway publishes a port (`GATEWAY_BIND:GATEWAY_PORT`, default `127.0.0
 | Story symbol | Gateway path | Upstream |
 |---|---|---|
 | `HEALTH` | `GET /health` | answered by nginx: `{"status":"ok"}` |
-| `TILES` | `GET/HEAD /tiles/basemap.pmtiles` | static file with HTTP Range, ETag, `Cache-Control: public, max-age=300`, no gzip |
+| `TILES` | `GET/HEAD /tiles/basemap.pmtiles` | static file with HTTP Range, ETag, `Cache-Control: public, max-age=300`, no gzip. A range starting at or past the end gives a JSON 416 |
 | `ROUTE` | `POST /v1/route` (also `GET /v1/route?json=`) | Valhalla `/route`, forwarded unchanged |
 | `SEARCH` | `GET /v1/search` | Photon `/api`, forwarded unchanged |
 | `REVERSE` | `GET /v1/reverse` | Photon `/reverse`, forwarded unchanged |
@@ -43,6 +43,7 @@ Only the gateway publishes a port (`GATEWAY_BIND:GATEWAY_PORT`, default `127.0.0
 The gateway alone handles CORS. It answers every `OPTIONS` with 204 and strips the upstreams' own
 `Access-Control-*` headers. Gateway errors are JSON `{code, message}`:
 - 404 `NotFound`, 405 `MethodNotAllowed`, 413 `PayloadTooLarge` (bodies over 256 KB)
+- 416 `RangeNotSatisfiable` on `TILES` when the `Range` start is at or beyond the archive size, with `Content-Range: bytes */<size>` (AC 43). Like every gateway response, it carries each `Access-Control-*` header exactly once, so a browser `fetch` sees the 416 instead of a CORS error. How this is done in nginx: ADR-0002 Amendment 2 and the comments in `gateway/templates/default.conf.template`.
 - 502 `UpstreamUnavailable`: the upstream is stopped, cannot be resolved or refuses the connection. This includes a connect timeout (2 s).
 - 504 `UpstreamTimeout`: the upstream accepted the connection but did not answer within 10 s (route) or 5 s (search/reverse).
 
@@ -108,7 +109,7 @@ Every key is documented in [`.env.example`](.env.example) and has the same defau
 
 | Download | Key | Default | Size | Licence |
 |---|---|---|---|---|
-| OSM extract | `OSM_PBF_URL` (or local `OSM_PBF_FILE`) | BBBike Ulaanbaatar. Production: Geofabrik `mongolia-latest` (commented in `.env.example`) | 4.4 MB (UB) | ODbL 1.0, © OpenStreetMap contributors |
+| OSM extract | `OSM_PBF_URL` (or local `OSM_PBF_FILE`) | Dev: full Mongolia from the geo2day.com mirror (`https://geo2day.com/asia/mongolia.pbf`, dev only). Production: Geofabrik `mongolia-latest` (commented in `.env.example`). Optional small build: BBBike Ulaanbaatar (commented) | 70 MB (Mongolia), 4.4 MB (BBBike UB) | ODbL 1.0, © OpenStreetMap contributors |
 | Photon dump | `PHOTON_DUMP_URL` (or local `PHOTON_DUMP_FILE`) | GraphHopper Mongolia `photon-dump-mongolia-1.0-latest.jsonl.zst` | 8.1 MB | ODbL (OSM-derived) |
 | Natural Earth vector | `NATURAL_EARTH_URL` | naciscdn.org `natural_earth_vector.gpkg.zip` | 446 MB | Public domain |
 | OSM water polygons | `WATER_POLYGONS_URL` | osmdata.openstreetmap.de `water-polygons-split-3857.zip` | 931 MB | ODbL |
@@ -144,36 +145,46 @@ The ghcr nginx image stops at 1.27.4; switch to `nginxinc/nginx-unprivileged:1.2
 
 ## Dev extract coverage (read this before judging route results)
 
-`python3 scripts/pbfinfo.py` reads the PBF header (the equivalent of `osmium fileinfo`); the result is in `data/build-info.json` under `osm.bbox`.
+**Default: all of Mongolia** (PO decision 2026-09-29, NAV-001 AC 3/8, ADR-0002 Amendment 1). Tiles,
+routing and search then cover the same area, and all reference points P1–P6 are inside it.
 
-| Source | bbox [minLon, minLat, maxLon, maxLat] | Data date |
-|---|---|---|
-| BBBike UlanBator (`/tmp/claude-0/ub.pbf`, the same file the URL served on 2026-09-29) | `[106.8392, 47.8995, 107.0167, 47.9337]` (header) | replication timestamp 2026-09-25T23:00:00Z |
-| geo2day.com Mongolia (`https://geo2day.com/asia/mongolia.pbf`, used for the AC 5 source-switch test) | `[81.9257, 39.0189, 120.2728, 53.0383]` (node scan; the header has no bbox) | no replication timestamp in the header; HTTP `Last-Modified` is recorded |
+| Source (`OSM_PBF_URL`) | Use | bbox [minLon, minLat, maxLon, maxLat] | Data date |
+|---|---|---|---|
+| `https://geo2day.com/asia/mongolia.pbf` | **dev default**. A third-party mirror, used because `download.geofabrik.de` is blocked from the dev container | `[81.9257, 39.0189, 120.2728, 53.0383]` (node scan; the header has no bbox) | no replication timestamp in the header; the HTTP `Last-Modified` is recorded |
+| `https://download.geofabrik.de/asia/mongolia-latest.osm.pbf` | **production** | from the header | replication timestamp in the header |
+| `https://download.bbbike.org/osm/bbbike/UlanBator/UlanBator.osm.pbf` | optional small/fast build (~4.4 MB, cold run 530 s), **not the default** | `[106.8392, 47.8995, 107.0167, 47.9337]` (header) | replication timestamp 2026-09-25T23:00:00Z (file of 2026-09-29) |
 
-**The BBBike UB box is only about 13 × 4 km. Reference points P3 (Zaisan, lat 47.8858) and P6
-(Chingeltei ger district, lat 47.9600) lie outside it.** On the BBBike extract:
-- the P1→P3 route snaps to the southern edge of the box, about 1.4 km short of Zaisan (AC 13/14 fail)
-- the tile bounds do not cover P3/P6 (AC 10 fails)
-- P1→P6 "succeeds" by snapping to the northern edge (AC 19)
+`python3 scripts/pbfinfo.py` reads the PBF header (the equivalent of `osmium fileinfo`). The result is in `data/build-info.json` under `osm.bbox`, with `osm.reference_points_inside_bbox` for P1–P6.
 
-`build-info` logs a warning listing the uncovered points. A source that covers all of UB, for example the Mongolia extract, passes these checks (see Measurements). Which dev default to use is an open product decision.
+**The geo2day mirror is dev only.** Nobody guarantees its availability or integrity, and it publishes no
+checksum. `data/build-info.json` records the file's sha256, HTTP `Last-Modified` and bbox, which is enough to
+tell which data a dev build used. If the mirror is down, `data-fetch` stops with the URL and HTTP status.
+Then set `OSM_PBF_FILE` to a local copy.
+
+**On the Mongolia build:** X1 Erdenet is routable, so out-of-coverage checks (AC 32) use X2 Beijing. The backend
+smoke suite and `contract_check.py` do this automatically.
+
+**On the optional BBBike UB build** (about 13 × 4 km): P3 (Zaisan, lat 47.8858) and P6 (Chingeltei ger
+district, lat 47.9600) lie outside the box. The P1→P3 route snaps to the southern edge of the box, about 1.4 km
+short of Zaisan (AC 13/14 fail). The tile bounds do not cover P3/P6 (AC 10 fails), and P1→P6 "succeeds" by
+snapping to the northern edge (AC 19). `build-info` logs a warning listing the uncovered points. Use it only
+for quick gateway or pipeline work, not to judge routing.
 
 ## Measured on the reference machine (4 CPU, 15 GB RAM, dev container, 2026-09-29)
 
-| What | UB dev extract (BBBike, 4.4 MB) | Mongolia (geo2day, 70 MB) | Limit |
+| What | **Mongolia, dev default** (geo2day, 70 MB) | BBBike UB, optional (4.4 MB) | Limit |
 |---|---|---|---|
-| **Cold first run**: empty `data/`, `make up` until all services are healthy | **530 s**. Downloads 255 s (~2.5 GB), graph 3 s, Photon import 34 s, Protomaps jar (Maven, once) 106 s, Planetiler 164 s | n/a | AC 1: ≤ 30 min |
-| **Warm restart**: `docker compose down` then `up -d --wait` | **8.8 s**; tiles, graph and index all log `reused`, and no network requests are made | same mechanism | AC 2: ≤ 120 s |
-| **Source switch**: `make rebuild-data` after changing `OSM_PBF_URL`, auxiliary files cached | n/a | **336 s**. Graph 22 s, Photon 33 s, Maven 76 s, Planetiler 229 s | AC 5 |
-| Peak memory during the build (`docker stats`, sampled every 3 s) | 3.98 GB (tiles-build 3.5 GB) | 4.24 GB | AC 39: ≤ 12 GB |
-| Memory of the running services | gateway 5 MB, valhalla 97–132 MB, photon 392–785 MB (< 1 GB total) | similar | AC 39: ≤ 6 GB |
-| Total size of `data/` | 2.6 GB (2.4 GB of it is cached auxiliary sources) | 2.9 GB | AC 39: ≤ 10 GB |
-| PMTiles size | 2.6 MB (z0–15, 177 tiles) | 243 MB | AC 12: ≤ 200 MB (defined for the UB extract) |
-| Routing graph / Photon index | 3.9 MB / 27 MB | 64 MB / 27 MB | |
-| p95 of 20 sequential requests through the gateway: route / search / reverse / tile range | 12 ms / 70 ms / 44 ms / 1.3 ms | all within limits | AC 35–38: 500 / 300 / 300 / 100 ms |
-| `scripts/smoke.py` | 36 pass, 3 fail. The failures are AC 10 (P3/P6 outside the tile bounds) and AC 13/14 (P3 outside the extract); see "Dev extract coverage" | all pass | AC 40 |
-| `scripts/contract_check.py` (27 cases from openapi.yaml) | 27 conform | 27 conform | |
+| **Cold first run**: empty `data/`, `make up` until all services are healthy (images already pulled) | **462 s**. Downloads 149 s (~2.5 GB, of which 70 MB is the PBF), then in parallel: graph 22 s, Photon import 33 s, Protomaps jar (Maven, once) 101 s + Planetiler 208 s | 530 s. Downloads 255 s, graph 3 s, Photon 34 s, Maven 106 s, Planetiler 164 s | AC 1: ≤ 30 min |
+| **Warm restart**: `docker compose down` then `up -d --wait` | **8.7 s**. Tiles, graph and index all log `reused`, and no download is made | 8.8 s | AC 2: ≤ 120 s |
+| **Source switch**: `make rebuild-data` after changing `OSM_PBF_URL`, auxiliary files cached | 336 s (BBBike → Mongolia). Graph 22 s, Photon 33 s, Maven 76 s, Planetiler 229 s | n/a | AC 5 |
+| Peak memory during the build (`docker stats`, sum over containers, sampled every 3 s) | 5.5 GB (tiles-build 5.0 GB) | 3.98 GB (tiles-build 3.5 GB) | AC 39: ≤ 12 GB |
+| Memory of the running services | gateway 5 MB, valhalla 133 MB, photon 488 MB | gateway 5 MB, valhalla 97–132 MB, photon 392–785 MB | AC 39: ≤ 6 GB |
+| Total size of `data/` | 2.9 GB (2.4 GB of it is cached auxiliary sources) | 2.6 GB | AC 39: ≤ 10 GB |
+| PMTiles size | **243 MB** (243,254,233 bytes = 232 MiB; z0–15, 732,736 tiles). **Exceeds AC 12.** The limit was written for UB and is waiting on the PO (NAV-001 Open question 4). Known deviation, not a build error | 2.6 MB (z0–15, 177 tiles) | AC 12: ≤ 200 MB |
+| Routing graph / Photon index | 64 MB / 27 MB | 3.9 MB / 27 MB | |
+| p95 of 20 sequential requests through the gateway: route / search / reverse / tile range | `make perf`: 13 / 66 / 36 / 1.4 ms. QA `checks.py --group perf`: 19.7 / 43.4 / 18.9 / 1.5 ms | 12 / 70 / 44 / 1.3 ms | AC 35–38: 500 / 300 / 300 / 100 ms |
+| `scripts/smoke.py` (`--perf`) | **41 pass, 0 fail** (includes AC 43 on GET and HEAD) | 36 pass, 3 fail (AC 10, 13/14: P3/P6 outside the box; measured before the AC 43 checks were added) | AC 40 |
+| `scripts/contract_check.py` | **29 conform** (includes the GET and HEAD 416 and the X2 out-of-coverage route) | 27 conform (before the 416 cases were added) | |
 
 Planetiler with max zoom 15 and `-Xmx3g`. The Natural Earth pass takes about 85 s regardless of the
 extract size. Photon's `lang=mn` works (AC 27). The Protomaps tiles carry `name` and `name:en` but not
@@ -187,14 +198,16 @@ extract size. Photon's `lang=mn` works (AC 27). The Protomaps tiles carry `name`
 - **Builders:** log JSON lines with URLs, file names, sizes and durations only.
 
 ## Could not be run or verified here
-- **Geofabrik (`download.geofabrik.de`) is blocked from the dev container**, where it answers with a 301 loop via a squid proxy. The production source switch was exercised with the geo2day.com Mongolia extract instead. Geofabrik PBFs carry a header bbox, so the node scan is not needed there.
-- **The BBBike URL returned HTTP 503 all day on 2026-09-29.** The BBBike runs used the local copy through `OSM_PBF_FILE`. With the URL alone, `data-fetch` exits 1 with `"msg":"download failed","url":"https://download.bbbike.org/…","http_status":"503"` after curl's 3 retries (about 75 s), which is the documented edge-case behaviour. With `OSM_PBF_FILE` set, the build succeeds under `docker run --network none` (AC 4).
+- **Geofabrik (`download.geofabrik.de`) is blocked from the dev container**, where it answers with a 301 loop via a squid proxy. The production URL has therefore never been fetched here. Every Mongolia build used the geo2day.com mirror, which serves the same country extract. Geofabrik PBFs carry a header bbox, so the node scan is not needed there.
+- **The BBBike URL returned HTTP 503 all day on 2026-09-29** (it is only the optional small build now). The BBBike runs used the local copy through `OSM_PBF_FILE`. With the URL alone, `data-fetch` exits 1 with `"msg":"download failed","url":"https://download.bbbike.org/…","http_status":"503"` after curl's 3 retries (about 75 s), which is the documented edge-case behaviour. With `OSM_PBF_FILE` set, the build succeeds under `docker run --network none` (AC 4).
 - **Ferrostar parsing the route response end to end** is not tested here (no client in NAV-001). Only the OpenAPI schema and the fields in AC 15 are checked.
 - **Docker Hub images** (`nginx:1.28`, `mediagis/nominatim`) were not tried, because Docker Hub returns 429.
 - **Nominatim** is not part of NAV-001 (ADR-0003).
 
 ## Troubleshooting
 - **`service "data-fetch" didn't complete successfully`**: run `docker compose logs data-fetch`. The last line names the URL and HTTP status. For the OSM or Photon source, set `OSM_PBF_FILE` / `PHOTON_DUMP_FILE` to a local file. For an auxiliary file, put it into `data/sources/` or change its `*_URL` key.
+- **geo2day.com mirror down or changed** (dev default OSM source): download the Mongolia PBF by any other route and set `OSM_PBF_FILE`, or switch `OSM_PBF_URL` to Geofabrik where it is reachable, or to the optional BBBike UB extract for gateway-only work.
+- **A web client reports a CORS error on the tiles file**: check the raw response with `curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' …`. Every `Access-Control-*` header must appear once. `infra/ci/backend-static-checks.sh` guards this for 206 and 416.
 - **TLS errors** (`self-signed certificate in certificate chain`): set `EXTRA_CA_CERT` to your proxy's CA bundle.
 - **Port 8080 in use**: set `GATEWAY_PORT`.
 - **Photon logs `high disk watermark exceeded`**: the host disk is over 90% full. Serving still works. At 95% (OpenSearch flood stage) a new import can fail, so free some disk space.

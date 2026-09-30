@@ -6,3 +6,7 @@
 - `tokens.json`: design tokens (light + night)
 - `map-style.md`: MapLibre style spec
 - `navigation-ux.md`: active navigation rules (banners, voice timing, lanes, speed limit)
+
+Checks (run from the repo root):
+- `node docs/design/prototypes/check-contrast.mjs`: WCAG contrast of every token pair in `tokens.json › contrastPairs`, day/night flavor key parity, and `map-style.md` table values vs `tokens.json`.
+- `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node docs/design/prototypes/check-layout.mjs`: layout rules of the NAV-002 wireframe at 5 viewports x every state x day/night x mn/en (uses the Playwright copy in `tests/e2e`, installs nothing).

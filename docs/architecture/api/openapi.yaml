@@ -1,13 +1,24 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.1.0
+  version: 0.2.0
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
     and clients consume it. Neither side changes it on its own.
 
     Design decisions: ADR-0002 (gateway, pass-through, CORS, paths) and ADR-0003 (Photon index source).
+
+    **Changes in 0.2.0 (2026-09-29, NAV-001 change request "Default dev OSM data = all of Mongolia").**
+    Backward compatible, additive only:
+    - `GET/HEAD /tiles/basemap.pmtiles` 416 now has a documented `GatewayError` JSON body (new code
+      `RangeNotSatisfiable`) and single CORS headers (NAV-001 AC 43). Before this, the 416 body was an
+      undocumented nginx HTML page with every CORS header duplicated, which browsers rejected as a CORS
+      error. No client relied on it.
+    - `GatewayError.code` gains the value `RangeNotSatisfiable`. Clients must already treat unknown codes as a
+      generic failure keyed on HTTP status.
+    - Dev coverage text updated: the default dev OSM extract is now all of Mongolia (ADR-0002 Amendment 1).
+      Paths, request and response schemas are unchanged.
 
     **Pass-through principle.** `/v1/route` is Valhalla `/route` (pinned 3.9.0), and
     `/v1/search` and `/v1/reverse` are Photon `/api` and `/reverse` (pinned 1.3.0). Requests and
@@ -21,16 +32,21 @@ info:
     **CORS** is handled only by the gateway (ADR-0002 §3). Every path answers `OPTIONS`
     with 204. `Access-Control-Allow-Origin` is present only for origins allowed by
     `CORS_ALLOWED_ORIGINS`. `Access-Control-Expose-Headers` always includes
-    `Content-Range, Content-Length, ETag, Accept-Ranges`.
+    `Content-Range, Content-Length, ETag, Accept-Ranges`. Every `Access-Control-*` header appears
+    **at most once** on every response, including 206, 304, 4xx and 5xx (browsers reject a repeated
+    `Access-Control-Allow-Origin`; NAV-001 AC 43).
 
     **Errors.** Clients branch on HTTP status first. 4xx bodies come from the upstream
     (Valhalla OSRM-style `{code,message}`, Valhalla native `{error_code,error,...}`, or Photon
-    `{message}` / validation map). 404/405/413/502/503/504 produced by the gateway itself use
-    `GatewayError` `{code,message}`. A 500 from an upstream is a bug, not a contract case.
+    `{message}` / validation map). 404/405/413/416/502/503/504 produced by the gateway itself use
+    `GatewayError` `{code,message}` with `Content-Type: application/json`. A 500 from an upstream is a bug, not a contract case.
 
     **Attribution.** Map data is © OpenStreetMap contributors (ODbL). Clients render this string
     from their own resource files on every map screen. The PMTiles metadata attribution is
-    only a shorter `© OpenStreetMap` link.
+    only a shorter `© OpenStreetMap` link. The basemap's landcover layer (z0-z7) is CC BY 4.0
+    (Daylight landcover, from ESA WorldCover), so screens that show it also credit
+    "© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021) processed by
+    ESA WorldCover consortium", also from resource files (ADR-0002 Consequences).
 
     **Auth.** None (NAV-001: local development only).
 
@@ -96,11 +112,20 @@ paths:
         `pmtiles` plugin (`pmtiles://http://localhost:8080/tiles/basemap.pmtiles`), or MapLibre
         Native with a `pmtiles://` source URL.
 
-        Guarantees for the dev build (NAV-001 AC 9-12):
+        Guarantees for the dev build (NAV-001 AC 9-12). The default dev extract is all of Mongolia
+        (ADR-0002 Amendment 1):
         - bytes 0-6 are `PMTiles` and byte 7 is `0x03`
         - bounds cover UB reference points P1-P6, `maxzoom` >= 14 (Protomaps default 15)
         - the metadata `attribution` contains `OpenStreetMap`
-        - size is at most 200 MB for the UB extract
+        - size: NAV-001 AC 12 says <= 200 MB, a limit written for the UB extract. The Mongolia build
+          measured 243 MB at z0-15, and the PO has not yet decided the limit (NAV-001 Open question 4).
+          Clients must not assume any archive size. They read `Content-Length` from HEAD or the
+          `Content-Range` total.
+
+        A `Range` whose start is at or beyond the archive size returns **416** with a JSON
+        `GatewayError` body and `Content-Range: bytes */<size>` (NAV-001 AC 43). PMTiles readers never
+        send such a range in normal use. It indicates a client bug or a stale directory from an
+        older archive, and the client should re-read the header (bytes 0-126).
 
         Label fields in the Protomaps schema are `name`, `name:en`, `name:ru` and other
         languages, but **not** `name:mn` (ADR-0002 Consequences). Clients use `name` as the
@@ -143,15 +168,16 @@ paths:
         "404":
           $ref: "#/components/responses/GatewayNotFound"
         "416":
-          description: Range not satisfiable
-          headers:
-            Content-Range:
-              schema: { type: string, example: "bytes */48213301" }
+          $ref: "#/components/responses/RangeNotSatisfiable"
     head:
       tags: [tiles]
       operationId: headBasemapPmtiles
       summary: Archive size and ETag without body
+      description: Same headers as GET, without a body. Clients and tests read the archive size `S` from `Content-Length`.
       x-stories: [NAV-001]
+      parameters:
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/Origin"
       responses:
         "200":
           description: Headers only
@@ -159,6 +185,16 @@ paths:
             Content-Length: { $ref: "#/components/headers/ContentLength" }
             ETag: { $ref: "#/components/headers/ETag" }
             Accept-Ranges: { $ref: "#/components/headers/AcceptRanges" }
+            Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+            Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+        "404":
+          description: Tiles archive missing (headers only, no body on HEAD)
+        "416":
+          description: Unsatisfiable Range (headers only, no body on HEAD). Headers as in the GET 416 response.
+          headers:
+            Content-Range: { $ref: "#/components/headers/ContentRangeUnsatisfied" }
+            Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+            Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
     options:
       tags: [gateway]
       operationId: preflightTiles
@@ -187,10 +223,22 @@ paths:
         - Send `units: "kilometers"`.
         - Rerouting is decided on the client (Ferrostar) and simply calls this endpoint again.
 
-        Dev coverage is the configured OSM extract (UB bounding box by default). Locations
-        outside it return 400 `NoSegment`.
+        Dev coverage is the configured OSM extract. `data/build-info.json` records the current bbox.
+        - **Default (dev):** all of Mongolia, from the dev-only mirror `https://geo2day.com/asia/mongolia.pbf`
+          (node-scan bbox [81.9257, 39.0189, 120.2728, 53.0383]). Intercity points such as X1 Erdenet are
+          routable. Production uses Geofabrik `mongolia-latest` with the same coverage (ADR-0002 Amendment 1).
+        - **Optional small build:** the BBBike UB box [106.8392, 47.8995, 107.0167, 47.9337], about 13 x 4 km,
+          which excludes P3 and P6.
 
-        NFR: p95 <= 500 ms via the gateway for UB routes (NAV-001 AC 35). The gateway read timeout is 10 s.
+        Locations far outside coverage (for example X2 Beijing on the default build) return 400 `NoSegment`.
+        A location just outside it (within Valhalla's default search cutoff of 35 km) snaps to the nearest
+        road inside, so the response is a 200 whose route ends away from the requested point. Measured on the
+        BBBike build: P3 Zaisan, about 1.5 km south of the box, gives a route ending 1416 m from P3. The same
+        happens near the Mongolian border on the default build. Clients compare `waypoints[].distance`
+        (snap distance) with a threshold before trusting such a route.
+
+        NFR: p95 <= 500 ms via the gateway for UB routes (NAV-001 AC 35), measured on the default Mongolia
+        build. The gateway read timeout is 10 s.
       x-stories: [NAV-001, NAV-004, NAV-005]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route, docs: "https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/" }
       requestBody:
@@ -266,7 +314,10 @@ paths:
       tags: [routing]
       operationId: getRoute
       summary: Same as POST, with the request JSON URL-encoded in `json`
-      description: For quick manual tests and cacheable links. Keep URLs under 8 KB. Clients use POST.
+      description: |
+        For quick manual tests and cacheable links. Clients use POST. Keep URLs under 8 KB: longer
+        request lines get 414 from the gateway with an HTML body, which is not part of the contract.
+        The query string is redacted from all service logs (ADR-0002 §3.4).
       x-stories: [NAV-001]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route }
       parameters:
@@ -310,7 +361,8 @@ paths:
         `features` array**, never an error.
 
         The index is built from the GraphHopper Mongolia Photon dump (ADR-0003) and covers all of
-        Mongolia, even when dev routing covers only UB. Indexed languages are `mn`, `en` and `ru`.
+        Mongolia, the same area as the default dev routing and tiles extract. (On the optional BBBike UB
+        build, search can return places that routing cannot reach.) Indexed languages are `mn`, `en` and `ru`.
 
         **Client rules:** always send `lang` (the UI language). Otherwise Photon uses the
         `Accept-Language` header. For UB-relevant ranking, send `lat`/`lon` (the map centre or user position).
@@ -515,6 +567,9 @@ components:
       schema: { type: string, example: "Content-Range, Content-Length, ETag, Accept-Ranges" }
     ContentLength:
       schema: { type: integer }
+    ContentRangeUnsatisfied:
+      description: "`bytes */<total>`, where `<total>` is the archive size (RFC 9110 §14.4)"
+      schema: { type: string, pattern: '^bytes \*/\d+$', example: "bytes */254803968" }
     ETag:
       schema: { type: string }
     AcceptRanges:
@@ -563,7 +618,7 @@ components:
               - $ref: "#/components/schemas/ValhallaError"
           examples:
             outOfCoverage:
-              summary: P1 to X1 Erdenet on the UB-only dev extract
+              summary: P1 to X2 Beijing (outside Mongolia; on the optional BBBike UB build X1 Erdenet also gives this)
               value: { code: NoSegment, message: "One of the supplied input coordinates could not snap to street segment." }
             missingLocations:
               value: { code: InvalidOptions, message: "Options are invalid." }
@@ -616,6 +671,20 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/GatewayError" }
           example: { code: MethodNotAllowed, message: "Method not allowed" }
+    RangeNotSatisfiable:
+      description: |
+        The `Range` start is at or beyond the end of the archive (NAV-001 AC 43). Answered by the gateway
+        with a JSON body. Each CORS header appears exactly once, so a browser `fetch` sees status 416
+        instead of a CORS error. Other headers on the file (`ETag`, `Cache-Control`, `Accept-Ranges`) may also
+        be present. Clients must not rely on them for a 416.
+      headers:
+        Content-Range: { $ref: "#/components/headers/ContentRangeUnsatisfied" }
+        Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+        Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GatewayError" }
+          example: { code: RangeNotSatisfiable, message: "Requested range not satisfiable" }
     GatewayPayloadTooLarge:
       description: Request body over 256 KB
       content:
@@ -624,8 +693,9 @@ components:
           example: { code: PayloadTooLarge, message: "Request body too large" }
     UpstreamUnavailable:
       description: |
-        The upstream container is stopped, unresolvable or refusing connections. Returned within 5 s. Other
-        endpoints are unaffected (NAV-001 AC 34). Clients show a retryable "service unavailable" state.
+        The upstream container is stopped, unresolvable, refusing connections or not accepting the connection
+        within the 2 s connect timeout (this case is also 502, not 504). Returned within 5 s. Other endpoints
+        are unaffected (NAV-001 AC 34). Clients show a retryable "service unavailable" state.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/GatewayError" }
@@ -650,7 +720,10 @@ components:
       properties:
         code:
           type: string
-          enum: [NotFound, MethodNotAllowed, PayloadTooLarge, UpstreamUnavailable, UpstreamTimeout]
+          description: |
+            Known values are listed. New values may be added in minor versions (0.2.0 added
+            `RangeNotSatisfiable`), so clients treat an unknown code as a generic failure keyed on the HTTP status.
+          enum: [NotFound, MethodNotAllowed, PayloadTooLarge, RangeNotSatisfiable, UpstreamUnavailable, UpstreamTimeout]
         message:
           type: string
           description: English, developer-facing. Clients show localised text keyed on `code` / HTTP status.
