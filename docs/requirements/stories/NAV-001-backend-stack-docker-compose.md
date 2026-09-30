@@ -72,6 +72,7 @@ QA may move any point by up to 50 m to the nearest routable road. Every point P1
    - an optional local-file key that, when set, is used instead of downloading
    - the gateway host port (default `8080`)
    - the allowed CORS origins (default allows any origin, for local dev only)
+   - the tiles max zoom `TILES_MAXZOOM`, default `14` (PO decision D1, 2026-09-30, see AC 12)
 
    Every key has a one-line comment, and no secrets are present.
 4. **Given** the local-file key points to an existing PBF and the OSM source URL is unreachable, **When** a full build is forced, **Then** the build succeeds with the local file and makes **no** request to the OSM source URL.
@@ -92,7 +93,13 @@ QA may move any point by up to 50 m to the nearest routable road. Every point P1
     - the max zoom is at least **14**
     - the metadata `attribution` contains `OpenStreetMap`
 11. **Given** the PMTiles archive, **When** the z14 tile containing P1 is extracted (QA computes x/y from P1), **Then** it is non-empty and holds at least one road feature with a non-empty `name` attribute. The smoke report records whether `name:mn` and `name:en` attributes are present (informational, see Data risks).
-12. **Given** the built archive for the dev extract, **When** its size is checked, **Then** it is **≤ 200 MB**. *(Unresolved: the backend measured **243 MB** on the Mongolia build. This limit was set for the UB extract and is not in the PO-approved scope of the 2026-09-29 change. See Open question 4.)*
+12. **Given** `.env.example` sets `TILES_MAXZOOM=14` with a one-line comment (AC 3 rules apply), and the archive is built from the default Mongolia dev extract with that default, **When** its header and size are checked, **Then**:
+    - the header max zoom is **exactly 14**, which still meets AC 10 (≥ 14)
+    - the size is **≤ 200 MB** (MB = 2^20 bytes, so ≤ 209,715,200 bytes). This is the primary limit.
+    - **Fallback (PO decision D1, 2026-09-30):** if the z14 archive is larger than 200 MB, the limit for the Mongolia dev extract is **≤ 400 MB** (≤ 419,430,400 bytes). A size between the two limits passes, and the check output prints an INFO line with the measured size in bytes and the text "AC 12 fallback limit (D1) applied"
+    - the measured size and max zoom are recorded in the backend README ("Measured on the reference machine") or in `data/build-info.json`
+
+    A size above 400 MB, or a default build with a max zoom other than 14, fails. The limits apply to the default Mongolia dev build only. The optional BBBike UB build has no size limit.
 
 ### C. Routing (Valhalla, OSRM-compatible, mn-MN)
 13. **Given** the stack is healthy, **When** `ROUTE` is called from P1 to P3 with `costing=auto`, `format=osrm`, `banner_instructions=true`, `voice_instructions=true`, `language=mn-MN`, `units=kilometers`, **Then**:
@@ -100,7 +107,7 @@ QA may move any point by up to 50 m to the nearest routable road. Every point P1
     - `routes` has at least 1 entry
     - `routes[0].distance` is **≥ the straight-line distance P1→P3** and **≤ 2.5 × that distance**
     - `routes[0].duration` is **> 0**
-14. **Given** the response from AC 13, **When** `routes[0].geometry` is decoded as **polyline6**, **Then** the first coordinate is **≤ 100 m** from P1 and the last is **≤ 100 m** from P3. The 50 m reference-point move allowance applies, so the **hard limit is ≤ 150 m** from the P1 and P3 coordinates in the table (100 m route-end limit + 50 m allowed point move). An endpoint between 100 m and 150 m passes, and the test output prints its measured distance as an INFO line.
+14. **Given** the response from AC 13, **When** `routes[0].geometry` is decoded as **polyline6**, **Then** the first coordinate is **≤ 100 m** from P1 and the last is **≤ 100 m** from P3. The 50 m reference-point move allowance applies, so the **hard limit is ≤ 150 m** from the P1 and P3 coordinates in the table (100 m route-end limit + 50 m allowed point move). An endpoint between 100 m and 150 m passes, and the test output prints its measured distance as an INFO line. *(The 150 m hard limit was confirmed by the PO on 2026-09-30, decision D2.)*
 15. **Given** the response from AC 13, **When** the steps are inspected, **Then** every step in `routes[0].legs[0].steps` has a `maneuver` object, and at least one step has both of the following, which is the minimum Ferrostar's OSRM parser needs:
     - `voiceInstructions[]` with non-empty `announcement` and numeric `distanceAlongGeometry`
     - `bannerInstructions[]` with non-empty `primary.text` and numeric `distanceAlongGeometry`
@@ -139,7 +146,7 @@ Added 2026-09-29 (numbered after AC 42 so existing AC numbers stay stable):
     - `Content-Type` is `application/json`, and the body is valid JSON matching the gateway error schema in `openapi.yaml` (`code` and `message`), **not** HTML
     - a browser `fetch` of the same request from `http://localhost:5173` resolves with status 416 instead of rejecting with a CORS/network error
 
-    Note: `bytes=99999999-` (about 95 MB) is **satisfiable** on the ~243 MB Mongolia archive, so QA must derive the start from `S`.
+    Note: `bytes=99999999-` (about 95 MB) is **satisfiable** on the ~243 MB z15 Mongolia archive, and the z14 archive (AC 12, D1) has a different size, so QA must always derive the start from `S`.
 
 ### F. Performance baseline (reference machine, warm services, via gateway)
 35. **Given** 20 sequential `ROUTE` requests (auto, mn-MN, OSRM format) among P1 to P5, **When** timed, **Then** the **p95 is ≤ 500 ms**.
@@ -174,7 +181,7 @@ Added 2026-09-29 (numbered after AC 42 so existing AC numbers stay stable):
 | R1 | **Dev default is a third-party mirror** (`geo2day.com`), not Geofabrik. Its PBF header has no bbox and no replication timestamp (a node scan gives bbox `[81.9257, 39.0189, 120.2728, 53.0383]`) | Data provenance and date are less certain than Geofabrik's. Dev data may differ from production. Tile bounds are a rectangle wider than Mongolia | **Dev only.** Production uses Geofabrik `mongolia-latest`. Record source, sha256 and HTTP `Last-Modified` (AC 5). Backend |
 | R2 | **Dev source availability** (mirror may go down; BBBike returned HTTP 503 all day on 2026-09-29) | First-run build fails | Local-file override (AC 4). BBBike UB as a documented optional alternative. Backend |
 | R3 | **Geofabrik blocked in the dev container** | The production source switch cannot be verified here | Verify AC 5 with the Geofabrik URL somewhere with access. QA/orchestrator |
-| R12 | **The full Mongolia extract is larger** (~70 MB PBF vs 4.4 MB; PMTiles 243 MB vs 2.6 MB; source switch measured 336 s) | Cold first run (AC 1, ≤ 30 min including downloads) and AC 12 (≤ 200 MB) are at risk | AC 1 is re-verified on the Mongolia build. AC 12 is Open question 4. Backend/QA |
+| R12 | **The full Mongolia extract is larger** (~70 MB PBF vs 4.4 MB; PMTiles 243 MB vs 2.6 MB; source switch measured 336 s) | Cold first run (AC 1, ≤ 30 min including downloads) and AC 12 (≤ 200 MB) are at risk | AC 1 is re-verified on the Mongolia build. AC 12 is resolved by PO decision D1 (2026-09-30): build at z14, keep ≤ 200 MB, and fall back to ≤ 400 MB if z14 is still larger. Backend rebuilds and re-measures, and QA updates the check |
 | R4 | **Planetiler auxiliary sources** (Natural Earth, water polygons) may be blocked or large | Tile build fails even when the PBF is local | Overridable URLs, cache under `data/`. Backend |
 | R5 | **Photon index source.** Photon cannot import a PBF directly. It needs a Nominatim database import (GPL, heavier) or a prebuilt GraphHopper JSON dump (weekly, Asia region, may differ in date from the PBF used for tiles and routing) | Search results may not match the routing and tiles data; build time and disk vary a lot | Architect decides (see Open questions). Backend documents it |
 | R6 | **`name:mn` / `name:en` coverage in OSM** for UB streets and POIs | Latin search (AC 24) and English labels may be weak. `name` in UB is usually Cyrillic Mongolian, so Mongolian UX falls back acceptably | Baseline recorded (AC 11, 24). Mapping programme later |
@@ -194,7 +201,7 @@ Added 2026-09-29 (numbered after AC 42 so existing AC numbers stay stable):
 - Native-speaker review of the Valhalla `mn-MN` text.
 
 ## Open questions
-Q1 to Q3 are not blocking. Q4 blocks a full pass on the default dev configuration.
+Q1 to Q3 are not blocking. Q4 and Q5 were decided by the PO on 2026-09-30 (`docs/requirements/decisions.md`, D1 and D2).
 1. **Is Nominatim part of NAV-001 or deferred?** Options: (a) defer, with Photon `/reverse` covering reverse in the PoC; (b) include Nominatim now as Photon's index source and for structured/reverse. *Recommendation: (a), unless the architect picks Nominatim as the Photon index source anyway (Q2).*
 2. **Photon index source for dev** (architect decision, recorded in an ADR). Options: (a) own Nominatim import from the same PBF, which keeps data consistent but is heavier and GPL server-side; (b) a prebuilt GraphHopper Photon dump filtered to `mn`, which is fast but has a different data date, needs a large regional download and may lack `name:mn`. *Recommendation: (a) for consistency with tiles and routing, if it fits the 30-minute/10 GB limits on the UB extract; otherwise (b) for dev only.*
 3. **Performance and resource limits** (AC 12, 35 to 39) are BA-proposed PoC baselines, not user-agreed SLAs. *Recommendation: accept for Phase 0 and revisit production targets with the hosting decision.*
@@ -203,8 +210,10 @@ Q1 to Q3 are not blocking. Q4 blocks a full pass on the default dev configuratio
    - (b) keep ≤ 200 MB and have the backend build to max zoom 14 (AC 10 requires only ≥ 14, and clients overzoom), then re-measure
    - (c) apply AC 12 only to the optional BBBike UB build
 
-   *Recommendation: (b) first, since it keeps the size baseline and the AC 10 minimum. If z14 is still over 200 MB, then (a). Until the PO decides, AC 12 is reported as a known deviation, not a blocker defect.*
-5. **AC 14 tolerance** is recorded as 150 m total (see Change log 2026-09-29). This is the orchestrator's recommendation, which the PO did not object to. The PO can revise it.
+   *Recommendation: (b) first, since it keeps the size baseline and the AC 10 minimum. If z14 is still over 200 MB, then (a).*
+
+   **Decided 2026-09-30 (D1):** (b), with (a) as the fallback. AC 12 is rewritten accordingly.
+5. **AC 14 tolerance** is recorded as 150 m total (see Change log 2026-09-29). **Decided 2026-09-30 (D2):** the PO confirmed 150 m.
 
 ## Traceability
 Symbols map to `openapi.yaml` operations as follows:
@@ -226,7 +235,7 @@ Tests abbreviations:
 |---|---|---|---|---|---|
 | AC1 | — | all | `backend/compose.yaml`, `backend/scripts/*` | plan §5.2 TC-01-01 (to re-run on the Mongolia default) | CR 2026-09-29: cold run now includes the ~70 MB Mongolia download |
 | AC2 | — | all | `backend/compose.yaml`, `backend/scripts/*` | plan §5.3 TC-02-01 | CR 2026-09-29: re-verify on the Mongolia build |
-| AC3 | — | — | `backend/.env.example` | `static` AC03.* | CR 2026-09-29: default URL is now the Mongolia dev mirror |
+| AC3 | — | — | `backend/.env.example` | `static` AC03.* | CR 2026-09-29: default URL is now the Mongolia dev mirror. D1 2026-09-30: `TILES_MAXZOOM` default 14 (static check to add, QA) |
 | AC4 | — | — | `backend/scripts/data-fetch.sh` | plan §5.4 TC-04-01 | |
 | AC5 | — | — | `backend/Makefile` (`rebuild-data`), `backend/scripts/build_info.py` | plan §5.5 TC-05-01 | |
 | AC6 | — | — | `backend/.gitignore` | `static` AC06.* | |
@@ -235,9 +244,9 @@ Tests abbreviations:
 | AC9 | — | `getBasemapPmtiles` | `backend/gateway/` | `smoke`, `checks` smoke, `e2e` E2E-01 | |
 | AC10 | — | `getBasemapPmtiles` | `backend/scripts/tiles-build.sh` | `checks` full, `e2e` E2E-02 | CR 2026-09-29: evaluated on the Mongolia build (P3, P6 now covered) |
 | AC11 | — | `getBasemapPmtiles` | `backend/scripts/tiles-build.sh` | `checks` full (info in `smoke`) | |
-| AC12 | — | `headBasemapPmtiles` | `backend/scripts/tiles-build.sh` | `checks` full | Open question 4 (243 MB measured on Mongolia) |
+| AC12 | — | `headBasemapPmtiles` | `backend/.env.example`, `backend/compose.yaml` (`TILES_MAXZOOM`), `backend/scripts/tiles-build.sh` | `checks` full (`AC12.size_le_200MB` to be replaced by the D1 rule: max zoom = 14, ≤ 200 MB, or ≤ 400 MB with the fallback INFO line; QA) | D1 2026-09-30 (243 MB measured at z15; rebuild at z14 and re-measure) |
 | AC13 | — | `postRoute` | `backend/scripts/valhalla-build.sh` | `smoke` | CR 2026-09-29: evaluated on the Mongolia build |
-| AC14 | — | `postRoute` | — | `smoke` AC14.* (+ `.move` INFO) | CR 2026-09-29: hard limit 150 m |
+| AC14 | — | `postRoute` | — | `smoke` AC14.* (+ `.move` INFO) | CR 2026-09-29: hard limit 150 m. D2 2026-09-30: PO-confirmed |
 | AC15 | — | `postRoute` | — | `smoke` | |
 | AC16 | — | `postRoute` | — | `smoke`, `e2e` E2E-03 | |
 | AC17 | — | `postRoute` | — | `checks` full | |
