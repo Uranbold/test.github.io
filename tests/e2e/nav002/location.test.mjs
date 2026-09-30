@@ -33,10 +33,12 @@ const accuracyRadius = (page) =>
   });
 const ringRadius = (ring, centre) => ring.reduce((s, [lng, lat]) => s + haversine(centre, { lat, lng }), 0) / ring.length;
 
-// AC 19/20/25 "zoom >= 15": read after the camera has stopped (still inside the AC's 3 s), with a 1e-4 zoom-level
-// tolerance. MapLibre's flyTo can end at 14.999996 (float residue, 0.0003 % scale, invisible); a sample taken while the
-// camera is still flying (14.95 in run 4 pre-fix) is a measurement error, not the app's final state. Changed 2026-09-30.
-const ZOOM_EPS = 1e-4;
+// AC 19/20/25 "zoom >= 15": read after the camera has stopped, and the stop must happen inside the AC's 3 s.
+// Run 4 failed with 14.95 (AC 20) and 14.999996 (AC 25) because the zoom was read as soon as the centre was within
+// 20 m. A camera trace (2026-09-30, probe on X2) shows the centre gets within 20 m while flyTo is still zooming
+// (13.32 → 14.9987 over 8 frames) and the final zoom is exactly 15 (10/10 settled samples). So it was a test sampling
+// flaw, not a web/ camera defect. The tolerance stays at float level (1e-9); it is not a loosened threshold.
+const ZOOM_EPS = 1e-9;
 async function settledZoom(page, t0, limitMs = 3000) {
   await page.waitForFunction(() => !window.__nav002.map.isMoving(), null, { timeout: Math.max(1, limitMs - (Date.now() - t0)) });
   return (await camera(page)).zoom;
