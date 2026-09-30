@@ -1,0 +1,23 @@
+# NAV-008 ops VM (different provider from the staging host): Uptime Kuma (MIT) for external monitoring.
+# Owner: backend-engineer. Setup: infra/staging/RUNBOOK.md "Ops VM".
+#   docker compose -f infra/staging/monitoring/ops-vm/compose.yaml up -d
+# The UI binds to 127.0.0.1 only; reach it with an SSH tunnel:  ssh -L 3001:127.0.0.1:3001 nav-ops@<ops-host>
+name: navops
+services:
+  uptime-kuma:
+    image: ${UPTIME_KUMA_IMAGE:-louislam/uptime-kuma:2.5.5-slim@sha256:9c56a772a7df53f444a404c579e87a27bd0c201375d00d6745a75bf8138f4342}
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - uptime-kuma:/app/data
+    environment:
+      TZ: UTC
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3001',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+volumes:
+  uptime-kuma: {}

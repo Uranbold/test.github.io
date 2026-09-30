@@ -1,10 +1,13 @@
 <!doctype html>
 <!--
-  NAV-002 web demo map. Screen spec: docs/design/screens/NAV-002-web-map.md
-  No user-facing text in this file: every string is filled from src/i18n/{mn,en}.json (AC 32).
-  vite.config.ts (bootIndicator) adds the design-token CSS, the default-language <title> and the pre-module
-  loading script (src/boot/bootLoading.ts) at transform time, so the loading pill can appear 300 ms after
-  navigation start before the module graph loads (AC 37). styles.css is a render-blocking <link> for the same reason.
+  NAV-002 web demo map + NAV-003 search. Screen specs: docs/design/screens/NAV-002-web-map.md, NAV-003-search.md.
+  No user-facing text in this file: every string is filled from src/i18n/{mn,en}.json (AC 32 / NAV-003 AC 44).
+  vite.config.ts (bootIndicator) adds the design-token CSS, the default-language <title>, the default-language loading
+  text and the pre-module loading script (src/boot/bootLoading.ts) at transform time, so the loading pill is laid out in
+  the initial HTML and revealed 270 ms after navigation start before the module graph loads (NAV-002 AC 37).
+  styles.css is a render-blocking <link> for the same reason.
+  DOM order = Tab order (NAV-003 screen spec › Recommended DOM structure): search input, clear, language, theme,
+  compass, results-list retry, place card, map canvas, messages, bottom controls, attribution.
 -->
 <html lang="mn" data-theme="day">
   <head>
@@ -15,17 +18,64 @@
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
-    <div id="map" data-testid="map"></div>
-
     <div id="ui" class="ui">
       <div class="r1" data-testid="top-bar">
-        <button id="lang-btn" type="button" class="btn text" data-testid="language-toggle" aria-describedby="lang-desc" data-tooltip="language.label"></button>
-        <span id="lang-desc" hidden data-i18n="language.label"></span>
-        <button id="theme-btn" type="button" class="btn" data-testid="theme-toggle"></button>
-        <button id="compass-btn" type="button" class="btn" data-testid="compass" data-i18n-aria-label="control.northUp" data-tooltip="control.northUp" hidden>
-          <svg class="needle" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path class="needle-n" d="M12 2 16 12H8Z" /><path class="needle-s" d="M8 12h8l-4 10Z" /></svg>
-        </button>
+        <div class="search" id="search">
+          <div class="field" data-testid="search-field">
+            <svg class="lead" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9.5 3a6.5 6.5 0 0 1 5.2 10.4l5.4 5.4-1.4 1.4-5.4-5.4A6.5 6.5 0 1 1 9.5 3Zm0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z" /></svg>
+            <input id="search-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-results" maxlength="200" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" data-testid="search-input" data-i18n-aria-label="search.label" data-i18n-placeholder="search.placeholder" />
+            <button id="search-clear" type="button" class="clear" data-testid="search-clear" data-i18n-aria-label="search.clear" data-tooltip="search.clear" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4Z" /></svg>
+            </button>
+          </div>
+        </div>
+        <div class="cluster">
+          <button id="lang-btn" type="button" class="btn text" data-testid="language-toggle" aria-describedby="lang-desc" data-tooltip="language.label"></button>
+          <span id="lang-desc" hidden data-i18n="language.label"></span>
+          <button id="theme-btn" type="button" class="btn" data-testid="theme-toggle"></button>
+          <button id="compass-btn" type="button" class="btn" data-testid="compass" data-i18n-aria-label="control.northUp" data-tooltip="control.northUp" hidden>
+            <svg class="needle" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path class="needle-n" d="M12 2 16 12H8Z" /><path class="needle-s" d="M8 12h8l-4 10Z" /></svg>
+          </button>
+        </div>
       </div>
+
+      <div class="rs" id="search-panel">
+        <div id="search-popup" class="popup" data-testid="search-popup" hidden>
+          <ul id="search-results" role="listbox" data-testid="search-results" data-i18n-aria-label="search.results"></ul>
+          <div id="search-state" class="state" data-testid="search-state" hidden>
+            <span class="icon" aria-hidden="true"></span>
+            <span class="txt" id="search-state-text"></span>
+            <button type="button" class="act" id="search-retry" data-testid="search-retry" data-i18n="action.retry" hidden></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="place" id="place" hidden>
+        <section id="place-card" class="place-card" data-testid="place-card" aria-labelledby="place-card-title">
+          <div class="ph">
+            <h2 id="place-card-title" tabindex="-1" data-testid="place-card-title"></h2>
+            <button type="button" class="btn flat" id="place-card-close" data-testid="place-card-close" data-i18n-aria-label="action.close" data-tooltip="action.close">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4Z" /></svg>
+            </button>
+          </div>
+          <p class="pm" id="place-card-meta" data-testid="place-card-meta"><span class="ty" id="place-card-type"></span><span class="cx" id="place-card-context"></span></p>
+          <p class="coords" id="place-card-coords" data-testid="place-card-coords"></p>
+          <div class="near" id="place-nearest" data-testid="place-nearest" aria-live="polite" hidden>
+            <p class="lab" data-i18n="place.nearest"></p>
+            <div class="near-place" id="place-nearest-place" hidden>
+              <p class="nn" id="place-nearest-name" data-testid="place-nearest-name"></p>
+              <p class="pm"><span class="ty" id="place-nearest-type"></span><span class="cx" id="place-nearest-context"></span></p>
+            </div>
+            <div class="state" id="place-nearest-state" hidden>
+              <span class="icon" aria-hidden="true"></span>
+              <span class="txt" id="place-nearest-state-text"></span>
+              <button type="button" class="act" id="place-retry" data-testid="place-retry" data-i18n="action.retry" hidden></button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="map" data-testid="map"></div>
 
       <div class="r2" id="messages">
         <div id="status-banner" class="banner" role="status" data-testid="status-banner" hidden>
@@ -43,7 +93,7 @@
       </div>
 
       <div class="blocking" id="blocking">
-        <div id="loading" class="pill idle" data-testid="loading" role="status" aria-live="polite" aria-hidden="true">
+        <div id="loading" class="pill pending" data-testid="loading" role="status" aria-live="polite" aria-hidden="true">
           <span class="spin" aria-hidden="true"></span><span id="loading-text"></span>
         </div>
         <div id="card" class="card" data-testid="blocking-card" hidden>
@@ -75,6 +125,7 @@
       </footer>
     </div>
 
+    <div id="search-live" class="sr-only" aria-live="polite" data-testid="search-live"></div>
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
   </body>
 </html>

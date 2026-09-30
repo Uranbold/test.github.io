@@ -2,7 +2,7 @@
   "name": "navmn-web",
   "private": true,
   "version": "0.1.0",
-  "description": "NAV-002 web demo map (MapLibre GL JS + gateway PMTiles). Local dev only.",
+  "description": "NAV-002 web demo map (MapLibre GL JS + gateway PMTiles) with NAV-003 search (gateway /v1/search, /v1/reverse). Local dev only.",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"

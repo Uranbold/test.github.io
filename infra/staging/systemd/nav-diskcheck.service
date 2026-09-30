@@ -1,0 +1,11 @@
+# NAV-008 staging: disk heartbeat (deployment-staging.md §9, AC 18).
+[Unit]
+Description=NAV-008 staging disk usage heartbeat (push only while usage < DISK_ALERT_PERCENT)
+Documentation=file://@NAV_ROOT@/infra/staging/RUNBOOK.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@NAV_ROOT@/infra/staging/bin/nav-diskcheck.sh
+TimeoutStartSec=2min

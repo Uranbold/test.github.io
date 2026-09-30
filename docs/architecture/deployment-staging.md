@@ -40,7 +40,7 @@ flowchart LR
   end
 
   subgraph OtherProvider["Different provider"]
-    ops["ops VM<br/>Uptime Kuma (127.0.0.1, SSH tunnel)<br/>restic SFTP target"]
+    ops["ops VM (UFW: 22, 80, 443)<br/>Uptime Kuma UI (127.0.0.1, SSH tunnel)<br/>Caddy :443: only /api/push/* to Kuma<br/>restic SFTP target"]
   end
 
   geofabrik["download.geofabrik.de<br/>mongolia-latest + aux sources"]
@@ -67,7 +67,7 @@ Delivered as one idempotent script (or Ansible playbook) under `infra/staging/`.
 | Time zone | Host clock in UTC. Schedules below are written in UTC with the Asia/Ulaanbaatar time next to them (UB and Singapore are both UTC+8) | — |
 | Admin account | One non-root sudo account with the role name `nav-ops`, SSH key only. The key belongs to the named PO-side operator (not recorded in the repo) | AC 12, AC 21 |
 | SSH | `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin no`, `PubkeyAuthentication yes`, `AllowUsers nav-ops` (plus the backup user if one is added). Put these in **`/etc/ssh/sshd_config.d/00-nav-hardening.conf`**. sshd keeps the **first** value it reads, and Ubuntu cloud images may ship `50-cloud-init.conf` with `PasswordAuthentication yes`, so the file must sort first. Check the effective values with `sshd -T` | AC 12 |
-| Break-glass access | The provider's browser or VNC console and recovery mode. Check that it still works after root SSH login is disabled, **before** closing the first SSH session | AC 20 |
+| Break-glass access | A provider path that does **not** depend on sshd: an out-of-band (VNC/serial) console, or a rescue/recovery boot that mounts the disk. **On Hostinger, the hPanel "Browser terminal" is an SSH client** (Hostinger's help page says it works "exactly like a standard SSH connection" and asks for the SSH user and password), so after hardening it refuses root and passwords. It is not break-glass. Hostinger's break-glass is **Settings → Emergency mode** (rescue system, the VPS disk mounted under `/mnt`) and, as a last resort, the panel's SSH-configuration reset (this undoes the hardening, so re-run bootstrap afterwards). Before closing the first SSH session, confirm that the break-glass path is offered for this VPS. Don't trigger it on a live host. See §17.4 | AC 20 |
 | Security updates | `unattended-upgrades` on for the security pocket. Automatic reboot allowed at 21:30 UTC (05:30 Asia/Ulaanbaatar), after the nightly rebuild window | AC 12 |
 | Docker | Docker Engine and the Compose plugin from Docker's apt repository (not the snap). `/etc/docker/daemon.json`: `log-driver: local`, `log-opts: {max-size: 10m, max-file: 5}` | AC 12, AC 14 |
 | journald | `SystemMaxUse=1G`, `MaxRetentionSec=14day` | AC 14 |
@@ -203,7 +203,7 @@ The alert receiver is the named PO-side operator (D7). The channel (email, Teleg
 | Host metrics history | `sysstat` on the host (§3) | CPU, RAM and disk kept 28 days | AC 18 |
 | Maintenance window | Uptime Kuma | Daily window around the rebuild (§11) so the planned stop does not page the operator. The rebuild heartbeat still catches a failed rebuild | AC 17 |
 
-The ops VM exposes no extra ports: Uptime Kuma binds to `127.0.0.1` and the operator reaches its UI through an SSH tunnel. The ops VM gets the same SSH hardening as the staging host. It holds no personal data (only `/health` results and encrypted configuration backups).
+~~The ops VM exposes no extra ports.~~ *(Corrected in review round 2, §17.4: this contradicted the push heartbeats above, which the staging host must be able to reach.)* The Uptime Kuma **UI** binds to `127.0.0.1`, and the operator reaches it through an SSH tunnel. The ops VM also runs a small Caddy (same pinned image and log include-list as staging) on TCP 80/443 that forwards **only** `/api/push/*` to Uptime Kuma. Every other path gets `404`. There is no access log, because push tokens are in the path. The ops VM gets the same SSH hardening as the staging host. It holds no personal data (only `/health` results, heartbeat times and encrypted configuration backups).
 
 Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s interval and certificate alerts, plus S3-compatible object storage at another provider for restic. Free tiers of common hosted monitors check only every 5 minutes, which fails AC 17.
 
@@ -225,6 +225,7 @@ Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s 
   4. `tests/smoke/run.sh` against the staging URL, then check that `build-info.json` records a Geofabrik replication timestamp ≤ 48 h old.
   5. On success, push the rebuild heartbeat (§9).
 - **Downtime:** the API is down for the length of the rebuild (a few minutes at night). Staging accepts this (AC 15 records the measured value). Zero-downtime blue/green is NAV-006.
+- **As implemented (§17):** step 3 is `infra/staging/bin/nav-rebuild.sh`, not `make rebuild-data`. The gateway and tiles stay up; only Valhalla restarts, and Photon stops only when the search dump changed. **On staging, AC 15's "`make rebuild-data`" is executed as `nav-rebuild.sh --force` after the auxiliary cache has been emptied** (§17.2). The `backend/Makefile` targets that start, stop or rebuild services must not be run on the staging host.
 - **Requested improvement (backend, recommended, not blocking):** keep the gateway running during `rebuild-data` and stop only the services whose data is replaced, so clients get the contract's JSON `502/503/404` with CORS headers instead of Caddy's backstop. Also keep the previous data set (about 3 GB, cheap on 200 GB) so a failed rebuild can be rolled back with one command.
 - **Auxiliary sources** (Natural Earth, water and land polygons, landcover, QRank; about 2.5 GB) stay cached. Refreshing them (for example monthly) is part of NAV-006. Only the OSM extract changes daily.
 - **Source etiquette:** one download of the Geofabrik extract per day at most, with a descriptive `User-Agent`.
@@ -287,3 +288,37 @@ Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s 
 | Rebuild fails after the stack was stopped | API down until the next good run or a manual restart | Preflight before stopping, heartbeat alert, requested rollback copy (§11) |
 | Let's Encrypt rate limits during repeated restores | Certificate issuance blocked for a while | ACME account and certificates are in the backup. Use the Let's Encrypt staging CA for dry runs |
 | Ops VM down | No external alerts | Accepted for staging. The operator sees a silent monitor on the next login |
+
+## 17. Implementation record (NAV-008 B1–B9, reviewed 2026-09-30)
+Backend delivered the design under `infra/staging/` and `backend/gateway/`. The deviations and refinements below are **accepted** and are normative from now on. Where this section and §3–§13 disagree, this section wins.
+
+### 17.1 Accepted refinements
+| Topic | Design said | Implemented (accepted) | Why accepted |
+|---|---|---|---|
+| Gateway rate limits | `.env` keys, names by backend | New entrypoint `backend/gateway/entrypoint/16-rate-limits.sh` writes `conf.d/01-rate-limits.conf`. Keys: `GATEWAY_RATE_LIMIT` (`off` in dev, forced `on` by the staging overlay), `GATEWAY_RATE_ROUTE`, `GATEWAY_BURST_ROUTE`, `GATEWAY_RATE_SEARCH`, `GATEWAY_BURST_SEARCH` (rates `<n>r/s` only), `GATEWAY_REAL_IP_FROM`. Invalid values stop the gateway instead of running unlimited. `limit_req_log_level info` (below `crit`) | Dev stays unlimited; staging cannot start without limits (`deploy.sh` also checks) |
+| Trusted proxy | Compose network CIDR of Caddy | Dedicated `edge` network (Caddy and gateway only) with a fixed subnet and an `ip_range` that excludes Caddy's fixed address. `set_real_ip_from` is Caddy's **/32** (and **/128** when IPv6 is on), not the subnet | Stricter: no other container can become the trusted peer |
+| IPv6 | Same rules as IPv4 | Optional overlay `compose.staging.ipv6.yaml`, added automatically when the host kernel has IPv6 (`EDGE_IPV6=auto`). Without it, Docker's userland proxy would give every IPv6 client the same rate-limit key | Keeps per-client keys for IPv6 clients. Keys are per /128; an IPv6 client could rotate addresses inside its /64. Accepted for staging (Wanguard in front; limits protect CPU, not access) |
+| `Retry-After` | Integer ≥ 1 (staging 1) | Fixed at `1`. Rates are restricted to `r/s` so that 1 s is always enough | Matches openapi 0.4.0 |
+| Caddy logger include-list | `tls http.acme_client admin` | `tls http.acme_client http.auto_https`. `admin` dropped: `admin.api` logs every healthcheck request | Checked against the pinned Caddy 2.11.4 |
+| Daily rebuild (§11) | `make rebuild-data` (full stop) | `nav-rebuild.sh`: `.md5` skip, rollback copy, builds while serving, Valhalla restart only, Photon stop only on a dump change, automatic data rollback on a failed build or smoke, heartbeat only after smoke **and** the 48 h age check | This is the §11 "requested improvement". Measured in a sandbox: tiles and `/health` 0 s down, routing about 13 s, search about 54 s |
+| Maintenance window (§9) | Daily window around the rebuild | Not needed for the rebuild (the gateway stays up). Manual windows for deploys and drills | Follows from the rebuild change |
+| Docker daemon | `log-driver local`, rotation | Also `live-restore: true`. Docker packages are `apt-mark hold`; Engine upgrades follow RUNBOOK "Upgrades" (snapshot first) | Deliberate Engine upgrades (§12) |
+| `nav-ops` sudo | Sudo account, key only | `NOPASSWD` sudo; the account has no password at all. `nav-ops` is also in the `docker` group | Accepted for staging: with key-only SSH there is no password to ask for, and `docker` group membership is root-equivalent anyway. The protection is the operator's passphrase-protected key. Revisit for production (NAV-009) |
+| Backup monitoring | Not specified | Optional third push monitor `nav-staging backup` (26 h) | Catches a silent backup failure (AC 19 has no alert rule) |
+
+### 17.2 AC 15/16 on staging (execution mapping)
+AC 15 names `make rebuild-data`, which is the **dev** command. On the staging host it would use `backend/.env` (created from the dev `.env.example`: CORS `*`, dev mirror OSM URL) and the base compose file without the overlay, under the same project name `navmn`. It would recreate the gateway without rate limits and off the `edge` network, and would delete the live data. Therefore, on staging:
+1. Empty the auxiliary cache so that every C9 download happens from the host: move the Planetiler auxiliary files out of `backend/data/sources/` (or run the measurement on the very first deploy of an empty host).
+2. Start the memory sampler (every ≤ 3 s, the `make stats` equivalent through `nav-compose`) as described in the runbook.
+3. Run `sudo infra/staging/bin/nav-rebuild.sh --force`. Its `last-rebuild.json` gives the build time and the downtime per service. Free disk comes from `df -h /` afterwards.
+The runbook must give these commands explicitly (review issue to backend-engineer). *Resolved in review round 2: RUNBOOK.md section 7 gives the single command `nav-stats-sampler.sh -- nav-rebuild.sh --empty-aux-cache` and the record steps.*
+
+### 17.3 Still open (not decided here)
+- The staging host itself (a KVM VPS, not shared web hosting), the domain, the ops VM, and whether the repository is private. `openapi.yaml` `servers` keeps its placeholder until the domain is known (AC 23).
+- The ops VM's public name for the push endpoint (§17.4), for example `ops-staging.<domain>` in the company zone. It is a DNS record, not a product decision. The operator creates it together with `staging.<domain>`.
+
+### 17.4 Review round 2 (2026-09-30): corrections to this design
+| Topic | Problem | Correction (normative) | Implements |
+|---|---|---|---|
+| Push heartbeats (§9) | §9 had the staging host push heartbeats (disk, rebuild, backup) to Uptime Kuma, but it also said the ops VM exposes no ports and Kuma binds to `127.0.0.1`. The push URLs could not be reached, so the disk, rebuild and backup monitors would always be DOWN, and the AC 18 disk alert would be meaningless | The ops VM runs Caddy (pinned `caddy` image, `protocols h1 h2`, TLS 1.2/1.3, the same log include-list `tls http.acme_client http.auto_https`, **no** access log) for `{$OPS_HOST}`: `handle /api/push/* { reverse_proxy uptime-kuma:3001 }`, `handle { respond 404 }`. UFW on the ops VM allows 22, 80 (ACME HTTP-01 and redirect) and 443. Kuma's own port stays `127.0.0.1:3001`. The push URLs in `infra/staging/.env` use `https://{$OPS_HOST}/api/push/<token>`. When the monitor is created, the Kuma UI shows `http://localhost:3001/...` (the tunnel URL), so the runbook tells the operator to replace the origin | backend-engineer: `monitoring/ops-vm/compose.yaml` + ops `Caddyfile`, `bootstrap.sh --role ops` opens 80/443 (or a flag), RUNBOOK section 10 incl. a push test from the staging host (`nav-diskcheck.sh` → green) |
+| Break-glass (§3) | The runbook and QA O-1.5 used the hPanel browser terminal with the root password as break-glass. That terminal is SSH-based, so after hardening it refuses root and password logins | Break-glass = Hostinger **Emergency mode** (rescue boot, disk under `/mnt`, fix `00-nav-hardening.conf` / `authorized_keys`). The panel's SSH-configuration reset is the last resort, and it requires re-running bootstrap. The first-session check confirms that these options are offered for the VPS. It does not trigger them. Other providers: their VNC/serial console or rescue mode | backend-engineer (RUNBOOK section 4 C step 2 and the "Locked out of SSH" incident row); qa-engineer (checklist O-1.5) |

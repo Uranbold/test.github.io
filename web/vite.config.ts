@@ -7,7 +7,7 @@ import en from "./src/i18n/en.json";
 import mn from "./src/i18n/mn.json";
 import { DEFAULT_LANG } from "./src/i18n/i18n";
 import { LANG_KEY, THEME_KEY } from "./src/prefs";
-import { LOADING_DELAY_MS } from "./src/state/status";
+import { LOADING_DELAY_MS, LOADING_REVEAL_MS } from "./src/state/status";
 
 // docs/design/tokens.json is the single source of truth for colours (owner: ux-designer).
 // It is imported read-only through the @design alias; web/ never copies the values by hand.
@@ -22,12 +22,15 @@ const inlineJson = (v: unknown): string => JSON.stringify(v).replace(/</g, "\\u0
  * NAV-002 AC 37: index.html gets, before any module loads,
  *  - the design-token CSS variables (so the pill, the map earth colour and night mode are styled at once),
  *  - the default-language page title (D15, from src/i18n/mn.json),
- *  - a tiny classic script (src/boot/bootLoading.ts) that shows the loading pill 300 ms after navigation start.
+ *  - the default-language loading text inside the pill, which index.html lays out transparent ("pending"),
+ *  - a tiny classic script (src/boot/bootLoading.ts) that reveals the pill 270 ms after navigation start (Web
+ *    Animations, start time pinned to navigation start) and switches it to the saved language.
  * All text comes from the resource files; index.html itself stays free of UI text (AC 32).
  */
 function bootIndicator(): Plugin {
   const cfg: BootConfig = {
     delayMs: LOADING_DELAY_MS,
+    revealMs: LOADING_REVEAL_MS,
     defaultLang: DEFAULT_LANG,
     langKey: LANG_KEY,
     themeKey: THEME_KEY,
@@ -50,7 +53,9 @@ function bootIndicator(): Plugin {
       if (basename(ctx.filename) !== "index.html") return html;
       const tokensCss = await loadTokensCss();
       return {
-        html: html.replace("<title></title>", `<title>${escapeHtml(mn["app.title"])}</title>`),
+        html: html
+          .replace("<title></title>", `<title>${escapeHtml(mn["app.title"])}</title>`)
+          .replace('<span id="loading-text"></span>', `<span id="loading-text">${escapeHtml(mn["status.loading"])}</span>`),
         tags: [
           { tag: "style", attrs: { id: "design-tokens" }, children: tokensCss, injectTo: "head-prepend" },
           { tag: "script", children: `(${bootLoading.toString()})(${inlineJson(cfg)});`, injectTo: "body" },

@@ -1,0 +1,57 @@
+# NAV-008 monitor definitions for Uptime Kuma on the ops VM (deployment-staging.md §9, AC 17/18).
+# Owner: backend-engineer. Uptime Kuma has no supported declarative import, so the operator creates these
+# monitors once in the UI (RUNBOOK.md "Monitoring"); this file is the reviewed source of truth for their
+# settings. Field names follow the Uptime Kuma 2.x "Add New Monitor" form.
+# Placeholders: <STAGING_HOST> = STAGING_HOST from infra/staging/.env. Push URLs that Uptime Kuma shows after
+# saving a push monitor go ONLY into infra/staging/.env on the staging host (they contain tokens).
+
+uptime_kuma:
+  image: louislam/uptime-kuma:2.5.5-slim   # pinned by digest in monitoring/ops-vm/compose.yaml
+  settings:
+    # Settings -> Notifications -> "TLS Certificate Expiry": days before expiry that notify.
+    tls_expiry_notify_days: [14, 7]
+    timezone: UTC
+  notification:
+    # Created in Settings -> Notifications, applied to every monitor below ("Default enabled").
+    # Channel (email, Telegram, ...) of the named PO-side operator (D7). Not recorded in the repo.
+    name: nav-ops-alerts
+    default_enabled: true
+
+monitors:
+  - name: nav-staging health
+    type: http-keyword          # "HTTP(s) - Keyword"
+    url: https://<STAGING_HOST>/health
+    method: GET
+    keyword: '"status":"ok"'
+    accepted_status_codes: ["200-299"]
+    heartbeat_interval_s: 60     # AC 17: <= 60 s
+    retries: 1                   # DOWN after the 2nd consecutive failure (about 2 min), well within 5 min
+    heartbeat_retry_interval_s: 60
+    request_timeout_s: 48
+    max_redirects: 0
+    ignore_tls_errors: false
+    certificate_expiry_notification: true   # AC 18: alert at <= 14 days (tls_expiry_notify_days)
+    upside_down: false
+    resend_notification_every: 0
+    notes: >
+      Stopping the gateway gives Caddy's JSON 502 backstop (no keyword) -> DOWN after 2 checks; the recovery
+      notice follows the first good check. The daily rebuild keeps the gateway (and /health) up, so no
+      maintenance window is needed for it; use a manual maintenance window for deploys and restore drills.
+
+  - name: nav-staging disk
+    type: push
+    heartbeat_interval_s: 900    # nav-diskcheck.timer pushes every 5 min while disk use < 85 %; 15 min silence = alert
+    retries: 0
+    env_key_on_host: UPTIME_PUSH_URL_DISK
+
+  - name: nav-staging rebuild
+    type: push
+    heartbeat_interval_s: 93600  # 26 h: one push per successful nightly rebuild + smoke (19:30 UTC + up to 15 min)
+    retries: 0
+    env_key_on_host: UPTIME_PUSH_URL_REBUILD
+
+  - name: nav-staging backup     # optional but recommended (AC 19 has no alert rule; a silent backup failure is caught here)
+    type: push
+    heartbeat_interval_s: 93600  # 26 h: one push per successful nightly backup (20:30 UTC)
+    retries: 0
+    env_key_on_host: UPTIME_PUSH_URL_BACKUP

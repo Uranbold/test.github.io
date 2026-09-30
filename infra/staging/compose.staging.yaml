@@ -1,0 +1,67 @@
+# NAV-008 staging overlay (deployment-staging.md §2, §4, §5, §7; ADR-0005). Owner: backend-engineer.
+#
+# Always used through infra/staging/bin/nav-compose, which runs:
+#   docker compose --project-directory backend -f backend/compose.yaml -f infra/staging/compose.staging.yaml \
+#                  [-f infra/staging/compose.staging.ipv6.yaml] --env-file infra/staging/.env <command>
+# Relative paths resolve against backend/ (the project directory), so NAV-001 paths keep working.
+#
+# Publishing rules: ONLY caddy publishes ports (80 and 443, TCP only, IPv4 and IPv6). The gateway stays on
+# 127.0.0.1 (forced below, whatever GATEWAY_BIND says) so operators can still curl it on the host.
+# Valhalla and Photon publish nothing (unchanged from backend/compose.yaml).
+
+services:
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b}
+    ports:
+      # No host IP prefix: Docker then publishes on IPv4 and IPv6. Ports are keys only for local tests.
+      - "${CADDY_HTTP_PORT:-80}:80/tcp"
+      - "${CADDY_HTTPS_PORT:-443}:443/tcp"
+    environment:
+      STAGING_HOST: ${STAGING_HOST:?set STAGING_HOST in infra/staging/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in infra/staging/.env}
+      ACME_CA: ${ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
+    volumes:
+      - { type: bind, source: ../infra/staging/caddy/Caddyfile, target: /etc/caddy/Caddyfile, read_only: true }
+      # ACME account key and certificates (backed up by nav-backup, deployment-staging.md §10).
+      - { type: volume, source: caddy_data, target: /data }
+      - { type: volume, source: caddy_config, target: /config }
+    networks:
+      edge:
+        ipv4_address: ${CADDY_IPV4:-172.30.81.2}
+    # Deliberately NOT gated on the gateway: when the gateway is down, Caddy answers with its JSON backstop.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+      start_interval: 1s
+    restart: unless-stopped
+
+  gateway:
+    ports: !override
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
+    environment:
+      # Staging never runs without limits or with a wildcard CORS policy (deploy.sh also refuses '*').
+      GATEWAY_RATE_LIMIT: "on"
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS in infra/staging/.env (never *)}
+      # X-Forwarded-For is trusted only from Caddy's fixed edge address (deployment-staging.md §7).
+      # compose.staging.ipv6.yaml adds Caddy's IPv6 address when the host has IPv6.
+      GATEWAY_REAL_IP_FROM: ${CADDY_IPV4:-172.30.81.2}/32
+    networks:
+      default: {}
+      edge: {}
+
+networks:
+  # Caddy <-> gateway only. Fixed subnet so Caddy's address (the trusted proxy) is stable. Dynamic addresses
+  # (the gateway) come from ip_range only, which excludes CADDY_IPV4, so no other container can take it.
+  # IPv6 on this network: compose.staging.ipv6.yaml (added by bin/nav-compose when the host has IPv6).
+  edge:
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET_V4:-172.30.81.0/28}
+          ip_range: ${EDGE_IP_RANGE_V4:-172.30.81.8/29}
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

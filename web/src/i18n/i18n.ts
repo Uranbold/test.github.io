@@ -41,6 +41,15 @@ export class I18n {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * Results count (glossary T3, NAV-003 AC 42): `search.resultCount.one|other` chosen with Intl.PluralRules; the
+   * resource value keeps `{count}` literally and the number is filled in here.
+   */
+  resultCount(count: number): string {
+    const form = new Intl.PluralRules(this.current).select(count) === "one" ? "search.resultCount.one" : "search.resultCount.other";
+    return this.t(form).replace("{count}", String(count));
+  }
+
   /** Formats a number for the UI language: comma decimal separator in mn (glossary C3), point in en. */
   formatNumber(value: number): string {
     const s = String(value);

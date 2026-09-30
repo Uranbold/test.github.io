@@ -73,12 +73,24 @@ export function locationColours(theme: Theme): LocationColours {
   return modeGroup(theme, "location") as unknown as LocationColours;
 }
 
+export interface PinColours {
+  fill: string;
+  stroke: string;
+  center: string;
+}
+
+/** NAV-003 selected-place pin (tokens.json › color.<mode>.pin, map-style.md §7.1). */
+export function pinColours(theme: Theme): PinColours {
+  return modeGroup(theme, "pin") as unknown as PinColours;
+}
+
 type Scalar = string | number;
 
 function cssDeclarations(theme: Theme): string[] {
   const decl: string[] = [];
   for (const [k, v] of Object.entries(uiColours(theme))) decl.push(`--ui-${k}:${v}`);
   for (const [k, v] of Object.entries(locationColours(theme))) decl.push(`--loc-${k}:${v}`);
+  for (const [k, v] of Object.entries(pinColours(theme))) decl.push(`--pin-${k}:${v}`);
   const flavor = tokenFlavor(theme) as unknown as Record<string, unknown>;
   decl.push(`--map-earth:${String(flavor.earth)}`);
   decl.push(`color-scheme:${theme === "night" ? "dark" : "light"}`);

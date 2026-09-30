@@ -1,4 +1,5 @@
-// UI chrome and map wiring for NAV-002 (screen spec: docs/design/screens/NAV-002-web-map.md).
+// UI chrome and map wiring for NAV-002 (screen spec: docs/design/screens/NAV-002-web-map.md), plus the NAV-003 search
+// feature (src/ui/searchFeature.ts, screen spec NAV-003-search.md).
 import { Marker, type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import type { AppConfig } from "../config";
 import { circlePolygon } from "../geo/circle";
@@ -12,11 +13,14 @@ import {
   type LocationView,
 } from "../location/locationController";
 import type { CreateMapOptions } from "../map/createMap";
-import { MAX_ZOOM, MIN_ZOOM } from "../map/createMap";
+import { MAX_ZOOM, MIN_ZOOM, P1 } from "../map/createMap";
+import type { LatLon } from "../search/coords";
 import { saveLang, saveTheme } from "../prefs";
 import { buildStyle, EMPTY_LOCATION, LOCATION_SOURCE_ID, SOURCE_ID, type LocationData, type Theme } from "../style/buildStyle";
-import { LOADING_DELAY_MS, type StatusMachine, type StatusView } from "../state/status";
+import { cancelBootReveal, hasBootReveal } from "../boot/bootLoading";
+import { type StatusMachine, type StatusView } from "../state/status";
 import { ICONS } from "./icons";
+import { SearchFeature } from "./searchFeature";
 import { Tooltip } from "./tooltip";
 
 const ESA_MAX_ZOOM_EXCLUSIVE = 8; // screen spec › Attribution strip: ESA line while zoom < 8
@@ -25,6 +29,8 @@ const DURATION_MEDIUM = 300; // tokens: motion.duration-medium
 const DURATION_CAMERA = 1000; // tokens: motion.duration-camera
 const FOLLOW_EASE_MS = 500;
 const ZOOM_EPSILON = 1e-6;
+/** NAV-003 AC 9 (a): the device position biases search only while following and while the last fix is ≤ 60 s old. */
+const BIAS_FIX_MAX_AGE_MS = 60_000;
 
 export interface AppDeps {
   cfg: AppConfig;
@@ -60,6 +66,10 @@ export class App {
   private zoomTarget: number | null = null;
   private scaleFrame = 0;
   private tooltip: Tooltip;
+  /** NAV-003 search (null only if its DOM is missing). */
+  search: SearchFeature | null = null;
+  private lastFix: Fix | null = null;
+  private lastFixAt = 0;
 
   private readonly ui = {
     root: document.documentElement,
@@ -102,6 +112,16 @@ export class App {
     this.ui.root.dataset.theme = this.theme;
     this.ui.locateDesc.id = "locate-desc";
     this.bindChrome();
+    // NAV-003: search works in every NAV-002 state, including loading and the blocking card (screen spec rule 8).
+    this.search = new SearchFeature({
+      cfg: this.deps.cfg,
+      i18n: this.i18n,
+      tooltip: this.tooltip,
+      map: () => this.map,
+      bias: () => this.searchBias(),
+      mapReady: () => this.status.state.ready,
+      stopFollowing: () => this.location?.userMovedMap(),
+    });
     // Start the status first, so the first render already has the right view: if the pre-module loading
     // pill from index.html is showing (more than 300 ms since navigation start), it stays on (AC 37).
     this.status.start(performance.now());
@@ -124,6 +144,20 @@ export class App {
     this.location.onChange((v) => this.renderLocation(v));
     this.renderLocation(this.location.view);
     this.bindMap(this.map);
+    this.search.attachMap(this.map);
+  }
+
+  /**
+   * NAV-003 AC 9: the device position when my location is active, the camera is following and the last fix is
+   * ≤ 60 s old; otherwise the map centre (wrapped, world copies are on). Rounded to 3 decimals by the search client.
+   */
+  private searchBias(): LatLon {
+    const v = this.location?.view;
+    if (v && v.button === "following" && v.fix && !v.stale && performance.now() - this.lastFixAt <= BIAS_FIX_MAX_AGE_MS) {
+      return { lat: v.fix.lat, lon: v.fix.lng };
+    }
+    const c = this.map ? this.map.getCenter().wrap() : { lng: P1[0], lat: P1[1] };
+    return { lat: c.lat, lon: c.lng };
   }
 
   // ---------------------------------------------------------------- map
@@ -287,6 +321,7 @@ export class App {
     this.i18n.setLang(lang);
     saveLang(lang);
     this.applyI18n();
+    this.search?.langChanged();
   }
 
   private setTheme(theme: Theme): void {
@@ -323,6 +358,9 @@ export class App {
     document.querySelectorAll<HTMLElement>("[data-i18n-aria-label]").forEach((n) => {
       n.setAttribute("aria-label", t(n.dataset.i18nAriaLabel as MessageKey));
     });
+    document.querySelectorAll<HTMLInputElement>("[data-i18n-placeholder]").forEach((n) => {
+      n.placeholder = t(n.dataset.i18nPlaceholder as MessageKey);
+    });
     const other: Lang = lang === "mn" ? "en" : "mn";
     this.ui.langBtn.textContent = t(other === "mn" ? "language.mn" : "language.en");
     this.ui.langBtn.lang = other;
@@ -332,6 +370,7 @@ export class App {
     this.renderStatus(this.status.view);
     if (this.location) this.renderLocation(this.location.view);
     this.renderScale();
+    this.search?.renderI18n();
     this.tooltip.refresh();
   }
 
@@ -353,16 +392,15 @@ export class App {
     u.compassBtn.hidden = !ready;
 
     // Loading pill (AC 37). The live region stays in the DOM; only its text and visibility change.
-    // Before 300 ms on the first load the pill is "pending": laid out, transparent, revealed by the compositor at
-    // navigation start + 300 ms (styles.css › .pill.pending), because MapLibre's start-up blocks the main thread
-    // around that time and the status timer fires late. The main-thread "loading" view then only adds aria.
+    // Before 300 ms on the first load the pill is "pending": laid out in the initial HTML, transparent, and revealed by
+    // the boot script's compositor animation at navigation start + LOADING_REVEAL_MS (src/boot/bootLoading.ts), because
+    // MapLibre's start-up blocks the main thread around that time and the status timer fires late. The main-thread
+    // "loading" view then only adds aria. Retries (not the first load) use the status timer alone.
     const st = this.status.state;
     const loading = v.kind === "loading";
-    const pending = v.kind === "none" && this.initialLoad && !st.ready && st.online && !st.startFailed && !st.genericError;
-    if (pending && !u.loading.classList.contains("pending")) {
-      // Set once: the delay counts from the moment the class is added, so it must not be changed later.
-      u.loading.style.setProperty("--pill-delay", `${Math.round(Math.max(0, LOADING_DELAY_MS - performance.now()))}ms`);
-    }
+    const pending =
+      v.kind === "none" && this.initialLoad && !st.ready && st.online && !st.startFailed && !st.genericError && hasBootReveal();
+    if (!loading && !pending) cancelBootReveal();
     u.loading.classList.toggle("pending", pending);
     u.loading.classList.toggle("idle", !(loading || pending));
     u.loading.setAttribute("aria-hidden", String(!loading));
@@ -471,6 +509,10 @@ export class App {
   private renderLocation(v: LocationView): void {
     const u = this.ui;
     const t = (k: MessageKey) => this.i18n.t(k);
+    if (v.fix !== this.lastFix) {
+      this.lastFix = v.fix;
+      if (v.fix) this.lastFixAt = performance.now();
+    }
     const b = u.locateBtn;
     b.dataset.state = v.button;
     b.setAttribute("aria-pressed", String(v.button === "following"));

@@ -1,0 +1,24 @@
+# NAV-008 staging overlay, IPv6 part. Added by infra/staging/bin/nav-compose after compose.staging.yaml when
+# the host has IPv6 (EDGE_IPV6=auto|on in infra/staging/.env). Owner: backend-engineer.
+#
+# Why: without IPv6 on the edge network, Docker's userland proxy forwards IPv6 clients to Caddy from the
+# bridge address, so every IPv6 client would share one rate-limit key. With IPv6 enabled here (and Docker's
+# default ip6tables), Caddy sees each client's own IPv6 address.
+services:
+  caddy:
+    networks:
+      edge:
+        ipv6_address: ${CADDY_IPV6:-fd4e:6176:0:81::2}
+  gateway:
+    environment:
+      GATEWAY_REAL_IP_FROM: ${CADDY_IPV4:-172.30.81.2}/32,${CADDY_IPV6:-fd4e:6176:0:81::2}/128
+
+networks:
+  edge:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET_V4:-172.30.81.0/28}
+          ip_range: ${EDGE_IP_RANGE_V4:-172.30.81.8/29}
+        - subnet: ${EDGE_SUBNET_V6:-fd4e:6176:0:81::/64}
+          ip_range: ${EDGE_IP_RANGE_V6:-fd4e:6176:0:81::1:0/112}

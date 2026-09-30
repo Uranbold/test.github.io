@@ -1,0 +1,11 @@
+# NAV-008 LP self-test fixture: privacy-safe lines in the formats the stack writes (must give 0 findings)
+{"ts":"2026-09-30T02:59:48+00:00","service":"gateway","method":"GET","path":"/health","status":200,"bytes":15,"request_time":0.000,"upstream_time":""}
+{"ts":"2026-09-30T02:59:49+00:00","service":"gateway","method":"POST","path":"/v1/route","status":429,"bytes":51,"request_time":0.000,"upstream_time":""}
+{"ts":"2026-09-30T02:59:50+00:00","service":"gateway","method":"GET","path":"/v1/search","status":200,"bytes":2011,"request_time":0.071,"upstream_time":"0.070"}
+2026-09-30 03:00:11.875016381 [32;1m[INFO][0m Got Odin Request 1330
+1330 2026/09/30 03:00:11.875159 200 363
+2026-09-30 03:00:12.100000000 [33;1m[WARN][0m 400::Failed to parse json request request_id=1331
+2026/09/30 03:00:12 GET /route?<redacted> 200
+[2026-09-30T00:03:53,796][INFO ][o.e.j.s.Server           ] jetty-12.1.8; built: 2026-04-01T01:09:18.991Z; git: c9cdc9aaa434a3665b8a53b4d1cc3684992da649; jvm 21.0.12.1+1-LTS
+[2026-09-30T00:03:54,000][INFO ][o.o.t.TransportService   ] publish_address {127.0.0.1:9300}, bound_addresses {172.18.0.4:9300}
+{"level":"info","ts":1727740800.1,"logger":"tls.obtain","msg":"certificate obtained successfully","identifier":"staging.example.mn"}

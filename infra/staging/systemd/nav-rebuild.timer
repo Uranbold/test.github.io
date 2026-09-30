@@ -1,0 +1,11 @@
+# NAV-008 staging: 19:30 UTC = 03:30 Asia/Ulaanbaatar (UTC+8), before the 21:30 UTC unattended-upgrades reboot window.
+[Unit]
+Description=NAV-008 staging daily data rebuild timer
+
+[Timer]
+OnCalendar=*-*-* 19:30:00 UTC
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

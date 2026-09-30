@@ -497,11 +497,14 @@ class Nav001:
             self._cors_once(cid, r, origin, expect_acao)
             ctype = (r.header("content-type") or "").split(";")[0].strip()
             self.r.check(cid + ".content_type_json", ctype == "application/json", "application/json", r.header("content-type"))
-            # openapi.yaml 0.3.0 RangeNotSatisfiable: exactly one Cache-Control: no-store, no Accept-Ranges (ETag may stay).
+            # openapi.yaml GatewayNotFound (the archive-missing 404) sets no Cache-Control rule; the `no-store` rule of
+            # 0.3.0 is for the 416 only. Fixed 2026-09-30 (NAV-008 QA): this case used to demand no-store here, which
+            # the contract never required. What must not happen: the archive's own caching policy on the error.
             ccs = [v for k, v in r.raw_headers if k.lower() == "cache-control"]
-            self.r.check(cid + ".cache_control_no_store_once", ccs == ["no-store"], "exactly one 'Cache-Control: no-store' (openapi 0.3.0)", ccs)
+            self.r.check(cid + ".no_file_cache_policy", not any("public" in v or "max-age" in v for v in ccs),
+                         "no 'public'/'max-age' Cache-Control on the 404 (the file's policy must not leak onto the error)", ccs)
             ars = [v for k, v in r.raw_headers if k.lower() == "accept-ranges"]
-            self.r.check(cid + ".no_accept_ranges", not ars, "no Accept-Ranges on a 416 (openapi 0.3.0)", ars)
+            self.r.check(cid + ".no_accept_ranges", not ars, "no Accept-Ranges on the 404 (it describes a file, not an error)", ars)
             if method == "GET":
                 j = r.json()
                 ok = isinstance(j, dict) and j.get("code") == "RangeNotSatisfiable" and isinstance(j.get("message"), str) and j["message"]
@@ -550,11 +553,14 @@ class Nav001:
             self._cors_once(cid, r)
             ctype = (r.header("content-type") or "").split(";")[0].strip()
             self.r.check(cid + ".content_type_json", ctype == "application/json", "application/json", r.header("content-type"))
-            # openapi.yaml 0.3.0 RangeNotSatisfiable: exactly one Cache-Control: no-store, no Accept-Ranges (ETag may stay).
+            # openapi.yaml GatewayNotFound (the archive-missing 404) sets no Cache-Control rule; the `no-store` rule of
+            # 0.3.0 is for the 416 only. Fixed 2026-09-30 (NAV-008 QA): this case used to demand no-store here, which
+            # the contract never required. What must not happen: the archive's own caching policy on the error.
             ccs = [v for k, v in r.raw_headers if k.lower() == "cache-control"]
-            self.r.check(cid + ".cache_control_no_store_once", ccs == ["no-store"], "exactly one 'Cache-Control: no-store' (openapi 0.3.0)", ccs)
+            self.r.check(cid + ".no_file_cache_policy", not any("public" in v or "max-age" in v for v in ccs),
+                         "no 'public'/'max-age' Cache-Control on the 404 (the file's policy must not leak onto the error)", ccs)
             ars = [v for k, v in r.raw_headers if k.lower() == "accept-ranges"]
-            self.r.check(cid + ".no_accept_ranges", not ars, "no Accept-Ranges on a 416 (openapi 0.3.0)", ars)
+            self.r.check(cid + ".no_accept_ranges", not ars, "no Accept-Ranges on the 404 (it describes a file, not an error)", ars)
             if method == "GET":
                 j = r.json() or {}
                 self.r.check(cid + ".json_not_found", j.get("code") == "NotFound", '{"code":"NotFound",...}', r.body[:120])

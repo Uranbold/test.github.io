@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Газрын зураг</title>
+<!--
+  NAV-003 search on the NAV-002 web map: static wireframe (owner: ux-designer). NOT app code.
+  Spec: docs/design/screens/NAV-003-search.md (and NAV-002-web-map.md for everything not about search).
+  Colours copy docs/design/tokens.json (tokens.json wins on any difference). Strings copy the screen spec Copy table
+  (glossary terms only). Place names and context lines are sample DATA (what Photon returns), not UI strings.
+  URL hash controls the view, e.g. #state=coord-unavailable&theme=night&lang=en&extra=worst&zoom=low&toolbar=0
+  state: see STATES below. extra: none | worst (adds the NAV-002 tiles banner + location-denied message).
+  zoom: normal | low (low = zoom < 8, ESA credit line shown; only reachable with a coordinate card).
+-->
+<style>
+  :root {
+    --surface:#FFFFFF; --surface-container:#F1F3F4; --on-surface:#1F1F1F; --on-surface-variant:#444746;
+    --outline:#747775; --outline-variant:#C4C7C5; --primary:#0B57D0; --primary-container:#D3E3FD; --on-primary-container:#041E49;
+    --error:#B3261E; --error-container:#F9DEDC; --on-error-container:#410E0B; --focus-ring:#0B57D0;
+    --message-surface:#303030; --on-message-surface:#F2F2F2; --message-action:#A8C7FA; --message-outline:#303030;
+    --disabled:rgba(31,31,31,.38); --hover:rgba(31,31,31,.08);
+    --pin-fill:#C5221F; --pin-stroke:#FFFFFF; --pin-center:#FFFFFF;
+    --earth:#F3F0EA; --water:#A8CDEE; --park:#C5E3BD; --building:#E3DED5; --major:#FFFFFF; --major-casing:#C9C2B5;
+    --minor:#FFFFFF; --minor-casing:#D5D0C6; --trunk:#FFD98A; --trunk-casing:#D9A441;
+    --label-major:#3C4043; --label-halo:#FFFFFF; --label-city:#202124; --label-sub:#5F6368;
+    --elev1:0 1px 2px rgba(0,0,0,.30),0 1px 3px 1px rgba(0,0,0,.15);
+    --elev2:0 1px 2px rgba(0,0,0,.30),0 2px 6px 2px rgba(0,0,0,.15);
+    --elev3:0 4px 8px 3px rgba(0,0,0,.15),0 1px 3px rgba(0,0,0,.30);
+    color-scheme: light;
+  }
+  :root[data-theme="night"] {
+    --surface:#1F2733; --surface-container:#27303D; --on-surface:#E3E6EA; --on-surface-variant:#B9C0CA;
+    --outline:#8B94A1; --outline-variant:#3F4957; --primary:#A8C7FA; --primary-container:#0B3D8C; --on-primary-container:#D3E3FD;
+    --error:#F2B8B5; --error-container:#601410; --on-error-container:#F9DEDC; --focus-ring:#A8C7FA;
+    --message-surface:#2E3846; --on-message-surface:#E3E6EA; --message-action:#A8C7FA; --message-outline:#6E7A8C;
+    --disabled:rgba(227,230,234,.38); --hover:rgba(227,230,234,.08);
+    --pin-fill:#F28B82; --pin-stroke:#10151C; --pin-center:#10151C;
+    --earth:#18202B; --water:#0B2238; --park:#1D3029; --building:#222B37; --major:#4A5566; --major-casing:#10151C;
+    --minor:#36404E; --minor-casing:#141A22; --trunk:#7C6B48; --trunk-casing:#10151C;
+    --label-major:#D5DAE1; --label-halo:#18202B; --label-city:#E6E9ED; --label-sub:#A3ACB8;
+    color-scheme: dark;
+  }
+  html, body { margin:0; height:100%; overflow:hidden; background:var(--earth); }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif; color:var(--on-surface); }
+  button, input { font:inherit; }
+  :focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+  [hidden] { display:none !important; }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+
+  /* Fake map (stands in for the MapLibre canvas). It sits inside the overlay grid, spanning every row, as the screen spec
+     recommends for the app, so the search field (not the canvas) is the first Tab stop (AC 1). */
+  #map { grid-row:1 / -1; grid-column:1; position:relative; z-index:0; contain:strict; pointer-events:auto; }
+  #map svg { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .lbl { font:500 13px "Noto Sans", system-ui, sans-serif; fill:var(--label-major); paint-order:stroke; stroke:var(--label-halo); stroke-width:3px; }
+  .lbl.city { font-size:16px; font-weight:600; fill:var(--label-city); }
+  .lbl.sub { font-size:12px; fill:var(--label-sub); }
+
+  /* Overlay grid. Rows: 1 R1 top bar | 2 RS search panel | 3 R2 messages | 4 R3 spacer | 5 R4 bottom controls | 6 RC card | 7 R5 attribution */
+  #ui { position:fixed; inset:0; display:grid; grid-template-columns:minmax(0,1fr);
+        grid-template-rows:auto minmax(0,auto) minmax(0,auto) minmax(0,1fr) auto minmax(0,auto) auto; pointer-events:none; }
+  #ui > *:not(#map) { position:relative; z-index:1; min-width:0; grid-column:1; pointer-events:none; }
+  /* Only the search panel (RS), the message row (R2) and the card row (RC) may shrink below their content and scroll;
+     every other row keeps its size, so NAV-002 controls and the attribution never move off screen */
+  .rs, .r2, .place { min-height:0; }
+  #ui > * > * { pointer-events:auto; }
+
+  /* R1: search field + button cluster. Compact (< 600px): two lines. */
+  .r1 { grid-row:1; display:flex; flex-wrap:wrap; align-items:flex-start; gap:8px; padding:calc(12px + env(safe-area-inset-top)) 16px 8px; }
+  .search { flex:1 1 100%; min-width:0; }
+  .cluster { display:flex; gap:8px; margin-left:auto; pointer-events:none; }
+  .cluster > * { pointer-events:auto; }
+  @media (min-width:600px) { .r1 { flex-wrap:nowrap; } .search { flex:0 1 400px; } }
+
+  .field { box-sizing:border-box; height:48px; display:flex; align-items:center; background:var(--surface); border-radius:8px; box-shadow:var(--elev1); }
+  @media (forced-colors: active) { .field, .popup, .place-card { border:1px solid CanvasText; } }
+  .field:focus-within { outline:2px solid var(--focus-ring); outline-offset:2px; }
+  .field .lead { width:24px; height:24px; margin:0 4px 0 12px; flex:none; fill:var(--on-surface-variant); }
+  .field input { flex:1 1 auto; min-width:0; height:48px; box-sizing:border-box; border:0; background:transparent; color:var(--on-surface); font-size:1rem; line-height:1.5rem; padding:0 4px 0 8px; outline:none; text-overflow:ellipsis; }
+  .field input::placeholder { color:var(--on-surface-variant); opacity:1; }
+  .clear { flex:none; width:48px; height:48px; border:0; border-radius:8px; background:transparent; color:var(--on-surface-variant); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+  .clear svg { width:24px; height:24px; fill:currentColor; }
+
+  /* RS: results list (popup) and, at >= 840px, the place card */
+  .rs { grid-row:2; display:flex; flex-direction:column; padding:0 16px; }
+  .popup { box-sizing:border-box; width:100%; min-height:0; margin-bottom:8px; overflow-y:auto; background:var(--surface); border-radius:8px; box-shadow:var(--elev2); padding:8px 0; }
+  @media (min-width:600px) { .popup { max-width:400px; } }
+  .popup ul { list-style:none; margin:0; padding:0; }
+  .opt { display:flex; align-items:flex-start; gap:16px; min-height:56px; box-sizing:border-box; padding:8px 16px 8px 12px; cursor:pointer; }
+  .opt:hover { background:var(--hover); }
+  .opt[aria-selected="true"] { background:var(--hover); outline:2px solid var(--focus-ring); outline-offset:-2px; }
+  .opt svg { width:24px; height:24px; flex:none; fill:var(--on-surface-variant); margin-top:8px; }
+  .opt .tx { min-width:0; display:flex; flex-direction:column; }
+  .nm { font-size:1rem; line-height:1.5rem; color:var(--on-surface); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+  .mt { font-size:.875rem; line-height:1.25rem; color:var(--on-surface-variant); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+  .mt .ty + .cx::before { content:"·"; margin:0 .4em; }
+  .state { display:grid; grid-template-columns:24px minmax(0,1fr) auto; align-items:center; column-gap:16px; min-height:56px; box-sizing:border-box; padding:4px 8px 4px 12px; font-size:.875rem; line-height:1.25rem; }
+  .state > svg { width:24px; height:24px; fill:var(--on-surface-variant); }
+  .state.err > svg { fill:var(--error); }
+  .state .spin { margin:2px; }
+  @media (max-width:479px) { .state.has-act .act { grid-column:2 / -1; justify-self:end; } }
+  .act { height:48px; min-width:48px; padding:0 12px; border:0; border-radius:9999px; background:transparent; color:var(--primary); font-weight:500; font-size:.875rem; cursor:pointer; white-space:nowrap; }
+  .act[aria-disabled="true"] { color:var(--disabled); cursor:default; }
+
+  /* Place card: RC row (grid row 6) below 840px, RS row (grid row 2) from 840px */
+  .place { grid-row:6; display:flex; flex-direction:column; padding:0 16px 20px; }
+  .place-card { box-sizing:border-box; width:100%; max-height:40dvh; min-height:0; overflow-y:auto; background:var(--surface); border-radius:8px; box-shadow:var(--elev2); padding:4px 4px 16px 16px; }
+  @media (min-width:600px) { .place-card { max-width:400px; } }
+  @media (min-width:840px) { .place { grid-row:2; padding:0 16px 8px; } .place-card { max-height:none; } }
+  .ph { display:flex; align-items:flex-start; gap:4px; }
+  .ph h2 { flex:1 1 auto; min-width:0; margin:12px 0 0; font-size:1rem; line-height:1.5rem; font-weight:600; overflow-wrap:anywhere; }
+  .ph h2:focus { outline:none; } .ph h2:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+  .place-card .btn { flex:none; }
+  .pm { font-size:.875rem; line-height:1.25rem; color:var(--on-surface-variant); margin:0 12px 0 0; overflow-wrap:anywhere; }
+  .pm .ty + .cx::before { content:"·"; margin:0 .4em; }
+  .coords { font-size:.875rem; line-height:1.25rem; color:var(--on-surface-variant); margin:4px 12px 0 0; font-variant-numeric:tabular-nums; user-select:text; }
+  .near { border-top:1px solid var(--outline-variant); margin:12px 12px 0 0; padding-top:12px; min-height:44px; }
+  .near .lab { font-size:.75rem; line-height:1rem; font-weight:500; color:var(--on-surface-variant); margin:0; }
+  .near .nn { font-size:1rem; line-height:1.5rem; margin:0; overflow-wrap:anywhere; }
+  .near .state { padding:0; min-height:48px; grid-template-columns:24px minmax(0,1fr) auto; column-gap:12px; }
+  @media (max-width:479px) { .near .state.has-act .act { grid-column:2 / -1; justify-self:end; } }
+
+  /* NAV-002 parts (unchanged, copied from NAV-002-web-map.html) */
+  .r2 { grid-row:3; overflow-y:auto; display:flex; flex-direction:column; align-items:center; gap:8px; padding:0 16px 8px; }
+  .r2 > * { width:100%; max-width:560px; box-sizing:border-box; }
+  .r4 { grid-row:5; display:flex; justify-content:space-between; align-items:flex-end; padding:0 16px 20px; }
+  #ui.card-bottom .r4 { padding-bottom:8px; }
+  .r5 { grid-row:7; }
+  .btn { box-sizing:border-box; min-width:48px; height:48px; border-radius:8px; border:1px solid transparent; background:var(--surface); color:var(--on-surface-variant); box-shadow:var(--elev1); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+  .btn svg { width:24px; height:24px; fill:currentColor; }
+  .btn.text { padding:0 12px; font-size:.875rem; font-weight:500; color:var(--on-surface); }
+  .btn.flat { box-shadow:none; background:transparent; }
+  .col { display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+  .group { display:flex; flex-direction:column; border-radius:8px; background:var(--surface); box-shadow:var(--elev1); overflow:hidden; }
+  .group .btn { box-shadow:none; border-radius:0; }
+  .group .btn + .btn { border-top:1px solid var(--outline-variant); }
+  .needle-n { fill:var(--error); } .needle-s { fill:var(--on-surface-variant); }
+  .scale { background:var(--surface-container); color:var(--on-surface); border-radius:4px; padding:2px 6px; font-size:.75rem; line-height:1rem; display:flex; align-items:center; gap:6px; }
+  .scale .bar { width:80px; height:6px; border:2px solid var(--on-surface); border-top:0; box-sizing:border-box; }
+  .attr { background:var(--surface-container); color:var(--on-surface-variant); font-size:.75rem; line-height:1rem; padding:4px 16px calc(4px + env(safe-area-inset-bottom)); box-shadow:0 -1px 3px rgba(0,0,0,.15); }
+  .attr a { color:inherit; text-decoration:underline; display:inline-block; min-width:44px; padding:24px 8px 4px; margin:-24px -8px -4px; }
+  .attr a:focus-visible { outline:none; } .attr a:focus-visible > span { outline:2px solid var(--focus-ring); outline-offset:2px; }
+  .attr p { margin:0; }
+  .banner, .msg { border-radius:8px; padding:12px 8px 12px 16px; font-size:.875rem; line-height:1.25rem; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; column-gap:12px; }
+  .msg { grid-template-columns:minmax(0,1fr) auto; background:var(--message-surface); color:var(--on-message-surface); border:1px solid var(--message-outline); box-shadow:var(--elev3); }
+  .banner { box-shadow:var(--elev2); } .banner svg { width:24px; height:24px; fill:currentColor; }
+  .banner.offline { background:var(--message-surface); color:var(--on-message-surface); border:1px solid var(--message-outline); padding-right:16px; }
+  .banner.tiles { background:var(--error-container); color:var(--on-error-container); }
+  .banner .act, .msg .act { color:var(--message-action); } .banner.tiles .act { color:var(--on-error-container); }
+  .msg .title { font-weight:600; display:block; }
+  .acts { display:flex; justify-self:end; }
+  @media (max-width:479px) { .stack-narrow .acts { grid-column:1 / -1; } }
+  .spin { width:20px; height:20px; border-radius:50%; border:3px solid var(--primary-container); border-top-color:var(--primary); box-sizing:border-box; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation:none; } }
+
+  /* Pin: HTML marker in the map container, tip on the point (viewport centre in this wireframe) */
+  #pin { position:absolute; left:50%; top:50%; width:28px; height:40px; margin:-40px 0 0 -14px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.3)); }
+  #pin svg { position:static; width:28px; height:40px; display:block; }
+  #pin .b { fill:var(--pin-fill); stroke:var(--pin-stroke); stroke-width:2; } #pin .c { fill:var(--pin-center); }
+
+  #tb { position:fixed; left:8px; bottom:140px; z-index:10; font:12px system-ui; background:#fff; color:#000; border:1px solid #888; padding:6px; border-radius:6px; }
+  #tb select { font:inherit; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <!-- DOM order = Tab order: search field, clear, language, theme, compass, results popup retry, place card (close, retry), map canvas, messages, zoom, my location, attribution -->
+  <div class="r1" id="r1">
+    <div class="search" id="search">
+      <div class="field">
+        <svg class="lead" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3a6.5 6.5 0 0 1 5.2 10.4l5.4 5.4-1.4 1.4-5.4-5.4A6.5 6.5 0 1 1 9.5 3Zm0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>
+        <input id="q" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="results"
+               autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" maxlength="200" data-control data-k="search.label" data-attr="aria-label">
+        <button class="clear" id="clear" data-control data-k="search.clear" data-attr="aria-label" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4Z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="cluster" id="cluster"></div>
+  </div>
+
+  <div class="rs" id="rs">
+    <div class="popup" id="popup" hidden>
+      <ul role="listbox" id="results" data-k="search.results" data-attr="aria-label"></ul>
+      <div class="state" id="sstate" hidden></div>
+    </div>
+  </div>
+
+  <div class="place" id="place" hidden>
+    <section class="place-card" id="card" aria-labelledby="card-h">
+      <div class="ph">
+        <h2 id="card-h" tabindex="-1"></h2>
+        <button class="btn flat" id="card-close" data-control data-k="action.close" data-attr="aria-label">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4Z"/></svg>
+        </button>
+      </div>
+      <p class="pm" id="card-meta"></p>
+      <p class="coords" id="card-coords"></p>
+      <div class="near" id="near" aria-live="polite" hidden></div>
+    </section>
+  </div>
+
+  <div id="map" role="region" tabindex="0">
+    <svg viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <rect width="1600" height="1000" fill="var(--earth)"/>
+      <path d="M0 820 C300 760 520 900 800 840 S1300 760 1600 820 L1600 880 C1300 820 1050 930 800 900 S300 820 0 880 Z" fill="var(--water)"/>
+      <rect x="760" y="380" width="120" height="90" fill="var(--park)"/>
+      <g fill="var(--building)"><rect x="640" y="300" width="60" height="40"/><rect x="900" y="300" width="70" height="45"/><rect x="640" y="520" width="80" height="40"/></g>
+      <g fill="none" stroke-linecap="round">
+        <path d="M0 250 L1600 230 M300 0 L340 1000 M1250 0 L1220 1000 M0 650 L1600 640" stroke="var(--minor-casing)" stroke-width="11"/>
+        <path d="M0 250 L1600 230 M300 0 L340 1000 M1250 0 L1220 1000 M0 650 L1600 640" stroke="var(--minor)" stroke-width="8"/>
+        <path d="M600 0 L610 1000 M0 490 L1600 480" stroke="var(--major-casing)" stroke-width="17"/>
+        <path d="M600 0 L610 1000 M0 490 L1600 480" stroke="var(--major)" stroke-width="13"/>
+        <path d="M0 120 C500 160 1100 60 1600 110" stroke="var(--trunk-casing)" stroke-width="19"/>
+        <path d="M0 120 C500 160 1100 60 1600 110" stroke="var(--trunk)" stroke-width="15"/>
+      </g>
+      <text class="lbl" x="1020" y="472">Энхтайвны өргөн чөлөө</text>
+      <text class="lbl city" x="700" y="440">Сүхбаатарын талбай</text>
+      <text class="lbl sub" x="380" y="360">Чингэлтэй</text>
+      <text class="lbl" x="1000" y="880">Туул гол</text>
+    </svg>
+    <div id="pin" role="img" hidden><svg viewBox="0 0 28 40" aria-hidden="true"><path class="b" d="M14 39C14 39 2 24.5 2 14a12 12 0 0 1 24 0c0 10.5-12 25-12 25Z"/><circle class="c" cx="14" cy="14" r="4.5"/></svg></div>
+  </div>
+
+  <div class="r2" id="messages">
+    <div class="banner offline" id="b-offline" role="status" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.3 2 2 3.3l3 3A7 7 0 0 0 6 20h11.7l2.9 2.9 1.4-1.4ZM6 18a5 5 0 0 1-.3-10l9.9 10Zm13.4-1.1A4 4 0 0 0 19 10a7 7 0 0 0-10.6-5.9L9.9 5.6A5 5 0 0 1 17 10v1h1a2 2 0 0 1 .9 3.8Z"/></svg>
+      <span class="txt" data-k="status.offline"></span>
+    </div>
+    <div class="banner tiles stack-narrow" id="b-tiles" role="status" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2Zm12-3h-2v-2h2Zm0-4h-2v-4h2Z"/></svg>
+      <span class="txt" data-k="status.tilesUnavailable"></span>
+      <span class="acts"><button class="act" data-control data-k="action.retry"></button></span>
+    </div>
+    <div class="msg" id="m-denied" role="alert" hidden>
+      <span class="txt"><span class="title" data-k="location.denied.title"></span><span data-k="location.denied.hint"></span></span>
+      <span class="acts"><button class="act" data-control data-k="action.close"></button></span>
+    </div>
+  </div>
+
+  <div class="r4" id="bottom">
+    <div class="scale" id="scale" aria-hidden="true"><span class="bar"></span><span id="scale-label"></span></div>
+    <div class="col">
+      <div class="group">
+        <button class="btn" data-control data-k="control.zoomIn" data-attr="aria-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6Z"/></svg></button>
+        <button class="btn" data-control data-k="control.zoomOut" data-attr="aria-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h14v2H5Z"/></svg></button>
+      </div>
+      <button class="btn" data-control data-k="control.recenter" data-attr="aria-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 1h2v3.1A8 8 0 0 1 19.9 11H23v2h-3.1A8 8 0 0 1 13 19.9V23h-2v-3.1A8 8 0 0 1 4.1 13H1v-2h3.1A8 8 0 0 1 11 4.1Zm1 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"/></svg></button>
+    </div>
+  </div>
+
+  <footer class="r5 attr" id="attribution">
+    <p><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" data-control><span data-k="attribution.osm"></span></a></p>
+    <p id="esa" hidden data-k="attribution.esa"></p>
+  </footer>
+</div>
+<div class="sr-only" id="live" aria-live="polite"></div>
+
+<div id="tb">
+  <select id="tb-state"></select>
+  <select id="tb-theme"><option>day</option><option>night</option></select>
+  <select id="tb-lang"><option>mn</option><option>en</option></select>
+  <select id="tb-extra"><option>none</option><option>worst</option></select>
+  <select id="tb-zoom"><option>normal</option><option>low</option></select>
+</div>
+
+<script>
+const S = {
+  mn: { "app.title":"Газрын зураг","map.label":"Газрын зураг","control.zoomIn":"Томруулах","control.zoomOut":"Жижигрүүлэх",
+    "control.northUp":"Хойд зүг дээшээ","control.recenter":"Байршил руу буцах","theme.day":"Өдрийн горим","theme.night":"Шөнийн горим",
+    "language.label":"Хэл","language.mn":"Монгол","language.en":"English","status.loading":"Ачаалж байна…",
+    "status.tilesUnavailable":"Газрын зургийг ачаалж чадсангүй","status.offline":"Интернэт холболт алга","status.genericError":"Алдаа гарлаа",
+    "action.retry":"Дахин оролдох","action.close":"Хаах","location.denied.title":"Байршлын зөвшөөрөл олгоогүй байна",
+    "location.denied.hint":"Хөтчийн тохиргоонд байршлын зөвшөөрлийг асаана уу","unit.km":"км","attribution.osm":"© OpenStreetMap contributors",
+    "attribution.esa":"© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium",
+    "search.label":"Хайх","search.placeholder":"Газар, хаяг хайх","search.clear":"Хайлтыг арилгах","search.results":"Хайлтын илэрц",
+    "search.resultCount.one":"{count} илэрц олдлоо","search.resultCount.other":"{count} илэрц олдлоо","search.noResults":"Илэрц олдсонгүй",
+    "search.unavailable":"Хайлт түр ажиллахгүй байна","search.rateLimited":"Түр хүлээгээд дахин оролдоно уу",
+    "place.selectedPoint":"Сонгосон цэг","place.nearest":"Ойролцоох газар",
+    "placeType.square":"Талбай","placeType.district":"Дүүрэг","placeType.historic":"Дурсгалт газар","placeType.city":"Хот","placeType.aimag":"Аймаг",
+    "placeType.road":"Зам","placeType.university":"Их сургууль","placeType.khoroo":"Хороо","placeType.shop":"Дэлгүүр","placeType.busStop":"Автобусны буудал" },
+  en: { "app.title":"Map","map.label":"Map","control.zoomIn":"Zoom in","control.zoomOut":"Zoom out","control.northUp":"North up",
+    "control.recenter":"Recenter","theme.day":"Day mode","theme.night":"Night mode","language.label":"Language","language.mn":"Монгол","language.en":"English",
+    "status.loading":"Loading…","status.tilesUnavailable":"The map could not be loaded","status.offline":"No internet connection","status.genericError":"Something went wrong",
+    "action.retry":"Try again","action.close":"Close","location.denied.title":"Location permission is turned off",
+    "location.denied.hint":"Allow location access in your browser settings","unit.km":"km","attribution.osm":"© OpenStreetMap contributors",
+    "attribution.esa":"© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium",
+    "search.label":"Search","search.placeholder":"Search for a place or address","search.clear":"Clear search","search.results":"Search results",
+    "search.resultCount.one":"1 result","search.resultCount.other":"{count} results","search.noResults":"No results found",
+    "search.unavailable":"Search is temporarily unavailable","search.rateLimited":"Too many searches. Wait a moment and try again",
+    "place.selectedPoint":"Selected point","place.nearest":"Nearest place",
+    "placeType.square":"Square","placeType.district":"District","placeType.historic":"Monument or historic site","placeType.city":"City or town","placeType.aimag":"Aimag",
+    "placeType.road":"Road","placeType.university":"University or college","placeType.khoroo":"Khoroo","placeType.shop":"Shop","placeType.busStop":"Bus stop" }
+};
+// Sample DATA as Photon would return it for lang=mn / lang=en (not UI strings). [name, typeKey, context]
+const DATA = {
+  mn: { q:"Сүхб", results:[
+      ["Сүхбаатарын талбай","square","Бага тойрог, Улаанбаатар"],["Сүхбаатар дүүрэг","district","Улаанбаатар"],
+      ["Сүхбаатарын хөшөө","historic","Сүхбаатар дүүрэг, Улаанбаатар"],["Сүхбаатар","city","Сэлэнгэ"],["Сүхбаатар аймаг","aimag",""],
+      ["Сүхбаатарын гудамж","road","Чингэлтэй дүүрэг, Улаанбаатар"]],
+    long:[["Монгол Улсын Их Сургуулийн Хичээлийн II байр, Физик-Электроникийн сургууль","university","Сүхбаатар дүүрэг, Улаанбаатар"],
+      ["Сүхбаатар дүүргийн 1-р хороо","khoroo","Сүхбаатар дүүрэг, Улаанбаатар"],["Сүхбаатар дүүргийн 11-р хороо","khoroo","Сүхбаатар дүүрэг, Улаанбаатар"],
+      ["Сүхбаатарын талбай","square","Бага тойрог, Улаанбаатар"],["Сүхбаатарын талбайн автобусны буудал (Төв шуудан руу)","busStop","Чингэлтэй дүүрэг, Улаанбаатар"],
+      ["Сүхбаатарын гудамж","road","Чингэлтэй дүүрэг, Улаанбаатар"],["Сүхбаатар дүүрэг","district","Улаанбаатар"],["Сүхбаатар","city","Сэлэнгэ"],
+      ["Сүхбаатар аймаг","aimag",""],["Сүхбаатарын нэрэмжит хүүхдийн хувцасны дэлгүүр","shop","Баянзүрх дүүрэг, Улаанбаатар"]],
+    near:["Сүхбаатарын талбай","square","Бага тойрог, Улаанбаатар"] },
+  en: { q:"Sukhb", results:[
+      ["Sukhbaatar Square","square","Baga Toiruu, Ulaanbaatar"],["Sukhbaatar District","district","Ulaanbaatar"],
+      ["Damdin Sükhbaatar statue","historic","Sukhbaatar District, Ulaanbaatar"],["Sükhbaatar","city","Selenge"],["Sükhbaatar Province","aimag",""],
+      ["Сүхбаатарын гудамж","road","Chingeltei District, Ulaanbaatar"]],
+    long:[["National University of Mongolia, Building II, School of Physics and Electronics","university","Sukhbaatar District, Ulaanbaatar"],
+      ["Сүхбаатар дүүргийн 1-р хороо","khoroo","Sukhbaatar District, Ulaanbaatar"],["Сүхбаатар дүүргийн 11-р хороо","khoroo","Sukhbaatar District, Ulaanbaatar"],
+      ["Sukhbaatar Square","square","Baga Toiruu, Ulaanbaatar"],["Sukhbaatar Square bus stop (towards Central Post Office)","busStop","Chingeltei District, Ulaanbaatar"],
+      ["Сүхбаатарын гудамж","road","Chingeltei District, Ulaanbaatar"],["Sukhbaatar District","district","Ulaanbaatar"],["Sükhbaatar","city","Selenge"],
+      ["Sükhbaatar Province","aimag",""],["Сүхбаатарын нэрэмжит хүүхдийн хувцасны дэлгүүр","shop","Bayanzurkh District, Ulaanbaatar"]],
+    near:["Sukhbaatar Square","square","Baga Toiruu, Ulaanbaatar"] }
+};
+const STATES = ["ready","short","loading","results","results-long","coord-option","no-results","unavailable","offline","rate-limited","bad-request",
+  "card","card-long","coord-loading","coord-result","coord-empty","coord-unavailable","coord-offline","coord-rate-limited","coord-bad-request","list-over-card"];
+const ICON = {
+  place:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 1 7 7c0 5.2-7 13-7 13S5 14.2 5 9a7 7 0 0 1 7-7Zm0 2a5 5 0 0 0-5 5c0 3.2 3.4 8 5 10 1.6-2 5-6.8 5-10a5 5 0 0 0-5-5Zm0 2.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z"/></svg>',
+  point:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 1h2v3.1A8 8 0 0 1 19.9 11H23v2h-3.1A8 8 0 0 1 13 19.9V23h-2v-3.1A8 8 0 0 1 4.1 13H1v-2h3.1A8 8 0 0 1 11 4.1Zm1 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12Zm0 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z"/></svg>',
+  searchOff:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3a6.5 6.5 0 0 1 5.2 10.4l5.4 5.4-1.4 1.4-5.4-5.4A6.5 6.5 0 1 1 9.5 3Zm0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9ZM7.4 6 9.5 8.1 11.6 6 13 7.4 10.9 9.5 13 11.6 11.6 13 9.5 10.9 7.4 13 6 11.6l2.1-2.1L6 7.4Z"/></svg>',
+  warn:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2Zm12-3h-2v-2h2Zm0-4h-2v-4h2Z"/></svg>',
+  cloudOff:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.3 2 2 3.3l3 3A7 7 0 0 0 6 20h11.7l2.9 2.9 1.4-1.4ZM6 18a5 5 0 0 1-.3-10l9.9 10Zm13.4-1.1A4 4 0 0 0 19 10a7 7 0 0 0-10.6-5.9L9.9 5.6A5 5 0 0 1 17 10v1h1a2 2 0 0 1 .9 3.8Z"/></svg>',
+  hourglass:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12v6l-4 4 4 4v6H6v-6l4-4-4-4Zm2 2v3.2l4 4 4-4V4Zm4 8.8-4 4V20h8v-3.2Z"/></svg>',
+  error:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm-1 5v6h2V7Zm0 8v2h2v-2Z"/></svg>',
+  moon:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>',
+  sun:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M11 1h2v3h-2Zm0 19h2v3h-2ZM1 11h3v2H1Zm19 0h3v2h-3Z"/></svg>'
+};
+function params(){ const p=new URLSearchParams(location.hash.slice(1)); return {state:p.get("state")||"ready",theme:p.get("theme")||"day",lang:p.get("lang")||"mn",extra:p.get("extra")||"none",zoom:p.get("zoom")||"normal",toolbar:p.get("toolbar")!=="0"}; }
+function $(id){ return document.getElementById(id); }
+function esc(s){ return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function meta(t,[,ty,cx]){ return `<span class="ty">${esc(t["placeType."+ty])}</span>${cx?`<span class="cx">${esc(cx)}</span>`:""}`; }
+function stateRow(t,kind){
+  const m={loading:[null,"status.loading",0,""],noResults:[ICON.searchOff,"search.noResults",0,""],unavailable:[ICON.warn,"search.unavailable",1,"err"],
+    offline:[ICON.cloudOff,"status.offline",0,""],rateLimited:[ICON.hourglass,"search.rateLimited",2,""],bad:[ICON.error,"status.genericError",0,"err"]}[kind];
+  const icon=m[0]||'<span class="spin" aria-hidden="true"></span>';
+  const act=m[2]?`<button class="act" data-control ${m[2]===2?'aria-disabled="true"':""}>${esc(t["action.retry"])}</button>`:"";
+  return {html:`${icon}<span class="txt">${esc(t[m[1]])}</span>${act}`, cls:`state ${m[3]} ${act?"has-act":""}`, text:t[m[1]]};
+}
+function render(){
+  const {state,theme,lang,extra,zoom,toolbar}=params(), t=S[lang], d=DATA[lang];
+  document.body.dataset.zoom=zoom;
+  document.documentElement.lang=lang; document.documentElement.dataset.theme=theme; document.title=t["app.title"];
+  $("map").setAttribute("aria-label",t["map.label"]);
+  document.querySelectorAll("[data-k]").forEach(el=>{ const v=t[el.dataset.k]; if(el.dataset.attr) el.setAttribute(el.dataset.attr,v); else el.textContent=v; });
+  const q=$("q"); q.placeholder=t["search.placeholder"];
+  const other=lang==="mn"?"en":"mn", target=theme==="day"?"night":"day";
+  $("cluster").innerHTML=`<button class="btn text" data-control lang="${other}">${t["language."+other]}</button>`+
+    `<button class="btn" data-control aria-label="${t["theme."+target]}">${theme==="day"?ICON.moon:ICON.sun}</button>`+
+    `<button class="btn" data-control aria-label="${t["control.northUp"]}"><svg viewBox="0 0 24 24" aria-hidden="true" style="transform:rotate(-30deg)"><path class="needle-n" d="M12 2 16 12H8Z"/><path class="needle-s" d="M8 12h8l-4 10Z"/></svg></button>`;
+  $("scale-label").textContent = zoom==="low" ? "200 "+t["unit.km"] : "1 "+t["unit.km"];
+  $("esa").hidden = zoom!=="low";
+
+  // Search field text per state
+  const coordQ="47.9189, 106.9176";
+  const texts={ready:"",short:"С",loading:d.q,results:d.q,"results-long":d.q,"coord-option":coordQ,"no-results":"xqzjwvk",unavailable:d.q,offline:d.q,
+    "rate-limited":d.q,"bad-request":d.q,card:d.results[0][0],"card-long":d.long[0][0],"list-over-card":d.q};
+  q.value = state.startsWith("coord-") && state!=="coord-option" ? "" : (texts[state]??"");
+  $("clear").hidden = !q.value;
+
+  // Results list
+  const listStates={loading:"loading",results:"results","results-long":"long","coord-option":"coord","no-results":"noResults",unavailable:"unavailable",
+    offline:"offline","rate-limited":"rateLimited","bad-request":"bad","list-over-card":"results"};
+  const ls=listStates[state]; const popup=$("popup"), ul=$("results"), st=$("sstate");
+  popup.hidden=!ls; ul.innerHTML=""; st.hidden=true; ul.hidden=false; ul.removeAttribute("aria-busy"); q.removeAttribute("aria-activedescendant");
+  let live="";
+  if(ls==="results"||ls==="long"){
+    const rows=ls==="long"?d.long:d.results;
+    ul.innerHTML=rows.map((r,i)=>`<li role="option" id="opt-${i}" class="opt" data-control aria-selected="${ls==="long"&&i===1}">${ICON.place}<span class="tx"><span class="nm">${esc(r[0])}</span><span class="mt">${meta(t,r)}</span></span></li>`).join("");
+    if(ls==="long") q.setAttribute("aria-activedescendant","opt-1");
+    live=(rows.length===1?t["search.resultCount.one"]:t["search.resultCount.other"]).replace("{count}",rows.length);
+  } else if(ls==="coord"){
+    ul.innerHTML=`<li role="option" id="opt-0" class="opt" data-control aria-selected="false">${ICON.point}<span class="tx"><span class="nm">${esc(t["place.selectedPoint"])}</span><span class="mt">47.91890, 106.91760</span></span></li>`;
+    live=t["search.resultCount.one"].replace("{count}",1);
+  } else if(ls){
+    const r=stateRow(t,ls); st.className=r.cls; st.innerHTML=r.html; st.hidden=false; live=r.text;
+    if(ls==="loading") ul.setAttribute("aria-busy","true"); else ul.hidden=true;
+  }
+  q.setAttribute("aria-expanded",String(ls==="results"||ls==="long"||ls==="coord"));
+  $("live").textContent=live;
+
+  // Place card
+  const cardStates=["card","card-long","list-over-card"], coord=state.startsWith("coord-")&&state!=="coord-option";
+  const cardOpen=cardStates.includes(state)||coord, cardShown=cardOpen&&state!=="list-over-card";
+  $("place").hidden=!cardShown; $("ui").classList.toggle("card-bottom",cardShown&&innerWidth<840);
+  $("pin").hidden=!cardOpen;
+  if(cardOpen){
+    const r=state==="card-long"?d.long[0]:d.results[0];
+    const near=$("near");
+    if(coord){
+      $("card-h").textContent=t["place.selectedPoint"]; $("pin").setAttribute("aria-label",t["place.selectedPoint"]);
+      $("card-meta").hidden=true; $("card-coords").textContent="47.91881, 106.91690"; near.hidden=false;
+      const k={"coord-loading":"loading","coord-empty":"noResults","coord-unavailable":"unavailable","coord-offline":"offline","coord-rate-limited":"rateLimited","coord-bad-request":"bad"}[state];
+      if(state==="coord-result") near.innerHTML=`<p class="lab">${esc(t["place.nearest"])}</p><p class="nn">${esc(d.near[0])}</p><p class="pm">${meta(t,d.near)}</p>`;
+      else { const s=stateRow(t,k); near.innerHTML=`<p class="lab">${esc(t["place.nearest"])}</p><div class="${s.cls}">${s.html}</div>`; }
+    } else {
+      $("card-h").textContent=r[0]; $("pin").setAttribute("aria-label",r[0]);
+      $("card-meta").hidden=false; $("card-meta").innerHTML=meta(t,r); $("card-coords").textContent="47.91881, 106.91690"; near.hidden=true;
+    }
+  }
+  const worst=extra==="worst";
+  $("b-offline").hidden=!(state==="offline"||state==="coord-offline");
+  $("b-tiles").hidden=!worst||!$("b-offline").hidden;
+  $("m-denied").hidden=!worst;
+  $("tb").hidden=!toolbar;
+  $("tb-state").value=state; $("tb-theme").value=theme; $("tb-lang").value=lang; $("tb-extra").value=extra; $("tb-zoom").value=zoom;
+}
+$("tb-state").innerHTML=STATES.map(s=>`<option>${s}</option>`).join("");
+document.querySelectorAll("#tb select").forEach(sel=>sel.addEventListener("change",()=>{
+  location.hash=`state=${$("tb-state").value}&theme=${$("tb-theme").value}&lang=${$("tb-lang").value}&extra=${$("tb-extra").value}&zoom=${$("tb-zoom").value}`;
+}));
+window.addEventListener("hashchange",render);
+window.addEventListener("resize",render);
+render();
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # System overview (owner: architect)
 
-Current scope: **Phase 0**: NAV-001 local dev stack and NAV-002 web demo map. Decisions: ADR-0001 (stack), ADR-0002 (gateway, paths, data build, tile zoom range), ADR-0003 (Photon index source), ADR-0004 (web demo client). Staging hosting is ADR-0005 (accepted for staging on 2026-09-30; production path still proposed, NAV-008/NAV-009), deployed as in `deployment-staging.md`. HTTP contract: `api/openapi.yaml` 0.4.0.
+Current scope: **Phase 0**: NAV-001 local dev stack and NAV-002 web demo map. Decisions: ADR-0001 (stack), ADR-0002 (gateway, paths, data build, tile zoom range), ADR-0003 (Photon index source), ADR-0004 (web demo client). Staging hosting is ADR-0005 (accepted for staging on 2026-09-30; production path still proposed, NAV-008/NAV-009), deployed as in `deployment-staging.md`. NAV-003 web search (in design) is ADR-0006. HTTP contract: `api/openapi.yaml` 0.4.1.
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 
@@ -82,6 +82,36 @@ Notes:
 - **Attribution.** «© OpenStreetMap contributors» (and the ESA WorldCover credit at zoom < 8) is rendered by the app from its resource files, not from the PMTiles metadata (`metadata: false`, ADR-0004 §5-6).
 - **Caching.** Bundle, fonts and sprites follow the page origin's static caching. The archive follows the gateway's `Cache-Control: public, max-age=300` with ETag revalidation. The 416 is `no-store`.
 - **Later.** Serving style, glyphs and sprites from the gateway is deferred until a second client needs them (ADR-0004 Consequences). Android and iOS bundle their own assets and use the same `getBasemapPmtiles` operation.
+
+## 1b. Web search flow (NAV-003, ADR-0006)
+
+Search adds no host and no endpoint: the web demo calls the existing `search` and `reverse` pass-through operations on the gateway (NAV-002 AC 46 still holds: page origin + gateway only). Query assistance and request control are pure client code in `web/src/search/` (ADR-0006 §2-3).
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant W as web/ search controller
+  participant G as Gateway
+  participant P as Photon 1.3.0
+  U->>W: types «БЗД 4-р хороо» (input keeps the text as typed)
+  Note over W: debounce 250 ms → settled query → QueryPlan (ADR-0006 §2.3)<br/>rule A: primary = «Баянзүрх дүүрэг 4-р хороо», secondary = as typed, parallel<br/>bias = map centre or fresh device fix, toFixed(3)
+  par at most 2 requests per settled query
+    W->>G: GET /v1/search?q=Баянзүрх дүүрэг 4-р хороо&lang=mn&limit=8&lat=47.919&lon=106.918
+    G->>P: /api (unchanged)
+    P-->>G: 200 FeatureCollection
+    G-->>W: 200
+  and
+    W->>G: GET /v1/search?q=БЗД 4-р хороо&lang=mn&limit=8&lat=47.919&lon=106.918
+    G-->>W: 200
+  end
+  Note over W: discard if superseded (generation id) · interleave · dedupe osm_type+osm_id · MN first · top 10
+  W-->>U: listbox + live region «{count} илэрц олдлоо»
+  U->>W: selects option → fitBounds(extent) or easeTo(point) · pin · place card
+  U->>W: right-click / long-press / typed "lat, lon" → coordinate card
+  W->>G: GET /v1/reverse?lat=..6 decimals..&lon=..&lang=mn&limit=1&radius=0.5
+  G-->>W: 200 (possibly empty or unnamed) → «Ойролцоох газар» …
+  Note over W,G: 429 → drop, cooldown Retry-After (5 s if unreadable), nothing sent automatically afterwards<br/>5xx / network / 8 s timeout → «Хайлт түр ажиллахгүй байна» · offline → no request, resume once on `online`
+```
 
 ## 2. Path map (symbolic names from NAV-001)
 
@@ -166,6 +196,9 @@ sequenceDiagram
 | NFR-C2 | OSM attribution | PMTiles metadata contains "OpenStreetMap". Clients show "© OpenStreetMap contributors" from resources on every map screen | CLAUDE.md rule 8 | NAV-002 review |
 | NFR-C3 | Browser-safe errors | every response, including 416 and other gateway errors, carries each `Access-Control-*` header at most once. The tiles 416 also carries `Cache-Control: no-store`, so no cache stores the error under the archive URL | NAV-001 AC 43, `openapi.yaml` 0.2.0 / 0.3.0 | QA e2e |
 | NFR-W1 | Web client hosts | at runtime the web demo contacts only the page origin and the gateway. No font, sprite or style CDN | NAV-002 AC 46, ADR-0004 | QA e2e |
+| NFR-L5 | Search-as-you-type in the web demo | results or «Илэрц олдсонгүй» rendered ≤ 1,000 ms after the last keystroke for ≥ 19 of 20 samples; debounce 250 ms; loading shown after 300 ms; unavailable state within 8 s, never an endless spinner | NAV-003 AC 3, 12, 13, 33 | QA e2e |
+| NFR-P3 | Search bias privacy | bias `lat`/`lon` at most 3 decimals; only `search` (bias) and `reverse` (user-chosen point) carry coordinates; no query text or coordinates in storage or the console | NAV-003 AC 9, 46; ADR-0006 §3 | QA e2e, architect review |
+| NFR-R2 | Search request budget | ≤ 2 `search` requests per settled query, 1 `reverse` per coordinate card, no automatic retry except one resume on `online`; 429 honoured per operation | NAV-003 AC 3, 15, 35, 36; openapi 0.4.0 rate-limit rules | QA e2e |
 
 These targets are BA-proposed Phase 0 baselines (NAV-001 Open question 3), not production SLAs.
 
@@ -173,5 +206,6 @@ These targets are BA-proposed Phase 0 baselines (NAV-001 Open question 3), not p
 - Coverage on the default build is all of Mongolia for tiles, routing and search. On the optional BBBike UB build, tiles and routing cover only the 13 × 4 km box (without P3 and P6), so search can return places that routing cannot reach.
 - The default dev PBF comes from a third-party mirror (geo2day.com) because `download.geofabrik.de` is blocked from the dev container. Its data date and integrity are recorded in `data/build-info.json` (`sha256`, HTTP `Last-Modified`; the header has no replication timestamp) but are not guaranteed. Never use it in production.
 - The Protomaps tiles have no `name:mn`, so clients label with `name` (ADR-0002).
+- Search index (measured 2026-09-30, ADR-0006 Context): no Cyrillic/Latin transliteration and no ү/у, ө/о folding in Photon; `district` in UB is the neighbourhood (`place=suburb`), and **no field carries the düüreg** (NAV-003 R1); khoroo boundaries are missing, and only khoroo offices are found (R4); `reverse` can return an unnamed building. Fixes are backend/data follow-ups via triage (ADR-0006 Consequences).
 - Durations use road-class defaults because `maxspeed` is sparse. There is no traffic until Phase 3.
 - The Valhalla `mn-MN` narrative is present (for example "Д.Сүхбаатарын гудамж дээр өмнөд жолоодоорой…"). Quality review by a native speaker is out of scope. Observed: some pedestrian strings contain zero-width spaces (U+200B), for example "явган хүний ​​зам", which matters for TTS in NAV-005.

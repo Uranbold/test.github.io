@@ -1,0 +1,4 @@
+# NAV-008 QA: host details and raw outputs stay local (AC 21: no host IP, no secrets in git).
+staging.local.env
+*.local.env
+results/

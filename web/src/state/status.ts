@@ -2,6 +2,12 @@
 // Pure logic with injectable timers so it can be unit-tested without a browser.
 
 export const LOADING_DELAY_MS = 300; // tokens: motion.loading-delay
+/**
+ * First-load visual reveal of the pre-module pill, ms after navigation start (src/boot/bootLoading.ts). NAV-002 screen
+ * spec › States › Loading (follow-up 1, 2026-09-30) allows 250–300 ms to absorb 1–2 frames of paint latency, so the
+ * pill is on screen by 350 ms. AC 37 itself is unchanged.
+ */
+export const LOADING_REVEAL_MS = 270;
 export const START_WATCHDOG_MS = 10_000;
 export const TILE_ERROR_THRESHOLD = 3;
 

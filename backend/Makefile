@@ -4,9 +4,26 @@ BASE_URL ?= http://localhost:$(or $(GATEWAY_PORT),8080)
 PYTHON   ?= python3
 QA_SMOKE := ../tests/smoke/run.sh
 SPEC     := ../docs/architecture/api/openapi.yaml
+CONTRACT_ARGS ?=
+
+# NAV-008 guard: on the staging host (infra/staging/.env exists) the service-changing targets below would use the
+# dev .env (CORS *, dev OSM mirror, no rate limits) under the same project name `navmn`, stop or recreate the
+# staging gateway off the edge network (Caddy -> 502) and delete the live data. Staging uses infra/staging/bin/*
+# (RUNBOOK.md). Read-only targets (help, ps, logs, smoke, perf, contract, stats, build-info, tiles-info) still work.
+STAGING_ENV_FILE ?= ../infra/staging/.env
+STAGING_REFUSED  := .env up down restart cors-check rebuild-data clean-data
+ifneq ($(wildcard $(STAGING_ENV_FILE)),)
+ifneq ($(filter $(STAGING_REFUSED),$(MAKECMDGOALS)),)
+ifneq ($(NAV_DEV_TARGETS_ON_STAGING),yes)
+$(error refusing '$(filter $(STAGING_REFUSED),$(MAKECMDGOALS))': $(STAGING_ENV_FILE) exists, so this is the staging host. \
+Use infra/staging/bin/deploy.sh, nav-rebuild.sh --force or nav-compose (RUNBOOK.md sections 6-7). \
+Override only on a dev machine that has a stray staging .env: NAV_DEV_TARGETS_ON_STAGING=yes)
+endif
+endif
+endif
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart ps logs smoke smoke-backend perf contract cors-check rebuild-data \
+.PHONY: help up down restart ps logs smoke smoke-backend perf contract rate-limit-check cors-check rebuild-data \
         clean-data stats tiles-info build-info
 
 help: ## Show this help
@@ -46,8 +63,12 @@ perf: ## Smoke + AC 35-38 latency baselines (p95 of 20 sequential requests)
 	.venv/bin/pip install -q -r scripts/requirements-dev.txt
 	@touch .venv/bin/python
 
-contract: .venv/bin/python ## Validate live responses against docs/architecture/api/openapi.yaml
-	.venv/bin/python scripts/contract_check.py --base-url $(BASE_URL) --spec $(SPEC)
+contract: .venv/bin/python ## Validate live responses against docs/architecture/api/openapi.yaml (CONTRACT_ARGS=--rate-limit on staging)
+	.venv/bin/python scripts/contract_check.py --base-url $(BASE_URL) --spec $(SPEC) $(CONTRACT_ARGS)
+
+rate-limit-check: ## NAV-008 AC 13 probe (100 r/s bursts); only against a gateway with GATEWAY_RATE_LIMIT=on, never the shared dev stack
+	@case "$(BASE_URL)" in *localhost:8080*|*127.0.0.1:8080*) echo "refusing: BASE_URL is the shared dev gateway (rate limits off there)"; exit 2;; esac
+	$(PYTHON) scripts/rate_limit_check.py --base-url $(BASE_URL)
 
 cors-check: ## AC 31: restart the gateway with an allowlist, check it, restore .env setting
 	CORS_ALLOWED_ORIGINS=http://localhost:5173 $(COMPOSE) up -d --no-deps --wait gateway

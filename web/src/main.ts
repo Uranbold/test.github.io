@@ -1,4 +1,4 @@
-// NAV-002 web demo map: entry point.
+// NAV-002 web demo map + NAV-003 search: entry point.
 // Spec: docs/design/screens/NAV-002-web-map.md, flows/NAV-002-web-demo-map.md, map-style.md; ADR-0004.
 import "maplibre-gl/dist/maplibre-gl.css";
 // styles.css is linked from index.html (render-blocking), so the pre-module loading pill is styled (AC 37).
@@ -20,6 +20,8 @@ declare global {
   interface Window {
     /** Test hook, dev builds only (ADR-0004 §7). */
     __nav002?: { map: MapLibreMap; LABEL_EXPRESSION: typeof LABEL_EXPRESSION; app: App };
+    /** NAV-003 test hook, dev builds only (ADR-0006, web/README.md › Test hooks). */
+    __nav003?: { search: NonNullable<App["search"]>; map: MapLibreMap | null };
   }
 }
 
@@ -65,6 +67,9 @@ function main(): void {
 
   if (import.meta.env.DEV && app.map) {
     window.__nav002 = { map: app.map, LABEL_EXPRESSION, app };
+  }
+  if (import.meta.env.DEV && app.search) {
+    window.__nav003 = { search: app.search, map: app.map };
   }
 }
 

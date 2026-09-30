@@ -34,7 +34,7 @@ flowchart TD
 ```
 
 Notes
-- The loading pill never shows before 300 ms, so a fast load has no flash (AC 37). It hides within 500 ms of the first `idle`.
+- The loading pill is scheduled for 300 ms after navigation start (up to 50 ms earlier is allowed to absorb paint latency; it must be on screen by 350 ms), so a fast load has no flash (AC 37). It hides within 500 ms of the first `idle`. Timing rule: screen spec › States › Loading.
 - There is no endless spinner: the 10 s watchdog always ends in Ready or the blocking card (AC 38).
 - Opening view P1 = Sükhbaatar Square (PO decision D13). Supported browsers: current desktop Chrome, Edge, Firefox and Android Chrome; Safari/iOS later (D14, AC 50).
 - WebGL unavailable or an unexpected start-up exception (not in the AC, generic error row in the glossary): blocking card with «Алдаа гарлаа» + «Дахин оролдох» (reloads the page). The attribution stays visible.

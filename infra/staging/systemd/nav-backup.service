@@ -1,0 +1,12 @@
+# NAV-008 staging: off-host configuration backup (deployment-staging.md §10, AC 19).
+[Unit]
+Description=NAV-008 staging restic backup of configuration and TLS data to the ops VM
+Documentation=file://@NAV_ROOT@/infra/staging/RUNBOOK.md
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=@NAV_ROOT@/infra/staging/bin/nav-backup.sh backup
+TimeoutStartSec=1h
+Nice=10

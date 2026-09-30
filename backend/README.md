@@ -20,13 +20,16 @@ Run everything from `backend/`. Requirements: Docker with Compose v2, `make`, an
 | Force a data rebuild from the current `.env` sources | `make rebuild-data` |
 | Smoke test through the gateway | `make smoke` (QA's `../tests/smoke/run.sh` if it exists, otherwise `scripts/smoke.py`) |
 | Backend smoke suite + latency baselines (AC 35–38) | `make perf` |
-| Contract check against openapi.yaml | `make contract` (creates `.venv` with jsonschema + PyYAML) |
+| Contract check against openapi.yaml | `make contract` (creates `.venv` with jsonschema + PyYAML; also checks the Expose-Headers tokens) |
+| Rate-limit probe (NAV-008 AC 13; not against the dev stack) | `make rate-limit-check BASE_URL=...` |
 | CORS allowlist check (AC 31) | `make cors-check` |
 | Memory and disk (AC 39) | `make stats` |
 | Build record (sources, dates, versions) | `make build-info` (prints `data/build-info.json`) |
 | PMTiles header and metadata | `make tiles-info` |
 
 `BASE_URL` overrides the gateway URL for `smoke`, `perf` and `contract` (default `http://localhost:8080`).
+
+**Not on the staging host.** These are dev commands. `compose.yaml` has the same project name (`navmn`) as the NAV-008 staging scripts, so `make up/down/restart/rebuild-data/clean-data/cors-check` (or a plain `docker compose up/down`) there would use the dev `.env` and replace the staging gateway. The Makefile refuses those targets while `../infra/staging/.env` exists. On staging, use `infra/staging/bin/nav-compose`, `deploy.sh` and `nav-rebuild.sh --force`, which is the staging form of `make rebuild-data` ([RUNBOOK](../infra/staging/RUNBOOK.md) sections 5–7).
 
 ## Endpoints (gateway, default `http://localhost:8080`)
 
@@ -43,7 +46,8 @@ Only the gateway publishes a port (`GATEWAY_BIND:GATEWAY_PORT`, default `127.0.0
 The gateway alone handles CORS. It answers every `OPTIONS` with 204 and strips the upstreams' own
 `Access-Control-*` headers. Gateway errors are JSON `{code, message}`:
 - 404 `NotFound`, 405 `MethodNotAllowed`, 413 `PayloadTooLarge` (bodies over 256 KB)
-- 416 `RangeNotSatisfiable` on `TILES` when the `Range` start is at or beyond the archive size, with `Content-Range: bytes */<size>` (AC 43). Like every gateway response, it carries each `Access-Control-*` header exactly once, so a browser `fetch` sees the 416 instead of a CORS error. How this is done in nginx: ADR-0002 Amendment 2 and the comments in `gateway/templates/default.conf.template`. The 416 is not cacheable: it carries exactly one `Cache-Control: no-store` and no `Accept-Ranges`. nginx adds the file's headers before the range filter turns the 200 into a 416, and they survive the internal redirect, so a small njs header filter (`gateway/njs/headers.js`, njs ships in the pinned nginx image) rewrites them in `@range_not_satisfiable` only. openapi.yaml 0.2.0 only says these headers "may be present" on a 416, so `no-store` is a backend choice that has been passed to the architect.
+- 416 `RangeNotSatisfiable` on `TILES` when the `Range` start is at or beyond the archive size, with `Content-Range: bytes */<size>` (AC 43). Like every gateway response, it carries each `Access-Control-*` header exactly once, so a browser `fetch` sees the 416 instead of a CORS error (ADR-0002 Amendment 2). The 416 carries exactly one `Cache-Control: no-store` and no `Accept-Ranges`, as required by openapi.yaml 0.3.0 and later and ADR-0002 Amendment 3. nginx adds the file's headers before the range filter turns the 200 into a 416, and they survive the internal redirect, so a small njs header filter (`gateway/njs/headers.js`) rewrites them in `@range_not_satisfiable`. njs ships in the pinned nginx image and is used only for this 416 header filter.
+- 429 `RateLimited` (openapi.yaml 0.4.0, NAV-008 AC 13) when per-client-IP rate limits are on (staging; off in dev, see "Rate limits and client IP"): `Retry-After: 1`, `Cache-Control: no-store`, and each `Access-Control-*` header once. `Retry-After` is listed in `Access-Control-Expose-Headers` on every response.
 - 502 `UpstreamUnavailable`: the upstream is stopped, cannot be resolved or refuses the connection. This includes a connect timeout (2 s).
 - 504 `UpstreamTimeout`: the upstream accepted the connection but did not answer within 10 s (route) or 5 s (search/reverse).
 
@@ -58,6 +62,40 @@ curl -s localhost:8080/v1/route -H 'Content-Type: application/json' -d '{
 curl -s 'localhost:8080/v1/search?q=%D0%A1%D2%AF%D1%85%D0%B1&lang=mn&lat=47.9189&lon=106.9176&limit=5'
 curl -s 'localhost:8080/v1/reverse?lat=47.9189&lon=106.9176&lang=mn'
 ```
+
+## Rate limits and client IP (NAV-008)
+
+The gateway can limit requests per client IP with nginx `limit_req` (`gateway/entrypoint/16-rate-limits.sh` writes
+`conf.d/01-rate-limits.conf` at start). **Off in dev** (`GATEWAY_RATE_LIMIT=off`); the staging overlay forces it on.
+
+| Key | Dev default | Staging | Meaning |
+|---|---|---|---|
+| `GATEWAY_RATE_LIMIT` | `off` | `on` (forced) | Enable the limits |
+| `GATEWAY_RATE_ROUTE` / `GATEWAY_BURST_ROUTE` | `30r/s` / `60` | same | `/v1/route` per client IP; burst served without delay |
+| `GATEWAY_RATE_SEARCH` / `GATEWAY_BURST_SEARCH` | `30r/s` / `60` | same | `/v1/search` and `/v1/reverse` together (one zone) |
+| `GATEWAY_REAL_IP_FROM` | empty | Caddy's fixed edge address | Peers whose `X-Forwarded-For` is trusted as the client IP (`real_ip_recursive off`) |
+
+`/health`, `/tiles/basemap.pmtiles` (any method, any rate) and every `OPTIONS` preflight are never limited. With the
+staging values, 100 requests/s for 10 s from one IP gives 360 accepted and 640 `429` (measured). Invalid values stop
+the gateway at start instead of running without limits. The client IP is only a key in shared memory: it is not in
+the access log, and nginx's "limiting requests" lines are logged at `info`, below the `crit` error log level.
+
+Checks: `infra/ci/backend-static-checks.sh` (429 shape, never-limited paths, bad values refused);
+`make rate-limit-check BASE_URL=...` (AC 13 probe: 100 r/s bursts, a 10 r/s session, tiles at 200 r/s) and
+`make contract BASE_URL=... CONTRACT_ARGS=--rate-limit` (429 against openapi.yaml). Run both only against a gateway
+with limits on (staging, or an isolated test gateway), never against the shared dev stack.
+
+## Staging (NAV-008)
+
+| | |
+|---|---|
+| Base URL | **`https://<staging-host>`**: placeholder until the PO names the company subdomain (D6, AC 23). The real host name lives only in `infra/staging/.env` on the server; it is set in `openapi.yaml` `servers` by the architect and here once known |
+| Host | Hostinger VPS KVM 4, Singapore (ADR-0005), Ubuntu 24.04; any KVM VPS works, nothing in `infra/` is provider-specific |
+| What differs from dev | Caddy in front (TLS 1.2/1.3, Let's Encrypt, HTTP to HTTPS redirect, no access log), rate limits on, CORS allowlist (never `*`), Geofabrik `mongolia-latest` as the OSM source, daily rebuild at 19:30 UTC with the gateway kept up |
+| Code and runbook | [`infra/staging/`](../infra/staging/) and [`infra/staging/RUNBOOK.md`](../infra/staging/RUNBOOK.md): bootstrap, deploy by git tag, rebuild, certificates, backups/restore, monitoring, incidents |
+| Design | [deployment-staging.md](../docs/architecture/deployment-staging.md), [ADR-0005](../docs/architecture/adr/0005-backend-hosting-staging.md) |
+
+Tester-only and unlisted; not for real users (D26). `data/` is not backed up on staging: it is rebuilt from OSM.
 
 ## How the stack starts
 
@@ -192,6 +230,7 @@ extract size. Photon's `lang=mn` works (AC 27). The Protomaps tiles carry `name`
 `name:mn` (AC 11, as ADR-0002 expected).
 
 ## Privacy and logs
+- **Staging TLS proxy (Caddy):** no access log; the runtime log is an include-list of certificate loggers only (`infra/staging/caddy/Caddyfile`).
 - **Gateway access log:** one JSON line per request with method, path without the query string, status, bytes and timings. No client IP, query string, body, Origin or User-Agent.
 - **Gateway error log:** at `crit` by default (`GATEWAY_ERROR_LOG_LEVEL`), because nginx error lines contain the full request line.
 - **Valhalla:** `valhalla_service` logs every HTTP request line. The serve script pipes it through `sed`, which replaces query strings with `?<redacted>`, so `GET /route?json=…` never writes coordinates. POST bodies are never logged. Valhalla 3.9.0 has no `*.logging.long_request` setting any more (ADR-0002 §3.4 assumed it did), so there is nothing to raise.

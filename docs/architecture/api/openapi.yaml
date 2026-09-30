@@ -1,14 +1,26 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.4.0
+  version: 0.4.1
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
     and clients consume it. Neither side changes it on its own.
 
-    Design decisions: ADR-0002 (gateway, pass-through, CORS, paths), ADR-0003 (Photon index source) and
-    ADR-0005 (staging hosting; deployment in `docs/architecture/deployment-staging.md`).
+    Design decisions: ADR-0002 (gateway, pass-through, CORS, paths), ADR-0003 (Photon index source),
+    ADR-0005 (staging hosting; deployment in `docs/architecture/deployment-staging.md`) and ADR-0006 (web search
+    client: query assistance and request orchestration over `search` / `reverse`).
+
+    **Changes in 0.4.1 (2026-09-30, NAV-003 design, ADR-0006).** Documentation only. No path, parameter,
+    status code, header or schema change, so nothing for backend to implement:
+    - `search`: the index behaviour measured on 2026-09-30 (no Cyrillic/Latin transliteration, no ү/у or ө/о
+      folding, Latin queries match only places with a Latin name) and the NAV-003 client profile (bias rounded to
+      3 decimals, at most 2 requests per settled query, `limit` 5-10).
+    - `reverse`: the nearest feature may have no `name` (for example an unnamed building). NAV-003 client profile.
+    - `PhotonProperties`: in Ulaanbaatar, `district` is the neighbourhood (OSM `place=suburb`), not the düüreg.
+      The traditional Mongolian script rule is now the one in NAV-003 AC 18 / ADR-0006 §2.6.
+    - Rate limits: a client that cannot read `Retry-After` (missing, not a positive integer, or not exposed by an
+      older gateway) waits 5 s.
 
     **Changes in 0.4.0 (2026-09-30, NAV-008 AC 13 and AC 23, ADR-0005 accepted for staging).**
     Backward compatible, additive only (no path, parameter or success-schema change):
@@ -72,6 +84,8 @@ info:
     before `Retry-After` seconds have passed; never retry in a tight loop; for search-as-you-type, drop the
     pending request and let the next keystroke (after the delay) search again; for a route or reroute, show the
     retryable state and retry at most once after the delay. Localised text is keyed on the code or HTTP status.
+    If `Retry-After` is missing, is not a positive integer, or cannot be read (a browser sees it only when the
+    gateway lists it in `Access-Control-Expose-Headers`), wait **5 s** (since 0.4.1, NAV-003 AC 35).
 
     **Attribution.** Map data is © OpenStreetMap contributors (ODbL). Clients render this string
     from their own resource files on every map screen. The PMTiles metadata attribution is
@@ -83,7 +97,8 @@ info:
     **Auth.** None. NAV-001: local development. NAV-008 staging: public but unlisted URL, protected by
     per-IP rate limits (PO decision D8). Authentication is decided before any public release.
 
-    Story traceability: NAV-001 (all operations), NAV-008 (staging server, 429).
+    Story traceability: NAV-001 (all operations), NAV-003 (`search`, `reverse` web client profile),
+    NAV-008 (staging server, 429).
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -414,6 +429,25 @@ paths:
         `Accept-Language` header. For UB-relevant ranking, send `lat`/`lon` (the map centre or user position).
         Debounce keystrokes on the client.
 
+        **Index behaviour clients must plan for** (measured 2026-09-30 on the dev stack, ADR-0006 Context):
+        - Photon does **not** transliterate between Cyrillic and Latin. A Latin query (for example `Sukhbaatar`,
+          `suhbaatar`, `Sükhbaatar`) matches places that have a Latin name (mostly `name:en`), with ICU diacritic
+          folding and edit-distance fuzziness, and returns the name in the requested `lang`. Places without a Latin
+          name are found only by a Cyrillic query.
+        - The index does **not** fold ү to у or ө to о. A single word typed with у for ү (`Сухбаатар`) returns an
+          empty result. Fuzziness rescues only some multi-word queries.
+        - OSM names can contain district abbreviations (`БЗД-ийн 4-р хороо`), so an abbreviation is also a valid
+          query as typed.
+        - A 1-character `q` is accepted (200). Clients do not send queries shorter than 2 characters.
+
+        **NAV-003 web client profile** (ADR-0006 §3; native clients follow it from NAV-005):
+        - `lat`/`lon` of the bias point with at most **3 decimals** (about 100 m, privacy). `limit` between 5 and 10
+          (web: 8). `zoom`, `location_bias_scale`, `bbox`, `layer` and `osm_tag` are not sent.
+        - At most **2** requests per settled query: the query as typed, plus at most one assisted variant (a Cyrillic
+          transliteration of a Latin query, the full district name for an abbreviation, or a ү/ө variant after an
+          empty result). Results are merged client-side, without duplicates by `osm_type` + `osm_id`.
+        - Client timeout 8 s. A response for a superseded query is discarded.
+
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 36). The gateway read timeout is 5 s.
       x-stories: [NAV-001, NAV-003, NAV-008]
       x-upstream: { service: photon, version: "1.3.0", path: /api, docs: "https://github.com/komoot/photon/blob/1.3.0/docs/api-v1.md" }
@@ -484,6 +518,12 @@ paths:
         Returns the nearest indexed place(s) to a coordinate. It may be a POI, street or area rather
         than a house address (OSM address coverage in UB is irregular). A coordinate with nothing
         within `radius` returns **200 with an empty `features` array** (for example Beijing).
+
+        The nearest feature **may have no `name`**, for example an unnamed `building=yes` (measured near P2 on
+        2026-09-30). Clients fall back to `street` + `housenumber`, then to a type label (NAV-003 AC 17).
+
+        **NAV-003 web client profile** (ADR-0006 §4): one request per coordinate card with `lat`/`lon` to 6 decimals
+        (a point the user chose), `lang`, `limit=1`, `radius=0.5`. Client timeout 8 s.
 
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 37).
       x-stories: [NAV-001, NAV-003, NAV-008]
@@ -1121,8 +1161,9 @@ components:
       additionalProperties: true
       description: |
         GeocodeJSON-style properties. All address fields are optional and in the requested `lang` where
-        available. Some OSM values contain traditional Mongolian script after the Cyrillic (for example
-        "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ"). NAV-003 UX decides how these are displayed.
+        available. Some OSM values contain traditional Mongolian script after the Cyrillic, in `name`, `state`,
+        `county` and `country` (for example "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ", "Сүхбаатар ᠰᠦᠬᠡ ᠪᠠᠭᠠᠲᠤᠷ"). Clients remove the
+        traditional-script part before display (NAV-003 AC 18, ADR-0006 §2.6).
       properties:
         osm_type: { type: string, enum: [N, W, R] }
         osm_id: { type: integer, format: int64 }
@@ -1132,14 +1173,19 @@ components:
           type: string
           description: Photon layer of this result
           enum: [house, street, locality, district, city, county, state, country, other]
-        name: { type: string }
+        name: { type: string, description: "May be absent (for example an unnamed building from `reverse`)" }
         housenumber: { type: string }
         street: { type: string }
         postcode: { type: string }
         locality: { type: string }
-        district: { type: string }
+        district:
+          type: string
+          description: |
+            In Ulaanbaatar this is usually the **neighbourhood** (OSM `place=suburb`, for example «Бага Тойрог»,
+            «Гандан»), not the düüreg. No property of the current index (ADR-0003 dump) reliably carries the düüreg
+            (measured 2026-09-30, ADR-0006 F7).
         city: { type: string }
-        county: { type: string }
+        county: { type: string, description: "Soum or similar. Usually absent for places in Ulaanbaatar" }
         state: { type: string }
         country: { type: string }
         countrycode: { type: string, example: MN }

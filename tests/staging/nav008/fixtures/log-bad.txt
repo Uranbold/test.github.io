@@ -1,0 +1,5 @@
+# NAV-008 LP self-test fixture: every line violates AC 14 (documentation addresses RFC 5737 / RFC 3849 only)
+{"ts":"2026-10-01T02:00:00+00:00","service":"gateway","method":"GET","path":"/v1/search","status":200,"remote_addr":"203.0.113.7"}
+{"level":"info","ts":1727740800,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"2001:db8:85a3::8a2e:370:7334","uri":"/v1/search?q=Маркерабв&lat=47.912345"}}
+2026-10-01 02:00:00 valhalla /route?json={"locations":[{"lat":47.918901,"lon":106.917602}],"costing":"auto"}
+photon query 47.918901 106.917602 nav008marker123456

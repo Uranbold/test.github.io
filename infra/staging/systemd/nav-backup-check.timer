@@ -1,0 +1,10 @@
+# Sundays 18:30 UTC = 02:30 Asia/Ulaanbaatar, outside the rebuild, backup and reboot windows.
+[Unit]
+Description=NAV-008 staging weekly restic check timer
+
+[Timer]
+OnCalendar=Sun *-*-* 18:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

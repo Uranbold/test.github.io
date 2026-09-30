@@ -1,0 +1,11 @@
+# 20:30 UTC = 04:30 Asia/Ulaanbaatar, after the rebuild, before the 21:30 UTC reboot window.
+[Unit]
+Description=NAV-008 staging daily backup timer
+
+[Timer]
+OnCalendar=*-*-* 20:30:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
