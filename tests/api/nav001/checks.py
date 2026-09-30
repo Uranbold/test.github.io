@@ -10,12 +10,14 @@ Groups (default: smoke):
   full       smoke + AC 10, 11, 12 (D1 rule), 17, 19, 20, 24, 26, 27, 33, 43 + contract extras (404/405/413/HEAD/304/416/GET ?json=,
              no repeated Access-Control-* header on any response)
   perf       AC 35-38 (p95 of 20 sequential requests each)
-  ac43       AC 43 only (416 on TILES: single CORS headers, JSON body, one Cache-Control: no-store, no
-             Accept-Ranges per openapi 0.3.0); also part of full. Runs against a
+  ac43       AC 43 only (416 on TILES: single CORS headers, JSON body, exactly one Cache-Control: no-store, no
+             Accept-Ranges per openapi 0.3.0+ / ADR-0002 Amendment 3); also part of full. Runs against a
              gateway-only container too (isolated-gateway.sh), which is how the negative control is done
   cors-allowlist  AC 31 (+ AC 43 per origin). The gateway must already run with CORS_ALLOWED_ORIGINS=http://localhost:5173
   tiles-missing   CT17: gateway started WITHOUT data/tiles/basemap.pmtiles (tests/api/nav001/isolated-gateway.sh):
-             the TILES 404 must still be JSON with single CORS headers (error_page inheritance regression, AC 43 fix)
+             the TILES 404 must still be JSON with single CORS headers and no Accept-Ranges (error_page inheritance
+             regression, AC 43 fix). Cache-Control rule on this 404 is the relaxed one: no 'public'/'max-age' (the
+             archive's policy must not leak); openapi GatewayNotFound does not require no-store, unlike the 416
   outage     AC 34. Stops and restarts valhalla and photon with docker compose (needs --compose-dir)
   logs       No PII in logs: sends requests with marker coordinates/text, then greps service logs (needs --compose-dir)
   stats      AC 39 steady-state memory and data/ size (needs --compose-dir)
@@ -497,14 +499,14 @@ class Nav001:
             self._cors_once(cid, r, origin, expect_acao)
             ctype = (r.header("content-type") or "").split(";")[0].strip()
             self.r.check(cid + ".content_type_json", ctype == "application/json", "application/json", r.header("content-type"))
-            # openapi.yaml GatewayNotFound (the archive-missing 404) sets no Cache-Control rule; the `no-store` rule of
-            # 0.3.0 is for the 416 only. Fixed 2026-09-30 (NAV-008 QA): this case used to demand no-store here, which
-            # the contract never required. What must not happen: the archive's own caching policy on the error.
+            # openapi.yaml 0.3.0+ RangeNotSatisfiable (ADR-0002 Amendment 3): exactly one Cache-Control: no-store and
+            # no Accept-Ranges on the 416 (ETag may stay). This strict rule is for the 416 only; the relaxed
+            # "no public/max-age" rule belongs to the archive-missing 404 (CT17, tiles_missing()).
             ccs = [v for k, v in r.raw_headers if k.lower() == "cache-control"]
-            self.r.check(cid + ".no_file_cache_policy", not any("public" in v or "max-age" in v for v in ccs),
-                         "no 'public'/'max-age' Cache-Control on the 404 (the file's policy must not leak onto the error)", ccs)
+            self.r.check(cid + ".cache_control_no_store_once", ccs == ["no-store"],
+                         "exactly one 'Cache-Control: no-store' (openapi 0.3.0+, ADR-0002 Amendment 3)", ccs)
             ars = [v for k, v in r.raw_headers if k.lower() == "accept-ranges"]
-            self.r.check(cid + ".no_accept_ranges", not ars, "no Accept-Ranges on the 404 (it describes a file, not an error)", ars)
+            self.r.check(cid + ".no_accept_ranges", not ars, "no Accept-Ranges on a 416 (openapi 0.3.0+)", ars)
             if method == "GET":
                 j = r.json()
                 ok = isinstance(j, dict) and j.get("code") == "RangeNotSatisfiable" and isinstance(j.get("message"), str) and j["message"]
