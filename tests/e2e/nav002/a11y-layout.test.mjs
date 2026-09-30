@@ -19,10 +19,23 @@ async function tabSequence(page, max = 20) {
     const info = await page.evaluate(() => {
       const e = document.activeElement;
       if (!e || e === document.body) return null;
-      const cs = getComputedStyle(e);
       const id = e.dataset.testid || (e.classList.contains('maplibregl-canvas') ? 'map-canvas' : `${e.tagName.toLowerCase()}#${e.id}`);
-      const ring = (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2) || (cs.boxShadow && cs.boxShadow !== 'none');
-      return { id, ring, outline: `${cs.outlineStyle} ${cs.outlineWidth} ${cs.outlineColor}`, focusVisible: e.matches(':focus-visible') };
+      const hasRing = (el) => {
+        const c = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && ((c.outlineStyle !== 'none' && parseFloat(c.outlineWidth) >= 2) || (c.boxShadow && c.boxShadow !== 'none'));
+      };
+      // Screen spec › Components › Attribution strip (2026-09-30): the link's ring is drawn around its inner <span>
+      // (the text), not around the transparent 44 px hit area. So a ring on a direct child <span> counts, but only
+      // when the focused element itself has none. Changed 2026-09-30 (run 5) to follow the spec, not a looser check.
+      let ringEl = e;
+      if (!hasRing(e)) {
+        const sp = e.querySelector(':scope > span');
+        if (sp && hasRing(sp)) ringEl = sp;
+      }
+      const cs = getComputedStyle(ringEl);
+      const on = ringEl === e ? 'self' : 'inner span';
+      return { id, ring: hasRing(ringEl), outline: `${on}: ${cs.outlineStyle} ${cs.outlineWidth} ${cs.outlineColor}`, focusVisible: e.matches(':focus-visible') };
     });
     if (!info) break;
     if (seq.length && info.id === seq[0].id) break; // wrapped
@@ -41,6 +54,20 @@ for (const lang of ['mn', 'en']) {
   test(`AC48 ${lang}: Tab reaches every control in logical order with a visible focus ring and an accessible name (ready, messages, card)`, async ({ page, context, browser }) => {
     test.setTimeout(90_000);
     await context.clearPermissions();
+    // Negative control (test-only, off by default): NAV002_AC48_NEGCTL=1 removes the attribution link's inner ring,
+    // so this test must FAIL on attribution-osm.
+    if (process.env.NAV002_AC48_NEGCTL) {
+      await page.addInitScript(() => {
+        const st = document.createElement('style');
+        st.textContent = '.attr a:focus-visible > span{outline:none !important}';
+        const mo = new MutationObserver(() => {
+          if (!document.head) return;
+          mo.disconnect();
+          document.head.appendChild(st);
+        });
+        mo.observe(document, { childList: true, subtree: true });
+      });
+    }
     await openApp(page, { lang });
     // Ready state
     let seq = await tabSequence(page);
