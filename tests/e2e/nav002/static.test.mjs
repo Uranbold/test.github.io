@@ -143,15 +143,40 @@ test.describe('NAV-002 G. Language and strings (repository checks)', () => {
   // negate or forbid ("never", "Avoid", "not", "previous proposal", "Rejected") are ignored. Notes, Status,
   // section 9 (team-internal) and the change log are never read. Mirrors web/scripts/check-glossary.mjs, but is
   // independent of it.
-  const glossary = () => {
-    const md = read(ROOT + 'docs/requirements/glossary.md');
+  //
+  // Extractor hardening (NAV-004 verification round 0, 2026-09-30): the glossary's banned-term marker is the English
+  // word "Avoid", but the glossary also has English TERM NAMES that start with "Avoid" (section 6 "Avoid tolls",
+  // "Avoid unpaved roads", NAV-004). A sentence that merely names such an option next to a quoted Mongolian word
+  // (N12 at HEAD 084a207: «Маршрут олдсонгүй», «тохиргоо») was read as an Avoid marker. Before the Avoid / NEG checks
+  // every sentence is now normalised (no ** or `), English labels in “…” / "…" are removed, and every English term
+  // name from column 1 of the term tables that contains "Avoid" is removed, quoted or not. Every other "Avoid"
+  // still counts, anywhere in the sentence, so the banned set is not narrowed (18 terms before and after on the
+  // glossary of 2026-09-30). The negative controls in 'AC33 Avoid-term extractor self-check' pin this behaviour.
+  const parseGlossary = (md) => {
     const norm = (x) => x.replace(/\*\*|`/g, '').replace(/\s+/g, ' ').trim();
     const quoted = (x) => [...x.matchAll(/«([^»]+)»/g)].map((m) => norm(m[1]));
     const sentences = (x) => x.split(/(?<=[.;])\s+|\s+e\.g\.\s+/);
     const NEG = /\b(never|Avoid|avoid|not|Rejected|rejected|previous proposal|Previous proposal|instead of)\b/;
-    // English UI labels quoted with “…” or "…" (e.g. the NAV-004 option "Avoid unpaved roads", glossary N12, 2026-09-30)
-    // are text, not the glossary's Avoid marker or a negation: they are removed before the Avoid / NEG checks.
-    const plain = (x) => x.replace(/“[^”]*”|"[^"]*"/g, '');
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Pass 1: English term names (column 1 of a term table, without a trailing "(…)" qualifier) that contain "Avoid".
+    const avoidNames = [];
+    {
+      let inTerms = false;
+      for (const line of md.split('\n')) {
+        if (/^##\s/.test(line)) { inTerms = false; continue; }
+        if (!line.startsWith('|') || /^\|\s*-/.test(line)) continue;
+        if (/Approved Mongolian/.test(line)) { inTerms = true; continue; }
+        if (!inTerms) continue;
+        const name = norm(line.split('|')[1] || '').replace(/\s*\([^)]*\)\s*$/, '');
+        if (/\bAvoid\b/.test(name) && !avoidNames.includes(name)) avoidNames.push(name);
+      }
+    }
+    avoidNames.sort((a, b) => b.length - a.length); // longest first, so "Avoid unpaved roads" wins over a shorter prefix
+    const NAMES = avoidNames.length ? new RegExp(`\\b(?:${avoidNames.map(esc).join('|')})\\b`, 'g') : null;
+    const plain = (x) => {
+      const t = norm(x).replace(/“[^”]*”|"[^"]*"/g, '');
+      return NAMES ? t.replace(NAMES, '') : t;
+    };
     const approved = new Set();
     const banned = new Set();
     let section = '';
@@ -180,8 +205,38 @@ test.describe('NAV-002 G. Language and strings (repository checks)', () => {
         for (const snt of sentences(cells[2])) if (!NEG.test(plain(snt))) for (const q of quoted(snt)) approved.add(q);
       }
     }
-    return { approved, banned, norm };
+    return { approved, banned, norm, avoidNames };
   };
+  const glossary = () => parseGlossary(read(ROOT + 'docs/requirements/glossary.md'));
+
+  test('AC33 Avoid-term extractor self-check (negative controls on synthetic glossary rows)', () => {
+    // Synthetic glossary: one conventions table (section 1) and one term table (section 6) in the real layout.
+    const md = [
+      '## 1. Language conventions', '',
+      '| # | Convention | Rule | Notes | Status |', '|---|---|---|---|---|',
+      '| C9 | Units | «60 км/цаг». | Avoid «км/ч» (Russian). **Avoid** «км/ц» as a unit. | s |',
+      '', '## 6. Settings', '',
+      '| English term | Approved Mongolian (UI/voice) | Definition (English) | Notes | Status |', '|---|---|---|---|---|',
+      '| Avoid unpaved roads | «Шороон замаас зайлсхийх» | Switch in route preview. | Only when Avoid tolls is off. | s |',
+      '| Avoid tolls | «Төлбөртэй замаас зайлсхийх» | Switch. | n/a | s |',
+      // Round-0 wording of N12 (quoted English option name) and an unquoted variant: NOT Avoid markers.
+      '| No route hint | «Хинт А» | Hint under «Маршрут олдсонгүй» when "Avoid unpaved roads" is on. `en`: "Turn off “Avoid unpaved roads” and try again". | Uses "Avoid unpaved roads" and «тохиргоо» ("Settings"). | s |',
+      '| No route hint 2 | «Хинт Б» | Shown with «Хайлт А» when Avoid unpaved roads or Avoid tolls is on. | Built from «Тохиргоо Б». | s |',
+      // Real markers in every position the glossary uses: sentence start, bold, "a bare", mid-sentence, after the name.
+      '| Turn | «Эргэнэ үү» | Turn. | We add «тийш». Avoid a bare «зүүн эргэ». | s |',
+      '| Stop | «Зогсоол» | Stop. | Drivers may misread it, so Avoid «Зогсоох». | s |',
+      '| Toll hint | «Хинт В» | Hint. | Like Avoid tolls, but Avoid «Төлбөрийн зам». | s |',
+      '| First | «нэгдүгээр» | Ordinal. | «эхний» is not marked Avoid because it has other uses. | s |',
+    ].join('\n');
+    const { banned, approved, avoidNames } = parseGlossary(md);
+    expect(avoidNames).toEqual(['Avoid unpaved roads', 'Avoid tolls']);
+    for (const must of ['км/ч', 'км/ц', 'зүүн эргэ', 'Зогсоох', 'Төлбөрийн зам']) expect([...banned], `real Avoid marker «${must}» must be banned`).toContain(must);
+    for (const not of ['Маршрут олдсонгүй', 'тохиргоо', 'Хайлт А', 'Тохиргоо Б', 'тийш', 'эхний']) expect([...banned], `«${not}» is only next to an English option name / not an Avoid`).not.toContain(not);
+    // The same option names must not turn a Definition sentence into a "negation" either.
+    for (const ok of ['Маршрут олдсонгүй', 'Хайлт А']) expect([...approved], `Definition form «${ok}» is read as approved`).toContain(ok);
+    // Record which real English term names are treated as names (not markers) in this run.
+    test.info().annotations.push({ type: 'AC33 English term names containing "Avoid" (not markers)', description: glossary().avoidNames.join(', ') });
+  });
 
   test('AC33 every mn value matches a glossary term (strict: approved column, Definition and convention examples only)', () => {
     const { approved, norm } = glossary();

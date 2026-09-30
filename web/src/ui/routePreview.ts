@@ -42,6 +42,7 @@ import {
   stepPointData,
   type RouteStyleData,
 } from "../route/routeLayers";
+import { motionMs } from "../style/tokens";
 import { ICONS } from "./icons";
 import { RouteField, type FieldPick, type FieldList } from "./routeField";
 import { maneuverIcon, ROUTE_ICONS } from "./routeIcons";
@@ -55,7 +56,8 @@ const CONTROL_COLUMN_PX = 64; // screen spec › Camera rules: R4 control column
 const MIN_FIT_AREA_PX = 80;
 const FIT_MAX_ZOOM = 17; // AC 17
 const STEP_ZOOM = 17; // AC 30
-const DURATION_CAMERA = 1000; // tokens: motion.duration-camera
+/** AC 17 fit and AC 30 turn-row centring (tokens.json › motion.route-camera; NAV-002/NAV-003 keep motion.duration-camera). */
+const DURATION_ROUTE_CAMERA = motionMs("route-camera");
 const ETA_REFRESH_MS = 60_000; // tokens: motion.route-eta-refresh (AC 25)
 const LOCATION_WAIT_MS = 10_000; // AC 5
 /** "Location is on": last fix at most this old (NAV-003 AC 9 freshness rule; NAV-004 Terms). */
@@ -847,7 +849,7 @@ export class RoutePreview {
       if (offset[0] !== 0 || offset[1] !== 0) map.panBy([-offset[0], -offset[1]], { duration: 0 });
     } else {
       // `offset` (not `padding`) so the map's padding state is not changed for NAV-002/NAV-003 camera moves.
-      map.easeTo({ center: [lng, lat], zoom, offset, duration: DURATION_CAMERA, essential: false });
+      map.easeTo({ center: [lng, lat], zoom, offset, duration: DURATION_ROUTE_CAMERA, essential: false });
     }
   }
 
@@ -937,7 +939,7 @@ export class RoutePreview {
       const center = cam.center as [number, number] | { lng: number; lat: number };
       const zoom = Math.min(FIT_MAX_ZOOM, cam.zoom ?? map.getZoom());
       if (prefersReducedMotion()) map.jumpTo({ center, zoom, bearing: map.getBearing() });
-      else map.easeTo({ center, zoom, duration: DURATION_CAMERA, essential: false });
+      else map.easeTo({ center, zoom, duration: DURATION_ROUTE_CAMERA, essential: false });
       return;
     }
   }

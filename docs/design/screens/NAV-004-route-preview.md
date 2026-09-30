@@ -5,7 +5,7 @@
 - **Base screens:** [`NAV-002-web-map.md`](NAV-002-web-map.md) (map, controls, messages, attribution) and [`NAV-003-search.md`](NAV-003-search.md) (search field, results list, place card, coordinate card, pin). Everything this spec does not change stays as specified there.
 - **Flow:** [`flows/NAV-004-route-preview.md`](../flows/NAV-004-route-preview.md) (F1 open the preview, F2 set and change points, F3 route request lifecycle, F4 result, alternatives and turn list, F5 error and recovery, F6 close, language and theme, F7 static public build).
 - **Prototype:** [`prototypes/NAV-004-route-preview.html`](../prototypes/NAV-004-route-preview.html), a static wireframe of every state below, day/night, mn/en. The toolbar or the URL hash picks the view, for example `#state=no-route-avoid&theme=night&lang=en&extra=worst`. Layout checked by `prototypes/check-layout-nav004.mjs` (Verification). No Figma file.
-- **Tokens:** [`tokens.json`](../tokens.json) v0.3.0. New for NAV-004: `color.*.route.*`, `typography.scale.title-large`, `size.side-panel`, `size.route-sheet-max`, `size.origin-marker`, `size.switch-width/height`, `motion.route-mode-settle`, `motion.route-eta-refresh`, and 40 new `contrastPairs`. Map layers and markers: [`map-style.md` §7.2–7.3](../map-style.md).
+- **Tokens:** [`tokens.json`](../tokens.json) v0.3.0. New for NAV-004: `color.*.route.*`, `typography.scale.title-large`, `size.side-panel`, `size.route-sheet-max`, `size.origin-marker`, `size.switch-width/height`, `motion.route-mode-settle`, `motion.route-eta-refresh`, `motion.route-camera` (700 ms, added in fix round 1 for D1; additive, version unchanged), and 40 new `contrastPairs`. Map layers and markers: [`map-style.md` §7.2–7.3](../map-style.md).
 - **API:** `openapi.yaml` **0.5.0** `postRoute` (`POST /v1/route`; 0.5.0 contracts `bicycle`, documents `exit` and the web preview client profile, ADR-0008 §4). This design needs no further contract change. Search in the fields uses NAV-003's `search` (AC 6); the coordinate card uses `reverse`.
 - **Instruction text source:** [ADR-0008](../../architecture/adr/0008-route-instruction-text-client-side.md) (accepted 2026-09-30): option **(b)**, client-side text from the OSRM manoeuvre fields and glossary templates, in **both** UI languages; Valhalla's narrative is never shown. The rule order is ADR-0008 §2; the keys in Copy › Manoeuvre texts follow its suggested names with a `maneuver.` prefix (the mobile engineer owns the final names).
 
@@ -135,14 +135,14 @@ Number and unit are separated by a space (U+0020 in resources; the code may use 
 | Swap, «Маршрут гаргах», my location, info | `swap_vert`, `directions`, `my_location`, `info` |
 
 ### Camera rules (AC 17, 18, 30)
-- **First render of a response** (AC 17): `fitBounds` of all drawn route lines plus both markers, **max zoom 17**, duration `motion.duration-camera` 1000 ms (arrives < 1 s), or `duration: 0` with `prefers-reduced-motion: reduce` (done within 500 ms). Padding = **40 px + the UI that covers that edge**:
+- **First render of a response** (AC 17): `fitBounds` of all drawn route lines plus both markers, **max zoom 17**, duration **`motion.route-camera` 700 ms**, or `duration: 0` (jump) with `prefers-reduced-motion: reduce` (done within 500 ms). AC 17 counts 1 s from the render to the camera's arrival; the shared `motion.duration-camera` (1000 ms) measured 1025–1296 ms in the app (verification round 0, D1), so the route camera leaves about 300 ms for render-to-first-frame overhead. `motion.duration-camera` stays 1000 ms for NAV-002 (my location) and NAV-003 (search results); only the two route-preview moves in this section use `motion.route-camera`. Padding = **40 px + the UI that covers that edge**:
   - top: R1 bottom (68 px while the panel is open) + the R2 message row height when a message shows;
   - left: 432 px (`size.side-panel`) at expanded width, else 0;
   - bottom: R5 height + (sheet height + 20 px) below 840 px, else R5 height;
   - right: 64 px (R4 control column: 48 + 16) — a design addition; AC 17 only requires the panel and top bar, but the zoom buttons would otherwise sit on the route end.
   If the padded area is smaller than 80×80 px (320×568 with NAV-002 messages), drop the right padding first, then fit into whatever area remains; never throw.
 - **Selecting another route** (AC 18): **no camera move**, 0 requests.
-- **Turn-list row activated** (AC 30): `easeTo` the step's `maneuver.location` at the centre of the **uncovered map area** (same padding as above), zoom 17 or the current zoom if higher, ≤ 1 s (jump with reduced motion). Show the manoeuvre point there (map-style §7.3). The route and selection stay.
+- **Turn-list row activated** (AC 30): `easeTo` the step's `maneuver.location` at the centre of the **uncovered map area** (same padding as above), zoom 17 or the current zoom if higher, duration **`motion.route-camera` 700 ms** so it arrives ≤ 1 s after activation (`duration: 0` jump with reduced motion, done within 500 ms). Show the manoeuvre point there (map-style §7.3). The route and selection stay.
 - **States without a route** (no route, outside the area, same point, errors): the camera does not move. Markers stay where they are.
 - **Opening the panel, setting a point, switching tabs, the loading state:** no camera move until the next route renders.
 
@@ -314,7 +314,7 @@ Notes
 - **Contrast** (AC 44, WCAG 2.2 AA): all NAV-004 text uses checked pairs: `ui.on-surface`, `ui.on-surface-variant` and `ui.primary` on `ui.surface` and on `ui.surface-container` (fields), `ui.on-primary` on `ui.primary` (filled button, switch handle): all ≥ 4.5:1 in both modes. Non-text: tab indicator and radio `ui.primary` on `ui.surface` ≥ 3:1; switch outline `ui.outline` on `ui.surface` / `ui.surface-container` ≥ 3:1; focus ring ≥ 3:1. Route line ≥ 3:1 on `earth` and `major` (map-style §7.2). All in `tokens.json › contrastPairs`, checked by `check-contrast.mjs`. Disabled controls are exempt but keep their names.
 - **Touch targets** (AC 43): every control ≥ 48 px high (fields, tabs, switch row, swap and close 48×48, route options and turn rows ≥ 56, buttons 48). Checked ≥ 44×44 at all five widths by the layout checker.
 - **Dynamic type / zoom.** All type in `rem`. At 200 % browser zoom a 1366 px window is 683 CSS px (medium layout, bottom sheet); every rule holds and everything scrolls inside the panel.
-- **Reduced motion:** camera jumps (AC 17, 30), static spinner, no panel fade.
+- **Reduced motion:** camera jumps (`duration: 0` instead of `motion.route-camera`, AC 17, 30), static spinner, no panel fade.
 - **Forced colours:** panel, fields and card get a 1 px `CanvasText` border; the selected tab indicator uses `Highlight`; the switch track keeps its border; icons use `currentColor`.
 - **Language of parts:** Cyrillic field texts and street names in the English UI get `lang="mn"`; Latin-only names in the Mongolian UI get `lang="en"` (NAV-003 rule).
 - **No time limits:** state rows stay until the next triggering action; the 429 wait only disables the retry button.
@@ -348,7 +348,7 @@ Notes
 | 12 | Components › Avoid switch |
 | 14 | States › Same start and destination; precedence |
 | 16, 18, 20 | map-style §7.2; Components › Route options; Interactions › Route selection; States › Night |
-| 17, 30 | Camera rules |
+| 17, 30 | Camera rules; `motion.route-camera` |
 | 19 | Components › Route options |
 | 21 | Components › Snap notice; States |
 | 22–25 | Components › Summary; Content rules › Distances, Durations, «Хүрэх цаг» |

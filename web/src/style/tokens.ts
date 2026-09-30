@@ -119,6 +119,17 @@ function simpleGroup(name: string): Record<string, Scalar> {
 }
 
 /**
+ * A motion duration token in milliseconds (tokens.json › motion.<name>, e.g. "700ms" -> 700).
+ * Throws when the token is missing or not a millisecond duration, so a renamed token fails the build's tests.
+ */
+export function motionMs(name: string): number {
+  const v = simpleGroup("motion")[name];
+  const m = typeof v === "string" ? /^(\d+(?:\.\d+)?)ms$/.exec(v) : null;
+  if (!m) throw new Error(`tokens.json motion.${name} is not a millisecond duration: ${String(v)}`);
+  return Number(m[1]);
+}
+
+/**
  * CSS custom properties for the UI chrome. Day rules sit on :root, night rules on
  * :root[data-theme="night"], so switching the attribute switches the chrome in one frame (map-style.md §8).
  */

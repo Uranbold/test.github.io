@@ -39,6 +39,42 @@ export interface RouteFieldDeps {
 
 type Row = { kind: "option"; option: FieldPick };
 
+/**
+ * Defect NAV-004-D2: a field list is in flow (screen spec › Layout rule 6), so closing it on the focusout of a
+ * mouse press moved the tabs and the avoid switch between mousedown and mouseup and the click was lost. A press
+ * that takes the focus away from a field therefore closes the list only after the press ends (after its click).
+ * Mouse and touch taps both move the focus during a (compatibility) mousedown, so tracking mousedown covers both.
+ */
+const press = (() => {
+  let down = false;
+  let waiting: (() => void)[] = [];
+  const release = (): void => {
+    if (!down) return;
+    down = false;
+    const run = waiting;
+    waiting = [];
+    // mouseup and its click are dispatched in the same task: a 0 ms timer runs after the click handlers.
+    if (run.length > 0) setTimeout(() => run.forEach((f) => f()), 0);
+  };
+  let installed = false;
+  return {
+    install(): void {
+      if (installed) return;
+      installed = true;
+      window.addEventListener("mousedown", () => (down = true), true);
+      window.addEventListener("mouseup", release, true);
+      window.addEventListener("pointercancel", release, true);
+      window.addEventListener("dragend", release, true);
+      window.addEventListener("blur", release);
+    },
+    /** Runs `f` after the current press ends, or now when no press is in progress. */
+    afterPress(f: () => void): void {
+      if (down) waiting.push(f);
+      else f();
+    },
+  };
+})();
+
 export class RouteField {
   private highlight = -1;
   private rows: Row[] = [];
@@ -48,6 +84,7 @@ export class RouteField {
 
   constructor(private readonly deps: RouteFieldDeps) {
     const { input, controller } = deps;
+    press.install();
     controller.onChange((v) => this.render(v));
     controller.onAnnounce((a) => {
       if (this.active) deps.live.textContent = this.announcementText(a);
@@ -73,7 +110,13 @@ export class RouteField {
       // As the NAV-003 box: the language and theme buttons keep the list open, so a language switch re-requests it.
       if (to instanceof Element && to.closest(".cluster")) return;
       // A click elsewhere without a pick restores the point's text (Interactions › Editing a field).
-      if (this.isOpen && !(to && this.staysOpenOnTab())) this.closeAndRestore();
+      if (!this.isOpen || (to && this.staysOpenOnTab())) return;
+      // D2: collapse after the press, so the control under the pointer gets its click.
+      press.afterPress(() => {
+        const at = document.activeElement;
+        if (at === input || (at && deps.list.container.contains(at))) return; // focus came back
+        if (this.isOpen) this.closeAndRestore();
+      });
     });
     deps.listbox.addEventListener("mousedown", (e) => e.preventDefault());
     deps.listbox.addEventListener("click", (e) => {

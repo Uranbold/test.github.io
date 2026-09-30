@@ -13,16 +13,12 @@
 // convention rules it scopes screen vs voice, e.g. C3 "Voice text never contains «м», «км»", which are the approved
 // screen abbreviations.)
 //
-// NAV-004 (AC 27, 48) needs manoeuvre texts that the glossary states as a pattern rather than as every quoted form.
-// A value with no exact match may still match through one of these derivations, each reported as "derived" in the
-// output so a reviewer sees it (the business analyst is asked to add the explicit forms):
-//   a. placeholders: a value with {name} tokens matches when some approved term equals it with each token replaced by
-//      a number (resource «Тойрог: {n}-р гарц» ↔ glossary banner «Тойрог: 2-р гарц»; AC 48 keeps placeholders literally);
-//   b. left/right mirror: swapping the whole words «зүүн» ↔ «баруун» gives an approved term (glossary "Merge" quotes
-//      only the left-side form «зүүн талаас замд нийлнэ үү»; the side is the only difference, C2 suffixes unchanged);
-//   c. cardinal set: a term row whose Notes cell lists "Cardinal set: <a>, <b>, … + «зүг»" (row "Head <direction>")
-//      approves its quoted «<x> зүг …» form with every listed direction in place of <x>.
-// Derivations start from approved terms only, so Avoid / Rejected wording can never pass through them.
+// English option names are not markers: before the marker test a sentence loses its English labels in “…” / "…" and
+// the glossary's own English term names that contain "Avoid" (column 1 of the term tables, e.g. "Avoid unpaved
+// roads"), the same rule as the NAV-002 AC 33 test (tests/e2e/nav002/static.test.mjs, TC-33-03).
+//
+// Matching is exact (first-letter case aside). Placeholders such as {n} are compared literally (NAV-004 AC 48): the
+// glossary quotes the resource form, e.g. «Тойрог: {n}-р гарц». Nothing is derived from a pattern.
 //
 //   node scripts/check-glossary.mjs [--mn <file>] [--glossary <file>]
 // Exit code 1 if any value has no match.
@@ -64,10 +60,37 @@ function sentences(text) {
   if (cur.trim()) out.push(cur);
   return out;
 }
-const positiveQuoted = (text) => sentences(text).filter((s) => !NEGATIVE.test(s)).flatMap(quoted);
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Column-1 English term names of the term tables that contain "Avoid" (without a trailing "(…)" qualifier). */
+function avoidTermNames(md) {
+  const names = [];
+  let inTerms = false;
+  for (const line of md.split("\n")) {
+    if (!line.startsWith("|")) {
+      inTerms = false;
+      continue;
+    }
+    if (isSeparator(line)) continue;
+    if (/Approved Mongolian/i.test(line)) {
+      inTerms = true;
+      continue;
+    }
+    if (!inTerms) continue;
+    const name = norm(cells(line)[0] ?? "").replace(/\s*\([^)]*\)\s*$/, "");
+    if (/\bAvoid\b/.test(name) && !names.includes(name)) names.push(name);
+  }
+  return names.sort((a, b) => b.length - a.length); // longest first
+}
+/** The sentence without English labels and English "Avoid …" term names, for the marker test only. */
+function markerText(sentence, names) {
+  const t = norm(sentence).replace(/“[^”]*”|"[^"]*"/g, "");
+  return names.length ? t.replace(new RegExp(`\\b(?:${names.map(escapeRe).join("|")})\\b`, "g"), "") : t;
+}
+const positiveQuoted = (text, names) => sentences(text).filter((s) => !NEGATIVE.test(markerText(s, names))).flatMap(quoted);
 
-/** Approved terms with where they come from; `cardinal` collects the rule-c expansions. */
-function glossaryTerms(md, cardinal = new Map()) {
+/** Approved terms with where they come from. */
+function glossaryTerms(md) {
+  const names = avoidTermNames(md);
   const terms = new Map();
   const add = (t, where) => {
     const n = norm(t);
@@ -99,19 +122,9 @@ function glossaryTerms(md, cardinal = new Map()) {
       for (const t of quoted(mnCell)) add(t, `glossary "${row}" (Mongolian column)`);
       const unquoted = mnCell.replace(/«[^»]*»/g, "|").replace(/\([^)]*\)/g, "|");
       for (const piece of unquoted.split(/[|/,;:.]/)) add(piece, `glossary "${row}" (Mongolian column)`);
-      if (table.defCol >= 0) for (const t of positiveQuoted(c[table.defCol] ?? "")) add(t, `glossary "${row}" (Definition)`);
-      // Rule c: "Cardinal set: хойд, зүүн хойд, … + «зүг»" in the Notes cell of this row.
-      const set = table.notesCol >= 0 ? /Cardinal set:\s*([^+.;]+)\+\s*«зүг»/i.exec(norm(c[table.notesCol] ?? "")) : null;
-      if (set) {
-        const dirs = set[1].split(",").map((d) => norm(d)).filter(Boolean);
-        for (const base of quoted(mnCell)) {
-          const hit = dirs.filter((d) => base.startsWith(d + " зүг")).sort((a, b) => b.length - a.length)[0];
-          if (!hit) continue;
-          for (const d of dirs) cardinal.set(d + base.slice(hit.length), `glossary "${row}" cardinal set (Notes)`);
-        }
-      }
+      if (table.defCol >= 0) for (const t of positiveQuoted(c[table.defCol] ?? "", names)) add(t, `glossary "${row}" (Definition)`);
     } else if (table.kind === "conventions") {
-      for (const t of positiveQuoted(c[table.ruleCol] ?? "")) add(t, `glossary ${row} (convention rule)`);
+      for (const t of positiveQuoted(c[table.ruleCol] ?? "", names)) add(t, `glossary ${row} (convention rule)`);
     }
   }
   return terms;
@@ -119,50 +132,20 @@ function glossaryTerms(md, cardinal = new Map()) {
 
 const firstLetterInsensitive = (a, b) => a.length > 0 && a.length === b.length && a.slice(1) === b.slice(1) && a[0].toLowerCase() === b[0].toLowerCase();
 
-function exactMatch(v, terms) {
+function findMatch(value, terms) {
+  const v = norm(value);
   if (terms.has(v)) return terms.get(v);
   for (const [t, where] of terms) if (firstLetterInsensitive(v, t)) return `${where} (first letter case)`;
   return null;
 }
 
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** Rule b: whole-word «зүүн» ↔ «баруун» swap (either case of the first letter). */
-function mirror(v) {
-  const swap = { зүүн: "баруун", баруун: "зүүн", Зүүн: "Баруун", Баруун: "Зүүн" };
-  return v.replace(/(^|[\s(«])(зүүн|баруун|Зүүн|Баруун)(?=$|[\s,.)»])/gu, (_m, pre, w) => pre + swap[w]);
-}
-
-function findMatch(value, terms, cardinal) {
-  const v = norm(value);
-  const exact = exactMatch(v, terms);
-  if (exact) return exact;
-  // a. placeholders: each {token} stands for a number; the first letter may differ in case (as for exact matches).
-  if (/\{[a-z]+\}/i.test(v)) {
-    const rest = new RegExp("^" + escapeRe(v.slice(1)).replace(/\\\{[a-z]+\\\}/gi, "[0-9]+") + "$", "u");
-    for (const [t, where] of terms) {
-      if (t.length > 0 && t[0].toLowerCase() === v[0].toLowerCase() && rest.test(t.slice(1))) return `derived: placeholder ← ${where}`;
-    }
-  }
-  // b. left/right mirror
-  const m = mirror(v);
-  if (m !== v) {
-    const where = exactMatch(m, terms);
-    if (where) return `derived: left/right mirror of «${m}» ← ${where}`;
-  }
-  // c. cardinal set
-  const c = exactMatch(v, cardinal);
-  if (c) return `derived: ${c}`;
-  return null;
-}
-
 const mn = JSON.parse(readFileSync(MN, "utf8"));
-const cardinal = new Map();
-const glossary = glossaryTerms(readFileSync(GLOSSARY, "utf8"), cardinal);
+const glossary = glossaryTerms(readFileSync(GLOSSARY, "utf8"));
 
 const rows = [];
 let missing = 0;
 for (const [key, value] of Object.entries(mn)) {
-  const where = findMatch(value, glossary, cardinal);
+  const where = findMatch(value, glossary);
   if (!where) missing++;
   rows.push(`  ${where ? "ok     " : "MISSING"} ${key.padEnd(24)} «${value}»${where ? "  <- " + where : ""}`);
 }

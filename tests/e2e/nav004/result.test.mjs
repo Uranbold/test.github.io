@@ -211,21 +211,28 @@ test('AC18 + AC19: route options «Маршрут сонгох» (k>=2) with «�
   });
   const n0 = (await routeReqs(page)).length;
   const cam0 = await camera(page);
-  // (a) route option click
+  // (a) route option click. Timing method (test plan §2): a MutationObserver armed BEFORE the click records the first
+  // moment «Маршрут 3» is aria-checked=true; the start is the click event (capture phase). Round 1 (2026-09-30): the
+  // earlier check ran in an evaluate after the click and so counted Playwright round trips (flaky 547–847 ms with
+  // the selection already applied). The 200 ms assertion is unchanged.
+  await page.evaluate(() => {
+    window.__ac18sel = null;
+    const mo = new MutationObserver(() => {
+      const sel = document.querySelector('[data-testid=route-option][aria-checked=true]');
+      if (window.__ac18sel === null && sel?.dataset.index === '2') {
+        window.__ac18sel = performance.now();
+        mo.disconnect();
+      }
+    });
+    mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-checked'] });
+  });
   await tid(page, 'route-option').nth(2).click();
   const tA = await lastAct(page, 'route-option');
-  const dA = await page.evaluate((t0) => {
-    return new Promise((res) => {
-      const chk = () => {
-        const sel = document.querySelector('[data-testid=route-option][aria-checked=true]');
-        if (sel?.dataset.index === '2') return res(performance.now() - t0);
-        requestAnimationFrame(chk);
-      };
-      chk();
-    });
-  }, tA);
+  expect(tA, 'the click on «Маршрут 3» was recorded').not.toBeNull();
+  await page.waitForFunction(() => window.__ac18sel !== null, null, { timeout: 2000 });
+  const dA = await page.evaluate((t0) => window.__ac18sel - t0, tA);
   p = await panel(page);
-  test.info().annotations.push({ type: 'AC18 option → selected', description: `<= ${dA.toFixed(0)} ms after the click (first check after click; state already applied)` });
+  test.info().annotations.push({ type: 'AC18 option → selected', description: `${dA.toFixed(1)} ms after the click event (in-page MutationObserver)` });
   expect(dA).toBeLessThanOrEqual(200);
   expect(nb(p.distance)).toBe(fmtDistance(THREE[2].distance, 'mn'));
   expect(nb(p.duration)).toBe(fmtDuration(THREE[2].duration, 'mn'));
