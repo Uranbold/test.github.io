@@ -50,16 +50,22 @@ test.describe('NAV-002 I. Loading', () => {
     const negCtl = Number(process.env.NAV002_AC37_NEGCTL_MS || 0);
     if (negCtl > 0) {
       await page.addInitScript((ms) => {
+        // The init-time documentElement is replaced by the parsed <html>, so insert the style once <head> exists.
         const st = document.createElement('style');
         st.textContent = '#loading{visibility:hidden !important}';
-        document.documentElement.appendChild(st);
-        setTimeout(() => st.remove(), Math.max(0, ms - performance.now()));
+        const mo = new MutationObserver(() => {
+          if (!document.head) return;
+          mo.disconnect();
+          document.head.appendChild(st);
+          setTimeout(() => st.remove(), Math.max(0, ms - performance.now()));
+        });
+        mo.observe(document, { childList: true, subtree: true });
       }, negCtl);
     }
-    // Diagnostics only (not the gate): when `pending` was added + its --pill-delay (the app's scheduled reveal), the
-    // CSS animation's start time on the document timeline, and when `pending` was removed (boot `due` timer).
+    // Diagnostics only (not the gate): when `pending` was added + its --pill-delay (the app's scheduled reveal) and when
+    // `pending` was removed (boot `due` timer, late when MapLibre's start-up blocks the main thread).
     await page.addInitScript(() => {
-      const d = (window.__ac37 = { pendingAt: null, delay: null, animStart: null, pendingOff: null });
+      const d = (window.__ac37 = { pendingAt: null, delay: null, pendingOff: null });
       // Installed before any page script; the boot script runs inline during parsing, so observe the whole document.
       new MutationObserver((recs) => {
         const now = performance.now();
@@ -69,13 +75,9 @@ test.describe('NAV-002 I. Loading', () => {
           if (el.classList.contains('pending') && d.pendingAt === null) {
             d.pendingAt = now;
             d.delay = el.style.getPropertyValue('--pill-delay');
-            requestAnimationFrame(() => {
-              const a = el.getAnimations()[0];
-              if (a) d.animStart = a.startTime;
-            });
           } else if (!el.classList.contains('pending') && d.pendingAt !== null && d.pendingOff === null) d.pendingOff = now;
         }
-      }).observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['class'] });
+      }).observe(document, { attributes: true, subtree: true, attributeFilter: ['class'] });
     });
     const cdp = await context.newCDPSession(page);
     const frames = [];
@@ -136,7 +138,7 @@ test.describe('NAV-002 I. Loading', () => {
       description: `${Math.round(onScreen)} (last frame without it: ${lastWithout === null ? 'none' : Math.round(lastWithout)}; ` +
         `first-contentful-paint ${Math.round(info.fcp)}; DOM class flag ${Math.round(classFlag)}; ${frames.length} frames; ` +
         `pending added ${r(d?.pendingAt)} + --pill-delay ${d?.delay || 'n/a'} = scheduled ${d?.pendingAt != null && d?.delay ? Math.round(d.pendingAt + parseFloat(d.delay)) : 'n/a'}; ` +
-        `animation start ${r(d?.animStart)}; pending removed ${r(d?.pendingOff)})`,
+        `pending removed ${r(d?.pendingOff)})`,
     });
     expect(maxD, 'the pill changes the pixels of its text box (screencast works)').toBeGreaterThan(10);
     expect(onScreen, 'loading indicator on screen by 350 ms after navigation start').toBeLessThanOrEqual(350);
