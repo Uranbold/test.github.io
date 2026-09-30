@@ -4,7 +4,7 @@ Priority uses MoSCoW (`must` / `should` / `could` / `wont`). Phase follows the r
 
 Status: `draft` (idea, not refined) → `ready` (story file with testable AC, no blocking questions) → `in-progress` → `done`.
 
-PO decisions are logged in [decisions.md](decisions.md) (IDs `D<n>`). The latest set is D1–D24, from 2026-09-30.
+PO decisions are logged in [decisions.md](decisions.md) (IDs `D<n>`). The latest are D1–D24 and D25–D26 (hosting), all from 2026-09-30.
 
 ## Phase 0: PoC
 
@@ -14,7 +14,7 @@ PO decisions are logged in [decisions.md](decisions.md) (IDs `D<n>`). The latest
 | NAV-002 | Web demo: view map with Mongolian labels (`name:mn` → `name` → `name:en`) and OSM attribution | must | 0 | M | yes | no | yes | implemented. Glossary rows G1–G7 landed on 2026-09-29. Open questions decided on 2026-09-30 ([D11–D16](decisions.md)), and the AC already followed them. New AC 50 (supported browsers in `web/README.md`, D14) is pending | NAV-001; NAV-008 staging to share the demo outside the team | [NAV-002](stories/NAV-002-web-demo-map.md) |
 | NAV-003 | Search a place with Cyrillic/Latin input and autocomplete | must | 0 | M | yes | yes | yes | draft (proposed in team design §5, not refined) | NAV-001, NAV-002 | not written |
 | NAV-004 | Route preview A→B with alternatives and mode tabs | must | 0 | M | yes | yes | yes | draft (proposed in team design §5, not refined) | NAV-001, NAV-002 | not written |
-| NAV-008 | Choose and set up hosting for the backend, dev/staging first (architect spike on criteria C1–C10, PO decision, HTTPS staging reachable from Mongolian mobile networks with median RTT < 50 ms, NAV-001 smoke suite passing, Mongolia rebuild runs on the host, monitoring and backups). Production hosting is a later follow-up | must (PO-confirmed 2026-09-30, [D3](decisions.md)) | 0 (spans into 1) | L | no | yes | no | ready (2026-09-30). The spike (AC 1–4) can start. Staging setup (AC 6+) waits for NAV-001 acceptance and the PO's confirmation of the D4 result (AC 5). Outside testers on a host abroad wait for the legal review (AC 24, D9) | NAV-001 accepted (AC 6+); hosting rule and constraints [D4–D9](decisions.md); D10 still unanswered; unblocks NAV-002 sharing, NAV-005 phone testing, NAV-006, NAV-007 AC 9–12 | [NAV-008](stories/NAV-008-backend-hosting-staging.md) |
+| NAV-008 | Choose and set up hosting for the backend, dev/staging first (architect spike on criteria C1–C10, PO decision, HTTPS staging reachable from Mongolian mobile networks with RTT measured against the staging exception [D26](decisions.md), NAV-001 smoke suite passing, Mongolia rebuild runs on the host, monitoring and backups). Production hosting is NAV-009 | must (PO-confirmed 2026-09-30, [D3](decisions.md)) | 0 (spans into 1) | L | no | yes | no | ready. **Staging provider chosen 2026-09-30 ([D25](decisions.md)): Hostinger VPS KVM 4, Singapore**, with the C1 exception [D26](decisions.md) (about 100 ms expected; < 50 ms applies to production). Spike delivered (ADR-0005 `proposed`). The architect records the PO's alternative. **Host details (IP/hostname, SSH access) pending from the PO.** Staging setup (AC 6+) waits for those and for NAV-001 acceptance. Outside testers wait for the legal review (AC 24, D9, host abroad). ACs 2, 5, 8 and 22 changed 2026-09-30 | NAV-001 accepted (AC 6+); host details from the PO; constraints [D5–D9](decisions.md), [D25–D26](decisions.md); D10 partly answered; unblocks NAV-002 sharing, NAV-005 phone testing, NAV-006, NAV-007 AC 9–12 | [NAV-008](stories/NAV-008-backend-hosting-staging.md) |
 
 ## Phase 1: MVP mobile nav (proposed, not refined)
 
@@ -23,6 +23,8 @@ PO decisions are logged in [decisions.md](decisions.md) (IDs `D<n>`). The latest
 | NAV-005 | Active navigation with Mongolian voice and off-route reroute (Android first, then iOS: PO decision [D24](decisions.md)) | TBD (PO to set; platform order is no longer blocking) | 1 | L | yes | yes | yes | draft | NAV-004; NAV-008 staging for testing on real phones; NAV-007 before any external release ([D17](decisions.md)); TTS minimum on-screen text plus a chime until the fallback is decided ([D23](decisions.md)) | not written |
 | NAV-006 | Daily OSM rebuild pipeline with blue/green switch | TBD | 1 | L | no | yes | no | draft | NAV-001; NAV-008 (hosting decision + host proven able to run the Mongolia rebuild, NAV-008 AC 15–16) | not written |
 | NAV-007 | Native-speaker review of Mongolian voice guidance and turn instructions: Valhalla `mn-MN` + app copy, real TTS on Android/iOS, fixes in our resource files, upstream PR to Valhalla | must (PO-confirmed 2026-09-30, [D17](decisions.md)) | 1 | L | yes | yes | yes | ready (2026-09-30). Panel model decided ([D18–D20](decisions.md)). Recruitment (AC 5) starts once the PO names the partner and the panel budget (NAV-007 Open question 7) | NAV-001 (Valhalla up); glossary; TTS harness or NAV-005 build for AC 9–11 (Android first, D24); NAV-008 staging for device sessions (AC 9–12), plus NAV-008 AC 24 if the host is abroad (D9); architect decision on override location; must finish before the NAV-005 external release (D17) | [NAV-007](stories/NAV-007-mongolian-voice-native-review.md) |
+| NAV-009 | Production hosting in Mongolia (ICT Group servers), with the phone latency trial (C1 median < 50 ms on ≥ 2 operators), data residency in Mongolia, and parity with the NAV-008 checks | TBD (BA proposal: must; PO to confirm) | 1 | L | no | yes | no | draft (2026-09-30, created after [D25](decisions.md)) | ICT Group host details from the PO ([D10](decisions.md)); NAV-008 IaC and verification plan; NAV-006 for blue/green; before any NAV-005 external release (BA proposal) | [NAV-009](stories/NAV-009-production-hosting-mongolia.md) |
+| NAV-010 | Spike: evaluate Hamuga APIs (tiles, search, traffic, transit) as data sources: coverage, licence vs ODbL, search quality against Photon, traffic convertibility to Valhalla, GTFS | TBD (BA proposal: should; PO to confirm) | 1 | M | no | yes | no | draft (2026-09-30) | Hamuga docs and test access from the PO ([D10](decisions.md)); informs NAV-003, backlog owed decision 4 (traffic partner), Phase 4 transit | [NAV-010](stories/NAV-010-hamuga-api-evaluation-spike.md) |
 
 ## Business risks tracked across stories (data quality)
 - OSM address coverage in UB (`addr:*`, khoroo, ger-district plots) affects search and reverse (NAV-001 R9, NAV-003).
@@ -38,7 +40,7 @@ These are not blocking for NAV-001. Each open one blocks the stories noted. Reso
 1. ~~Target platform order (Android / iOS / web).~~ **Resolved 2026-09-30 ([D24](decisions.md)): Android first, then iOS.** The web client stays the Phase 0 demo and planner. NAV-005 priority is no longer blocked by this, but it is still to be set by the PO.
 2. Coverage at launch (UB first vs all of Mongolia). Affects the production data source and NAV-006. **Open.**
 3. Offline navigation at launch: yes or no. **Open.**
-4. Traffic data partner (fleet / taxi / bus GPS). Blocks Phase 3. **Open.**
+4. Traffic data partner (fleet / taxi / bus GPS). Blocks Phase 3. **Open.** Hamuga (ICT Group) is one candidate source to evaluate in spike [NAV-010](stories/NAV-010-hamuga-api-evaluation-spike.md). The spike supplies evidence only, and the PO chooses the partner.
 5. ~~Hosting~~, tracked as [NAV-008](stories/NAV-008-backend-hosting-staging.md). **Resolved 2026-09-30 as a rule plus constraints ([D3–D9](decisions.md)):**
    - priority must / Phase 0 (D3)
    - the spike measures first; prefer an in-country or the PO's own server if the median RTT is < 50 ms, otherwise an international cloud region near Mongolia for staging (D4)
@@ -48,7 +50,18 @@ These are not blocking for NAV-001. Each open one blocks the stories noted. Reso
    - an unlisted public URL with rate limits, and auth decided before public release (D8)
    - legal review of the personal-data law before outside testers' traffic goes abroad (D9)
 
-   Still to come: the PO confirms the provider the D4 rule selects after the spike, and the hosting ADR is linked here (NAV-008 AC 5). **Still unanswered:** whether the PO has own servers, map data or Valhalla endpoints ([D10](decisions.md)). **To confirm:** staging data coverage (NAV-008 Open question 5, working assumption Geofabrik `mongolia-latest`).
+   **Provider decided 2026-09-30 ([D25](decisions.md), hybrid; replaces D4 for staging):**
+   - staging runs on Hostinger VPS KVM 4 in Singapore
+   - production runs in Mongolia, most likely on ICT Group's servers ([NAV-009](stories/NAV-009-production-hosting-mongolia.md), where the phone latency trial now sits)
+   - staging has the C1 exception [D26](decisions.md): about 100 ms expected, testers only, no real users' personal data
+   
+   **Still to come:**
+   - the architect records the PO's alternative in ADR-0005, and it is linked here (NAV-008 AC 5)
+   - staging host details (IP/hostname, SSH access) from the PO, never in the repo
+   
+   **D10 partly answered:** ICT Group (Hamuga) has its own platform and servers; details and Hamuga docs are pending. **To confirm:**
+   - staging data coverage (NAV-008 Open question 5, working assumption Geofabrik `mongolia-latest`)
+   - whether D26 relaxes the D9 legal gate for informed outside testers ([decisions.md](decisions.md), Items to confirm 3; working assumption: no)
 6. ~~Native-speaker review panel and budget.~~ **Resolved 2026-09-30 ([D18–D20](decisions.md)):** paid drivers through a taxi or delivery partner plus a paid editor, the PO is not a panel member, and the PO makes the final call on disagreements. **Still to name:** the partner and the panel budget amount (NAV-007 Open question 7). These block the start of NAV-007 AC 5.
 7. TTS fallback if devices lack a Mongolian voice (server neural TTS vs recorded prompts vs text-only). **Partly resolved 2026-09-30 ([D23](decisions.md)):** decided after NAV-007 AC 9 (Android devices first). The minimum until then is on-screen text plus a chime. Affects NAV-005.
 
