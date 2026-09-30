@@ -115,12 +115,10 @@ export class SearchBox {
       c.input(this.input.value);
     });
     this.input.addEventListener("keydown", (e) => this.onKeyDown(e));
-    this.input.addEventListener("focusout", (e) => {
-      const to = e.relatedTarget as Node | null;
-      // Blur to the map closes an options list (screen spec › Results popup). Clicking the language or theme button
-      // keeps it open, so a language switch re-requests the open list (AC 38). Tab is handled in onKeyDown.
-      if (to && document.getElementById("map")?.contains(to) && this.hasOptions()) c.close();
-    });
+    // No close on blur: focus moves to the map canvas on pointer down, which is also the start of a drag. The popup
+    // (options or state row) closes on MapLibre `click` instead (SearchFeature.attachMap), which does not fire after a
+    // drag (screen spec › Results popup and Interactions, AC 41, D43). Tab is handled in onKeyDown. Clicking the
+    // language or theme button keeps the list open, so a language switch re-requests it (AC 38).
     this.clearBtn.addEventListener("click", () => {
       this.input.value = "";
       this.clearBtn.hidden = true;
@@ -288,6 +286,9 @@ export class SearchBox {
         ty.className = "ty";
         ty.dataset.testid = "search-option-type";
         ty.textContent = txt.type;
+        // Language of parts also covers type labels: «Сум» in the English UI is lang="mn" (D34; screen spec).
+        const tl = partLang(txt.type, lang);
+        if (tl) ty.lang = tl;
         mt.append(ty);
       }
       if (txt.context !== null) {

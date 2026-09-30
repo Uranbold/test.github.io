@@ -154,6 +154,7 @@ export class PlaceCard {
       this.pinEl.setAttribute("aria-label", c.name);
       this.meta.hidden = false;
       this.type.textContent = t(c.info.typeKey);
+      setLang(this.type, partLang(this.type.textContent, lang)); // «Сум» in the English UI (D34)
       this.context.textContent = c.info.context ?? "";
       setLang(this.context, c.info.context ? partLang(c.info.context, lang) : null);
       this.coords.textContent = formatCoordinate({ lat: c.info.lat, lon: c.info.lon });
@@ -186,7 +187,9 @@ export class PlaceCard {
       this.nearName.textContent = c.nearName;
       setLang(this.nearName, partLang(c.nearName, this.deps.i18n.lang));
       this.nearType.textContent = t(info.typeKey);
+      setLang(this.nearType, partLang(this.nearType.textContent, this.deps.i18n.lang)); // «Сум» in the English UI (D34)
       this.nearContext.textContent = info.context ?? "";
+      setLang(this.nearContext, info.context ? partLang(info.context, this.deps.i18n.lang) : null);
       return;
     }
     c.nearName = null;

@@ -1,6 +1,6 @@
 # Screen: Web map (NAV-002 web demo)
 
-- **Stories:** NAV-002 (AC 5–49; AC 1–4 are developer set-up and have no UI). **NAV-003** adds the search field to R1, two grid rows (RS search panel, RC card row) and changes the Tab order: see [`NAV-003-search.md`](NAV-003-search.md), which wins where the two differ.
+- **Stories:** NAV-002 (AC 5–54; AC 1–4 are developer set-up and have no UI; AC 50 is a README check; AC 51–54 are the static public demo, D44). **NAV-003** adds the search field to R1, two grid rows (RS search panel, RC card row) and changes the Tab order: see [`NAV-003-search.md`](NAV-003-search.md), which wins where the two differ.
 - **Platforms:** Web (MapLibre GL JS, `web/`). Desktop Chromium is the tested target; current Chrome/Edge/Firefox and Android Chrome must work; Safari/iOS are not supported yet (PO decision D14, 2026-09-30; story AC 50). The layout rules also hold for the later Android/iOS map screen, where the Material 3 / HIG equivalents replace the web components.
 - **Flow:** [`flows/NAV-002-web-demo-map.md`](../flows/NAV-002-web-demo-map.md)
 - **Prototype:** [`prototypes/NAV-002-web-map.html`](../prototypes/NAV-002-web-map.html) (static wireframe, no map library; switch state, theme, language and width with the toolbar or the URL hash, e.g. `#state=denied&theme=night&lang=en`). No Figma file for NAV-002.
@@ -106,6 +106,7 @@ Desktop 1366×768 (day, mn)                                          Phone 320×
 | **Location unsupported / insecure origin** (AC 24) | Button `unsupported`, no message on load. Tooltip/description `location.unavailable`. Pressing it does nothing (no exception). |
 | **Night** (AC 27) | Same layout. Map = night flavor, UI = `color.night.ui` tokens. Day is the default on a first visit; the manual choice is remembered; no automatic switching in NAV-002 (PO decision D12). |
 | **English UI** (AC 31) | Same layout, English strings, `<html lang="en">`. Map labels unchanged (Cyrillic, `name:mn` → `name` → `name:en`; PO decision D11). |
+| **Static public demo** (AC 51–54, PO decision D44) | The production build published on the PO's web hosting (`https://<demo-host>`, placeholder; the hostname is never written in the repo, D35). **Map-only**: search, reverse and routing are off by a build setting, so the site sends **0** `search`, `reverse` or routing requests to any host (AC 53, 54). **Same layout and controls** as the default state: the search field stays in R1 (NAV-003), and there is no demo badge, extra banner or changed copy. Map, pan/zoom/rotate, compass, theme, language, scale bar, my location (the site is HTTPS, so AC 24's insecure-origin state does not occur) and «© OpenStreetMap contributors» work as specified. **Search:** the field accepts text; a settled query of ≥ 2 characters, «Дахин оролдох» or a coordinate card shows «Хайлт түр ажиллахгүй байна» with «Дахин оролдох» within **1 s**, without a request and without a spinner (details: NAV-003 spec › States › Static public demo). **Tiles** come only by HTTP Range (206) from the page origin or the one configured tiles URL (AC 52); the UI is unchanged by this. If the host cannot serve the archive, the existing **Error: tiles unavailable at start** card shows (no new state; NAV-002 risk R10). **Any domain:** the build must refer to its own files (script, style, fonts, sprites, basemap archive) by relative URLs and shows no hostname anywhere in the UI, so a changed subdomain needs no rebuild. Theme and language are stored per origin, so a new subdomain starts with the defaults (Mongolian, day) once; no message. If the web host itself is down, the browser's own error page shows (accepted for a demo, story edge cases). |
 
 ## Interactions
 - **Pan:** mouse drag, one-finger drag, arrow keys with the canvas focused (AC 11). Panning while `following` → `not-following`.
@@ -183,6 +184,7 @@ Notes
 | 37–45 | States; Layout rules 3–4; flows F1, F2, F5 |
 | 46–47 | map-style.md §5–6 (bundled assets); flow F3 (no coordinates sent) |
 | 48–49 | Accessibility; Layout rules 2, 5 |
+| 51–54 | States › Static public demo (D44); search behaviour in NAV-003 spec › States › Static public demo |
 
 ## Verification
 - `node docs/design/prototypes/check-contrast.mjs`: contrast pairs, flavor key parity, map-style.md values vs tokens.json.

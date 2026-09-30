@@ -10,6 +10,7 @@ import { GatewayClient } from "../search/gateway";
 import type { PhotonFeature } from "../search/photon";
 import { ReverseController } from "../search/reverseController";
 import { SearchController, type SearchOption } from "../search/searchController";
+import { refusingFetch, UNAVAILABLE_CLIENT } from "../search/unavailableClient";
 import { LongPress, LONG_PRESS_TOLERANCE_PX } from "./longPress";
 import { PlaceCard } from "./placeCard";
 import { SearchBox } from "./searchBox";
@@ -54,10 +55,12 @@ export class SearchFeature {
   constructor(private readonly deps: SearchFeatureDeps) {
     const isOnline = (): boolean => navigator.onLine;
     const f = deps.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => window.fetch(input, init));
-    this.client = new GatewayClient({ baseUrl: deps.cfg.gatewayBaseUrl, fetch: f, isOnline });
+    // Static public demo (NAV-002 AC 53–54): with search and reverse off, nothing reaches the network.
+    const { search: searchOn, reverse: reverseOn } = deps.cfg.features;
+    this.client = new GatewayClient({ baseUrl: deps.cfg.gatewayBaseUrl, fetch: searchOn || reverseOn ? f : refusingFetch, isOnline });
     const lang = () => deps.i18n.lang;
-    this.controller = new SearchController({ client: this.client, lang, bias: deps.bias, isOnline });
-    this.reverse = new ReverseController({ client: this.client, lang, isOnline });
+    this.controller = new SearchController({ client: searchOn ? this.client : UNAVAILABLE_CLIENT, lang, bias: deps.bias, isOnline });
+    this.reverse = new ReverseController({ client: reverseOn ? this.client : UNAVAILABLE_CLIENT, lang, isOnline });
     this.card = new PlaceCard({
       i18n: deps.i18n,
       map: deps.map,
@@ -73,11 +76,29 @@ export class SearchFeature {
       onOpenChange: (open) => this.card.setListOpen(open),
     });
     this.controller.onAutoSelect((o) => this.box.select(o));
+    if (!searchOn) this.describeSearchOff();
     this.longPress = new LongPress((x, y) => this.openPointAtClient(x, y));
     window.addEventListener("online", () => {
       this.controller.online();
       this.reverse.online();
     });
+  }
+
+  /**
+   * Static public demo (NAV-003 screen spec › States › Static public demo): the input stays enabled, and screen readers
+   * hear «Хайлт түр ажиллахгүй байна» on focus through a visually hidden description. App.applyI18n updates its text.
+   */
+  private describeSearchOff(): void {
+    const input = el<HTMLInputElement>("search-input");
+    const note = document.createElement("span");
+    note.id = "search-off-note";
+    note.className = "sr-only";
+    note.dataset.testid = "search-off-note";
+    note.dataset.i18n = "search.unavailable";
+    note.textContent = this.deps.i18n.t("search.unavailable");
+    input.parentElement!.append(note);
+    const ids = (input.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+    input.setAttribute("aria-describedby", [...ids, note.id].join(" "));
   }
 
   /** Called once the map exists (NAV-002 creates it after the chrome). */

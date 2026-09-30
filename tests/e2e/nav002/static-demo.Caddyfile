@@ -1,0 +1,16 @@
+# NAV-002 section M (AC 51–54, D44): local stand-in for the PO's shared web hosting. QA only, never the shared dev stack.
+# A plain static file server with HTTP Range (206) support, no compression, and a JSON access log on stdout, so the tests
+# can read what the "web host" would log (AC 53: no query text or coordinates reach the web host's logs).
+{
+	admin off
+	auto_https off
+}
+
+:80 {
+	root * /srv
+	file_server
+	log {
+		output stdout
+		format json
+	}
+}

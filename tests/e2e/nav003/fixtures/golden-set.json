@@ -35,7 +35,7 @@
  "notes": [
   "A9-A11, B9, B10 use the English type label when ui=en (story: a type-label condition names the mn label; in a row with UI en it means the en label of the same table row). B10 name condition accepts the Latin (any case) or Cyrillic name (lang=en returns name:en where it exists, AC 45).",
   "B15 amended 2026-09-30 (PO approval F1, D33): name or context line contains «Баянзүрх» or «БЗД». The 80 % tier B threshold is fixed (AC 14).",
-  "A8 unchanged (<= 300 m from P2, top 3): story Open question 7 is still open.",
+  "A8 and B8 changed 2026-09-30 (PO decision D42, story AC 10 and Open question 7 option (b)): an option whose name contains «Улсын их дэлгүүр» (exact letters as written in the story, case-sensitive) AND lies within 400 m of P2, in the top 3 (A8) or top 5 (B8, 'as A8'). Previously any result within 300 m of P2, which passed only through the bus stop «Наран их дэлгүүр» (268 m).",
   "C4 (context line for A2 and A6) and C5 (share of Latin names in the mn UI) are computed from the A/B runs. C6 (added 2026-09-30, F2) records type labels and Photon osm_key/osm_value/type of the top 3 options.",
   "Rate: rows are spaced so the whole run stays <= 2 search requests per second (about 80 requests per run with C6).",
   "C6g/C6h (QA extra rows, 2026-09-30): the story's C6 queries return no soum boundary in the top 3, so a soum boundary is recorded in both languages; the aimag boundary is C6c/C6e (R 270075). The golden test compares the label row of every OSM object that appears in both an en and an mn C6 row (AC 19 same-row risk, R13); recorded, never fails (tier C).",
@@ -133,8 +133,9 @@
    "ui": "mn",
    "bias": "P2",
    "expect": {
+    "nameContains": "Улсын их дэлгүүр",
     "near": "P2",
-    "m": 300,
+    "m": 400,
     "top": 3
    }
   },
@@ -330,8 +331,9 @@
    "ui": "mn",
    "bias": "P2",
    "expect": {
+    "nameContains": "Улсын их дэлгүүр",
     "near": "P2",
-    "m": 300,
+    "m": 400,
     "top": 5
    },
    "control": "A8"

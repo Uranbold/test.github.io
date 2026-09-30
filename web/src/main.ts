@@ -40,7 +40,15 @@ function main(): void {
   injectTokens();
   setWorkerUrl(maplibreWorkerUrl);
 
-  const cfg = loadConfig(import.meta.env, window.location.origin);
+  // Only the named keys: passing import.meta.env whole would inline every VITE_* build variable into the public bundle.
+  const cfg = loadConfig(
+    {
+      VITE_GATEWAY_BASE_URL: import.meta.env.VITE_GATEWAY_BASE_URL,
+      VITE_STATIC_DEMO: import.meta.env.VITE_STATIC_DEMO,
+      BASE_URL: import.meta.env.BASE_URL,
+    },
+    window.location.origin,
+  );
   const i18n = new I18n(loadLang());
   const status = new StatusMachine(navigator.onLine);
 

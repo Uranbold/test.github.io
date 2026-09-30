@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, runnerImport, type Plugin } from "vite";
 import { bootLoading, type BootConfig } from "./src/boot/bootLoading";
+import { parseStaticDemo } from "./src/config";
 import en from "./src/i18n/en.json";
 import mn from "./src/i18n/mn.json";
 import { DEFAULT_LANG } from "./src/i18n/i18n";
@@ -65,8 +66,27 @@ function bootIndicator(): Plugin {
   };
 }
 
+/**
+ * NAV-002 AC 53–54: VITE_STATIC_DEMO must be a value src/config.ts understands. A typo fails the build instead of
+ * silently producing a public site with search switched on. `npm run build:static-demo` (mode "static-demo", file
+ * .env.static-demo) sets it.
+ */
+function staticDemoGuard(): Plugin {
+  return {
+    name: "navmn-static-demo-guard",
+    configResolved(config) {
+      const raw = config.env["VITE_STATIC_DEMO"] as string | undefined;
+      const on = parseStaticDemo(raw);
+      if (on === null) throw new Error(`VITE_STATIC_DEMO=${JSON.stringify(raw)} is not valid: use "true" or "false" (web/.env.example)`);
+      if (on && config.command === "build") {
+        config.logger.info("navmn: static demo build: search, reverse and routing are off (NAV-002 AC 53)");
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [bootIndicator()],
+  plugins: [bootIndicator(), staticDemoGuard()],
   resolve: { alias },
   server: {
     host: "localhost",

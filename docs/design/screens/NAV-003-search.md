@@ -8,6 +8,7 @@
 - **Tokens:** [`tokens.json`](../tokens.json) v0.2.0 (new for NAV-003: `color.*.pin.*`, `typography.scale.body-large`, `size.search-width`, `size.list-row-min`, `size.pin-width/height`, `breakpoint.medium/expanded`, `motion.search-debounce`, `motion.long-press`). Pin: [`map-style.md` §7.1](../map-style.md).
 - **API:** `openapi.yaml` 0.4.1 `search` and `reverse`. No contract change.
 - **Revision 2026-09-30 (PO "go ahead", D28, D31–D33):** Tab keeps a state row with «Дахин оролдох» open (F5, AC 41); type-label count 1–32 + 4a (F2); PO decisions on English names (D28), no camera move on right-click / long-press (D31) and viewport centring (D32) recorded in Known limitations.
+- **Revision 2026-09-30 (D34, D43, D44):** Interactions › Tab: the state-row closing triggers are story wording now (AC 41, D43), with an explicit drag versus click table. Language of parts also covers type labels, so the English UI's «Сум» (D34) is marked `lang="mn"`, and the `en` value of `placeType.soum` is corrected to «Сум». New state "Static public demo" (NAV-002 AC 53–54, D44).
 
 ## Purpose
 Let a UB user find a place, street, khoroo, district, town or coordinate by typing Cyrillic or Latin letters, see matching places while typing, and see the chosen place on the map with a pin and a short card. Every failure (nothing found, service down, offline, too many requests) is explained in words.
@@ -97,6 +98,7 @@ NAV-002 puts `#map` before the overlay grid, which makes the map canvas the firs
 - **Context line:** first 2 distinct, non-empty values of `district`, `locality`, `city`, `county`, `state`, skipping values equal to the name, joined with ", ". Omitted if empty (no empty line, no "undefined").
 - **Traditional Mongolian script (AC 18):** UX confirms the BA default. Characters U+1800–U+18AF and the whitespace around them are removed from every displayed value; if nothing remains, the next field is used. Reason: the system font stack has no reliable glyphs (tofu), and vertical script cannot be set inline in a one-line row.
 - **Language of parts:** a name or context value written in Cyrillic gets `lang="mn"` when the UI is English, and a Latin-only value gets `lang="en"` when the UI is Mongolian, so screen readers switch voice. (Detection by script: any character in U+0400–U+04FF = Cyrillic.)
+- **Language of parts for type labels (UX decision, 2026-09-30):** the same script rule applies to the **type label**. In the English UI the soum label is the Mongolian word «Сум» (PO decision D34), so its element gets `lang="mn"`, and a screen reader reads it with a Mongolian voice instead of spelling Cyrillic letters with an English voice or skipping them. It applies wherever the label is shown: the result option's type label, the place card's meta line and the coordinate card's nearest-place meta line. The rule is by script, not by key, so any later Mongolian-only value in the English UI is covered without a new rule; Mongolian UI labels need no attribute (they match `<html lang="mn">`). Reason: WCAG 2.2 SC 3.1.2 Language of Parts (AA). **Limit:** the result option's announced name is one flat string (`aria-label`, Accessible name in Components › Result option), and screen readers do not switch voice inside an accessible name; the switch works where the text is read as content (the card heading and meta lines, browse mode). This is accepted: the mark-up still meets SC 3.1.2, and the card, which gets focus after a selection (AC 43), is read correctly.
 - **Coordinates:** `lat, lon` with 5 decimals and a point decimal in both languages (AC 21). This deliberately differs from glossary C3 (decimal comma for distances in Mongolian): coordinates are a machine format users copy.
 - **Order:** `MN` results first, otherwise the upstream order (AC 8). At most 10 options (AC 7).
 - Match highlighting (bold matched letters) is **not** in NAV-003: with transliteration and abbreviation expansion the matched part is often not the typed text.
@@ -147,6 +149,24 @@ State precedence in the list area (only one row at a time): offline > rate-limit
 | **Coordinate card: bad request** | Error icon + «Алдаа гарлаа», no retry. | 37 |
 | **Language switched with a card open** | Labels, type label and state message switch ≤ 500 ms; the place name stays as it is (no new request for the card). | 38 |
 
+### Static public demo (search off by build setting; NAV-002 AC 53–54, PO decision D44)
+The public site (`https://<demo-host>`, a placeholder: the real hostname is never written in the repo, D35) is **map-only**. A build setting turns search, reverse and routing off (the key is named in `web/README.md` and `web/.env.example`; mobile-engineer). The mode comes from the build setting only, never from guessing the hostname, so the same build works on any domain. Everything not listed here is as in the rest of this spec.
+
+| Element / action | What the user sees in the static demo | AC |
+|---|---|---|
+| **Search field** | Looks and behaves as normal: same placeholder «Газар, хаяг хайх», accepts text, first Tab stop, clear button. It is **not** the HTML `disabled` state and is not greyed out: a disabled input cannot get focus or text, so AC 53 ("the user types a settled query") could not happen, and screen readers would only say "dimmed" without a reason. **"Disabled" here means search is off, shown by the message below.** Screen readers: the input gets `aria-describedby` → a visually hidden text «Хайлт түр ажиллахгүй байна», so a screen-reader user hears that search is off on focus, before typing (nothing opens on focus, AC 1). | NAV-003 AC 1; NAV-002 AC 53 |
+| **Typing < 2 characters** | As normal: nothing opens. | NAV-003 AC 4 |
+| **Settled query ≥ 2 characters** (text) | Within **1 s** (no loading row, no spinner): the **Error: search unavailable** state row, warning icon `ui.error`, «Хайлт түр ажиллахгүй байна» + «Дахин оролдох». The live region announces «Хайлт түр ажиллахгүй байна» once per settled query. **0 requests.** | NAV-002 AC 53; NAV-003 AC 33, 42 |
+| **«Дахин оролдох» pressed** | Focus to the input (Interactions › Tab); the same state row is shown again within 1 s and announced again. 0 requests. The button stays because AC 53 requires the AC 33 wording with «Дахин оролдох». | NAV-002 AC 53 |
+| **Typed coordinates** ("47.9189, 106.9176") | As normal: one option «Сонгосон цэг» + coordinates (no request needed). Selecting it centres the map and opens the coordinate card as below. | NAV-003 AC 26 |
+| **Coordinate card** (right-click / long-press, or a typed coordinate) | Pin, heading «Сонгосон цэг» and coordinates as normal (the card is useful without a backend: users can copy the coordinates). Nearest-place area: within **1 s** the **Coordinate card: unavailable** row, «Хайлт түр ажиллахгүй байна» + «Дахин оролдох». 0 `reverse` requests, also on retry. | NAV-002 AC 53; NAV-003 AC 25, 30 |
+| **Offline** | Offline wins as everywhere (precedence above): «Интернэт холболт алга», no button. When the browser is back online, the "search once by itself" rule (AC 34) shows the unavailable row again, still with 0 requests. | NAV-003 AC 34 |
+| **Tab and closing rules** | As normal: the unavailable row stays open on Tab and on a map drag, and closes on a map click, Esc, a new settled query, clearing, or a coordinate card (AC 41, D43). | NAV-003 AC 41 |
+| **Routing** | Off (AC 53). How the NAV-004 route entry point looks in the static build is defined in the NAV-004 screen spec, not here. | NAV-002 AC 53 |
+| **Everything else** | Map, my location (the site is HTTPS), theme, language, attribution «© OpenStreetMap contributors», and all NAV-002 states work as specified in the NAV-002 spec › States › Static public demo. | NAV-002 AC 51–52 |
+
+Not in the static demo: a "demo" badge or an explanation text such as "search comes later". No glossary term exists for either, so none is shown (Open question in the handoff). The message is the existing glossary term T4 «Хайлт түр ажиллахгүй байна» / "Search is temporarily unavailable".
+
 ## Interactions
 - **Type / paste** in the field: see flow F1. Debounce `motion.search-debounce` 250 ms (allowed 200–350, AC 3). Settled query rules, abbreviation expansion and transliteration: story AC 3–6, 15, 16. The input always shows what the user typed.
 - **Focus** on the field alone opens nothing and sends nothing (AC 1). **ArrowDown** with a closed list reopens the last list if it belongs to the current text.
@@ -156,10 +176,20 @@ State precedence in the list area (only one row at a time): offline > rate-limit
 - **Tab** from the input (AC 41, amended by PO approval F5, D33):
   - **List of options** (results or the coordinate option), and state rows **without** a button (loading, no results, offline, bad request): Tab closes the popup without selecting; focus goes to the next stop.
   - **State row with «Дахин оролдох»** (unavailable AC 33, rate-limited AC 35): the popup **stays open** so the retry button can be reached with Tab in the order of Accessibility › Tab order (input → clear → language → theme → compass → **retry**). In the rate-limited state the button is reached while `aria-disabled="true"` (focusable, Enter/Space do nothing until the wait ends). Moving focus with Tab or Shift+Tab, including onto the map canvas, does not close it; the place card stays hidden meanwhile (rule 5), so its stops are skipped.
-  - Such a state row closes with **Esc** (from the input or from the retry button; focus goes to the input, text stays; a second Esc in the input clears it), a **new settled query**, or **clearing the input** (story AC 41). Design addition, pending AC wording (see handoff): a **click on the map** (MapLibre `click`, which does not fire after a drag, so panning the map keeps the row) and **opening a coordinate card** (right-click / long-press) also close it, because the new card would otherwise stay hidden under rule 5.
+  - Such a state row closes with **Esc** (from the input or from the retry button; focus goes to the input, text stays; a second Esc in the input clears it), a **new settled query**, **clearing the input**, a **click on the map**, or **opening a coordinate card** (right-click / long-press; otherwise the new card would stay hidden under rule 5). Story AC 41, PO decision D43 (2026-09-30).
+  - **Drag versus click on the map** while such a state row is open (D43):
+
+    | Pointer action on the map canvas | MapLibre event | State row with «Дахин оролдох» |
+    |---|---|---|
+    | Press, move, release (mouse drag, one-finger pan, pinch, rotate) | `dragstart` / `move`, **no** `click` | **Stays open.** «Дахин оролдох» stays visible and keeps focus if it had it. The user can pan to look around and still retry |
+    | Press and release without a drag (click, tap) | `click` | **Closes**, no selection. Focus follows the click (the map canvas is focusable, NAV-002), so it never ends on `<body>` |
+    | Right-click, or long-press ≥ 600 ms without moving > 10 px | `contextmenu` / long-press | **Closes**, and the coordinate card opens (AC 25) |
+    | Wheel zoom, double-click zoom, keyboard pan/zoom on the canvas | no `click` for wheel and keys | **Stays open** (wheel, keys). A double-click fires `click` first, so it closes the row like a click |
+
+    The client listens to MapLibre's `click` event, **not** to `pointerdown` / `mousedown` on the canvas: MapLibre does not fire `click` after a drag, so this gives the rule above without its own movement threshold. A drag that **starts** on the map and ends over the popup does not close it either.
   - **Retry pressed:** focus moves to the input at once and the request is sent (states Loading → Results / state row as usual; the live region announces the outcome, AC 42). General rule: whenever the focused retry button is removed (replaced by another state or by options), focus goes to the input, never to `<body>`.
 - **Click / tap an option:** selects it (flow F2). Mouse hover only paints the hover background; it does not change `aria-activedescendant`.
-- **Click on the map** while the popup is open (options or any state row): closes it (no selection); the map click itself does nothing else.
+- **Click on the map** while the popup is open (options or any state row): closes it (no selection); the map click itself does nothing else. "Click" is the MapLibre `click` event, so **dragging the map never closes the popup** (options or state rows), see the drag versus click table under Tab (D43).
 - **Right-click** on the map canvas (desktop): pin + coordinate card at that point; the browser context menu is suppressed only on the canvas (AC 25). **Long-press** ≥ `motion.long-press` 600 ms without moving > 10 px (touch): the same. A drag, pinch or normal click never opens a card. On Android Chrome, one long-press = one card and one `reverse` request (the `contextmenu` event that Chrome also fires is ignored when a long-press has already been handled).
 - **Close card** («Хаах» or Esc in the card): pin and card removed, focus to the input, query text stays (AC 22).
 - **Select another result / another coordinate:** replaces pin and card (AC 22).
@@ -196,7 +226,7 @@ Type labels (story table "Type labels", rule order in brackets):
 | `placeType.district` (1, 4a) | Дүүрэг | District | Düüreg |
 | `placeType.khoroo` (2) | Хороо | Khoroo | Khoroo |
 | `placeType.aimag` (3) | Аймаг | Aimag | Aimag |
-| `placeType.soum` (4) | Сум | Soum | Soum |
+| `placeType.soum` (4) | Сум | **Сум** (Mongolian word, untranslated, D34; element gets `lang="mn"` in the English UI, see Result content rules › Language of parts) | Soum |
 | `placeType.city` (5) | Хот | City or town | T8 |
 | `placeType.settlement` (6) | Суурин | Settlement | T9 |
 | `placeType.neighbourhood` (7) | Хороолол | Neighbourhood | T10 |
@@ -243,7 +273,7 @@ Notes
 - **Dynamic type / zoom:** all type in `rem`. At 200 % browser zoom a 1366 px window is 683 CSS px (medium layout) and every rule holds; long names wrap, the card and the list scroll.
 - **Reduced motion:** camera jumps (AC 20), static spinners, no card fade.
 - **Forced colours:** field, popup and card get a 1 px `CanvasText` border; icons use `currentColor`; the highlighted option keeps its outline (`Highlight`).
-- **Language of parts:** see Result content rules.
+- **Language of parts:** see Result content rules (names, context lines and type labels; «Сум» in the English UI is `lang="mn"`).
 - **No time limits:** state rows stay until the next query; the 429 wait only disables the retry button, it does not dismiss anything.
 - **Driver safety:** the web demo is not for use while driving. Nothing in NAV-003 needs typing while moving on a phone; native apps will block typing while moving (NAV-005).
 
@@ -273,7 +303,8 @@ Notes
 | 39 | Layout rules 6, 8; States › Tiles unavailable |
 | 40–43 | Accessibility; Components › Listbox, Result option, Live region, State row; Interactions › Tab (AC 41 state-row exception, D33 F5); flow F5 |
 | 44 | Copy |
-| 45 | States › English UI; Copy; Known limitations 5 (D28) |
+| 45 | States › English UI; Copy; Known limitations 5 (D28); Result content rules › Language of parts for type labels (D34 «Сум», `lang="mn"`) |
+| NAV-002 AC 53–54 (D44) | States › Static public demo |
 
 ## Verification
 - `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node docs/design/prototypes/check-layout-nav003.mjs`: opens the wireframe at 320×568, 360×640, 768×1024, 1366×768 and 1920×1080, in 21 NAV-003 states × day/night × mn/en × with/without the NAV-002 worst-case messages (× low zoom for coordinate cards), 1,120 combinations. Checks: no control overlaps another, no panel (list, card, banner, message) overlaps another panel or a foreign control, attribution fully visible and uncovered, scale bar uncovered, every control ≥ 44×44, search input visible, ≥ 120 px wide and first in focus order, pin at the viewport centre not covered by NAV-003 UI or controls whenever the camera centred on it, card heading never truncated, no horizontal scroll. It checks the wireframe, not the app; QA's NAV-003 tests check the app.
