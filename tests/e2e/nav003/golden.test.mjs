@@ -2,16 +2,18 @@
 // 2026-09-30 (PO approval F3, D33 = ADR-0006 §2.3 rules A–D): at most 2 requests; a second one only for the Latin
 // transliteration (15 a, parallel), the ү/ө variant after an empty Cyrillic result (15 b), or the query as typed next to
 // an abbreviation expansion (16); merged list without duplicate osm_type+osm_id; no q longer than 200 (16, F4).
-// Fixture: fixtures/golden-set.json (story "Golden query set"; B15 amended by F1, B10 and C6 by F2, C7 added by D34).
+// Fixture: fixtures/golden-set.json (story "Golden query set"; B15 amended by F1, B10 and C6 by F2, C7 added by D34, C8 by D45).
 // Rate: <= 2 search requests/s (rows are paced).
 import { test, expect } from '@playwright/test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { GOLDEN, T, TYPE_LABELS, expectedPlan, haversine, jumpTo, openApp, options, params, tid, typeQuery, view, waitSettled } from './helpers.mjs';
 
 const OUT = fileURLToPath(new URL('../test-results/nav003/', import.meta.url));
 const LATIN_ONLY = (s) => /\p{L}/u.test(s) && [...s.matchAll(/\p{L}/gu)].every((m) => /\p{Script=Latin}/u.test(m[0]));
 const CYR = /[Ѐ-ӿ]/;
+// C8 (D45): the 21 aimag relations and the Töv label node from QA's data check (fixture F18); any other «Аймаг» is recorded
+const AIMAG_OSM = new Set(JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/aimags-live.json', import.meta.url)), 'utf8')).fixtures.filter((f) => f.group !== 'negative').map((f) => f.osm));
 
 function refOf(bias) {
   if (Array.isArray(bias)) return { lat: bias[0], lng: bias[1] };
@@ -138,6 +140,10 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
   const SOUM_END = / (сум|sum|soum)$/iu;
   const c7 = GOLDEN.rows.filter((r) => r.expect.c7).map((r) => `${r.id} «${r.q}» (${r.ui}): ${results[r.id].top3.map((o, i) => `${i + 1}.${o.name}[${o.type}] row ${rowOf(o.type, r.ui)} ${o.osm_key}/${o.osm_value}/type=${o.type_photon} ${o.osm}`).join(' | ') || `state=${results[r.id].detail}`}`);
   const c7Row4ByProperty = GOLDEN.rows.filter((r) => r.expect.c7).flatMap((r) => results[r.id].top3.filter((o) => rowOf(o.type, r.ui) === 4 && !SOUM_END.test(o.name ?? '')).map((o) => `${r.id} ${o.osm} "${o.name}" ${o.osm_key}/${o.osm_value}/type=${o.type_photon}`));
+  // C8 (D45, R13): rule row of the top 3 options of «Төв», "Töv", «Улаанбаатар», "Ulaanbaatar", «Сүхбаатар» in both UIs;
+  // lists every option given row 3 «Аймаг» that is not one of the 21 aimag relations or the Töv node. Recorded, never fails (tier C)
+  const c8 = GOLDEN.rows.filter((r) => r.expect.c8).map((r) => `${r.id} «${r.q}» (${r.ui}): ${results[r.id].top3.map((o, i) => `${i + 1}.${o.name}[${o.type}] row ${rowOf(o.type, r.ui)} ${o.osm_key}/${o.osm_value}/type=${o.type_photon} ${o.osm}`).join(' | ') || `state=${results[r.id].detail}`}`);
+  const c8Row3NotAimag = GOLDEN.rows.filter((r) => r.expect.c8).flatMap((r) => results[r.id].top3.filter((o) => rowOf(o.type, r.ui) === 3 && !AIMAG_OSM.has(o.osm)).map((o) => `${r.id} ${o.osm} "${o.name}" ${o.osm_key}/${o.osm_value}/type=${o.type_photon}`));
   const totalRequests = Object.values(results).reduce((n, r) => n + r.requests.length, 0);
   const summary = {
     run: new Date().toISOString(),
@@ -150,6 +156,8 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
     C6sameObject: c6Same,
     C7: c7,
     C7row4ByProperty: c7Row4ByProperty,
+    C8: c8,
+    C8row3NotAimag: c8Row3NotAimag,
     totalSearchRequests: totalRequests,
     C4: c4,
     C5: `${latin.length}/${mnNames.length} top-3 names in the mn UI are Latin-only${latin.length ? ': ' + [...new Set(latin)].join(', ') : ''}`,
@@ -160,7 +168,7 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
   };
   mkdirSync(OUT, { recursive: true });
   writeFileSync(OUT + 'golden-latest.json', JSON.stringify(summary, null, 1));
-  for (const k of ['tierA', 'failedA', 'tierB', 'failedB', 'C4', 'C5', 'C6', 'C6sameObject', 'C7', 'C7row4ByProperty', 'totalSearchRequests', 'problemsAC3', 'problemsAC15', 'problemsAC16']) {
+  for (const k of ['tierA', 'failedA', 'tierB', 'failedB', 'C4', 'C5', 'C6', 'C6sameObject', 'C7', 'C7row4ByProperty', 'C8', 'C8row3NotAimag', 'totalSearchRequests', 'problemsAC3', 'problemsAC15', 'problemsAC16']) {
     test.info().annotations.push({ type: k, description: JSON.stringify(summary[k]) });
   }
   for (const r of GOLDEN.rows) test.info().annotations.push({ type: `row ${r.id}`, description: `${results[r.id].pass ? 'PASS' : 'FAIL'} «${r.q}» rule=${results[r.id].plan} req=${JSON.stringify(results[r.id].requests)} counts=${JSON.stringify(results[r.id].counts)} ${results[r.id].detail}` });

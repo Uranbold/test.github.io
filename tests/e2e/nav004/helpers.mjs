@@ -553,6 +553,7 @@ export async function setField(page, which, p) {
 /** Full A→B preview with typed coordinates: dest via coordinate card, origin via the origin field. */
 export async function preview(page, o, d, { mode } = {}) {
   await openPreview(page, d);
+  await page.keyboard.press('Escape'); // close the origin list first (defect NAV-004-D2)
   if (mode && mode !== 'car') {
     await tid(page, `route-tab-${mode}`).click();
     await page.waitForTimeout(350);

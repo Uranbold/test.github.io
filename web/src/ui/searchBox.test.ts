@@ -220,18 +220,26 @@ describe("SearchBox type label language of parts (D34)", () => {
     geometry: { type: "Point", coordinates: [106.2, 47.3] },
     properties: { name: "Bayan-Undur", osm_type: "R", osm_id: 7297914, osm_key: "boundary", osm_value: "administrative", type: "county" },
   } as unknown as PhotonFeature;
+  // Aimag relation with its lang=en name (D45): «Аймаг» in the English UI, lang="mn" like «Сум».
+  const aimag = {
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [101.03, 47.86] },
+    properties: { name: "Arkhangai", osm_type: "R", osm_id: 270075, osm_key: "place", osm_value: "state", type: "state" },
+  } as unknown as PhotonFeature;
 
   function render(lang: "mn" | "en"): HTMLElement[] {
     document.documentElement.innerHTML = html.replace(/^[\s\S]*?<html[^>]*>/, "").replace(/<\/html>\s*$/, "");
     const c = new FakeController();
     const tooltip = { attach: vi.fn(), hide: vi.fn() } as unknown as Tooltip;
     new SearchBox({ i18n: new I18n(lang), controller: c as unknown as SearchController, tooltip, onSelect: vi.fn(), onOpenChange: vi.fn() });
-    c.set({ state: "results", options: [{ kind: "place", feature: soum }, { kind: "place", feature }], retry: "none", busy: false, query: "bayan" });
+    c.set({ state: "results", options: [{ kind: "place", feature: soum }, { kind: "place", feature }, { kind: "place", feature: aimag }], retry: "none", busy: false, query: "bayan" });
     return [...document.querySelectorAll<HTMLElement>('[data-testid="search-option-type"]')];
   }
 
-  it("English UI: «Сум» is lang=mn, an English label has no lang", () => {
-    const [soumType, squareType] = render("en");
+  it("English UI: «Сум» and «Аймаг» are lang=mn, an English label has no lang", () => {
+    const [soumType, squareType, aimagType] = render("en");
+    expect(aimagType!.textContent).toBe("Аймаг");
+    expect(aimagType!.lang).toBe("mn");
     expect(soumType!.textContent).toBe("Сум");
     expect(soumType!.lang).toBe("mn");
     expect(squareType!.textContent).not.toMatch(/[Ѐ-ӿ]/);

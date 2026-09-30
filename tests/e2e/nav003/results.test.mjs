@@ -134,6 +134,9 @@ for (const lang of ['mn', 'en']) {
 // Changed 2026-09-30 for PO decision D34 (the approved expected label only): the soum is «Сум» (row 4) in BOTH UI languages,
 // untranslated in the English UI (TYPE_LABELS row 4 en = «Сум», was "Soum"). The aimag label is still not asserted (story
 // Open question 9, not part of D34): only the same-row check applies to it.
+// Changed 2026-09-30 for PO decision D45 (resolves Open question 9; the approved expected label only): the aimag R 270075
+// (place/state/type=state, no « аймаг» / " aimag" name ending) is «Аймаг» (row 3, rule 3 (b)) in BOTH UI languages,
+// untranslated in the English UI (TYPE_LABELS row 3 en = «Аймаг», was "Aimag"). Before D45 it was «Газар» / "Place" (row 32).
 const liveForms = {
   soum: {
     osm: 'R7297914',
@@ -175,4 +178,7 @@ test('AC19 same row (D4, R13): a live soum boundary and a live aimag get the sam
   // D34 (approved expected label): the soum boundary is «Сум», row 4, in the Mongolian AND the English UI
   const soum = out.find((o) => o.kind === 'soum');
   expect([soum.mn, soum.en], 'D34: soum R 7297914 labelled «Сум» (row 4) in both UI languages').toEqual(['Баян-Өндөр сум [Сум] row 4', 'Bayan-Undur [Сум] row 4']);
+  // D45 (approved expected label): the aimag relation is «Аймаг», row 3, in the Mongolian AND the English UI
+  const aimag = out.find((o) => o.kind === 'aimag');
+  expect([aimag.mn, aimag.en], 'D45: aimag R 270075 labelled «Аймаг» (row 3) in both UI languages').toEqual(['Архангай [Аймаг] row 3', 'Arkhangai [Аймаг] row 3']);
 });

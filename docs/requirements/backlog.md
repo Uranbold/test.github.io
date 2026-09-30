@@ -4,7 +4,7 @@ Priority uses MoSCoW (`must` / `should` / `could` / `wont`). Phase follows the r
 
 Status: `draft` (idea, not refined) → `ready` (story file with testable AC, no blocking questions) → `in-progress` → `done`.
 
-PO decisions are logged in [decisions.md](decisions.md) (IDs `D<n>`). The latest are D1–D24, D25–D26 (hosting), D27–D35 (NAV-003, repository) and D36–D44 (Hamuga mechanism and routing, NAV-003 A8 / AC 41, web demo publishing), all from 2026-09-30.
+PO decisions are logged in [decisions.md](decisions.md) (IDs `D<n>`). The latest are D1–D24, D25–D26 (hosting), D27–D35 (NAV-003, repository) D36–D44 (Hamuga mechanism and routing, NAV-003 A8 / AC 41, web demo publishing) and D45–D46 (NAV-003 aimag type label, vendor documentation in the repo), all from 2026-09-30.
 
 **Gate for Hamuga items (D38):** no story that integrates a Hamuga capability moves to `ready` before a written internal ICT Group agreement exists. Verbal approval is enough for the NAV-010 evaluation. Such stories inherit NAV-010 constraints K1–K7 (gateway only, no client SDK, routing R1, per-environment server keys, separate stores only).
 

@@ -25,7 +25,14 @@ test('AC32: pending > 300 ms → «Ачаалж байна…» with aria-busy=t
   await tid(page, 'route-swap').click();
   await waitFinal(page);
   await page.waitForTimeout(400);
-  expect((await rtimeline(page)).filter((s) => s.t >= tFast && s.state === 'loading').length, 'no loading state for a fast response').toBe(0);
+  {
+    // A loading row may only appear when the request has been pending >= 300 ms at that moment. (Interception plus the
+    // SwiftShader-busy main thread can make a "0 ms" mock take longer than 300 ms, so this is checked, not assumed.)
+    const fast = (await routeReqs(page)).at(-1);
+    const loads = (await rtimeline(page)).filter((s) => s.t >= tFast && s.state === 'loading');
+    test.info().annotations.push({ type: 'AC32 fast response', description: `fetch ${(fast.end - fast.t).toFixed(0)} ms; loading rows at ${loads.map((l) => (l.t - fast.t).toFixed(0) + ' ms').join(', ') || 'none'} after the request start` });
+    for (const l of loads) expect(l.t - fast.t, 'loading row only after 300 ms pending').toBeGreaterThanOrEqual(290);
+  }
   // slow response (1.5 s)
   delay = 1500;
   await tid(page, 'route-swap').click();

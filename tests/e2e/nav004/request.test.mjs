@@ -203,3 +203,36 @@ test('AC14: start and destination within 10 m → no request and «Эхлэх ц
   expect(rr.length).toBe(1);
   expect((await rview(page)).state).toBe('route');
 });
+
+// Regression test for QA defect NAV-004-D2 (found 2026-09-30, run 1). Stays forever.
+// Steps: open the preview with location off (the origin field is focused and its list with «Миний байршил» is open,
+// AC 4/5), then click «Явган» once. Expected (AC 11): «Явган» is selected, and the route request sent when the origin
+// is set uses costing "pedestrian". Actual (run 1): the origin field's focusout closes its in-flow list, the tabs move
+// up 82 px between mousedown and mouseup (266 → 184 px at 1366×768), the click lands on the panel, and «Машин» stays
+// selected, so the request uses "auto". The same applies to every control below the open list (avoid switch).
+test('AC11 regression D2: with the origin list open (panel just opened, location off) one click on «Явган» selects it; the next request uses pedestrian', async ({ page }) => {
+  const rr = await mockRoute(page, (b) => echo(b));
+  await mockReverse(page);
+  await openApp(page);
+  await openPreview(page, REF.P3);
+  await expect(page.locator('#route-origin-results')).toBeVisible();
+  const before = await tid(page, 'route-tab-walk').boundingBox();
+  await tid(page, 'route-tab-walk').click();
+  const after = await tid(page, 'route-tab-walk').boundingBox();
+  test.info().annotations.push({ type: 'D2 tab position', description: `top ${before.y.toFixed(0)} → ${after.y.toFixed(0)} px` });
+  await expect(tid(page, 'route-tab-walk'), 'one click selects «Явган»').toHaveAttribute('aria-selected', 'true');
+  await page.waitForTimeout(400);
+  await setField(page, 'origin', REF.P1);
+  await waitFinal(page);
+  expect(rr.at(-1).body.costing).toBe('pedestrian');
+});
+
+test('AC12 regression D2: with the origin list open, one click on «Шороон замаас зайлсхийх» turns it on', async ({ page }) => {
+  await mockRoute(page, (b) => echo(b));
+  await mockReverse(page);
+  await openApp(page);
+  await openPreview(page, REF.P3);
+  await expect(page.locator('#route-origin-results')).toBeVisible();
+  await tid(page, 'route-avoid').click();
+  await expect(tid(page, 'route-avoid')).toHaveAttribute('aria-checked', 'true');
+});

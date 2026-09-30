@@ -9,6 +9,7 @@
 - **API:** `openapi.yaml` 0.4.1 `search` and `reverse`. No contract change.
 - **Revision 2026-09-30 (PO "go ahead", D28, D31–D33):** Tab keeps a state row with «Дахин оролдох» open (F5, AC 41); type-label count 1–32 + 4a (F2); PO decisions on English names (D28), no camera move on right-click / long-press (D31) and viewport centring (D32) recorded in Known limitations.
 - **Revision 2026-09-30 (D34, D43, D44):** Interactions › Tab: the state-row closing triggers are story wording now (AC 41, D43), with an explicit drag versus click table. Language of parts also covers type labels, so the English UI's «Сум» (D34) is marked `lang="mn"`, and the `en` value of `placeType.soum` is corrected to «Сум». New state "Static public demo" (NAV-002 AC 53–54, D44).
+- **Revision 2026-09-30 (D45):** Copy › Type labels: the `en` value of `placeType.aimag` (row 3) is the Mongolian word «Аймаг», untranslated like «Сум» (D34), and row 3 (b) also matches Photon's aimag properties (story Open question 9 resolved). Language of parts: «Аймаг» in the English UI gets `lang="mn"` (AC 19, 20, 45). No layout, state or camera change: «Аймаг» already had zoom 13, and it is shorter than «Нисэх онгоцны буудал».
 
 ## Purpose
 Let a UB user find a place, street, khoroo, district, town or coordinate by typing Cyrillic or Latin letters, see matching places while typing, and see the chosen place on the map with a pin and a short card. Every failure (nothing found, service down, offline, too many requests) is explained in words.
@@ -98,7 +99,7 @@ NAV-002 puts `#map` before the overlay grid, which makes the map canvas the firs
 - **Context line:** first 2 distinct, non-empty values of `district`, `locality`, `city`, `county`, `state`, skipping values equal to the name, joined with ", ". Omitted if empty (no empty line, no "undefined").
 - **Traditional Mongolian script (AC 18):** UX confirms the BA default. Characters U+1800–U+18AF and the whitespace around them are removed from every displayed value; if nothing remains, the next field is used. Reason: the system font stack has no reliable glyphs (tofu), and vertical script cannot be set inline in a one-line row.
 - **Language of parts:** a name or context value written in Cyrillic gets `lang="mn"` when the UI is English, and a Latin-only value gets `lang="en"` when the UI is Mongolian, so screen readers switch voice. (Detection by script: any character in U+0400–U+04FF = Cyrillic.)
-- **Language of parts for type labels (UX decision, 2026-09-30):** the same script rule applies to the **type label**. In the English UI the soum label is the Mongolian word «Сум» (PO decision D34), so its element gets `lang="mn"`, and a screen reader reads it with a Mongolian voice instead of spelling Cyrillic letters with an English voice or skipping them. It applies wherever the label is shown: the result option's type label, the place card's meta line and the coordinate card's nearest-place meta line. The rule is by script, not by key, so any later Mongolian-only value in the English UI is covered without a new rule; Mongolian UI labels need no attribute (they match `<html lang="mn">`). Reason: WCAG 2.2 SC 3.1.2 Language of Parts (AA). **Limit:** the result option's announced name is one flat string (`aria-label`, Accessible name in Components › Result option), and screen readers do not switch voice inside an accessible name; the switch works where the text is read as content (the card heading and meta lines, browse mode). This is accepted: the mark-up still meets SC 3.1.2, and the card, which gets focus after a selection (AC 43), is read correctly.
+- **Language of parts for type labels (UX decision, 2026-09-30):** the same script rule applies to the **type label**. In the English UI the soum label is the Mongolian word «Сум» (PO decision D34) and the aimag label the Mongolian word «Аймаг» (PO decision D45), so their elements get `lang="mn"`, and a screen reader reads it with a Mongolian voice instead of spelling Cyrillic letters with an English voice or skipping them. It applies wherever the label is shown: the result option's type label, the place card's meta line and the coordinate card's nearest-place meta line. The rule is by script, not by key, so any later Mongolian-only value in the English UI is covered without a new rule; Mongolian UI labels need no attribute (they match `<html lang="mn">`). Reason: WCAG 2.2 SC 3.1.2 Language of Parts (AA). **Limit:** the result option's announced name is one flat string (`aria-label`, Accessible name in Components › Result option), and screen readers do not switch voice inside an accessible name; the switch works where the text is read as content (the card heading and meta lines, browse mode). This is accepted: the mark-up still meets SC 3.1.2, and the card, which gets focus after a selection (AC 43), is read correctly.
 - **Coordinates:** `lat, lon` with 5 decimals and a point decimal in both languages (AC 21). This deliberately differs from glossary C3 (decimal comma for distances in Mongolian): coordinates are a machine format users copy.
 - **Order:** `MN` results first, otherwise the upstream order (AC 8). At most 10 options (AC 7).
 - Match highlighting (bold matched letters) is **not** in NAV-003: with transliteration and abbreviation expansion the matched part is often not the typed text.
@@ -225,7 +226,7 @@ Type labels (story table "Type labels", rule order in brackets):
 |---|---|---|---|
 | `placeType.district` (1, 4a) | Дүүрэг | District | Düüreg |
 | `placeType.khoroo` (2) | Хороо | Khoroo | Khoroo |
-| `placeType.aimag` (3) | Аймаг | Aimag | Aimag |
+| `placeType.aimag` (3) | Аймаг | **Аймаг** (Mongolian word, untranslated, D45; element gets `lang="mn"` in the English UI, see Result content rules › Language of parts). Row 3 (b) also reads Photon's properties (`type=state`, or `osm_key=place` with `osm_value=state`), so aimags without an « аймаг» name ending («Архангай», "Arkhangai") get «Аймаг» in both UI languages; Ulaanbaatar (the capital) never does | Aimag |
 | `placeType.soum` (4) | Сум | **Сум** (Mongolian word, untranslated, D34; element gets `lang="mn"` in the English UI, see Result content rules › Language of parts) | Soum |
 | `placeType.city` (5) | Хот | City or town | T8 |
 | `placeType.settlement` (6) | Суурин | Settlement | T9 |
@@ -273,7 +274,7 @@ Notes
 - **Dynamic type / zoom:** all type in `rem`. At 200 % browser zoom a 1366 px window is 683 CSS px (medium layout) and every rule holds; long names wrap, the card and the list scroll.
 - **Reduced motion:** camera jumps (AC 20), static spinners, no card fade.
 - **Forced colours:** field, popup and card get a 1 px `CanvasText` border; icons use `currentColor`; the highlighted option keeps its outline (`Highlight`).
-- **Language of parts:** see Result content rules (names, context lines and type labels; «Сум» in the English UI is `lang="mn"`).
+- **Language of parts:** see Result content rules (names, context lines and type labels; «Сум» and «Аймаг» in the English UI are `lang="mn"`).
 - **No time limits:** state rows stay until the next query; the 429 wait only disables the retry button, it does not dismiss anything.
 - **Driver safety:** the web demo is not for use while driving. Nothing in NAV-003 needs typing while moving on a phone; native apps will block typing while moving (NAV-005).
 
@@ -303,7 +304,7 @@ Notes
 | 39 | Layout rules 6, 8; States › Tiles unavailable |
 | 40–43 | Accessibility; Components › Listbox, Result option, Live region, State row; Interactions › Tab (AC 41 state-row exception, D33 F5); flow F5 |
 | 44 | Copy |
-| 45 | States › English UI; Copy; Known limitations 5 (D28); Result content rules › Language of parts for type labels (D34 «Сум», `lang="mn"`) |
+| 45 | States › English UI; Copy; Known limitations 5 (D28); Result content rules › Language of parts for type labels (D34 «Сум», D45 «Аймаг», `lang="mn"`) |
 | NAV-002 AC 53–54 (D44) | States › Static public demo |
 
 ## Verification
