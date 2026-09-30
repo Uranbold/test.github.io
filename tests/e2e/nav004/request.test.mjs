@@ -153,30 +153,35 @@ test('AC12: avoid switch visible on «Машин», off by default; on → costi
   expect(JSON.stringify(rr.map((r) => r.body))).not.toMatch(/toll/i);
 });
 
-test('AC13: a newer triggering action aborts/ignores the older request; a late older response (delayed 1 s) never replaces the newer result; at most 1 request in flight', async ({ page }) => {
-  let calls = 0;
+test('AC13: a newer triggering action aborts/ignores the older request; a late older response never replaces the newer result; at most 1 request in flight', async ({ page }) => {
   await mockRoute(page, (b) => {
-    calls++;
-    if (b.costing === 'pedestrian') return { ...echo(b, [{ distance: 1111, duration: 900 }]), delay: 1000 };
+    if (b.costing === 'pedestrian') return { ...echo(b, [{ distance: 1111, duration: 900 }]), delay: 3000 };
     if (b.costing === 'bicycle') return echo(b, [{ distance: 2222, duration: 480 }]);
     return echo(b, [{ distance: 4300, duration: 720 }]);
   });
   await ready(page);
   await tid(page, 'route-tab-walk').click();
-  await page.waitForTimeout(450); // walk request is in flight (1 s delay)
+  // wait until the walk request is really in flight (its response is held for 3 s), then trigger the newer action
+  await expect.poll(async () => (await routeReqs(page)).length, { timeout: 5000 }).toBe(2);
   await tid(page, 'route-tab-bike').click();
-  await page.waitForTimeout(2000); // walk response arrives late, after the bike one
+  await expect.poll(async () => (await routeReqs(page)).length, { timeout: 5000 }).toBe(3);
+  await page.waitForTimeout(3500); // the walk response (if not aborted) arrives now, after the bike one
   await waitFinal(page);
   const p = await panel(page);
-  expect(p.distance?.replace(/ /g, ' ')).toBe('2,2 км');
+  expect(p.distance?.replace(/\u00A0/g, ' ')).toBe('2,2 км');
   const reqs = await routeReqs(page);
   expect(reqs.map((r) => r.body.costing)).toEqual(['auto', 'pedestrian', 'bicycle']);
+  const older = reqs[1];
+  const overlapped = older.abortAt !== null || (older.end ?? Infinity) > reqs[2].t;
+  test.info().annotations.push({ type: 'AC13 older request', description: `abortAt=${older.abortAt === null ? 'none' : (older.abortAt - older.t).toFixed(0) + ' ms after its start'}, newer start ${(reqs[2].t - older.t).toFixed(0)} ms after it, outcome=${older.outcome}` });
+  expect(overlapped, 'the newer action happened while the older request was in flight').toBe(true);
   expect(maxInFlight(reqs), 'at most one route request in flight').toBe(1);
-  test.info().annotations.push({ type: 'AC13 older request', description: `abortAt=${reqs[1].abortAt?.toFixed(0)} outcome=${reqs[1].outcome}` });
+  expect(older.abortAt, 'older request aborted no later than the newer request starts').not.toBeNull();
+  expect(older.abortAt).toBeLessThanOrEqual(reqs[2].t + 1);
   // Back to «Машин»: the newest result is shown
   await tid(page, 'route-tab-car').click();
   await page.waitForTimeout(1500);
-  expect((await panel(page)).distance?.replace(/ /g, ' ')).toBe('4,3 км');
+  expect((await panel(page)).distance?.replace(/\u00A0/g, ' ')).toBe('4,3 км');
 });
 
 test('AC14: start and destination within 10 m → no request and «Эхлэх цэг, очих газар ижил байна» within 500 ms; 11 m apart → one request', async ({ page }) => {
