@@ -15,22 +15,34 @@ async function mockById(page) {
   });
 }
 
-/** Selects the only option for fixture `id` with the given method; returns ms from the action to camera still. */
+/**
+ * Selects the only option for fixture `id` (click or ArrowDown+Enter). Returns ms from the selecting event as the page
+ * received it (capture-phase click / Enter keydown) to the camera's last `moveend`, on the page clock. Measuring from
+ * Node around Playwright's click() adds actionability checks and polling (NAV-002 AC 14 lesson): run 1 saw 2176 ms
+ * from Node for a 1000 ms flyTo.
+ */
 async function selectFixture(page, id, how = 'click') {
   const q = `${id} тест`;
   await typeQuery(page, q);
   await waitSettled(page, q);
-  const t0 = Date.now();
+  await page.evaluate(() => {
+    window.__sel = { t: null, end: null };
+    const mark = (e) => {
+      if (window.__sel.t === null && (e.type === 'click' || e.key === 'Enter')) window.__sel.t = performance.now();
+    };
+    document.addEventListener('click', mark, { capture: true, once: false });
+    document.addEventListener('keydown', mark, { capture: true, once: false });
+    window.__nav002.map.on('moveend', () => (window.__sel.end = performance.now()));
+  });
   if (how === 'click') await tid(page, 'search-option').first().click();
   else {
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
   }
-  await page.waitForFunction(() => !window.__nav002.map.isMoving(), null, { timeout: 5000, polling: 50 }).catch(() => {});
-  // flyTo may not have started on the first poll
-  await page.waitForTimeout(100);
+  await page.waitForFunction(() => window.__sel.end !== null && !window.__nav002.map.isMoving(), null, { timeout: 5000, polling: 50 });
+  await page.waitForTimeout(150);
   await page.waitForFunction(() => !window.__nav002.map.isMoving(), null, { timeout: 5000, polling: 50 });
-  return Date.now() - t0;
+  return page.evaluate(() => window.__sel.end - window.__sel.t);
 }
 
 test('AC20: point results are centred (±5 px) at zoom 13 (area types) or 16 (others) within 2 s; extents fit with >= 40 px padding at zoom <= 17', async ({ page }) => {
@@ -212,9 +224,48 @@ const overlapProblems = (page) =>
     const nav3 = ['search-field', 'search-popup', 'place-card', 'place-pin'].flatMap((id) => [...document.querySelectorAll(`[data-testid=${id}]`)]).filter(vis);
     const nav2 = ['language-toggle', 'theme-toggle', 'compass', 'zoom-in', 'zoom-out', 'my-location', 'scale-bar', 'attribution-osm', 'attribution-esa', 'status-banner', 'location-message'].flatMap((id) => [...document.querySelectorAll(`[data-testid=${id}]`)]).filter(vis);
     const probs = [];
+    // The pin is a teardrop in a 28x40 box with transparent corners (and a 2 px drop shadow). Its box can touch a
+    // neighbour while the painted pin does not (run 1-2: 16/70 px² box overlap with the scale bar at 320 px, 4x
+    // screenshot showed a clear gap). So for the pin, count only 1 px samples that fall inside the painted path.
+    // Samples every 0.5 px of the box intersection; a sample counts when it is inside the painted pin path (fill or
+    // stroke) AND inside the other element's painted shape (its border-radius corners are not painted). Measured in
+    // run 2 (320 px, en, 5-line card): 4 samples of the pin's 2 px white stroke fell in the scale pill's box but outside
+    // its 4 px rounded corner, i.e. no painted overlap (4x screenshot confirms a gap).
+    const inRounded = (el, x, y) => {
+      const r = R(el);
+      const rad = Math.min(parseFloat(getComputedStyle(el).borderTopRightRadius) || 0, r.width / 2, r.height / 2);
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) return false;
+      const cx = x < r.left + rad ? r.left + rad : x > r.right - rad ? r.right - rad : x;
+      const cy = y < r.top + rad ? r.top + rad : y > r.bottom - rad ? r.bottom - rad : y;
+      return Math.hypot(x - cx, y - cy) <= rad || (cx === x || cy === y);
+    };
+    const pinPainted = (pin, other, r) => {
+      const path = pin.querySelector('svg path');
+      const svg = pin.querySelector('svg');
+      if (!path || !svg) return true; // unknown shape: fall back to the box
+      const m = svg.getScreenCTM()?.inverse();
+      if (!m) return true;
+      for (let x = r.left + 0.25; x < r.right; x += 0.5) {
+        for (let y = r.top + 0.25; y < r.bottom; y += 0.5) {
+          const p = new DOMPoint(x, y).matrixTransform(m);
+          const sp = svg.createSVGPoint();
+          sp.x = p.x;
+          sp.y = p.y;
+          if ((path.isPointInFill(sp) || path.isPointInStroke(sp)) && inRounded(other, x, y)) return true;
+        }
+      }
+      return false;
+    };
     for (const a of nav3) for (const b of nav2) {
-      const area = inter(R(a), R(b));
-      if (area > 0.5) probs.push(`${a.dataset.testid} overlaps ${b.dataset.testid} (${area.toFixed(0)} px²)`);
+      const ra = R(a);
+      const rb = R(b);
+      const area = inter(ra, rb);
+      if (area <= 0.5) continue;
+      if (a.dataset.testid === 'place-pin') {
+        const ir = { left: Math.max(ra.left, rb.left), top: Math.max(ra.top, rb.top), right: Math.min(ra.right, rb.right), bottom: Math.min(ra.bottom, rb.bottom) };
+        if (!pinPainted(a, b, ir)) continue;
+      }
+      probs.push(`${a.dataset.testid} overlaps ${b.dataset.testid} (${area.toFixed(0)} px² box)`);
     }
     // Scale bar not covered (hit test)
     const sb = document.querySelector('[data-testid=scale-bar]');
@@ -270,6 +321,16 @@ for (const width of [320, 360, 768, 1366, 1920]) {
         await waitSettled(pg, 'урт нэр');
         await tid(pg, 'search-option').first().click();
         await pg.waitForTimeout(1300);
+        if (process.env.NAV003_AC23_NEGCTL) {
+          // Negative control (test-only, off by default): shift the pin so its body sits on the scale bar; the test must FAIL.
+          await pg.evaluate(() => {
+            const pin = document.querySelector('[data-testid=place-pin]');
+            const a = pin.getBoundingClientRect();
+            const b = document.querySelector('[data-testid=scale-bar]').getBoundingClientRect();
+            pin.style.marginLeft = `${b.left + b.width / 2 - (a.left + a.width / 2)}px`;
+            pin.style.marginTop = `${b.top + b.height / 2 - (a.top + a.height / 3)}px`;
+          });
+        }
         for (const p of await overlapProblems(pg)) all.push(`${tag} long card: ${p}`);
         for (const p of await attributionProblems(pg)) all.push(`${tag} long card: ${p}`);
         // the pin of a centred point result is not covered by the card
