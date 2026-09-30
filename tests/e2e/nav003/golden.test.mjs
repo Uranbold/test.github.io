@@ -2,7 +2,7 @@
 // 2026-09-30 (PO approval F3, D33 = ADR-0006 §2.3 rules A–D): at most 2 requests; a second one only for the Latin
 // transliteration (15 a, parallel), the ү/ө variant after an empty Cyrillic result (15 b), or the query as typed next to
 // an abbreviation expansion (16); merged list without duplicate osm_type+osm_id; no q longer than 200 (16, F4).
-// Fixture: fixtures/golden-set.json (story "Golden query set"; B15 amended by F1, B10 and C6 by F2).
+// Fixture: fixtures/golden-set.json (story "Golden query set"; B15 amended by F1, B10 and C6 by F2, C7 added by D34).
 // Rate: <= 2 search requests/s (rows are paced).
 import { test, expect } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -133,6 +133,11 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
     for (const o of results[r.id].top3) (c6Seen[o.osm] ??= {})[r.ui] ??= { row: r.id, name: o.name, label: o.type, rule: rowOf(o.type, r.ui), photon: `${o.osm_key}/${o.osm_value}/type=${o.type_photon}` };
   }
   const c6Same = Object.entries(c6Seen).filter(([, v]) => v.en && v.mn).map(([osm, v]) => `${osm} ${v.photon}: en ${v.en.row} "${v.en.name}" [${v.en.label}] row ${v.en.rule} / mn ${v.mn.row} «${v.mn.name}» [${v.mn.label}] row ${v.mn.rule} → ${v.en.rule === v.mn.rule ? 'same row' : 'DIFFERENT ROW'}`);
+  // C7 (D34, R13): rule row of the top 3 options of the soum rows (C6g/C6h) and UB's outlying düüregs (C7a–C7c); lists
+  // every option given row 4 «Сум» whose name has no soum ending (caught by rule 4 (b) only). Recorded, never fails (tier C)
+  const SOUM_END = / (сум|sum|soum)$/iu;
+  const c7 = GOLDEN.rows.filter((r) => r.expect.c7).map((r) => `${r.id} «${r.q}» (${r.ui}): ${results[r.id].top3.map((o, i) => `${i + 1}.${o.name}[${o.type}] row ${rowOf(o.type, r.ui)} ${o.osm_key}/${o.osm_value}/type=${o.type_photon} ${o.osm}`).join(' | ') || `state=${results[r.id].detail}`}`);
+  const c7Row4ByProperty = GOLDEN.rows.filter((r) => r.expect.c7).flatMap((r) => results[r.id].top3.filter((o) => rowOf(o.type, r.ui) === 4 && !SOUM_END.test(o.name ?? '')).map((o) => `${r.id} ${o.osm} "${o.name}" ${o.osm_key}/${o.osm_value}/type=${o.type_photon}`));
   const totalRequests = Object.values(results).reduce((n, r) => n + r.requests.length, 0);
   const summary = {
     run: new Date().toISOString(),
@@ -143,6 +148,8 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
     tierC: GOLDEN.rows.filter((r) => r.tier === 'C').map((r) => `${r.id} «${r.q}»: ${results[r.id].dom.slice(0, 5).map((d, i) => `${i + 1}.${d.name}[${d.type}] «${d.context}»`).join(' | ')}`),
     C6: GOLDEN.rows.filter((r) => r.expect.c6).map((r) => `${r.id} «${r.q}» (${r.ui}): ${results[r.id].top3.map((o, i) => `${i + 1}.${o.name}[${o.type}] ${o.osm_key}/${o.osm_value}/type=${o.type_photon} ${o.osm}`).join(' | ')}`),
     C6sameObject: c6Same,
+    C7: c7,
+    C7row4ByProperty: c7Row4ByProperty,
     totalSearchRequests: totalRequests,
     C4: c4,
     C5: `${latin.length}/${mnNames.length} top-3 names in the mn UI are Latin-only${latin.length ? ': ' + [...new Set(latin)].join(', ') : ''}`,
@@ -153,7 +160,7 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
   };
   mkdirSync(OUT, { recursive: true });
   writeFileSync(OUT + 'golden-latest.json', JSON.stringify(summary, null, 1));
-  for (const k of ['tierA', 'failedA', 'tierB', 'failedB', 'C4', 'C5', 'C6', 'C6sameObject', 'totalSearchRequests', 'problemsAC3', 'problemsAC15', 'problemsAC16']) {
+  for (const k of ['tierA', 'failedA', 'tierB', 'failedB', 'C4', 'C5', 'C6', 'C6sameObject', 'C7', 'C7row4ByProperty', 'totalSearchRequests', 'problemsAC3', 'problemsAC15', 'problemsAC16']) {
     test.info().annotations.push({ type: k, description: JSON.stringify(summary[k]) });
   }
   for (const r of GOLDEN.rows) test.info().annotations.push({ type: `row ${r.id}`, description: `${results[r.id].pass ? 'PASS' : 'FAIL'} «${r.q}» rule=${results[r.id].plan} req=${JSON.stringify(results[r.id].requests)} counts=${JSON.stringify(results[r.id].counts)} ${results[r.id].detail}` });

@@ -1,5 +1,6 @@
 // NAV-003 B. Autocomplete timing (AC 12, 13) and D. Results list content (AC 17–19) with fixtures F1–F13 and F14a/F14b/F15/F16
-// (story amended 2026-09-30, PO approval F2, D33: Latin name endings for rules 1–4, rule 4a, same rule row in both UI languages).
+// (story amended 2026-09-30, PO approval F2, D33: Latin name endings for rules 1–4, rule 4a, same rule row in both UI languages)
+// and F17a/F17b/F17c (PO decision D34, 2026-09-30: rule 4 (b) boundary/administrative + type=county; «Сум» in both UI languages).
 import { test, expect } from '@playwright/test';
 import { FIXTURES, FX, REF, SEARCH_GLOB, T, TRAD, TYPE_LABELS, expectNoTrad, fc, feature, jumpTo, mock, openApp, options, pace, tid, typeQuery, waitSettled } from './helpers.mjs';
 
@@ -62,13 +63,13 @@ test('AC13: a request pending > 300 ms shows «Ачаалж байна…» with
 
 /**
  * Serves the fixtures in batches (at most 10 options per list, AC 7). F14a and F14b are the lang=en and lang=mn forms of
- * the same OSM object (R 9014), so they are served in separate lists.
+ * the same OSM object (R 9014), F17a and F17b those of R 7297914, so each pair is served in separate lists.
  */
 const BATCHES = [
   ['Тест нэг', ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7']],
   ['Тест 2', ['F8', 'F9', 'F10', 'F11', 'F13', 'F12']], // F12 (CN) is sent first upstream, listed last (AC 8)
-  ['Тест 3', ['F14a', 'F15', 'F16']],
-  ['Тест 4', ['F14b']],
+  ['Тест 3', ['F14a', 'F15', 'F16', 'F17a', 'F17c']],
+  ['Тест 4', ['F14b', 'F17b']],
 ];
 async function mockFixtures(page) {
   const upstream = { 'Тест 2': ['F12', 'F8', 'F9', 'F10', 'F11', 'F13'] };
@@ -79,7 +80,7 @@ async function mockFixtures(page) {
 }
 
 for (const lang of ['mn', 'en']) {
-  test(`AC17/AC18/AC19 ${lang}: fixture options F1–F16 show name, type label and context line as the story rules say`, async ({ page }) => {
+  test(`AC17/AC18/AC19 ${lang}: fixture options F1–F17 show name, type label and context line as the story rules say`, async ({ page }) => {
     await mockFixtures(page);
     await openApp(page, { lang });
     const got = {};
@@ -114,14 +115,25 @@ for (const lang of ['mn', 'en']) {
     for (const id of ['F14a', 'F14b', 'F15', 'F16']) expect(got[id].type, id).not.toBe(lang === 'mn' ? 'Газар' : 'Place');
     expect(got.F15.type, 'F15 rule 2 (Latin " khoroo"), not rule 28').not.toBe(lang === 'mn' ? 'Төрийн байгууллага' : 'Government office');
     expect(got.F16.type, 'F16 rule 1 before rule 7').not.toBe(lang === 'mn' ? 'Хороолол' : 'Neighbourhood');
+    // AC 19 (D34): the lang=en form "Bayan-Undur" and the lang=mn form «Баян-Өндөр сум» of the soum R 7297914 get the same
+    // row 4 and the label «Сум» in both UI languages (English UI untranslated: not "Soum", not "Place").
+    expect(got.F17a.type, 'F17 en form and mn form: same type-label row').toBe(got.F17b.type);
+    for (const id of ['F17a', 'F17b', 'F17c']) {
+      expect(got[id].type, `${id} D34 «Сум» in the ${lang} UI`).toBe('Сум');
+      expect(got[id].type, id).not.toBe(lang === 'mn' ? 'Газар' : 'Place');
+      expect(got[id].type, id).not.toBe('Soum');
+    }
   });
 }
 
 // QA defect D4 (run 6 / golden run 4, tier C row C6g/C6h, risk R13): AC 19 "the same OSM object returned with lang=mn and
 // with lang=en ... both get the label of the same table row ... never 'Place' in one language and a specific label in the
 // other". Features copied from the live gateway responses of 2026-09-30 08:14–08:19 UTC (properties as Photon sent them,
-// traditional script kept). The aimag pair is a control (same row today). The expected label is NOT asserted (no product
-// decision by QA); only that both languages use the same rule row. Stays as the regression test for D4.
+// traditional script kept). The aimag pair is a control (same row today). Until PO decision D34 the expected label was NOT
+// asserted (no product decision by QA), only that both languages use the same rule row. Stays as the regression test for D4.
+// Changed 2026-09-30 for PO decision D34 (the approved expected label only): the soum is «Сум» (row 4) in BOTH UI languages,
+// untranslated in the English UI (TYPE_LABELS row 4 en = «Сум», was "Soum"). The aimag label is still not asserted (story
+// Open question 9, not part of D34): only the same-row check applies to it.
 const liveForms = {
   soum: {
     osm: 'R7297914',
@@ -160,4 +172,7 @@ test('AC19 same row (D4, R13): a live soum boundary and a live aimag get the sam
   }
   test.info().annotations.push({ type: 'AC19 D4 same row', description: JSON.stringify(out) });
   expect(out.filter((o) => !o.same).map((o) => `${o.kind} ${o.osm}: mn ${o.mn} / en ${o.en}`), 'AC 19: same OSM object, same type-label row in both UI languages').toEqual([]);
+  // D34 (approved expected label): the soum boundary is «Сум», row 4, in the Mongolian AND the English UI
+  const soum = out.find((o) => o.kind === 'soum');
+  expect([soum.mn, soum.en], 'D34: soum R 7297914 labelled «Сум» (row 4) in both UI languages').toEqual(['Баян-Өндөр сум [Сум] row 4', 'Bayan-Undur [Сум] row 4']);
 });

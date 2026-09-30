@@ -38,7 +38,8 @@
   "A8 unchanged (<= 300 m from P2, top 3): story Open question 7 is still open.",
   "C4 (context line for A2 and A6) and C5 (share of Latin names in the mn UI) are computed from the A/B runs. C6 (added 2026-09-30, F2) records type labels and Photon osm_key/osm_value/type of the top 3 options.",
   "Rate: rows are spaced so the whole run stays <= 2 search requests per second (about 80 requests per run with C6).",
-  "C6g/C6h (QA extra rows, 2026-09-30): the story's C6 queries return no soum boundary in the top 3, so a soum boundary is recorded in both languages; the aimag boundary is C6c/C6e (R 270075). The golden test compares the label row of every OSM object that appears in both an en and an mn C6 row (AC 19 same-row risk, R13); recorded, never fails (tier C)."
+  "C6g/C6h (QA extra rows, 2026-09-30): the story's C6 queries return no soum boundary in the top 3, so a soum boundary is recorded in both languages; the aimag boundary is C6c/C6e (R 270075). The golden test compares the label row of every OSM object that appears in both an en and an mn C6 row (AC 19 same-row risk, R13); recorded, never fails (tier C).",
+  "C7 (added 2026-09-30, PO decision D34, story tier C row C7, R13): \"Bayan-Undur\" (en) and «Баян-Өндөр сум» (mn) are the existing rows C6g/C6h (also flagged c7), plus C7a-C7c \"Nalaikh\", \"Baganuur\", \"Bagakhangai\" (UB's outlying düüregs) in the English UI. The golden test records type label, rule row and osm_key/osm_value/type of the top 3 options, and lists every option given row 4 «Сум» whose name does not end with a soum suffix (rule 4 (b) catch). Recorded, never fails (tier C). 6 more search requests per run (rule B: 2 each)."
  ],
  "rows": [
   {
@@ -561,7 +562,8 @@
    "bias": "P1",
    "expect": {
     "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
-    "c6": true
+    "c6": true,
+    "c7": true
    },
    "note": "QA extra row (2026-09-30, orchestrator run-4 request): a soum boundary in lang=en (R 7297914 'Bayan-Undur', boundary/administrative, type=county); pairs with C6h for the AC 19 same-row check (R13)"
   },
@@ -573,9 +575,46 @@
    "bias": "P1",
    "expect": {
     "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
-    "c6": true
+    "c6": true,
+    "c7": true
    },
    "note": "QA extra row (2026-09-30): the same soum boundary in lang=mn («Баян-Өндөр сум», R 7297914); pairs with C6g"
+  },
+  {
+   "id": "C7a",
+   "tier": "C",
+   "q": "Nalaikh",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C7 (D34, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 4 (b) boundary/administrative + type=county labels an object that is not a soum «Сум»",
+    "c7": true
+   },
+   "note": "QA row for story tier C row C7 (2026-09-30, D34): UB outlying düüreg in lang=en"
+  },
+  {
+   "id": "C7b",
+   "tier": "C",
+   "q": "Baganuur",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C7 (D34, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 4 (b) boundary/administrative + type=county labels an object that is not a soum «Сум»",
+    "c7": true
+   },
+   "note": "QA row for story tier C row C7 (2026-09-30, D34): UB outlying düüreg in lang=en"
+  },
+  {
+   "id": "C7c",
+   "tier": "C",
+   "q": "Bagakhangai",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C7 (D34, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 4 (b) boundary/administrative + type=county labels an object that is not a soum «Сум»",
+    "c7": true
+   },
+   "note": "QA row for story tier C row C7 (2026-09-30, D34): UB outlying düüreg in lang=en"
   }
  ]
 }
