@@ -145,7 +145,7 @@ tiles_bounds() {
     elif [[ -s "$DATA/sources/osm.pbf.bounds" ]]; then cat "$DATA/sources/osm.pbf.bounds"
     else echo ""; fi
 }
-tiles_fingerprint()    { echo "osm=$(osm_sha) protomaps=${PROTOMAPS_COMMIT} maxzoom=${TILES_MAXZOOM:-15} bounds=$(tiles_bounds)"; }
+tiles_fingerprint()    { echo "osm=$(osm_sha) protomaps=${PROTOMAPS_COMMIT} maxzoom=${TILES_MAXZOOM:-14} bounds=$(tiles_bounds)"; }
 valhalla_fingerprint() { echo "osm=$(osm_sha) valhalla=${VALHALLA_VERSION}"; }
 photon_fingerprint()   { echo "dump=$(cat "$DATA/sources/photon-dump.sha256") photon=${PHOTON_VERSION} languages=${PHOTON_LANGUAGES} countries=${PHOTON_COUNTRY_CODES:-all}"; }
 protomaps_jar()        { echo "$DATA/tools/protomaps-basemap-${PROTOMAPS_COMMIT}.jar"; }

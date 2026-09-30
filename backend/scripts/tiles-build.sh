@@ -62,7 +62,7 @@ BOUNDS=$(tiles_bounds)
 [[ -n "$BOUNDS" ]] || die "no tile bounds: the PBF has no bbox and TILES_BOUNDS is empty; set TILES_BOUNDS=minLon,minLat,maxLon,maxLat"
 mkdir -p "$STAGING/tmp"
 t0=$(now_s)
-log info "running Planetiler" maxzoom="${TILES_MAXZOOM:-15}" bounds="$BOUNDS" threads="$(threads)"
+log info "running Planetiler" maxzoom="${TILES_MAXZOOM:-14}" bounds="$BOUNDS" threads="$(threads)"
 # Protomaps resolves its auxiliary sources relative to the working directory: /data/sources.
 cd /
 # shellcheck disable=SC2086
@@ -70,7 +70,7 @@ java ${TILES_JAVA_OPTS:-} -jar "$(protomaps_jar)" \
     --area=extract \
     --osm_path="$DATA/sources/osm.pbf" \
     --output="$STAGING/basemap.pmtiles" \
-    --maxzoom="${TILES_MAXZOOM:-15}" \
+    --maxzoom="${TILES_MAXZOOM:-14}" \
     --bounds="$BOUNDS" \
     --tmpdir="$STAGING/tmp" \
     --threads="$(threads)" \

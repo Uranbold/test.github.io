@@ -242,7 +242,7 @@ Tests abbreviations:
 | AC7 | — | — | `backend/compose.yaml` | `static` AC07.* | |
 | AC8 | — | — | `backend/README.md` | `static` AC08.* | CR 2026-09-29: dev-coverage section |
 | AC9 | — | `getBasemapPmtiles` | `backend/gateway/` | `smoke`, `checks` smoke, `e2e` E2E-01 | |
-| AC10 | — | `getBasemapPmtiles` | `backend/scripts/tiles-build.sh` | `checks` full, `e2e` E2E-02 | CR 2026-09-29: evaluated on the Mongolia build (P3, P6 now covered) |
+| AC10 | — | `getBasemapPmtiles` | `backend/scripts/tiles-build.sh` | `checks` full, `e2e` E2E-02 | CR 2026-09-29: evaluated on the Mongolia build (P3, P6 now covered). D1 2026-09-30: re-verify on the z14 archive |
 | AC11 | — | `getBasemapPmtiles` | `backend/scripts/tiles-build.sh` | `checks` full (info in `smoke`) | |
 | AC12 | — | `headBasemapPmtiles` | `backend/.env.example`, `backend/compose.yaml` (`TILES_MAXZOOM`), `backend/scripts/tiles-build.sh` | `checks` full (`AC12.size_le_200MB` to be replaced by the D1 rule: max zoom = 14, ≤ 200 MB, or ≤ 400 MB with the fallback INFO line; QA) | D1 2026-09-30 (243 MB measured at z15; rebuild at z14 and re-measure) |
 | AC13 | — | `postRoute` | `backend/scripts/valhalla-build.sh` | `smoke` | CR 2026-09-29: evaluated on the Mongolia build |
@@ -270,7 +270,7 @@ Tests abbreviations:
 | AC35 | — | `postRoute` | — | `checks` perf | CR 2026-09-29: re-verify on the Mongolia graph |
 | AC36 | — | `search` | — | `checks` perf | |
 | AC37 | — | `reverse` | — | `checks` perf | |
-| AC38 | — | `getBasemapPmtiles` | — | `checks` perf | CR 2026-09-29: re-verify on the Mongolia archive |
+| AC38 | — | `getBasemapPmtiles` | — | `checks` perf | CR 2026-09-29: re-verify on the Mongolia archive. D1 2026-09-30: re-verify on the z14 archive |
 | AC39 | — | — | `backend/compose.yaml` | `checks` stats, plan §5.2 TC-39-01 | |
 | AC40 | — | all | `backend/Makefile` (`smoke`) | `smoke` | |
 | AC41 | — | all | — | plan §5.6 TC-41-01 | |
