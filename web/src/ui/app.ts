@@ -15,7 +15,7 @@ import type { CreateMapOptions } from "../map/createMap";
 import { MAX_ZOOM, MIN_ZOOM } from "../map/createMap";
 import { saveLang, saveTheme } from "../prefs";
 import { buildStyle, EMPTY_LOCATION, LOCATION_SOURCE_ID, SOURCE_ID, type LocationData, type Theme } from "../style/buildStyle";
-import type { StatusMachine, StatusView } from "../state/status";
+import { LOADING_DELAY_MS, type StatusMachine, type StatusView } from "../state/status";
 import { ICONS } from "./icons";
 import { Tooltip } from "./tooltip";
 
@@ -55,6 +55,8 @@ export class App {
   private locationData: LocationData = EMPTY_LOCATION;
   private sawTile = false;
   private attemptErrored = false;
+  /** The first load attempt since navigation (no retry, no reload after coming back online yet). */
+  private initialLoad = true;
   private zoomTarget: number | null = null;
   private scaleFrame = 0;
   private tooltip: Tooltip;
@@ -199,6 +201,7 @@ export class App {
     const map = this.map;
     if (!map) return;
     this.deps.freshArchive();
+    this.initialLoad = false;
     this.attemptErrored = false;
     this.sawTile = false;
     map.setStyle(this.style(), { diff: false });
@@ -350,10 +353,20 @@ export class App {
     u.compassBtn.hidden = !ready;
 
     // Loading pill (AC 37). The live region stays in the DOM; only its text and visibility change.
+    // Before 300 ms on the first load the pill is "pending": laid out, transparent, revealed by the compositor at
+    // navigation start + 300 ms (styles.css › .pill.pending), because MapLibre's start-up blocks the main thread
+    // around that time and the status timer fires late. The main-thread "loading" view then only adds aria.
+    const st = this.status.state;
     const loading = v.kind === "loading";
-    u.loading.classList.toggle("idle", !loading);
+    const pending = v.kind === "none" && this.initialLoad && !st.ready && st.online && !st.startFailed && !st.genericError;
+    if (pending && !u.loading.classList.contains("pending")) {
+      // Set once: the delay counts from the moment the class is added, so it must not be changed later.
+      u.loading.style.setProperty("--pill-delay", `${Math.round(Math.max(0, LOADING_DELAY_MS - performance.now()))}ms`);
+    }
+    u.loading.classList.toggle("pending", pending);
+    u.loading.classList.toggle("idle", !(loading || pending));
     u.loading.setAttribute("aria-hidden", String(!loading));
-    u.loadingText.textContent = loading ? t("status.loading") : "";
+    u.loadingText.textContent = loading || pending ? t("status.loading") : "";
 
     // Blocking card (AC 38–40, 45).
     if (v.kind === "card") {

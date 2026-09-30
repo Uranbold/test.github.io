@@ -1,6 +1,6 @@
 // Pre-module start-up (NAV-002 AC 37, D12, D15). vite.config.ts inlines bootLoading() into index.html as a tiny
 // classic script, so the loading pill appears 300 ms after navigation start even while the module graph
-// (MapLibre, ~1 MB) is still downloading. The strings are injected from src/i18n/{mn,en}.json at transform time;
+// (MapLibre, ~1 MB) is still downloading or MapLibre's start-up keeps the main thread busy. The strings are injected from src/i18n/{mn,en}.json at transform time;
 // nothing here is hard-coded UI text.
 //
 // bootLoading() is serialised with Function.prototype.toString(): it must stay self-contained (no imports,
@@ -41,21 +41,28 @@ export function bootLoading(c: BootConfig): void {
   // Saved night mode before the first paint: the map area shows the night earth colour, no white flash.
   if (read(c.themeKey) === "night") root.dataset.theme = "night";
   document.title = s.title;
-  const show = (): void => {
-    const pill = document.getElementById("loading");
-    const text = document.getElementById("loading-text");
-    if (!pill || !text) return;
-    text.textContent = s.loading;
-    pill.classList.remove("idle");
+  const pill = document.getElementById("loading");
+  const text = document.getElementById("loading-text");
+  if (!pill || !text) return;
+  const wait = Math.max(0, c.delayMs - performance.now());
+  // Lay the pill out now, transparent, with a compositor-driven reveal at navigation start + 300 ms
+  // (styles.css › .pill.pending). A timer alone would fire late: MapLibre's start-up blocks the main thread.
+  text.textContent = s.loading;
+  if (wait > 0) {
+    pill.style.setProperty("--pill-delay", `${Math.round(wait)}ms`);
+    pill.classList.add("pending");
+  }
+  pill.classList.remove("idle");
+  // Main-thread part: expose it to assistive technology (and announce it) once it is due.
+  const due = (): void => {
+    pill.classList.remove("pending");
     pill.setAttribute("aria-hidden", "false");
+    text.textContent = s.loading;
   };
-  (window as unknown as Record<string, unknown>)["__navmnBootTimer"] = window.setTimeout(
-    show,
-    Math.max(0, c.delayMs - performance.now()),
-  );
+  (window as unknown as Record<string, unknown>)["__navmnBootTimer"] = window.setTimeout(due, wait);
 }
 
-/** Called by the app at start: from then on the StatusMachine owns the loading pill. */
+/** Called by the app at start: from then on the StatusMachine and App.renderStatus own the loading pill. */
 export function cancelBootLoading(): void {
   const w = window as unknown as Record<string, unknown>;
   const timer = w[BOOT_TIMER_GLOBAL];

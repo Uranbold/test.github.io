@@ -19,7 +19,8 @@ export const X2 = { lat: 39.9042, lng: 116.4074 }; // Beijing, outside coverage
 export const GOBI = { lat: 42.7, lng: 104.9 };
 
 export const TOKENS = JSON.parse(readFileSync(ROOT + 'docs/design/tokens.json', 'utf8'));
-export const MN = JSON.parse(readFileSync(WEB + 'src/i18n/mn.json', 'utf8'));
+// NAV002_MN_FILE: test-only override for negative controls of the AC 33 checks (default: the real web resource file).
+export const MN = JSON.parse(readFileSync(process.env.NAV002_MN_FILE || WEB + 'src/i18n/mn.json', 'utf8'));
 export const EN = JSON.parse(readFileSync(WEB + 'src/i18n/en.json', 'utf8'));
 
 // Strings quoted in the story (G1–G7 and the existing glossary rows). Tests assert these literally,

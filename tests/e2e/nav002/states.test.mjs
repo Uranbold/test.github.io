@@ -37,15 +37,109 @@ async function panUntilFailures(page, counter, n) {
 }
 
 test.describe('NAV-002 I. Loading', () => {
-  test('AC37 loading indicator is shown when the map is not ready within 300 ms (measured from navigation start)', async ({ page }) => {
+  // TC-37-01, run 4 (2026-09-30). Measures when the pill is really ON SCREEN, from compositor frames (CDP
+  // Page.startScreencast), not from DOM classes. Reason: since the boot script (web/src/boot/bootLoading.ts) the pill
+  // loses its `idle` class at ~30 ms while it is still transparent (`.pending`, opacity reveal after --pill-delay), so the
+  // old timeline flag flipped at boot and the old assertion could no longer fail. Frame timestamps (wall clock, s) are
+  // put on the page clock with performance.timeOrigin; a calibration run gave frame lag 17–21 ms after a DOM insert
+  // (one frame, never negative). Pass: first frame showing the G1 text ≤ 350 ms (300 ms + 50 ms frame tolerance).
+  test('AC37 loading indicator is on screen when the map is not ready within 300 ms (measured from navigation start, screencast frames)', async ({ page, context }) => {
     await delayArchive(page, 1500);
+    // Negative control (test-only, off by default): NAV002_AC37_NEGCTL_MS=700 hides the pill until 700 ms after
+    // navigation start, so this test must FAIL. Proves the screencast measurement can detect a late reveal.
+    const negCtl = Number(process.env.NAV002_AC37_NEGCTL_MS || 0);
+    if (negCtl > 0) {
+      await page.addInitScript((ms) => {
+        const st = document.createElement('style');
+        st.textContent = '#loading{visibility:hidden !important}';
+        document.documentElement.appendChild(st);
+        setTimeout(() => st.remove(), Math.max(0, ms - performance.now()));
+      }, negCtl);
+    }
+    // Diagnostics only (not the gate): when `pending` was added + its --pill-delay (the app's scheduled reveal), the
+    // CSS animation's start time on the document timeline, and when `pending` was removed (boot `due` timer).
+    await page.addInitScript(() => {
+      const d = (window.__ac37 = { pendingAt: null, delay: null, animStart: null, pendingOff: null });
+      // Installed before any page script; the boot script runs inline during parsing, so observe the whole document.
+      new MutationObserver((recs) => {
+        const now = performance.now();
+        for (const rec of recs) {
+          const el = rec.target;
+          if (el.id !== 'loading') continue;
+          if (el.classList.contains('pending') && d.pendingAt === null) {
+            d.pendingAt = now;
+            d.delay = el.style.getPropertyValue('--pill-delay');
+            requestAnimationFrame(() => {
+              const a = el.getAnimations()[0];
+              if (a) d.animStart = a.startTime;
+            });
+          } else if (!el.classList.contains('pending') && d.pendingAt !== null && d.pendingOff === null) d.pendingOff = now;
+        }
+      }).observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['class'] });
+    });
+    const cdp = await context.newCDPSession(page);
+    const frames = [];
+    cdp.on('Page.screencastFrame', (f) => {
+      frames.push({ ts: f.metadata.timestamp * 1000, data: f.data });
+      cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
+    });
+    await cdp.send('Page.startScreencast', { format: 'png', everyNthFrame: 1 });
     await openApp(page, { wait: false });
-    await expect(tid(page, 'loading')).toBeVisible({ timeout: 5000 });
-    const on = await tOf(page, (s) => s.loading);
-    const scriptEnd = await page.evaluate(() => performance.getEntriesByType('resource').find((e) => e.name.includes('/src/main.ts'))?.responseEnd ?? null);
-    test.info().annotations.push({ type: 'AC37 indicator shown at (ms after navigation start)', description: `${Math.round(on)} (main.ts received at ${Math.round(scriptEnd)})` });
-    // 300 ms + 50 ms (three frames) tolerance.
-    expect(on, 'loading indicator visible by 350 ms after navigation start').toBeLessThanOrEqual(350);
+    // The archive is delayed 1.5 s, so at 1.1 s the pill must be fully shown: that frame is the reference.
+    await page.waitForFunction(() => performance.now() > 1100, null, { timeout: 10_000 });
+    const info = await page.evaluate(() => {
+      const r = document.querySelector('#loading-text').getBoundingClientRect();
+      return {
+        box: { x: r.x, y: r.y, w: r.width, h: r.height }, origin: performance.timeOrigin,
+        opacity: getComputedStyle(document.querySelector('#loading')).opacity,
+        fcp: performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null,
+      };
+    });
+    await cdp.send('Page.stopScreencast');
+    await cdp.detach();
+    expect(info.opacity, 'pill fully shown at 1.1 s (reference frame)').toBe('1');
+    expect(info.box.w * info.box.h, 'pill text laid out').toBeGreaterThan(0);
+    // Decode the frames in a separate blank page: mean RGB distance of the text box to the reference frame.
+    const dec = await context.newPage();
+    const dist = await dec.evaluate(async ({ frames, box }) => {
+      const crop = async (d) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${d}`;
+        await img.decode();
+        const c = new OffscreenCanvas(img.width, img.height);
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        return g.getImageData(Math.round(box.x), Math.round(box.y), Math.max(1, Math.round(box.w)), Math.max(1, Math.round(box.h))).data;
+      };
+      const px = [];
+      for (const f of frames) px.push(await crop(f.data));
+      const ref = px[px.length - 1];
+      return px.map((a) => {
+        let s = 0;
+        for (let i = 0; i < a.length; i += 4) s += Math.abs(a[i] - ref[i]) + Math.abs(a[i + 1] - ref[i + 1]) + Math.abs(a[i + 2] - ref[i + 2]);
+        return s / (a.length / 4);
+      });
+    }, { frames, box: info.box });
+    await dec.close();
+    const maxD = Math.max(...dist);
+    const shown = dist.map((d) => maxD > 0 && d < 0.25 * maxD); // frames are bimodal (0.00 vs 1.00 of max) in practice
+    const t = frames.map((f) => f.ts - info.origin);
+    const iOn = shown.findIndex((x, i) => x && t[i] >= 0);
+    expect(iOn, 'a frame showing the pill text was captured').toBeGreaterThanOrEqual(0);
+    const onScreen = t[iOn];
+    const lastWithout = t.filter((x, i) => i < iOn && x >= 0).pop() ?? null;
+    const classFlag = await tOf(page, (s) => s.loading); // old measurement (DOM class), information only
+    const d = await page.evaluate(() => window.__ac37);
+    const r = (x) => (x === null || x === undefined ? 'n/a' : Math.round(x));
+    test.info().annotations.push({
+      type: 'AC37 pill on screen (ms after navigation start)',
+      description: `${Math.round(onScreen)} (last frame without it: ${lastWithout === null ? 'none' : Math.round(lastWithout)}; ` +
+        `first-contentful-paint ${Math.round(info.fcp)}; DOM class flag ${Math.round(classFlag)}; ${frames.length} frames; ` +
+        `pending added ${r(d?.pendingAt)} + --pill-delay ${d?.delay || 'n/a'} = scheduled ${d?.pendingAt != null && d?.delay ? Math.round(d.pendingAt + parseFloat(d.delay)) : 'n/a'}; ` +
+        `animation start ${r(d?.animStart)}; pending removed ${r(d?.pendingOff)})`,
+    });
+    expect(maxD, 'the pill changes the pixels of its text box (screencast works)').toBeGreaterThan(10);
+    expect(onScreen, 'loading indicator on screen by 350 ms after navigation start').toBeLessThanOrEqual(350);
   });
 
   test('AC37 loading indicator shows G1, is announced (aria-live polite) and hides within 500 ms of the first idle', async ({ page }) => {

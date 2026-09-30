@@ -7,10 +7,11 @@ Test plan: docs/qa/test-plans/NAV-001.md (each check id below is a test case id 
 
 Groups (default: smoke):
   smoke      AC 40 set: AC 9, 13-16, 18, 21-23, 25, 28-30, 32 + AC 42 info (11, 19, 24) + AC 40 runtime
-  full       smoke + AC 10, 11, 12, 17, 19, 20, 24, 26, 27, 33, 43 + contract extras (404/405/413/HEAD/304/416/GET ?json=,
+  full       smoke + AC 10, 11, 12 (D1 rule), 17, 19, 20, 24, 26, 27, 33, 43 + contract extras (404/405/413/HEAD/304/416/GET ?json=,
              no repeated Access-Control-* header on any response)
   perf       AC 35-38 (p95 of 20 sequential requests each)
-  ac43       AC 43 only (416 on TILES: single CORS headers, JSON body); also part of full. Runs against a
+  ac43       AC 43 only (416 on TILES: single CORS headers, JSON body, one Cache-Control: no-store, no
+             Accept-Ranges per openapi 0.3.0); also part of full. Runs against a
              gateway-only container too (isolated-gateway.sh), which is how the negative control is done
   cors-allowlist  AC 31 (+ AC 43 per origin). The gateway must already run with CORS_ALLOWED_ORIGINS=http://localhost:5173
   tiles-missing   CT17: gateway started WITHOUT data/tiles/basemap.pmtiles (tests/api/nav001/isolated-gateway.sh):
@@ -122,11 +123,28 @@ class Nav001:
         if named:
             self.r.note("AC11.sample_road_names", sorted({f["name"] for f in named})[:5])
 
+    AC12_PRIMARY = 200 * 1024 * 1024   # 209,715,200 bytes (2^20-byte MB, story AC 12)
+    AC12_FALLBACK = 400 * 1024 * 1024  # 419,430,400 bytes, PO decision D1 (2026-09-30) fallback for the Mongolia dev extract
+
     def ac12(self):
+        """AC 12 per PO decision D1 (2026-09-30). Replaces AC12.size_le_200MB (old rule: <= 200 MB only).
+        Default Mongolia build: header max zoom exactly 14; size <= 200 MB passes; 200 MB < size <= 400 MB passes
+        with the INFO line 'AC 12 fallback limit (D1) applied'; anything larger fails."""
+        pm = self.pm()
+        self.r.check("AC12.default_build_maxzoom_eq_14", pm.max_zoom == 14, "header max zoom == 14 (TILES_MAXZOOM=14, D1)", pm.max_zoom)
         r = self.c.request("HEAD", "/tiles/basemap.pmtiles")
         size = int(r.header("content-length") or -1)
-        self.r.check("AC12.size_le_200MB", 0 < size <= 200 * 1024 * 1024, "<= 200 MB (209715200 bytes)",
-                     f"{size} bytes ({size / 1048576:.1f} MiB)")
+        shown = f"{size} bytes ({size / 1048576:.1f} MiB)"
+        if 0 < size <= self.AC12_PRIMARY:
+            self.r.check("AC12.size_within_D1_limit", True, "<= 209715200 bytes (primary) or <= 419430400 bytes (D1 fallback)",
+                         shown)
+            self.r.note("AC12.limit_applied", f"primary limit (<= {self.AC12_PRIMARY} bytes) met: {size} bytes")
+        elif self.AC12_PRIMARY < size <= self.AC12_FALLBACK:
+            self.r.check("AC12.size_within_D1_limit", True, "<= 419430400 bytes (D1 fallback)", shown)
+            self.r.note("AC12.limit_applied", f"{size} bytes: AC 12 fallback limit (D1) applied")
+        else:
+            self.r.check("AC12.size_within_D1_limit", False, "<= 209715200 bytes, or <= 419430400 bytes with the D1 fallback",
+                         shown)
 
     # ------------------------------------------------------------------ C. routing
     def ac13(self):
@@ -479,6 +497,11 @@ class Nav001:
             self._cors_once(cid, r, origin, expect_acao)
             ctype = (r.header("content-type") or "").split(";")[0].strip()
             self.r.check(cid + ".content_type_json", ctype == "application/json", "application/json", r.header("content-type"))
+            # openapi.yaml 0.3.0 RangeNotSatisfiable: exactly one Cache-Control: no-store, no Accept-Ranges (ETag may stay).
+            ccs = [v for k, v in r.raw_headers if k.lower() == "cache-control"]
+            self.r.check(cid + ".cache_control_no_store_once", ccs == ["no-store"], "exactly one 'Cache-Control: no-store' (openapi 0.3.0)", ccs)
+            ars = [v for k, v in r.raw_headers if k.lower() == "accept-ranges"]
+            self.r.check(cid + ".no_accept_ranges", not ars, "no Accept-Ranges on a 416 (openapi 0.3.0)", ars)
             if method == "GET":
                 j = r.json()
                 ok = isinstance(j, dict) and j.get("code") == "RangeNotSatisfiable" and isinstance(j.get("message"), str) and j["message"]
@@ -527,6 +550,11 @@ class Nav001:
             self._cors_once(cid, r)
             ctype = (r.header("content-type") or "").split(";")[0].strip()
             self.r.check(cid + ".content_type_json", ctype == "application/json", "application/json", r.header("content-type"))
+            # openapi.yaml 0.3.0 RangeNotSatisfiable: exactly one Cache-Control: no-store, no Accept-Ranges (ETag may stay).
+            ccs = [v for k, v in r.raw_headers if k.lower() == "cache-control"]
+            self.r.check(cid + ".cache_control_no_store_once", ccs == ["no-store"], "exactly one 'Cache-Control: no-store' (openapi 0.3.0)", ccs)
+            ars = [v for k, v in r.raw_headers if k.lower() == "accept-ranges"]
+            self.r.check(cid + ".no_accept_ranges", not ars, "no Accept-Ranges on a 416 (openapi 0.3.0)", ars)
             if method == "GET":
                 j = r.json() or {}
                 self.r.check(cid + ".json_not_found", j.get("code") == "NotFound", '{"code":"NotFound",...}', r.body[:120])

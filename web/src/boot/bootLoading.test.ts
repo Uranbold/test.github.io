@@ -41,22 +41,30 @@ describe("pre-module loading indicator (AC 37)", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the default-language pill 300 ms after navigation start, not earlier", () => {
+  it("lays the pill out at once with a compositor reveal at navigation start + 300 ms, aria after 300 ms", () => {
     inlined(cfg);
     expect(document.title).toBe(mn["app.title"]);
-    vi.advanceTimersByTime(LOADING_DELAY_MS - 120 - 1);
-    expect(pill().classList.contains("idle")).toBe(true);
-    vi.advanceTimersByTime(1);
+    // Laid out (not display:none) but pending: transparent until the CSS animation delay has passed.
     expect(pill().classList.contains("idle")).toBe(false);
+    expect(pill().classList.contains("pending")).toBe(true);
+    expect(pill().style.getPropertyValue("--pill-delay")).toBe(`${LOADING_DELAY_MS - 120}ms`);
+    expect(pill().textContent).toBe(mn["status.loading"]);
+    expect(pill().getAttribute("aria-hidden")).toBe("true");
+    vi.advanceTimersByTime(LOADING_DELAY_MS - 120 - 1);
+    expect(pill().getAttribute("aria-hidden")).toBe("true");
+    vi.advanceTimersByTime(1);
     expect(pill().getAttribute("aria-hidden")).toBe("false");
+    expect(pill().classList.contains("pending")).toBe(false);
     expect(pill().textContent).toBe(mn["status.loading"]);
   });
 
-  it("shows it at once when the script runs after 300 ms", () => {
+  it("shows it at once, without the pending reveal, when the script runs after 300 ms", () => {
     vi.spyOn(performance, "now").mockReturnValue(700);
     inlined(cfg);
-    vi.advanceTimersByTime(0);
     expect(pill().classList.contains("idle")).toBe(false);
+    expect(pill().classList.contains("pending")).toBe(false);
+    vi.advanceTimersByTime(0);
+    expect(pill().getAttribute("aria-hidden")).toBe("false");
   });
 
   it("uses the saved language and night mode (D12)", () => {
@@ -78,10 +86,11 @@ describe("pre-module loading indicator (AC 37)", () => {
     expect(document.documentElement.dataset.theme).toBe("day");
   });
 
-  it("does nothing once the app has taken over (cancelBootLoading)", () => {
+  it("leaves the pill to the app once it has taken over (cancelBootLoading)", () => {
     inlined(cfg);
     cancelBootLoading();
     vi.advanceTimersByTime(LOADING_DELAY_MS);
-    expect(pill().classList.contains("idle")).toBe(true);
+    expect(pill().getAttribute("aria-hidden")).toBe("true");
+    expect(pill().classList.contains("pending")).toBe(true);
   });
 });

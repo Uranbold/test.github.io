@@ -78,7 +78,8 @@ button {
   justify-content: space-between;
   align-items: flex-end;
   gap: var(--spacing-control-gap);
-  padding: 0 var(--spacing-gutter) 8px;
+  /* Exactly the height the attribution link's hit area reaches above R5 (screen spec R4 row, Layout rule 6a/7). */
+  padding: 0 var(--spacing-gutter) 20px;
 }
 .r5 {
   grid-row: 5;
@@ -223,35 +224,41 @@ button {
   box-sizing: border-box;
 }
 
-/* Attribution strip: opaque, never collapsed, never covered (AC 34–35) */
+/* Attribution strip: opaque, never collapsed, never covered (AC 34–35). Padding 4 px 16 px: 24 px high at one line. */
 .attr {
   background: var(--ui-surface-container);
   color: var(--ui-on-surface-variant);
   font-size: 0.75rem;
   line-height: 1rem;
-  padding: 0 var(--spacing-gutter) env(safe-area-inset-bottom);
+  padding: 4px var(--spacing-gutter) calc(4px + env(safe-area-inset-bottom));
   box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.15);
   position: relative;
   z-index: 1;
 }
-/* AC 49: the OSM link's hit area is at least 44 × 44 CSS px. The extra height is transparent space inside the
-   strip (it replaces the strip's 4 px top/bottom padding), so nothing overhangs the map or R4 and the strip grows
-   only by what the target needs (24 → 44 px). The text keeps its 12/16 caption size, centred in the target. */
+/* AC 49 (screen spec › Components › Attribution strip, Layout rule 6a): the OSM link's hit area is at least
+   44 × 44 CSS px without enlarging the visible strip. Transparent padding is cancelled by equal negative margins, so
+   the line box and the strip height do not change: 16 + 24 + 4 = 44 px high, text width + 16 px wide. It reaches
+   20 px above the strip into R4's 20 px bottom padding. The padding paints nothing; the focus ring goes around the
+   inner <span> (the text) only. */
 .attr a {
   color: inherit;
   text-decoration: underline;
-  display: inline-flex;
-  align-items: center;
-  box-sizing: border-box;
-  min-height: 44px;
+  display: inline-block;
+  padding: 24px 8px 4px;
+  margin: -24px -8px -4px;
   min-width: 44px;
-  vertical-align: top;
+  background: none;
+  border: 0;
+}
+.attr a:focus-visible {
+  outline: none;
+}
+.attr a:focus-visible > span {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: var(--size-focus-ring-offset);
 }
 .attr p {
   margin: 0;
-}
-#attribution-esa {
-  padding-bottom: 4px;
 }
 
 /* Banners and messages */
@@ -350,6 +357,21 @@ button {
 .pill:empty,
 .pill.idle {
   display: none;
+}
+/* AC 37: "pending" = laid out but transparent until 300 ms after navigation start (--pill-delay is set once, relative
+   to the moment the class is added). The reveal is an opacity animation, which the compositor runs even while
+   MapLibre's start-up keeps the main thread busy, so the pill really appears at 300 ms, not after the long tasks. */
+.pill.pending {
+  will-change: opacity;
+  animation: pill-reveal 1ms linear var(--pill-delay, 0ms) both;
+}
+@keyframes pill-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 .spin {
   width: 20px;

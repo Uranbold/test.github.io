@@ -15,6 +15,18 @@ backlog item).
 - Node.js LTS **22.12 or newer** (tested with 22.22) and npm.
 - The NAV-001 stack running, with `GET http://localhost:8080/health` returning 200.
 
+## Supported browsers
+
+PO decision D14 (NAV-002 AC 50). Supported:
+
+- current desktop **Chrome**
+- current desktop **Edge**
+- current desktop **Firefox**
+- current **Android Chrome**
+
+**Safari and iOS are not supported yet** (planned later). The automated tests (`tests/e2e/nav002/`, Playwright) run
+on **desktop Chromium only**; the other supported browsers are checked by hand.
+
 ## Commands
 
 Run everything from `web/`.
@@ -106,17 +118,26 @@ scripts/                         vendor-assets.sh, check-i18n.mjs, check-glossar
   defaults apply.
 - **PO decisions D11–D15.** Map labels use `name:mn` → `name` → `name:en` in both UI languages, so the English UI keeps
   Cyrillic labels (D11). Day mode by default; the manual toggle is remembered (D12). The page opens on Sükhbaatar
-  Square, zoom 12 (D13). Page title `app.title` «Газрын зураг» / "Map" (D15). D14 (browsers) needs no code.
+  Square, zoom 12 (D13). Page title `app.title` «Газрын зураг» / "Map" (D15). Browsers (D14): see Supported browsers.
 - **Loading before the modules load (AC 37).** `vite.config.ts` (plugin `navmn-boot-indicator`) adds to `index.html`
-  the design-token CSS, the default-language `<title>` and `src/boot/bootLoading.ts` as a small inline script. It shows
-  the loading pill 300 ms after navigation start (in the saved language, with the saved theme), even while MapLibre is
-  still downloading. `styles.css` is a render-blocking `<link>` for the same reason. The app cancels the boot timer when
-  it starts and takes over the pill without a blink. All text comes from `src/i18n/{mn,en}.json`.
+  the design-token CSS, the default-language `<title>` and `src/boot/bootLoading.ts` as a small inline script. At
+  once it lays the pill out transparent (`.pill.pending`, in the saved language and theme) with an opacity animation
+  delayed to navigation start + 300 ms. The compositor runs that reveal, so it happens on time even while MapLibre's
+  start-up keeps the main thread busy (long tasks from about 200 to 470 ms on the SwiftShader reference setup, where a
+  timer fires late). `aria-hidden` is lifted by a main-thread timer when it is due. `styles.css` is a render-blocking
+  `<link>` so the pill is styled before any module runs. The app cancels the boot timer when it starts and keeps the
+  pending pill as it is. All text comes from `src/i18n/{mn,en}.json`.
+  Test hook: before 300 ms the pill has no `idle` class but has `pending` (transparent), so "no `idle` class" alone
+  does not mean "visible". It becomes visible at (the time `pending` was added) + `--pill-delay`, which is 300 ms after
+  navigation start.
 - **Start-up errors.** Before the first render, only a basemap error without `e.tile` (archive header / TileJSON)
   fails the attempt and shows the blocking card at once. Tile errors count towards the 3-consecutive-error tiles
   banner, so one transient tile failure never shows the card. If no tile loads at all, the 10 s watchdog shows the card.
-- **Attribution link target (AC 49).** The OSM link is at least 44 × 44 CSS px. The extra height is transparent space
-  inside the strip (no overhang over the map or the bottom controls), so the strip is 44 px high without the ESA line.
+- **Attribution link target (AC 49).** As the screen spec says (Components › Attribution strip, Layout rule 6a): the
+  strip stays 24 px high at one line (padding 4 px 16 px). The OSM link is `inline-block` with transparent padding
+  `24px 8px 4px` cancelled by margin `-24px -8px -4px` and `min-width: 44px`, so its hit area is 44 px high and text
+  width + 16 px wide, reaching 20 px above the strip into R4's 20 px bottom padding. The link text is in an inner
+  `<span>` (it carries `data-i18n`), and the focus ring is drawn around that span only.
 - **No location access before the first press.** Neither the Geolocation API nor the Permissions API is called before
   the first press of the my-location button. Coordinates never leave the page.
 - **Retry uses a fresh PMTiles instance, then sets the style again without diffing.**

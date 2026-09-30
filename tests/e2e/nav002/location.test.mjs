@@ -33,6 +33,15 @@ const accuracyRadius = (page) =>
   });
 const ringRadius = (ring, centre) => ring.reduce((s, [lng, lat]) => s + haversine(centre, { lat, lng }), 0) / ring.length;
 
+// AC 19/20/25 "zoom >= 15": read after the camera has stopped (still inside the AC's 3 s), with a 1e-4 zoom-level
+// tolerance. MapLibre's flyTo can end at 14.999996 (float residue, 0.0003 % scale, invisible); a sample taken while the
+// camera is still flying (14.95 in run 4 pre-fix) is a measurement error, not the app's final state. Changed 2026-09-30.
+const ZOOM_EPS = 1e-4;
+async function settledZoom(page, t0, limitMs = 3000) {
+  await page.waitForFunction(() => !window.__nav002.map.isMoving(), null, { timeout: Math.max(1, limitMs - (Date.now() - t0)) });
+  return (await camera(page)).zoom;
+}
+
 test.describe('NAV-002 E. My location', () => {
   test('AC18 page load makes no geolocation or permissions call (no prompt)', async ({ page }) => {
     await page.addInitScript(geoSpyInit);
@@ -68,7 +77,7 @@ test.describe('NAV-002 E. My location', () => {
     test.info().annotations.push({ type: 'AC19 time to centred (ms)', description: String(dt) });
     expect(dt).toBeLessThanOrEqual(3000);
     expect(haversine(cam, P1)).toBeLessThanOrEqual(20);
-    expect(cam.zoom).toBeGreaterThanOrEqual(15 - 1e-9);
+    expect(cam.zoom).toBeGreaterThanOrEqual(15 - ZOOM_EPS);
     await expect(marker(page)).toHaveAttribute('role', 'img');
     await expect(marker(page)).toHaveAccessibleName(S.mn.myLocation);
     await expect(btn(page)).toHaveAttribute('aria-pressed', 'true');
@@ -123,16 +132,24 @@ test.describe('NAV-002 E. My location', () => {
     await page.waitForTimeout(800);
     expect(haversine(await camera(page), camAfterPan), 'camera did not follow').toBeLessThan(1);
     // Press again → recentre as in AC 19
+    const tPress = Date.now();
     await btn(page).click();
     await expect(btn(page)).toHaveAttribute('data-state', 'following');
     await expect.poll(async () => haversine(await camera(page), p3), { timeout: 3000 }).toBeLessThanOrEqual(20);
-    expect((await camera(page)).zoom).toBeGreaterThanOrEqual(15 - 1e-9);
+    const z20 = await settledZoom(page, tPress);
+    test.info().annotations.push({ type: 'AC20 recentre zoom after the camera stopped', description: String(z20) });
+    expect(z20).toBeGreaterThanOrEqual(15 - ZOOM_EPS);
+    expect(haversine(await camera(page), p3)).toBeLessThanOrEqual(20);
   });
 
   test('AC21 denied: within 1 s G3 + G4 + «Хаах»; distinct "denied" state; press again shows it again; map usable; no uncaught error', async ({ page, context }) => {
     const errors = collectErrors(page);
     await context.clearPermissions(); // headless Chromium denies the prompt
     await openApp(page);
+    // Flow F3 / screen spec (2026-09-30): no permission query at load, so the button starts idle and the denied
+    // state appears only after the first press, never at load.
+    await expect(btn(page)).toHaveAttribute('data-state', 'idle');
+    await expect(tid(page, 'location-message')).toBeHidden();
     const t0 = Date.now();
     await btn(page).click();
     const msg = tid(page, 'location-message');
@@ -268,10 +285,14 @@ test.describe('NAV-002 E. My location', () => {
     await context.grantPermissions(['geolocation']);
     await context.setGeolocation({ latitude: X2.lat, longitude: X2.lng, accuracy: 30 });
     await openApp(page);
+    const tPress = Date.now();
     await btn(page).click();
     await expect(btn(page)).toHaveAttribute('data-state', 'following', { timeout: 3000 });
     await expect.poll(async () => haversine(await camera(page), X2), { timeout: 3000 }).toBeLessThanOrEqual(20);
-    expect((await camera(page)).zoom).toBeGreaterThanOrEqual(15 - 1e-9);
+    const z25 = await settledZoom(page, tPress);
+    test.info().annotations.push({ type: 'AC25 zoom after the camera stopped', description: String(z25) });
+    expect(z25).toBeGreaterThanOrEqual(15 - ZOOM_EPS);
+    expect(haversine(await camera(page), X2)).toBeLessThanOrEqual(20);
     await expect(marker(page)).toBeVisible();
     await waitIdle(page);
     await page.waitForTimeout(1000);

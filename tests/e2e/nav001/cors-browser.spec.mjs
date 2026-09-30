@@ -154,7 +154,7 @@ test('E2E-05 AC32/AC33 + contract: error statuses and JSON bodies are readable b
   expect(r.nf.body.code).toBe('NotFound');
 });
 
-test('E2E-07 AC43: a 416 on the tiles archive reaches JS as status 416 with a JSON body, not a CORS TypeError', async ({ page }) => {
+test('E2E-07 AC43: a 416 on the tiles archive reaches JS as status 416 with a JSON body and Cache-Control no-store, not a CORS TypeError', async ({ page }) => {
   const r = await page.evaluate(async (gw) => {
     const url = `${gw}/tiles/basemap.pmtiles`;
     const head = await fetch(url, { method: 'HEAD' });
@@ -169,6 +169,8 @@ test('E2E-07 AC43: a 416 on the tiles archive reaches JS as status 416 with a JS
         out[method] = {
           status: res.status, contentType: res.headers.get('Content-Type'),
           contentRange: res.headers.get('Content-Range'), body,
+          // CORS-safelisted response header, so JS can read it without Expose-Headers (openapi 0.3.0).
+          cacheControl: res.headers.get('Cache-Control'),
         };
       } catch (e) {
         out[method] = { error: `${e.name}: ${e.message}` }; // a duplicated ACAO lands here (pre-fix behaviour)
@@ -182,6 +184,8 @@ test('E2E-07 AC43: a 416 on the tiles archive reaches JS as status 416 with a JS
     expect(r[method].status).toBe(416);
     expect(r[method].contentType).toMatch(/^application\/json/);
     expect(r[method].contentRange).toBe(`bytes */${r.size}`);
+    // openapi.yaml 0.3.0 RangeNotSatisfiable: exactly one Cache-Control: no-store (a duplicate would read "a, b").
+    expect(r[method].cacheControl, `${method} 416 must not be cacheable`).toBe('no-store');
   }
   expect(r.GET.body).toMatchObject({ code: 'RangeNotSatisfiable' });
   expect(typeof r.GET.body.message).toBe('string');

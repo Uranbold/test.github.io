@@ -313,6 +313,11 @@ test.describe('NAV-002 D. Metric scale bar', () => {
       expect(err, results.at(-1)).toBeLessThanOrEqual(0.05);
     }
     test.info().annotations.push({ type: 'AC17 scale accuracy', description: results.join('; ') });
+    // Screen spec example (UX, 2026-09-30): at P1 z12 on the 1366 px reference viewport the bar reads «1 км»
+    // (12.8 m/px, 100 px maximum bar rounds down to a 78 px «1 км» bar).
+    await jump(page, { center: P1, zoom: 12 });
+    await page.waitForTimeout(100);
+    expect((await read(page)).label, 'screen spec example at P1 z12, 1366 px').toBe('1 км');
     // Update latency: zoom with the button, then measure from `zoomend` to a correct label.
     for (const [from, btn] of [[12, 'zoom-in'], [15, 'zoom-out'], [17, 'zoom-in']]) {
       await jump(page, { center: P1, zoom: from });

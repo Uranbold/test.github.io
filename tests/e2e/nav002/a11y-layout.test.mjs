@@ -145,7 +145,8 @@ for (const [w, h] of [[320, 568], [360, 640], [1920, 1080]]) {
         await openApp(page, { theme, lang });
         let L = await layout(page);
         problems.push(...layoutProblems(L, 'ready'));
-        const small = (L) => L.controls.filter((x) => x.id !== 'attribution-osm' && (x.w < 44 || x.h < 44)).map((x) => `${x.id} ${x.w.toFixed(0)}×${x.h.toFixed(0)}`);
+        // Every touch target, including the attribution link (run 4: the link is no longer exempt, TC-49-03).
+        const small = (L) => L.controls.filter((x) => x.w < 44 - 0.5 || x.h < 44 - 0.5).map((x) => `${x.id} ${x.w.toFixed(0)}×${x.h.toFixed(0)}`);
         problems.push(...small(L).map((s) => `ready: target ${s}`));
         // Worst case: zoom < 8 (ESA credit) + tiles banner + denied message + tooltip on the zoom column
         await jump(page, { center: P1, zoom: 6 });
@@ -174,19 +175,66 @@ for (const [w, h] of [[320, 568], [360, 640], [1920, 1080]]) {
   }
 }
 
-test('AC49 attribution link touch target (measured; see test plan TC-49-03)', async ({ browser }) => {
-  const sizes = [];
+const attrGeometry = (page) =>
+  page.evaluate(() => {
+    const R = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; };
+    const vis = (e) => !!e && !e.closest('[hidden]') && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0;
+    const link = document.querySelector('[data-testid="attribution-osm"]');
+    const strip = document.querySelector('[data-testid="attribution"]');
+    const cs = getComputedStyle(strip);
+    const others = [...document.querySelectorAll('#ui button')].filter(vis).map((e) => ({ id: e.dataset.testid || e.id, ...R(e) }));
+    const scale = document.querySelector('[data-testid="scale-bar"]');
+    return {
+      link: R(link), strip: R(strip), others, scale: vis(scale) ? R(scale) : null,
+      // Visible strip height without the bottom safe-area inset (0 in desktop Chromium).
+      stripH: strip.getBoundingClientRect().height,
+      padB: cs.paddingBottom, vw: document.documentElement.clientWidth, vh: document.documentElement.clientHeight,
+      esa: vis(document.querySelector('[data-testid="attribution-esa"]')),
+    };
+  });
+
+test('AC49 TC-49-03 attribution link touch target ≥ 44×44, inside the viewport, overlapping no control and not the scale bar', async ({ browser }) => {
+  const rows = [];
+  const problems = [];
   for (const [w, h] of [[320, 568], [360, 640], [1920, 1080]]) {
     const ctx = await browser.newContext({ viewport: { width: w, height: h } });
     const page = await ctx.newPage();
     await openApp(page);
-    const r = await tid(page, 'attribution-osm').boundingBox();
-    sizes.push(`${w}px: ${r.width.toFixed(0)}×${r.height.toFixed(0)}`);
+    for (const zoom of [12, 6]) { // 6: ESA line shown (zoom < 8), strip has two or more lines
+      await jump(page, { center: P1, zoom });
+      await page.waitForTimeout(300);
+      const g = await attrGeometry(page);
+      const L = g.link;
+      rows.push(`${w}px z${zoom}: link ${L.w.toFixed(0)}×${L.h.toFixed(0)}, strip ${g.stripH.toFixed(0)} px${g.esa ? ' (ESA)' : ''}`);
+      if (L.w < 44 - 0.5 || L.h < 44 - 0.5) problems.push(`${w}px z${zoom}: link box ${L.w.toFixed(1)}×${L.h.toFixed(1)} < 44×44`);
+      if (L.l < -0.5 || L.t < -0.5 || L.r > g.vw + 0.5 || L.b > g.vh + 0.5) problems.push(`${w}px z${zoom}: link box outside the viewport`);
+      for (const o of g.others) if (overlap(L, o) > 0.5) problems.push(`${w}px z${zoom}: link box overlaps ${o.id}`);
+      if (g.scale && overlap(L, g.scale) > 0.5) problems.push(`${w}px z${zoom}: link box overlaps the scale bar`);
+    }
     await ctx.close();
   }
-  test.info().annotations.push({ type: 'AC49 attribution link size', description: sizes.join('; ') });
-  for (const s of sizes) {
-    const [, , hh] = s.match(/(\d+)×(\d+)$/).map(Number);
-    expect(hh, `attribution link height (${s})`).toBeGreaterThanOrEqual(44);
+  test.info().annotations.push({ type: 'AC49 attribution geometry', description: rows.join('; ') });
+  expect(problems).toEqual([]);
+});
+
+test('AC49 TC-49-04 screen spec rule 6a: the visible attribution strip is not enlarged by the hit area (≤ 24 px at one line)', async ({ browser }) => {
+  // Design conformance (docs/design/screens/NAV-002-web-map.md, Components › Attribution strip, Layout rule 6a,
+  // 2026-09-30): the link's 44 px hit area comes from transparent padding with equal negative margins, so the strip
+  // stays 24 px high at one line (12/16 caption + 4 px padding top and bottom). The story AC 49 itself is TC-49-03.
+  const rows = [];
+  for (const [w, h] of [[320, 568], [360, 640], [1920, 1080]]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h } });
+    const page = await ctx.newPage();
+    await openApp(page);
+    await jump(page, { center: P1, zoom: 12 }); // zoom ≥ 8: OSM line only
+    await page.waitForTimeout(300);
+    const g = await attrGeometry(page);
+    rows.push({ w, stripH: g.stripH, esa: g.esa });
+    await ctx.close();
+  }
+  test.info().annotations.push({ type: 'TC-49-04 strip height at one line', description: rows.map((r) => `${r.w}px: ${r.stripH.toFixed(1)} px`).join('; ') });
+  for (const r of rows) {
+    expect(r.esa, `${r.w}px: ESA line hidden at z12`).toBe(false);
+    expect(r.stripH, `${r.w}px: visible strip height at one line (screen spec: 24 px)`).toBeLessThanOrEqual(24.5);
   }
 });
