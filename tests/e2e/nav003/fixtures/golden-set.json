@@ -37,7 +37,8 @@
   "B15 amended 2026-09-30 (PO approval F1, D33): name or context line contains «Баянзүрх» or «БЗД». The 80 % tier B threshold is fixed (AC 14).",
   "A8 unchanged (<= 300 m from P2, top 3): story Open question 7 is still open.",
   "C4 (context line for A2 and A6) and C5 (share of Latin names in the mn UI) are computed from the A/B runs. C6 (added 2026-09-30, F2) records type labels and Photon osm_key/osm_value/type of the top 3 options.",
-  "Rate: rows are spaced so the whole run stays <= 2 search requests per second (about 80 requests per run with C6)."
+  "Rate: rows are spaced so the whole run stays <= 2 search requests per second (about 80 requests per run with C6).",
+  "C6g/C6h (QA extra rows, 2026-09-30): the story's C6 queries return no soum boundary in the top 3, so a soum boundary is recorded in both languages; the aimag boundary is C6c/C6e (R 270075). The golden test compares the label row of every OSM object that appears in both an en and an mn C6 row (AC 19 same-row risk, R13); recorded, never fails (tier C)."
  ],
  "rows": [
   {
@@ -551,6 +552,30 @@
     "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
     "c6": true
    }
+  },
+  {
+   "id": "C6g",
+   "tier": "C",
+   "q": "Bayan-Undur",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
+    "c6": true
+   },
+   "note": "QA extra row (2026-09-30, orchestrator run-4 request): a soum boundary in lang=en (R 7297914 'Bayan-Undur', boundary/administrative, type=county); pairs with C6h for the AC 19 same-row check (R13)"
+  },
+  {
+   "id": "C6h",
+   "tier": "C",
+   "q": "Баян-Өндөр сум",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C6 (F2, R13): type label and osm_key/osm_value/type of the top 3 options; records which boundaries rule 4a labels Дүүрэг/District",
+    "c6": true
+   },
+   "note": "QA extra row (2026-09-30): the same soum boundary in lang=mn («Баян-Өндөр сум», R 7297914); pairs with C6g"
   }
  ]
 }

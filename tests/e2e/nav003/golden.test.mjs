@@ -7,7 +7,7 @@
 import { test, expect } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { GOLDEN, T, expectedPlan, haversine, jumpTo, openApp, options, params, tid, typeQuery, view, waitSettled } from './helpers.mjs';
+import { GOLDEN, T, TYPE_LABELS, expectedPlan, haversine, jumpTo, openApp, options, params, tid, typeQuery, view, waitSettled } from './helpers.mjs';
 
 const OUT = fileURLToPath(new URL('../test-results/nav003/', import.meta.url));
 const LATIN_ONLY = (s) => /\p{L}/u.test(s) && [...s.matchAll(/\p{L}/gu)].every((m) => /\p{Script=Latin}/u.test(m[0]));
@@ -75,7 +75,7 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
     const plan = row.expect.coordinateOption ? null : expectedPlan(row.q);
     results[row.id] = {
       ...row, ...ev, plan: plan?.rule ?? 'coordinate', requests: requests.map((p) => p.q), lang: requests.map((p) => p.lang), counts: reqRecs.map((r) => r.count), dom: dom.slice(0, 5),
-      top3: res.opts.slice(0, 3).map((o, i) => ({ name: dom[i]?.name, type: dom[i]?.type, osm_key: o.props.osm_key, osm_value: o.props.osm_value, type_photon: o.props.type })),
+      top3: res.opts.slice(0, 3).map((o, i) => ({ name: dom[i]?.name, type: dom[i]?.type, osm_key: o.props.osm_key, osm_value: o.props.osm_value, type_photon: o.props.type, osm: `${o.props.osm_type}${o.props.osm_id}` })),
     };
     const qs = requests.map((p) => p.q);
     const keys = res.opts.map((o) => `${o.props.osm_type}${o.props.osm_id}`);
@@ -120,19 +120,29 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
   const gaps = B.filter((r) => r.control && !results[r.control].pass).map((r) => r.id);
   const passedB = counted.filter((r) => results[r.id].pass);
   const shareB = counted.length ? passedB.length / counted.length : 1;
+  // AC 14 counting rule (story, no rounding): pass when passed × 5 ≥ counted × 4 (integer arithmetic)
+  const passB = passedB.length * 5 >= counted.length * 4;
   // C4: context line of A2 / A6 top options; C5: share of Latin names among A/B top-3 options in the mn UI
   const c4 = ['A2', 'A6'].map((id) => `${id}: ${results[id].dom.slice(0, 3).map((d) => `${d.name} — «${d.context}»`).join(' | ')}`);
   const mnNames = [...A, ...B].filter((r) => r.ui === 'mn').flatMap((r) => results[r.id].dom.slice(0, 3).map((d) => d.name ?? ''));
   const latin = mnNames.filter((n) => LATIN_ONLY(n));
+  // C6 / AC 19 same-row risk (R13): every OSM object in the top 3 of both an en and an mn C6 row; recorded, never fails (tier C)
+  const rowOf = (label, ui) => TYPE_LABELS.find((t) => t[ui === 'en' ? 2 : 1] === label)?.[0] ?? null;
+  const c6Seen = {};
+  for (const r of GOLDEN.rows.filter((x) => x.expect.c6)) {
+    for (const o of results[r.id].top3) (c6Seen[o.osm] ??= {})[r.ui] ??= { row: r.id, name: o.name, label: o.type, rule: rowOf(o.type, r.ui), photon: `${o.osm_key}/${o.osm_value}/type=${o.type_photon}` };
+  }
+  const c6Same = Object.entries(c6Seen).filter(([, v]) => v.en && v.mn).map(([osm, v]) => `${osm} ${v.photon}: en ${v.en.row} "${v.en.name}" [${v.en.label}] row ${v.en.rule} / mn ${v.mn.row} «${v.mn.name}» [${v.mn.label}] row ${v.mn.rule} → ${v.en.rule === v.mn.rule ? 'same row' : 'DIFFERENT ROW'}`);
   const totalRequests = Object.values(results).reduce((n, r) => n + r.requests.length, 0);
   const summary = {
     run: new Date().toISOString(),
     tierA: `${A.length - failedA.length}/${A.length} = ${(((A.length - failedA.length) / A.length) * 100).toFixed(0)}%`,
     failedA,
-    tierB: `${passedB.length}/${counted.length} = ${(shareB * 100).toFixed(0)}% of counted rows (threshold 80 %, fixed); data gaps (control failed, not counted): ${gaps.join(', ') || 'none'}`,
+    tierB: `${passedB.length}/${counted.length} = ${(shareB * 100).toFixed(0)}% of counted rows (threshold 80 %, fixed; ${passedB.length}×5 ${passB ? '≥' : '<'} ${counted.length}×4); data gaps (control failed, not counted): ${gaps.join(', ') || 'none'}`,
     failedB: counted.filter((r) => !results[r.id].pass).map((r) => `${r.id} «${r.q}»: ${results[r.id].detail}`),
     tierC: GOLDEN.rows.filter((r) => r.tier === 'C').map((r) => `${r.id} «${r.q}»: ${results[r.id].dom.slice(0, 5).map((d, i) => `${i + 1}.${d.name}[${d.type}] «${d.context}»`).join(' | ')}`),
-    C6: GOLDEN.rows.filter((r) => r.expect.c6).map((r) => `${r.id} «${r.q}» (${r.ui}): ${results[r.id].top3.map((o, i) => `${i + 1}.${o.name}[${o.type}] ${o.osm_key}/${o.osm_value}/type=${o.type_photon}`).join(' | ')}`),
+    C6: GOLDEN.rows.filter((r) => r.expect.c6).map((r) => `${r.id} «${r.q}» (${r.ui}): ${results[r.id].top3.map((o, i) => `${i + 1}.${o.name}[${o.type}] ${o.osm_key}/${o.osm_value}/type=${o.type_photon} ${o.osm}`).join(' | ')}`),
+    C6sameObject: c6Same,
     totalSearchRequests: totalRequests,
     C4: c4,
     C5: `${latin.length}/${mnNames.length} top-3 names in the mn UI are Latin-only${latin.length ? ': ' + [...new Set(latin)].join(', ') : ''}`,
@@ -143,7 +153,7 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
   };
   mkdirSync(OUT, { recursive: true });
   writeFileSync(OUT + 'golden-latest.json', JSON.stringify(summary, null, 1));
-  for (const k of ['tierA', 'failedA', 'tierB', 'failedB', 'C4', 'C5', 'C6', 'totalSearchRequests', 'problemsAC3', 'problemsAC15', 'problemsAC16']) {
+  for (const k of ['tierA', 'failedA', 'tierB', 'failedB', 'C4', 'C5', 'C6', 'C6sameObject', 'totalSearchRequests', 'problemsAC3', 'problemsAC15', 'problemsAC16']) {
     test.info().annotations.push({ type: k, description: JSON.stringify(summary[k]) });
   }
   for (const r of GOLDEN.rows) test.info().annotations.push({ type: `row ${r.id}`, description: `${results[r.id].pass ? 'PASS' : 'FAIL'} «${r.q}» rule=${results[r.id].plan} req=${JSON.stringify(results[r.id].requests)} counts=${JSON.stringify(results[r.id].counts)} ${results[r.id].detail}` });
@@ -152,5 +162,5 @@ test('AC14/AC15/AC16 (live): golden query set, tiers A (all), B (>= 80 % of coun
   expect.soft(problems15, 'AC 15').toEqual([]);
   expect.soft(problems16, 'AC 16').toEqual([]);
   expect.soft(failedA, 'AC 14 tier A: every row passes').toEqual([]);
-  expect(shareB, `AC 14 tier B: ${summary.tierB}`).toBeGreaterThanOrEqual(0.8);
+  expect(passB, `AC 14 tier B: ${summary.tierB}`).toBe(true);
 });

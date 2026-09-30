@@ -201,6 +201,34 @@ test('AC41 (F5): Escape closes a state row with «Дахин оролдох», f
   await expect(input).toHaveValue('Тест алдаа 2');
 });
 
+// AC 41 as amended in the working-tree story (2026-09-30, BA, from the UX design addition): a state row with «Дахин оролдох»
+// also closes on a click on the map and when a coordinate card opens (right-click, AC 25), so the new card is never hidden.
+// Only a plain click and a right-click are asserted; drag behaviour is not (AC wording "pointer down" vs screen spec
+// "MapLibre click, not after a drag" is an open question).
+test('AC41 (amended): a state row with «Дахин оролдох» closes on a click on the map and when a coordinate card opens (right-click); the card is visible', async ({ page }) => {
+  await mock(page, REVERSE_GLOB, () => ({ body: fc([feature('Сүхбаатарын талбай', REF.P1.lng, REF.P1.lat, { osm_key: 'place', osm_value: 'square' })]) }));
+  await f5Setup(page);
+  const popup = tid(page, 'search-popup');
+  // Click on the map (unavailable row)
+  await typeQuery(page, 'Тест алдаа');
+  await waitSettled(page, 'Тест алдаа');
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'unavailable');
+  await page.mouse.click(900, 400);
+  await expect(popup, 'a click on the map closes the unavailable row').toBeHidden({ timeout: 1000 });
+  expect((await card(page)).open, 'a plain click opens no card').toBe(false);
+  // Opening a coordinate card (right-click) closes it and the card is not hidden under the row
+  await typeQuery(page, 'Тест алдаа 2');
+  await waitSettled(page, 'Тест алдаа 2');
+  await expect(tid(page, 'search-state')).toHaveAttribute('data-state', 'unavailable');
+  await rightClick(page, 900, 400);
+  await expect(popup, 'opening a coordinate card closes the unavailable row').toBeHidden({ timeout: 1000 });
+  await expect.poll(async () => (await card(page)).open, { timeout: 1500 }).toBe(true);
+  const c = await card(page);
+  expect(c.kind).toBe('point');
+  expect(c.title).toBe(T.mn.selectedPoint);
+  await expect(tid(page, 'place-card')).toBeVisible();
+});
+
 test('AC41 screen spec › Interactions › Tab: a state row without a button (no results) closes on Tab, like a list of results', async ({ page }) => {
   const ctl = await f5Setup(page);
   ctl.mode = 'empty';

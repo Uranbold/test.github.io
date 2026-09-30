@@ -1,7 +1,7 @@
 // NAV-003 B. Autocomplete timing (AC 12, 13) and D. Results list content (AC 17–19) with fixtures F1–F13 and F14a/F14b/F15/F16
 // (story amended 2026-09-30, PO approval F2, D33: Latin name endings for rules 1–4, rule 4a, same rule row in both UI languages).
 import { test, expect } from '@playwright/test';
-import { FIXTURES, FX, REF, SEARCH_GLOB, T, TRAD, expectNoTrad, fc, feature, jumpTo, mock, openApp, options, pace, tid, typeQuery, waitSettled } from './helpers.mjs';
+import { FIXTURES, FX, REF, SEARCH_GLOB, T, TRAD, TYPE_LABELS, expectNoTrad, fc, feature, jumpTo, mock, openApp, options, pace, tid, typeQuery, waitSettled } from './helpers.mjs';
 
 
 test('AC12 (live): results or «Илэрц олдсонгүй» render within 1,000 ms of the last keystroke for >= 19 of 20 samples', async ({ page }) => {
@@ -116,3 +116,48 @@ for (const lang of ['mn', 'en']) {
     expect(got.F16.type, 'F16 rule 1 before rule 7').not.toBe(lang === 'mn' ? 'Хороолол' : 'Neighbourhood');
   });
 }
+
+// QA defect D4 (run 6 / golden run 4, tier C row C6g/C6h, risk R13): AC 19 "the same OSM object returned with lang=mn and
+// with lang=en ... both get the label of the same table row ... never 'Place' in one language and a specific label in the
+// other". Features copied from the live gateway responses of 2026-09-30 08:14–08:19 UTC (properties as Photon sent them,
+// traditional script kept). The aimag pair is a control (same row today). The expected label is NOT asserted (no product
+// decision by QA); only that both languages use the same rule row. Stays as the regression test for D4.
+const liveForms = {
+  soum: {
+    osm: 'R7297914',
+    mn: { q: 'Баян-Өндөр сум', props: { osm_type: 'R', osm_id: 7297914, osm_key: 'boundary', osm_value: 'administrative', type: 'county', countrycode: 'MN', name: 'Баян-Өндөр сум', state: 'Өвөрхангай ᠥᠪᠦᠷ ᠬᠠᠩᠭ᠋ᠠᠢ' }, lonlat: [102.0, 46.0] },
+    en: { props: { osm_type: 'R', osm_id: 7297914, osm_key: 'boundary', osm_value: 'administrative', type: 'county', countrycode: 'MN', name: 'Bayan-Undur', state: 'Uvurkhangai' }, lonlat: [102.0, 46.0] },
+  },
+  aimag: {
+    osm: 'R270075',
+    mn: { q: 'Архангай', props: { osm_type: 'R', osm_id: 270075, osm_key: 'place', osm_value: 'state', type: 'state', countrycode: 'MN', name: 'Архангай ᠠᠷᠤ ᠬᠠᠩᠭ᠋ᠠᠢ' }, lonlat: [101.4, 47.6] },
+    en: { props: { osm_type: 'R', osm_id: 270075, osm_key: 'place', osm_value: 'state', type: 'state', countrycode: 'MN', name: 'Arkhangai' }, lonlat: [101.4, 47.6] },
+  },
+};
+const ruleOf = (label, ui) => TYPE_LABELS.find((t) => t[ui === 'en' ? 2 : 1] === label)?.[0] ?? null;
+
+test('AC19 same row (D4, R13): a live soum boundary and a live aimag get the same type-label row with lang=mn and lang=en', async ({ page }) => {
+  // The mock answers with the form that matches the request's lang (as the live gateway does for the same object).
+  let current = liveForms.soum;
+  await mock(page, SEARCH_GLOB, (p) => {
+    const f = current[p.lang === 'en' ? 'en' : 'mn'];
+    return { body: fc([{ type: 'Feature', geometry: { type: 'Point', coordinates: f.lonlat }, properties: f.props }]) };
+  });
+  await openApp(page, { lang: 'mn' });
+  const out = [];
+  for (const [kind, forms] of Object.entries(liveForms)) {
+    current = forms;
+    if ((await page.evaluate(() => document.documentElement.lang)) !== 'mn') await tid(page, 'language-toggle').click();
+    await typeQuery(page, forms.mn.q);
+    await waitSettled(page, forms.mn.q);
+    const mn = (await options(page))[0];
+    // AC 38: switching the UI language re-requests the open list with lang=en
+    await tid(page, 'language-toggle').click();
+    await expect.poll(async () => (await options(page))[0]?.name, { timeout: 3000 }).toBe(forms.en.props.name);
+    const en = (await options(page))[0];
+    out.push({ kind, osm: forms.osm, mn: `${mn.name} [${mn.type}] row ${ruleOf(mn.type, 'mn')}`, en: `${en.name} [${en.type}] row ${ruleOf(en.type, 'en')}`, same: ruleOf(mn.type, 'mn') === ruleOf(en.type, 'en') });
+    await tid(page, 'search-clear').click();
+  }
+  test.info().annotations.push({ type: 'AC19 D4 same row', description: JSON.stringify(out) });
+  expect(out.filter((o) => !o.same).map((o) => `${o.kind} ${o.osm}: mn ${o.mn} / en ${o.en}`), 'AC 19: same OSM object, same type-label row in both UI languages').toEqual([]);
+});
