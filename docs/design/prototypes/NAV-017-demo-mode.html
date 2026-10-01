@@ -86,7 +86,9 @@
   #r4 .scale { font-size: calc(12px * var(--tz)); background: var(--surface-container); color: var(--on-surface); padding: 2px 6px; border-radius: 4px; }
   #r4 .zoom { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: var(--surface); }
   #slot { grid-row: 5; grid-column: 1; z-index: 2; padding: 0 calc(16px + var(--sar)) 20px calc(16px + var(--sal)); min-height: 0; display: flex; }
-  #picker { background: var(--surface); border-radius: 8px; width: 100%; max-height: 60dvh; display: flex; flex-direction: column; min-height: 0; }
+  /* The list scrolls between the pinned heading and the pinned footer; if even those do not fit (extreme text zoom), the whole sheet scrolls. */
+  #picker { background: var(--surface); border-radius: 8px; width: 100%; max-height: 60dvh; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #picker .scroll { min-height: 64px; }
   :root[data-view="picker"][data-wide="1"] #app { grid-template-columns: calc(432px + var(--sal)) minmax(0,1fr); }
   :root[data-view="picker"][data-wide="1"] #slot { grid-column: 1; grid-row: 1 / 6; padding: calc(12px + var(--sat)) 16px 20px calc(16px + var(--sal)); }
   :root[data-view="picker"][data-wide="1"] #picker { max-height: none; max-width: 400px; }
@@ -102,7 +104,8 @@
   .entry .pt i { width: 12px; height: 12px; margin-top: calc(6px * var(--tz)); border-radius: 50%; border: 3px solid var(--on-surface); }
   .entry .pt i.pin { border: 0; background: var(--pin); border-radius: 50% 50% 50% 0; transform: rotate(-45deg); }
   .entry .meta { font-size: calc(14px * var(--tz)); color: var(--on-surface-variant); font-variant-numeric: tabular-nums; margin-top: 2px; }
-  .state { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; padding: 12px 16px; min-height: 56px; align-items: center; border-top: 1px solid var(--outline-variant); }
+  /* State row: pinned above «Эхлэх» (outside the scrolling list) so it is always visible next to the button it explains. */
+  .state { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 12px; padding: 8px 16px; min-height: 56px; align-items: center; border-top: 1px solid var(--outline-variant); flex: none; }
   .state .acts { grid-column: 2; display: flex; justify-content: flex-end; }
   #picker .foot { padding: 8px 16px 12px; flex: none; border-top: 1px solid var(--outline-variant); }
   #picker .foot .btn { width: 100%; min-height: 56px; font-size: calc(16px * var(--tz)); }
@@ -248,8 +251,8 @@ function render() {
       <div id="r2">${st === "picker-offline" ? `<div class="msg card" data-box="status-offline" role="status"><span class="ico" aria-hidden="true"></span><span>${t.offline}</span></div>` : ""}</div>
       <div id="r4"><span class="scale">${t.scale}</span><div class="zoom card"><button class="iconbtn flat" data-control aria-label="${t.zin}">+</button><button class="iconbtn flat" data-control aria-label="${t.zout}">−</button></div></div>
       <div id="slot"><section id="picker" class="card" data-box="picker" aria-labelledby="ph"><h2 id="ph" class="head" style="margin:0" tabindex="-1">${t.demo}</h2>
-        <div class="scroll" id="pscroll"><div class="label" id="pl">${t.routes}</div><div role="radiogroup" aria-labelledby="pl">${entries}</div>${stateRow}</div>
-        <div class="foot"><button class="btn filled" data-control data-start ${enabled ? "" : "disabled"}>${I.play}<span>${t.start}</span></button></div></section></div>
+        <div class="scroll" id="pscroll"><div class="label" id="pl">${t.routes}</div><div role="radiogroup" aria-labelledby="pl">${entries}</div></div>
+        ${stateRow}<div class="foot"><button class="btn filled" data-control data-start ${enabled ? "" : "disabled"}>${I.play}<span>${t.start}</span></button></div></section></div>
       ${attr}${insetDivs}`;
   } else {
     let icon = I.right, dist = st === "notice" || st === "offline" ? t.d1 : t.d300, instr = t.turnR, street = t.street, nodist = false;

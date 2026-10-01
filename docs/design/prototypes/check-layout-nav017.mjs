@@ -62,7 +62,7 @@ for (const [w, h, insets, label] of viewports) {
       const cs = getComputedStyle(document.documentElement);
       const [sat, sar, sab, sal] = ["--sat", "--sar", "--sab", "--sal"].map((k) => parseFloat(cs.getPropertyValue(k)) || 0);
       const vis = (el) => { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0 && !el.closest("[hidden]"); };
-      const scrollers = [document.getElementById("top"), document.getElementById("pscroll"), document.getElementById("r2")].filter(Boolean);
+      const scrollers = [document.getElementById("picker"), document.getElementById("top"), document.getElementById("pscroll"), document.getElementById("r2")].filter(Boolean);
       const rect = (el) => {
         let q = el.getBoundingClientRect();
         q = { left: q.left, right: q.right, top: q.top, bottom: q.bottom };
@@ -147,8 +147,8 @@ for (const [w, h, insets, label] of viewports) {
       // picker (AC 8): heading and «Эхлэх» visible without scrolling
       const startBtn = document.querySelector("[data-start]");
       if (startBtn) {
-        const sr = startBtn.getBoundingClientRect();
-        if (sr.bottom > vh - sab + 0.5 || sr.top < 0) out.push("«Эхлэх» not fully visible");
+        const sr = rect(startBtn);
+        if (sr.height + 0.5 < startBtn.getBoundingClientRect().height || sr.bottom > vh - sab + 0.5) out.push("«Эхлэх» not fully visible without scrolling");
         const ph = document.getElementById("ph").getBoundingClientRect();
         if (ph.top < 0 || ph.height < 1) out.push("picker heading not visible");
         const entries = [...document.querySelectorAll("[data-entry]")];
