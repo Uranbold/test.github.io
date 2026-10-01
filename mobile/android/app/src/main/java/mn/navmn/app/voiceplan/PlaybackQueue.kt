@@ -21,6 +21,22 @@ interface Speaker {
 }
 
 /**
+ * What happened to an enqueued prompt (NAV-005-D2): the voice schedule measures navigation-ux §4.2 rule 2 (8 s between
+ * two prompts for the same manoeuvre) from the playback START, which can be up to 3 s after the trigger (§4.5 rule 1).
+ */
+interface PlaybackListener {
+    /** [prompt] started playing at [atMs]. */
+    fun onStarted(prompt: SpokenPrompt, atMs: Long) {}
+
+    /** [prompt] was enqueued but will never play (replaced, timed out, cleared or refused). */
+    fun onDropped(prompt: SpokenPrompt) {}
+
+    companion object {
+        val NONE = object : PlaybackListener {}
+    }
+}
+
+/**
  * navigation-ux §4.5 playback rules (pure; times from the caller):
  *  1. one utterance at a time; at most one waits; a waiting prompt that cannot start within 3 s of its trigger is
  *     dropped (AC 34); a newer prompt replaces a waiting older one;
@@ -28,7 +44,7 @@ interface Speaker {
  *  3. arrival waits for the current utterance (max 3 s), then plays; nothing plays after it (AC 55);
  *  4./7. mute, «Дуусгах», language switch: [clear].
  */
-class PlaybackQueue(private val speaker: Speaker) {
+class PlaybackQueue(private val speaker: Speaker, private val listener: PlaybackListener = PlaybackListener.NONE) {
     var current: SpokenPrompt? = null
         private set
     private var currentStartedAt = 0L
@@ -42,9 +58,16 @@ class PlaybackQueue(private val speaker: Speaker) {
     val started = ArrayList<SpokenPrompt>()
 
     fun enqueue(p: SpokenPrompt, nowMs: Long) {
-        if (closed) return
-        if (waiting?.cls == PromptClass.ARRIVAL) return
-        if (current == null) start(p, nowMs) else waiting = p
+        if (closed || waiting?.cls == PromptClass.ARRIVAL) {
+            listener.onDropped(p)
+            return
+        }
+        if (current == null) {
+            start(p, nowMs)
+        } else {
+            waiting?.let { listener.onDropped(it) }
+            waiting = p
+        }
     }
 
     fun onDone(id: Long, nowMs: Long) {
@@ -53,6 +76,7 @@ class PlaybackQueue(private val speaker: Speaker) {
         current = null
         if (wasArrival) {
             closed = true
+            waiting?.let { listener.onDropped(it) }
             waiting = null
             return
         }
@@ -62,7 +86,7 @@ class PlaybackQueue(private val speaker: Speaker) {
     private fun promote(nowMs: Long) {
         val w = waiting ?: return
         waiting = null
-        if (w.cls == PromptClass.ARRIVAL || nowMs - w.triggerAtMs <= VoiceConstants.MAX_WAIT_MS) start(w, nowMs)
+        if (w.cls == PromptClass.ARRIVAL || nowMs - w.triggerAtMs <= VoiceConstants.MAX_WAIT_MS) start(w, nowMs) else listener.onDropped(w)
     }
 
     fun tick(nowMs: Long) {
@@ -75,6 +99,7 @@ class PlaybackQueue(private val speaker: Speaker) {
                 start(w, nowMs)
             } else if (w.cls != PromptClass.ARRIVAL && nowMs - w.triggerAtMs > VoiceConstants.MAX_WAIT_MS) {
                 waiting = null
+                listener.onDropped(w)
             }
         }
         // Safety net: a speaker that never reports the end must not block the queue for good.
@@ -85,6 +110,7 @@ class PlaybackQueue(private val speaker: Speaker) {
     fun clear() {
         if (current != null) speaker.stop()
         current = null
+        waiting?.let { listener.onDropped(it) }
         waiting = null
     }
 
@@ -98,6 +124,7 @@ class PlaybackQueue(private val speaker: Speaker) {
         current = p
         currentStartedAt = nowMs
         started += p
+        listener.onStarted(p, nowMs)
         speaker.play(p)
     }
 

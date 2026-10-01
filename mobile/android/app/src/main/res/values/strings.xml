@@ -121,9 +121,15 @@
     <string name="maneuver_arrive_left">Таны очих газар зүүн талд байна</string>
     <string name="maneuver_arrive_right">Таны очих газар баруун талд байна</string>
     <!-- Glossary A8 -->
-    <string name="voice_prefix_m">{n} метрт</string>
+    <plurals name="voice_prefix_m">
+        <item quantity="one">{n} метрт</item>
+        <item quantity="other">{n} метрт</item>
+    </plurals>
     <!-- Glossary A9 -->
-    <string name="voice_prefix_km">{n} километрт</string>
+    <plurals name="voice_prefix_km">
+        <item quantity="one">{n} километрт</item>
+        <item quantity="other">{n} километрт</item>
+    </plurals>
     <!-- Glossary A10 -->
     <string name="voice_roundabout_exit">Тойрогт ороод {ordinal} гарцаар гарна уу</string>
     <!-- Glossary C4 -->
@@ -138,9 +144,15 @@
     <string name="voice_ordinal_9">есдүгээр</string>
     <string name="voice_ordinal_10">аравдугаар</string>
     <!-- Glossary A11 -->
-    <string name="voice_approaching">{n} метрт очих газартаа ирнэ</string>
+    <plurals name="voice_approaching">
+        <item quantity="one">{n} метрт очих газартаа ирнэ</item>
+        <item quantity="other">{n} метрт очих газартаа ирнэ</item>
+    </plurals>
     <!-- Glossary A12 -->
-    <string name="voice_continue_on">{n} километр үргэлжлүүлэн явна уу</string>
+    <plurals name="voice_continue_on">
+        <item quantity="one">{n} километр үргэлжлүүлэн явна уу</item>
+        <item quantity="other">{n} километр үргэлжлүүлэн явна уу</item>
+    </plurals>
     <!-- Glossary A13 -->
     <string name="voice_then">{first}, дараа нь {second}</string>
     <string name="voice_off_route">Та маршрутаас гарлаа</string>

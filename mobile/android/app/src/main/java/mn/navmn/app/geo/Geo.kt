@@ -75,6 +75,42 @@ object Geo {
         return best
     }
 
+    /**
+     * True when the nearest point of the polyline [line] to [p] is its last coordinate, i.e. the projection of [p] is
+     * clamped at the end of the line (same local projection as [distanceToLine]). [toleranceM] absorbs rounding when
+     * [p] lies almost exactly perpendicular to the last segment at its end (a 90° turn). False for an empty line.
+     */
+    fun nearestIsLast(p: LatLon, line: List<LatLon>, toleranceM: Double = 0.5): Boolean {
+        if (line.isEmpty()) return false
+        if (line.size == 1) return true
+        val kx = EARTH_RADIUS_M * Math.toRadians(1.0) * cos(Math.toRadians(p.lat))
+        val ky = EARTH_RADIUS_M * Math.toRadians(1.0)
+        var best = Double.POSITIVE_INFINITY
+        var bestAlong = 0.0
+        var total = 0.0
+        for (i in 0 until line.size - 1) {
+            val ax = (line[i].lon - p.lon) * kx
+            val ay = (line[i].lat - p.lat) * ky
+            val bx = (line[i + 1].lon - p.lon) * kx
+            val by = (line[i + 1].lat - p.lat) * ky
+            val dx = bx - ax
+            val dy = by - ay
+            val len2 = dx * dx + dy * dy
+            val len = sqrt(len2)
+            val t = if (len2 == 0.0) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+            val cx = ax + t * dx
+            val cy = ay + t * dy
+            val d = sqrt(cx * cx + cy * cy)
+            // On a tie the later point wins, so a fix nearest to the shared end vertex counts as "at the end".
+            if (d <= best) {
+                best = d
+                bestAlong = total + t * len
+            }
+            total += len
+        }
+        return bestAlong >= total - toleranceM
+    }
+
     /** Point [distanceM] from [from] in direction [bearingDeg] (spherical). */
     fun offset(from: LatLon, bearingDeg: Double, distanceM: Double): LatLon {
         val δ = distanceM / EARTH_RADIUS_M

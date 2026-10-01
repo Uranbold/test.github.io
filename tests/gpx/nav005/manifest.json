@@ -209,6 +209,43 @@
    "points": 309,
    "duration_s": 308,
    "outlier_index": 236
+  },
+  {
+   "id": "G6e",
+   "file": "tests/gpx/nav005/G6e.gpx",
+   "description": "G1 with one 5 m-accuracy outlier exactly on the route's last coordinate after ~300 m of driving",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 309,
+   "duration_s": 308,
+   "outlier_index": 21
+  },
+  {
+   "id": "G6f",
+   "file": "tests/gpx/nav005/G6f.gpx",
+   "description": "G1 with one 5 m-accuracy outlier 60 m beside the route end while ~100 m before it on the last leg",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 309,
+   "duration_s": 308,
+   "outlier_index": 297
+  },
+  {
+   "id": "G10",
+   "file": "tests/gpx/nav005/G10.gpx",
+   "description": "Peace Ave U-turn route (QA recording): passes 22.7 m from its own end on the first step, U-turns, then arrives",
+   "route": "tests/gpx/nav005/routes/g10-uturn-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 97,
+   "duration_s": 96,
+   "passes_end_at_m": 390,
+   "passes_end_min_m": 22.7
   }
  ]
 }

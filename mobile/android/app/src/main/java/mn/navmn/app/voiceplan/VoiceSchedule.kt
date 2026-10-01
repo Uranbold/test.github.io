@@ -68,7 +68,13 @@ class SpeedTracker(private val windowMs: Long = VoiceConstants.SPEED_WINDOW_MS) 
  */
 class VoiceScheduler(private val walk: Boolean) {
     private val fired = HashSet<Triple<Int, Int, PromptKind>>()
+    /**
+     * Rule 2 reference per manoeuvre: the playback start of its latest prompt (NAV-005-D2). Until the playback queue
+     * reports the start ([onPromptStarted]) the trigger time stands in for it (a free channel starts at the trigger);
+     * if the prompt is dropped unplayed ([onPromptDropped]) the last real start is restored.
+     */
     private val lastPromptAt = HashMap<Pair<Int, Int>, Long>()
+    private val lastStartedAt = HashMap<Pair<Int, Int>, Long>()
     private val spoken = HashSet<Pair<Int, Int>>()
     /** Manoeuvres whose chained prompt was produced (the Then strip shows for them, §2.4). */
     private val chainedAnnounced = HashSet<Pair<Int, Int>>()
@@ -107,6 +113,22 @@ class VoiceScheduler(private val walk: Boolean) {
         lastPromptAt[gen to 0] = nowMs
         if (then != null) markChained(gen, 0)
         return ScheduledPrompt(VoiceContent.Depart(plan.steps[0].key, then), gen to 0, PromptKind.DEPART, nowMs)
+    }
+
+    /** The playback queue started a prompt for [maneuver] (generation, step) at [atMs] (navigation-ux §4.2 rule 2). */
+    fun onPromptStarted(maneuver: Pair<Int, Int>, atMs: Long) {
+        lastStartedAt[maneuver] = atMs
+        lastPromptAt[maneuver] = atMs
+    }
+
+    /**
+     * A prompt for [maneuver] triggered at [triggerAtMs] was dropped without playing: it does not count for rule 2.
+     * Only the latest prompt's stand-in is reverted (a newer prompt for the same manoeuvre keeps its own).
+     */
+    fun onPromptDropped(maneuver: Pair<Int, Int>, triggerAtMs: Long) {
+        if (lastPromptAt[maneuver] != triggerAtMs) return
+        val started = lastStartedAt[maneuver]
+        if (started == null) lastPromptAt.remove(maneuver) else lastPromptAt[maneuver] = started
     }
 
     /** §4.3: one catch-up prompt within 1 s after a new route is active (or the driver is back on the old one). */

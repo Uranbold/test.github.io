@@ -66,24 +66,57 @@ class StateMachinesTest {
         assertTrue(g.ok(41_500))
     }
 
+    /** Last leg of a 5-step route (steps 0..4, 4 = arrive): current step 3. */
+    private fun ArrivalDetector.at(complete: Boolean, offRoute: Boolean, good: Boolean, remaining: Double, p: LatLon, end: LatLon, step: Int = 3, trusted: Boolean = true) =
+        check(complete, offRoute, good, trusted, remaining, p, end, step, 4)
+
     @Test
     fun arrivalFiresOnceIncludingStationaryBesideTheEnd() {
         val end = LatLon(47.8858, 106.9173)
         val a = ArrivalDetector()
         val far = Geo.offset(end, 0.0, 200.0)
-        assertFalse(a.check(false, false, true, 200.0, far, end))
+        assertFalse(a.at(false, false, true, 200.0, far, end))
         val beside = Geo.offset(end, 90.0, 10.0)
-        assertTrue(a.check(false, true, true, 80.0, beside, end))
-        repeat(30) { assertFalse(a.check(false, false, true, 0.0, beside, end)) }
+        assertTrue(a.at(false, true, true, 80.0, beside, end))
+        repeat(30) { assertFalse(a.at(false, false, true, 0.0, beside, end)) }
     }
 
     @Test
     fun arrivalByRemainingDistanceOrComplete() {
         val end = LatLon(47.8858, 106.9173)
         val p = Geo.offset(end, 0.0, 100.0)
-        assertTrue(ArrivalDetector().check(false, false, true, 29.0, p, end))
-        assertFalse(ArrivalDetector().check(false, true, true, 29.0, p, end))
-        assertFalse(ArrivalDetector().check(false, false, false, 29.0, p, end))
-        assertTrue(ArrivalDetector().check(true, false, false, 500.0, p, end))
+        assertTrue(ArrivalDetector().at(false, false, true, 29.0, p, end))
+        assertFalse(ArrivalDetector().at(false, true, true, 29.0, p, end))
+        assertFalse(ArrivalDetector().at(false, false, false, 29.0, p, end))
+        assertTrue(ArrivalDetector().at(true, false, false, 500.0, p, end))
+    }
+
+    /** ADR-0009 Amendment 1 / Amendment 3 §5, NAV-005 review probe: rule (c) only while the next manoeuvre is `arrive`. */
+    @Test
+    fun straightLineRuleOnlyOnTheLastLeg() {
+        val end = LatLon(47.8858, 106.9173)
+        val near = Geo.offset(end, 180.0, 20.0)
+        // a good fix 20 m from the end while still on step 1 of 4 (route passes close to its end, or one outlier)
+        val a = ArrivalDetector()
+        assertFalse(a.at(false, false, true, 3_965.0, near, end, step = 1))
+        assertFalse(a.at(false, false, true, 3_965.0, near, end, step = 2))
+        assertFalse(a.arrived)
+        // the upcoming manoeuvre is arrive (current step = last − 1): fires
+        assertTrue(a.at(false, false, true, 60.0, near, end, step = 3))
+        // Ferrostar's Complete state reports the arrive step itself: still the last leg
+        assertTrue(ArrivalDetector().at(false, false, true, 60.0, near, end, step = 4))
+        // rule (a) is not gated
+        assertTrue(ArrivalDetector().at(true, false, true, 3_965.0, Geo.offset(end, 0.0, 2_000.0), end, step = 1))
+    }
+
+    /** ADR-0009 Amendment 3 §5: rule (b) uses only a trusted fix (an untrusted fix is snapped to the step end). */
+    @Test
+    fun remainingDistanceRuleNeedsATrustedFix() {
+        val end = LatLon(47.8858, 106.9173)
+        val p = Geo.offset(end, 0.0, 300.0)
+        val a = ArrivalDetector()
+        assertFalse(a.at(false, false, true, 5.0, p, end, trusted = false))
+        assertFalse(a.arrived)
+        assertTrue(a.at(false, false, true, 5.0, p, end, trusted = true))
     }
 }

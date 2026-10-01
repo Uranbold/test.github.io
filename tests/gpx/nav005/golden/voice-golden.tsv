@@ -63,7 +63,7 @@ G8	en	158	3	In 150 meters, turn left
 G8	en	169	3	Turn left
 G8	en	257	4	In 150 meters, turn right
 G8	en	268	4	Turn right
-G8	en	314	5	In 1 kilometers, turn slightly left
+G8	en	314	5	In 1 kilometer, turn slightly left
 G8	en	379	5	In 150 meters, turn slightly left
 G8	en	390	5	Turn slightly left
 G8	en	459	6	In 150 meters, enter the roundabout and take the second exit, then exit the roundabout
@@ -72,7 +72,7 @@ G8	en	483	7	Exit the roundabout
 G8	en	557	8	In 150 meters, turn right, then turn left
 G8	en	567	8	Turn right, then turn left
 G8	en	578	9	Turn left
-G8	en	635	10	In 1 kilometers, enter the roundabout and take the second exit
+G8	en	635	10	In 1 kilometer, enter the roundabout and take the second exit
 G8	en	700	10	In 150 meters, enter the roundabout and take the second exit, then exit the roundabout
 G8	en	711	10	Enter the roundabout and take the second exit, then exit the roundabout
 G8	en	723	11	Exit the roundabout, then turn slightly right
@@ -84,7 +84,6 @@ G8	en	775	16	In 100 meters, you will arrive
 G8	en	783	16	You have arrived
 G9	mn	0	0	Өмнө зүг рүү явна уу
 G9	mn	1	1	200 метрт баруун тийш эргэнэ үү
-G9	mn	9	1	40 метрт баруун тийш эргэнэ үү
 G9	mn	14	2	19 километр үргэлжлүүлэн явна уу
 G9	mn	772	2	2 километрт тойрогт ороод хоёрдугаар гарцаар гарна уу
 G9	mn	839	2	500 метрт тойрогт ороод хоёрдугаар гарцаар гарна уу, дараа нь тойргоос гарна уу

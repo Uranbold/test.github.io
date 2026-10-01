@@ -17,6 +17,7 @@ import mn.navmn.app.route.RouteOutcome
 import mn.navmn.app.route.RouteRequest
 import mn.navmn.app.route.RouteRequester
 import mn.navmn.app.route.TravelMode
+import mn.navmn.app.voiceplan.PlaybackListener
 import mn.navmn.app.voiceplan.PlaybackQueue
 import mn.navmn.app.voiceplan.PromptClass
 import mn.navmn.app.voiceplan.ScheduledPrompt
@@ -65,7 +66,9 @@ class GuidanceCore(
      * NAV-005-D9: false while the latest fix is a good fix > 50 m from the current step that was not caught up
      * ([NavSnapshot.fixOnCurrentStep]). Ferrostar snaps it to the nearest point of the current step (often the
      * manoeuvre itself), so [snapshot] keeps the last trusted position and the voice schedule is not evaluated (one
-     * outlier must not fire the "now" prompt early, AC 34). Off-route detection and arrival still see every fix.
+     * outlier must not fire the "now" prompt early, AC 34). Off-route detection still sees every fix; arrival sees
+     * it under the ADR-0009 Amendment 3 §5 gating (rule (b) only for trusted fixes, rule (c) only on the last leg).
+     * NAV-005-D8: a pending past-the-end catch-up (branch b) is untrusted as well.
      */
     private var positionTrusted = true
 
@@ -75,7 +78,19 @@ class GuidanceCore(
     private val arrival = ArrivalDetector()
     private val scheduler = VoiceScheduler(walk = trip.mode == TravelMode.WALK)
     private val speed = SpeedTracker()
-    val queue = PlaybackQueue(speaker)
+    /** navigation-ux §4.2 rule 2 is measured from the playback start (NAV-005-D2): the queue reports it back. */
+    val queue = PlaybackQueue(
+        speaker,
+        object : PlaybackListener {
+            override fun onStarted(prompt: SpokenPrompt, atMs: Long) {
+                prompt.maneuver?.let { scheduler.onPromptStarted(it, atMs) }
+            }
+
+            override fun onDropped(prompt: SpokenPrompt) {
+                prompt.maneuver?.let { scheduler.onPromptDropped(it, prompt.triggerAtMs) }
+            }
+        },
+    )
 
     private var phase = GuidancePhase.NAVIGATING
     private var lang = lang
@@ -145,7 +160,19 @@ class GuidanceCore(
         }
         previousFixGood = good
         previousFixElapsed = fix.elapsedMs
-        if (arrival.check(snap.complete, offRoute.inEpisode, good, snap.distanceRemaining, fix.latLon, plan.end)) {
+        // ADR-0009 Amendment 3 §5: rule (b) only with a trusted fix, rule (c) only on the last leg (step gating).
+        if (arrival.check(
+                complete = snap.complete,
+                offRoute = offRoute.inEpisode,
+                goodFix = good,
+                trustedFix = snap.fixOnCurrentStep,
+                distanceRemaining = snap.distanceRemaining,
+                position = fix.latLon,
+                routeEnd = plan.end,
+                stepIndex = snap.stepIndex,
+                lastStepIndex = plan.steps.lastIndex,
+            )
+        ) {
             arrive(now)
             emit()
             return

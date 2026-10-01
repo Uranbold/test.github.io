@@ -318,6 +318,33 @@ def build():
     add("G6d", "G1 with one 5 m-accuracy outlier placed on the next step (200 m past the left turn) ~120 m before the turn",
         g6d, car_mn, extra={"outlier_index": i6d})
 
+    # ---- QA variants, round 3 (ADR-0009 Amendment 1 / Amendment 3 §5: arrival rule (c) step gating, rule (b) trust) ----
+
+    # G6e: G1 with one 5 m-accuracy outlier placed exactly ON the route's last coordinate (P3 side) at the first fix
+    # >= 300 m along (the architect's review probe, there 20 m from the end). Arrival must not fire before the last leg.
+    g6e = [list(p) for p in g1]
+    i6e = next(i for i, a in enumerate(g1_along) if a >= 300.0)
+    g6e[i6e][1] = line.pts[-1]
+    add("G6e", "G1 with one 5 m-accuracy outlier exactly on the route's last coordinate after ~300 m of driving",
+        g6e, car_mn, extra={"outlier_index": i6e})
+
+    # G6f: G1 with one 5 m-accuracy outlier 60 m beside the route end (perpendicular to the last segment) while the car
+    # is on the last leg ~100 m before the end. The fix is > 50 m off the current step (untrusted, Amendment 3 §1) and
+    # Ferrostar snaps it to the end, so its distanceRemaining is ~0: arrival rule (b) must ignore it (Amendment 3 §5).
+    g6f = [list(p) for p in g1]
+    i6f = next(i for i, a in enumerate(g1_along) if a >= line.length - 100.0)
+    g6f[i6f][1] = offset(line.pts[-1], (line.course(line.length) or 0) + 90, 60.0)
+    add("G6f", "G1 with one 5 m-accuracy outlier 60 m beside the route end while ~100 m before it on the last leg",
+        g6f, car_mn, extra={"outlier_index": i6f})
+
+    # G10: a recorded route that passes close to its own end before the last manoeuvre (Peace Ave, divided): west on
+    # the north carriageway, 22.7 m beside the destination at ~390 m (first step), U-turn at ~759 m, back east on the
+    # south carriageway to the destination. <= 47 km/h, slowing to ~22 km/h at the U-turn.
+    g10 = f"{QA_ROUTES}/g10-uturn-car-mn.json"
+    l10, _, a10 = load(g10)
+    add("G10", "Peace Ave U-turn route (QA recording): passes 22.7 m from its own end on the first step, U-turns, then arrives",
+        drive(l10, speed_profile(13.0, 6.0, 0.08, a10)), g10, extra={"passes_end_at_m": 390, "passes_end_min_m": 22.7})
+
     files["manifest.json"] = json.dumps(manifest, ensure_ascii=False, indent=1) + "\n"
     return files
 

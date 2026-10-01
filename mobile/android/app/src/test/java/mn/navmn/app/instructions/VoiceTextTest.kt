@@ -82,6 +82,33 @@ class VoiceTextTest {
     }
 
     /** Every voice text the generator can produce for the fixture keys and the schedule's distance range. */
+    /** NAV-005-D4, navigation-ux §4.1 "English singular / plural": singular only when the formatted {n} is exactly "1". */
+    @Test
+    fun englishSingularAndPluralFromTheFormattedNumber() {
+        assertEquals("In 1 kilometer, turn slightly left", e(VoiceContent.Maneuver(k("turn", "slight left"), 1_040.0)))
+        assertEquals("In 1.5 kilometers, keep left", e(VoiceContent.Maneuver(k("fork", "slight left"), 1_500.0)))
+        assertEquals("Continue for 2 kilometers", e(VoiceContent.ContinueOn(2_000.0)))
+        // 995 m rounds to "1" km (singular); 1,050 m formats as "1.1" (plural, never an int cast to 1)
+        assertEquals("In 1 kilometer, turn right", e(VoiceContent.Maneuver(k("turn", "right"), 995.0)))
+        assertEquals("In 1.1 kilometers, turn right", e(VoiceContent.Maneuver(k("turn", "right"), 1_050.0)))
+        assertEquals("Continue for 1 kilometer", e(VoiceContent.ContinueOn(1_000.0)))
+        assertEquals("In 300 meters, you will arrive", e(VoiceContent.Approaching(310.0)))
+        assertEquals("In 30 meters, turn right", e(VoiceContent.Maneuver(k("turn", "right"), 30.0)))
+        // Mongolian is unchanged (no plural change)
+        assertEquals("1 километрт бага зэрэг зүүн тийш эргэнэ үү", m(VoiceContent.Maneuver(k("turn", "slight left"), 1_040.0)))
+        assertEquals("1 километр үргэлжлүүлэн явна уу", m(VoiceContent.ContinueOn(1_000.0)))
+        // across the whole prefix range: singular exactly when the number is "1" (never "1 kilometers", never "1.5 kilometer")
+        val unit = Regex("(\\d+(?:\\.\\d)?) (kilometers?|meters?)\\b")
+        var d = 30.0
+        while (d < 20_000.0) {
+            for (t in listOf(e(VoiceContent.Maneuver(k("turn", "right"), d)), e(VoiceContent.ContinueOn(d)), e(VoiceContent.Approaching(d)))) {
+                val u = unit.find(t) ?: error("$d m: no distance in «$t»")
+                assertEquals("$d m: «$t»", u.groupValues[1] == "1", !u.groupValues[2].endsWith("s"))
+            }
+            d += 7.0
+        }
+    }
+
     private fun mongolianVoiceSet(): List<String> {
         val keys = ManeuverKey.entries.map { if (it == ManeuverKey.ROUNDABOUT_EXIT) KeyResult(it, 2) else KeyResult(it) } +
             (1..12).map { KeyResult(ManeuverKey.ROUNDABOUT_EXIT, it) }

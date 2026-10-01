@@ -27,8 +27,39 @@ class StepCatchUpTest {
     @Test
     fun onTheCurrentStepNothingHappens() {
         assertEquals(0, StepCatchUp.stepsToAdvance(Geo.offset(a, 90.0, 590.0), 5.0, steps))
-        // just past the junction (within 50 m of the current step): Ferrostar's entry/exit condition owns it
-        assertEquals(0, StepCatchUp.stepsToAdvance(Geo.offset(b, 0.0, 40.0), 5.0, steps))
+        // just past the junction (within 30 m of the step end): Ferrostar's entry/exit condition owns it
+        assertEquals(0, StepCatchUp.stepsToAdvance(Geo.offset(b, 0.0, 25.0), 5.0, steps))
+    }
+
+    /** NAV-005-D8, ADR-0009 Amendment 3 §1 branch (b): the walking dead band 30–50 m past the end of the current step. */
+    @Test
+    fun pastTheEndOfTheCurrentStepInTheDeadBand() {
+        // 40 m along the next street after the corner b (G5b: fixes resume 40 m past the turn)
+        assertEquals(1, StepCatchUp.stepsToAdvance(Geo.offset(b, 0.0, 40.0), 5.0, steps))
+        // 45 m past the corner and 10 m beside the next street: still within 25 m of it and closer to it
+        assertEquals(1, StepCatchUp.stepsToAdvance(Geo.offset(Geo.offset(b, 0.0, 45.0), 90.0, 10.0), 5.0, steps))
+        // exactly 30 m past is still Ferrostar's (more than STEP_ENTRY_M is required)
+        assertEquals(0, StepCatchUp.stepsToAdvance(Geo.offset(b, 0.0, 29.5), 5.0, steps))
+        // straight on past the corner (overshoot, not on the next street): no later step within 25 m
+        assertEquals(0, StepCatchUp.stepsToAdvance(Geo.offset(b, 90.0, 40.0), 5.0, steps))
+        // beside the current step, not past its end: the projection is not clamped at the end
+        assertEquals(0, StepCatchUp.stepsToAdvance(Geo.offset(Geo.offset(a, 90.0, 300.0), 0.0, 40.0), 5.0, steps))
+        // poor accuracy never advances
+        assertEquals(0, StepCatchUp.stepsToAdvance(Geo.offset(b, 0.0, 40.0), 26.0, steps))
+        // only the current step and arrive are left: never applied
+        assertEquals(0, StepCatchUp.stepsToAdvance(Geo.offset(c, 90.0, 400.0 + 40.0), 5.0, steps.takeLast(2)))
+        // the arrive step is never a target: 40 m past the end of step 1 (corner c), the later step 2 is chosen
+        assertEquals(1, StepCatchUp.stepsToAdvance(Geo.offset(c, 90.0, 40.0), 5.0, steps.drop(1)))
+    }
+
+    @Test
+    fun nearestIsLastIsTheClampedProjection() {
+        val line = listOf(a, b)
+        assertTrue(Geo.nearestIsLast(Geo.offset(b, 90.0, 40.0), line))
+        assertTrue(Geo.nearestIsLast(Geo.offset(b, 0.0, 40.0), line)) // perpendicular at the end (90° turn)
+        assertEquals(false, Geo.nearestIsLast(Geo.offset(Geo.offset(b, 270.0, 10.0), 0.0, 40.0), line))
+        assertEquals(false, Geo.nearestIsLast(Geo.offset(a, 270.0, 10.0), line))
+        assertEquals(false, Geo.nearestIsLast(b, emptyList()))
     }
 
     @Test

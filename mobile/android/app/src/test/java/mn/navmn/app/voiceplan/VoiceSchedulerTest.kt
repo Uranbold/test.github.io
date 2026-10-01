@@ -84,6 +84,32 @@ class VoiceSchedulerTest {
         assertNull(s.evaluate(VoiceScheduler.Input(30_000, plan, 0, 10.0, 10.0)))
     }
 
+    /**
+     * NAV-005-D2 (G9): rule 2 counts from the playback START. The main prompt waits 1.4 s behind the depart prompt;
+     * the "now" prompt 7.6 s after that start (9 s after the trigger) is skipped.
+     */
+    @Test
+    fun sameManeuverEightSecondRuleCountsFromThePlaybackStart() {
+        val plan = Plans.plan(Plans.depart to 300.0, Plans.right to 500.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        val main = s.evaluate(VoiceScheduler.Input(0, plan, 0, 200.0, 25.0))!!
+        assertEquals(PromptKind.MAIN, main.kind)
+        s.onPromptStarted(main.maneuver!!, 1_400)
+        assertNull(s.evaluate(VoiceScheduler.Input(9_000, plan, 0, 40.0, 25.0)))
+    }
+
+    /** A prompt that was dropped unplayed (queue 3 s rule) does not block the next prompt for the same manoeuvre. */
+    @Test
+    fun droppedPromptDoesNotCountForTheEightSecondRule() {
+        val plan = Plans.plan(Plans.depart to 300.0, Plans.right to 500.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        val main = s.evaluate(VoiceScheduler.Input(20_000, plan, 0, 110.0, 10.0))!!
+        s.onPromptDropped(main.maneuver!!, main.triggerAtMs)
+        assertEquals(PromptKind.NOW, s.evaluate(VoiceScheduler.Input(25_000, plan, 0, 25.0, 10.0))!!.kind)
+    }
+
     @Test
     fun chainingWithinOneHundredFiftyMetresByCar() {
         val plan = Plans.plan(Plans.depart to 600.0, Plans.right to 100.0, Plans.left to 900.0, Plans.arrive to 0.0)

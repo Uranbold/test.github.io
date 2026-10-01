@@ -88,7 +88,10 @@ class FerrostarNavigator(route: FerrostarRoute) : Navigator {
 
     private val catchUpGate = StepCatchUp.Gate()
 
-    /** NAV-005-D9: the last fix was good, > 50 m from the current step and not caught up. */
+    /**
+     * NAV-005-D9 / D8: the last fix was good and not caught up, but either > 50 m from the current step or a pending
+     * catch-up target (past-the-end branch); its snapped position and distances are not trustworthy.
+     */
     private var lastFixOffStep = false
 
     /**
@@ -113,7 +116,8 @@ class FerrostarNavigator(route: FerrostarRoute) : Navigator {
         val n = StepCatchUp.stepsToAdvance(fix.latLon, fix.accuracyM, remaining)
         val current = ferrostarRoute.steps.size - t.remainingSteps.size
         if (!catchUpGate.decide(if (n == 0) null else current + n, good, fix.elapsedMs)) {
-            lastFixOffStep = remaining.isNotEmpty() && StepCatchUp.offCurrentStep(fix.latLon, fix.accuracyM, remaining[0])
+            // D9: off the current step; D8: a pending past-the-end match (branch b) is untrusted as well.
+            lastFixOffStep = n > 0 || (remaining.isNotEmpty() && StepCatchUp.offCurrentStep(fix.latLon, fix.accuracyM, remaining[0]))
             return s
         }
         var next = s

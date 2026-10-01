@@ -1,6 +1,8 @@
 package mn.navmn.app.instructions
 
 import mn.navmn.app.i18n.Lang
+import mn.navmn.app.i18n.PluralKey
+import mn.navmn.app.i18n.Plurals
 import mn.navmn.app.i18n.StringKey
 import mn.navmn.app.i18n.Strings
 import mn.navmn.app.i18n.Templates
@@ -30,6 +32,8 @@ sealed interface VoiceContent {
 /**
  * Voice text generator (navigation-ux §4.1, NAV-005 AC 32–33, glossary C3, C4, A8–A13). Pure: no device, no TTS
  * (AC 40). Units are spelled out («метрт», «километрт»), numbers stay digits, Mongolian decimal comma, English point.
+ * English distance templates have singular and plural forms (NAV-005-D4): the singular only when the formatted
+ * number is exactly "1" ([Plurals.isOne]); Mongolian items are identical.
  */
 object VoiceText {
     /** Distance prefix number and unit for [d] metres; null below 30 m (no prefix). */
@@ -72,10 +76,7 @@ object VoiceText {
 
     private fun prefixed(d: Double, instruction: String, lang: Lang, strings: Strings): String {
         val dist = prefixDistance(d, lang) ?: return BannerText.capitalizeFirst(instruction, lang)
-        val prefix = Templates.fill(
-            strings[if (dist.kilometres) StringKey.VOICE_PREFIX_KM else StringKey.VOICE_PREFIX_M],
-            "n" to dist.number,
-        )
+        val prefix = Plurals.fill(strings, if (dist.kilometres) PluralKey.VOICE_PREFIX_KM else PluralKey.VOICE_PREFIX_M, dist.number)
         val rest = BannerText.lowercaseFirst(instruction, lang)
         return if (lang == Lang.MN) "$prefix $rest" else "$prefix, $rest"
     }
@@ -93,12 +94,12 @@ object VoiceText {
         is VoiceContent.Maneuver -> chained(prefixed(c.distanceM, instruction(c.key, strings), lang, strings), c.then, lang, strings)
         is VoiceContent.Depart -> chained(BannerText.capitalizeFirst(instruction(c.key, strings), lang), c.then, lang, strings)
         is VoiceContent.Approaching -> BannerText.capitalizeFirst(
-            Templates.fill(strings[StringKey.VOICE_APPROACHING], "n" to metres(c.distanceM)),
+            Plurals.fill(strings, PluralKey.VOICE_APPROACHING, metres(c.distanceM)),
             lang,
         )
         is VoiceContent.Arrival -> BannerText.capitalizeFirst(instruction(c.key, strings), lang)
         is VoiceContent.ContinueOn -> BannerText.capitalizeFirst(
-            Templates.fill(strings[StringKey.VOICE_CONTINUE_ON], "n" to kilometres(c.distanceM, lang)),
+            Plurals.fill(strings, PluralKey.VOICE_CONTINUE_ON, kilometres(c.distanceM, lang)),
             lang,
         )
         VoiceContent.OffRoute -> strings[StringKey.VOICE_OFF_ROUTE]

@@ -72,4 +72,25 @@ class PlaybackQueueTest {
         assertNull(q.current)
         assertNull(q.waiting)
     }
+
+    /** NAV-005-D2: the queue reports every start (with its time) and every prompt that will never play. */
+    @Test
+    fun listenerSeesStartsAndDrops() {
+        val events = ArrayList<String>()
+        val l = object : PlaybackListener {
+            override fun onStarted(prompt: SpokenPrompt, atMs: Long) { events += "start ${prompt.text} $atMs" }
+            override fun onDropped(prompt: SpokenPrompt) { events += "drop ${prompt.text}" }
+        }
+        val q = PlaybackQueue(RecSpeaker(), l)
+        val a = p("a", 0)
+        q.enqueue(a, 0)
+        q.enqueue(p("b", 100), 100)
+        q.enqueue(p("c", 200), 200) // replaces the waiting b
+        q.onDone(a.id, 1_400) // c starts 1.2 s after its trigger
+        q.enqueue(p("d", 1_500), 1_500)
+        q.tick(4_600) // d could not start within 3 s
+        q.enqueue(p("e", 5_000), 5_000)
+        q.clear() // e waiting → dropped; c stopped (it had started)
+        assertEquals(listOf("start a 0", "drop b", "start c 1400", "drop d", "drop e"), events)
+    }
 }

@@ -313,16 +313,18 @@ Keys `maneuver_*` = the NAV-004 keys with `_` (e.g. `maneuver_turn_left`, `maneu
 ### Voice texts (AC 32; navigation-ux §4.1)
 | Key | mn | en | Glossary source |
 |---|---|---|---|
-| `voice_prefix_m` | {n} метрт | In {n} meters | A8 |
-| `voice_prefix_km` | {n} километрт | In {n} kilometers | A9 |
+| `voice_prefix_m` (plural: `one` / `other`) | {n} метрт (both forms) | `one`: In {n} meter · `other`: In {n} meters | A8 |
+| `voice_prefix_km` (plural: `one` / `other`) | {n} километрт (both forms) | `one`: In {n} kilometer · `other`: In {n} kilometers | A9 |
 | `voice_roundabout_exit` | Тойрогт ороод {ordinal} гарцаар гарна уу | Enter the roundabout and take the {ordinal} exit | A10 |
 | `voice_ordinal_1` … `voice_ordinal_10` | нэгдүгээр, хоёрдугаар, гуравдугаар, дөрөвдүгээр, тавдугаар, зургаадугаар, долоодугаар, наймдугаар, есдүгээр, аравдугаар | first, second, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth | C4 (quoted forms requested from the BA for the AC 61 exact-match check) |
-| `voice_approaching` | {n} метрт очих газартаа ирнэ | In {n} meters, you will arrive | A11 |
-| `voice_continue_on` | {n} километр үргэлжлүүлэн явна уу | Continue for {n} kilometers | A12 |
+| `voice_approaching` (plural: `one` / `other`) | {n} метрт очих газартаа ирнэ (both forms) | `one`: In {n} meter, you will arrive · `other`: In {n} meters, you will arrive | A11 |
+| `voice_continue_on` (plural: `one` / `other`) | {n} километр үргэлжлүүлэн явна уу (both forms) | `one`: Continue for {n} kilometer · `other`: Continue for {n} kilometers | A12 |
 | `voice_then` | {first}, дараа нь {second} | {first}, then {second} | A13 |
 | `voice_off_route` | Та маршрутаас гарлаа | You have left the route | Off-route |
 | (reused) `nav_gps_lost`, `nav_gps_restored`, `maneuver_*` incl. `depart_*` and `arrive*` | | | |
 Joining a prefix and an instruction is code formatting: `mn` = prefix + " " + instruction (lower-case first letter), `en` = prefix + ", " + instruction (lower-case first letter). English decimal point, Mongolian comma.
+
+**Plural forms (NAV-005-D4, AC 32 `en`; navigation-ux §4.1 "English singular / plural").** The four distance templates above are Android `<plurals>` resources under their existing names, with the quantities `one` and `other`, in both `values/` (`mn`) and `values-en/` (`en`). `mn`: both items carry the current text unchanged (Mongolian does not inflect the unit after a number). `en`: `one` = singular unit, `other` = plural unit, exactly as in the table. **Quantity selection:** `one` if and only if the formatted number `{n}` (after the §4.1 rounding, before substitution) is exactly `1`; otherwise `other`. Do not derive the quantity from an `int` cast of the distance in km (1.5 km would cast to `1` and give "In 1.5 kilometer"): decide `one` / `other` from the formatted string, then substitute `{n}`. The `{n}` placeholder stays the substitution point (no `%d`), as today. If the Context-free voice generator (AC 40, JVM) cannot read `<plurals>`, the equivalent flat keys are `<key>_one` / `<key>_other` (the `route_next_day_one` / `_other` precedent); the forms and the rule are the same either way. Examples (`en`): 1,040 m → "In 1 kilometer, turn slightly left"; 1,500 m → "In 1.5 kilometers, keep left"; 2,000 m → "Continue for 2 kilometers"; 300 m → "In 300 meters, turn right". Examples (`mn`, unchanged): «1 километрт бага зэрэг зүүн тийш эргэнэ үү», «1,5 километрт зүүн талаа барина уу». Banner, notification, progress and preview distances use `unit_m` / `unit_km` ("m" / "km"), which do not inflect, so they get no plural forms.
 
 ### Length notes (Mongolian first)
 Longest banner instructions: «Баруун талын гарах замаар гарна уу» (34), «Таны очих газар баруун талд байна» (33), «Бага зэрэг баруун тийш эргэнэ үү» (32), «Маршрутыг дахин тооцоолж байна» (30); longest banner secondary line «Маршрутын үйлчилгээ түр ажиллахгүй байна» (40); longest status message A1 (82); longest preview state «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна» (62); longest button «Байршил руу буцах» (17) and «Үргэлжлүүлэх» (12). All wrap; only names ellipsise. Some English strings are longer (search placeholder "Search for a place or address" 29 vs 16, "Back to my location" 19 vs 17); every rule applies to both languages and the layout checker runs both.
@@ -373,7 +375,7 @@ Longest banner instructions: «Баруун талын гарах замаар �
 | 13, 15–20 | S5 states (notification dialog), S8 notification, Interactions (end, Back, swipe-away); flow F4, F5 |
 | 21–25 | NavBanner, TripProgressPanel, control pair (RC), recenter; navigation-ux §2, §8; Layout rule 2 |
 | 26–31 | Copy › Manoeuvre texts; navigation-ux §2–3; NavBanner variants |
-| 32–40 | Copy › Voice texts; navigation-ux §4; flow F9 |
+| 32–40 | Copy › Voice texts (incl. English plural forms, D4); navigation-ux §4; flow F9 |
 | 41–50 | S5 states (off-route rows); navigation-ux §5; flow F6 |
 | 51–53 | S5 states (GPS rows); navigation-ux §6; flow F7 |
 | 54 | S5 states (offline on route); flow F8 |

@@ -28,8 +28,9 @@ data class NavSnapshot(
     val complete: Boolean,
     /**
      * NAV-005-D9: false when this (good) fix is more than 50 m from the current step and was not caught up
-     * ([StepCatchUp.offCurrentStep]). Its distance, progress and snapped position are then not trustworthy: the core
-     * holds the last trusted snapshot and does not evaluate the voice schedule. [deviation] is still used.
+     * ([StepCatchUp.offCurrentStep]), or (D8) it matches a catch-up target that is still pending the second fix. Its
+     * distance, progress and snapped position are then not trustworthy: the core holds the last trusted snapshot, does
+     * not evaluate the voice schedule and does not use it for arrival rule (b). [deviation] is still used.
      */
     val fixOnCurrentStep: Boolean = true,
 )

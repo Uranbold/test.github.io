@@ -106,8 +106,14 @@
     <string name="maneuver_arrive">You have arrived</string>
     <string name="maneuver_arrive_left">Your destination is on the left</string>
     <string name="maneuver_arrive_right">Your destination is on the right</string>
-    <string name="voice_prefix_m">In {n} meters</string>
-    <string name="voice_prefix_km">In {n} kilometers</string>
+    <plurals name="voice_prefix_m">
+        <item quantity="one">In {n} meter</item>
+        <item quantity="other">In {n} meters</item>
+    </plurals>
+    <plurals name="voice_prefix_km">
+        <item quantity="one">In {n} kilometer</item>
+        <item quantity="other">In {n} kilometers</item>
+    </plurals>
     <string name="voice_roundabout_exit">Enter the roundabout and take the {ordinal} exit</string>
     <string name="voice_ordinal_1">first</string>
     <string name="voice_ordinal_2">second</string>
@@ -119,8 +125,14 @@
     <string name="voice_ordinal_8">eighth</string>
     <string name="voice_ordinal_9">ninth</string>
     <string name="voice_ordinal_10">tenth</string>
-    <string name="voice_approaching">In {n} meters, you will arrive</string>
-    <string name="voice_continue_on">Continue for {n} kilometers</string>
+    <plurals name="voice_approaching">
+        <item quantity="one">In {n} meter, you will arrive</item>
+        <item quantity="other">In {n} meters, you will arrive</item>
+    </plurals>
+    <plurals name="voice_continue_on">
+        <item quantity="one">Continue for {n} kilometer</item>
+        <item quantity="other">Continue for {n} kilometers</item>
+    </plurals>
     <string name="voice_then">{first}, then {second}</string>
     <string name="voice_off_route">You have left the route</string>
     <string name="place_type_district">District</string>

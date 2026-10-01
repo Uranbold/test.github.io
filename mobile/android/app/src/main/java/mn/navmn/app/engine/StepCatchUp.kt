@@ -21,6 +21,13 @@ import mn.navmn.app.geo.LatLon
  * current step but not (yet) caught up is reported by [offCurrentStep]; the core then holds the last trusted position
  * (NAV-005-D9).
  *
+ * Walking dead band (NAV-005-D8, ADR-0009 Amendment 3 §1): fixes that resume 30–50 m past the END of the current
+ * step are caught neither by Ferrostar (its entry condition needs a fix within [STEP_ENTRY_M] of the step end) nor by
+ * the lateral 50 m rule. Branch (b) covers them: the fix's nearest point on the current step is its last coordinate,
+ * the fix is more than [STEP_ENTRY_M] from it, and it is within [PAST_END_MAX_M] of a later step (not `arrive`) and
+ * closer to that step than to the current one. Same target choice and the same two-fix [Gate]; a fix that matches
+ * either branch but is still pending is untrusted (the core holds the last trusted position).
+ *
  * Not applied when only the `arrive` step is left after the current one (Ferrostar's arrival condition and the
  * app's [mn.navmn.app.arrival.ArrivalDetector] own that), and the `arrive` step is never a target. The first later
  * step that matches wins, so the rule never skips more steps than the geometry demands.
@@ -29,6 +36,12 @@ object StepCatchUp {
     val MIN_ACCURACY_M: Double = FerrostarConfig.MIN_ACCURACY_M.toDouble()
     const val MAX_DEVIATION_M = FerrostarConfig.MAX_DEVIATION_M
 
+    /** Branch (b): a fix more than this past the end of the current step is beyond Ferrostar's step-advance entry. */
+    val STEP_ENTRY_M: Double = FerrostarConfig.STEP_ENTRY_M.toDouble()
+
+    /** Branch (b): the fix must be this close to the later step (the accuracy limit, ADR-0009 Amendment 3 §1). */
+    val PAST_END_MAX_M: Double = FerrostarConfig.MIN_ACCURACY_M.toDouble()
+
     /**
      * @param remaining geometries of the remaining steps; index 0 is the current step, the last is `arrive`.
      * @return the number of steps to advance (0 = leave it to Ferrostar).
@@ -36,9 +49,20 @@ object StepCatchUp {
     fun stepsToAdvance(fix: LatLon, accuracyM: Double, remaining: List<List<LatLon>>): Int {
         if (!(accuracyM <= MIN_ACCURACY_M)) return 0
         if (remaining.size < 3) return 0
-        if (Geo.distanceToLine(fix, remaining[0]) <= MAX_DEVIATION_M) return 0
+        val current = remaining[0]
+        val dCurrent = Geo.distanceToLine(fix, current)
+        if (dCurrent > MAX_DEVIATION_M) {
+            // (a) lateral: off the current step and within 50 m of a later step
+            for (i in 1..remaining.size - 2) {
+                if (Geo.distanceToLine(fix, remaining[i]) <= MAX_DEVIATION_M) return i
+            }
+            return 0
+        }
+        // (b) past the end (D8): projection clamped at the step's last coordinate, more than STEP_ENTRY_M beyond it
+        if (current.isEmpty() || !Geo.nearestIsLast(fix, current) || Geo.distance(fix, current.last()) <= STEP_ENTRY_M) return 0
         for (i in 1..remaining.size - 2) {
-            if (Geo.distanceToLine(fix, remaining[i]) <= MAX_DEVIATION_M) return i
+            val d = Geo.distanceToLine(fix, remaining[i])
+            if (d <= PAST_END_MAX_M && d < dCurrent) return i
         }
         return 0
     }

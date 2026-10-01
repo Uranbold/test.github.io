@@ -1,5 +1,6 @@
 package mn.navmn.app.resources
 
+import mn.navmn.app.i18n.PluralKey
 import mn.navmn.app.i18n.StringKey
 import mn.navmn.app.support.TestStrings
 import org.junit.Assert.assertEquals
@@ -32,6 +33,24 @@ class ResourcesTest {
     @Test
     fun stringKeyEnumMatchesTheResourceFile() {
         assertEquals(TestStrings.mn.keys, StringKey.entries.map { it.resName }.toSet())
+    }
+
+    /** NAV-005-D4: both languages define the same `<plurals>`, each with `one` and `other`, same placeholders. */
+    @Test
+    fun pluralsAreCompleteInBothLanguages() {
+        assertEquals(PluralKey.entries.map { it.resName }.toSet(), TestStrings.mnPlurals.keys)
+        assertEquals(TestStrings.mnPlurals.keys, TestStrings.enPlurals.keys)
+        for ((k, mnItems) in TestStrings.mnPlurals) {
+            val enItems = TestStrings.enPlurals.getValue(k)
+            assertEquals("$k mn quantities", setOf("one", "other"), mnItems.keys)
+            assertEquals("$k en quantities", setOf("one", "other"), enItems.keys)
+            // Mongolian has no plural change (navigation-ux §4.1): both items carry the same glossary text.
+            assertEquals("$k mn one/other differ", mnItems["one"], mnItems["other"])
+            for (v in mnItems.values + enItems.values) {
+                assertEquals(k, setOf("{n}"), placeholder.findAll(v).map { it.value }.toSet())
+                assertTrue("$k uses String.format markers", !v.contains("%"))
+            }
+        }
     }
 
     @Test

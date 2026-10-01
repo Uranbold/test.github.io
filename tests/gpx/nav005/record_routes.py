@@ -23,11 +23,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "routes")
 P = {"P1": (47.9189, 106.9176), "P2": (47.9139, 106.9044), "P3": (47.8858, 106.9173), "X1": (49.0270, 104.0440),
      # G8 English variant: the snapped origin/destination of the mobile engineer's g8-roundabout-car-mn.json
-     "G8A": (47.898108, 106.95068), "G8B": (47.930156, 106.90019)}
+     "G8A": (47.898108, 106.95068), "G8B": (47.930156, 106.90019),
+     # G10 (NAV-005 round 3, ADR-0009 Amendment 3 §5 fixture): origin on the westbound (north) carriageway of Peace Ave,
+     # destination on the eastbound (south) carriageway 390 m further west. The route passes 22.7 m from its own end on
+     # the first step, U-turns 330 m further west and comes back to the destination.
+     "G10A": (47.914233, 106.874498), "G10B": (47.913771, 106.869307)}
 ROUTES = {
     # name: (origin, destination, costing, language, avoid_unpaved)
     "g9-p1-x1-car-mn": ("P1", "X1", "auto", "mn-MN", False),
     "g8-roundabout-car-en": ("G8A", "G8B", "auto", "en-US", False),
+    "g10-uturn-car-mn": ("G10A", "G10B", "auto", "mn-MN", False),
 }
 
 

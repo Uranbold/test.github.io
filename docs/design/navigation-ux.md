@@ -83,7 +83,9 @@ Input: prompt kind (§4.2), manoeuvre key and params (ADR-0008 mapping), distanc
 | 995 ≤ *d* < 9,950 m | km, one decimal, comma, «,0» dropped + «километрт» | «1,5 километрт зүүн талаа барина уу», «2 километрт …» |
 | ≥ 9,950 m | whole km + «километрт» | «12 километрт …» |
 
-After a prefix, the instruction starts lower case (the glossary form). Number in digits, unit spelled out (never «м», «км» after a number, AC 33). English: "In 300 meters, turn right", "In 1.5 kilometers, keep left", decimal point; units spelled out.
+After a prefix, the instruction starts lower case (the glossary form). Number in digits, unit spelled out (never «м», «км» after a number, AC 33). English: "In 300 meters, turn right", "In 1.5 kilometers, keep left", "In 1 kilometer, keep left", decimal point; units spelled out.
+
+**English singular / plural** (NAV-005-D4). An English spelled-out unit agrees with the number **as it is spoken**: the singular form ("meter", "kilometer") only when the formatted number is exactly `1` (no decimal part); every other value takes the plural ("1.5 kilometers", "2 kilometers", "12 kilometers"). This is the CLDR English rule (`one` = integer 1 with no visible fraction digits) applied to the **formatted string** after rounding, never to the raw distance or an integer cast of it (1,500 m formats as "1.5" → plural; 1,040 m formats as "1" → singular). It applies to every English voice template with a spelled-out unit: the metre and kilometre prefixes, "approaching" and "continue on" (copy and keys: NAV-005 screen spec › Copy › Voice texts). With the schedule in §4.2 only the kilometre prefix reaches `1` in practice (metre values start at 30; "continue on" needs ≥ 2 km), but all four templates carry both forms so a later threshold change cannot reintroduce the defect. Mongolian has no number agreement here («1 километрт», «2 километрт»): the `mn` text is the same for every number and is **not** changed by this rule. Banner, notification, progress panel and preview use the abbreviations "m" / "km", which do not inflect ("1 km", "12 km"); they are unchanged.
 
 **Instruction part** (Mongolian; English = the NAV-004 AC 27 `en` text):
 | Manoeuvre | Voice text (`mn`) | Note |
@@ -102,7 +104,7 @@ After a prefix, the instruction starts lower case (the glossary form). Number in
 
 Street names are **not** spoken in this slice (story Out of scope; C5 case-suffix problem).
 
-English voice texts (not glossary-bound; UX wording): "In {n} meters" / "In {n} kilometers" prefix with a comma before the instruction ("In 300 meters, turn right"); roundabout "Enter the roundabout and take the {ordinal} exit" (first … tenth); approaching "In {n} meters, you will arrive"; continue on "Continue for {n} kilometers"; chained "{first}, then {second}"; off-route "You have left the route"; GPS "GPS signal lost" / "GPS signal restored"; arrival as the AC 27 `en` texts.
+English voice texts (not glossary-bound; UX wording): "In {n} meters" / "In {n} kilometers" prefix (singular "In 1 meter" / "In 1 kilometer", rule above) with a comma before the instruction ("In 300 meters, turn right"); roundabout "Enter the roundabout and take the {ordinal} exit" (first … tenth); approaching "In {n} meters, you will arrive" (singular "In 1 meter, you will arrive"); continue on "Continue for {n} kilometers" (singular "Continue for 1 kilometer"); chained "{first}, then {second}"; off-route "You have left the route"; GPS "GPS signal lost" / "GPS signal restored"; arrival as the AC 27 `en` texts.
 
 ### 4.2 Prompt schedule (when each prompt is spoken)
 *v* = speed over ground, the mean of the last 5 s of good fixes. *Gap* = distance along the route from the previous manoeuvre to this one. Distances are "*d* to the manoeuvre when the prompt is triggered". Fast = *v* ≥ 70 km/h (19.4 m/s) at the moment the prompt would trigger.

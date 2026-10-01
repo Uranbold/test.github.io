@@ -16,12 +16,21 @@ class ResourceStrings(context: Context, lang: Lang) : Strings {
     ).resources
     private val pkg = context.packageName
     private val ids = ConcurrentHashMap<StringKey, Int>()
+    private val pluralIds = ConcurrentHashMap<PluralKey, Int>()
 
     @SuppressLint("DiscouragedApi")
     override fun get(key: StringKey): String {
         val id = ids.getOrPut(key) { res.getIdentifier(key.resName, "string", pkg) }
         require(id != 0) { "missing string resource ${key.resName}" }
         return res.getString(id)
+    }
+
+    /** Quantity 1 picks `one` in both mn and en (CLDR); 2 picks `other`. */
+    @SuppressLint("DiscouragedApi")
+    override fun plural(key: PluralKey, one: Boolean): String {
+        val id = pluralIds.getOrPut(key) { res.getIdentifier(key.resName, "plurals", pkg) }
+        require(id != 0) { "missing plurals resource ${key.resName}" }
+        return res.getQuantityString(id, if (one) 1 else 2)
     }
 
     companion object {

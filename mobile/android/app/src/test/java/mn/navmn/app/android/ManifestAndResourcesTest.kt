@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import mn.navmn.app.i18n.Lang
+import mn.navmn.app.i18n.PluralKey
 import mn.navmn.app.i18n.ResourceStrings
 import mn.navmn.app.i18n.StringKey
 import mn.navmn.app.service.GuidanceForegroundService
@@ -58,6 +59,12 @@ class ManifestAndResourcesTest {
             val s = ResourceStrings(context, lang)
             val expected = TestStrings.map(lang)
             for (k in StringKey.entries) assertEquals("${k.resName} ($lang)", expected[k.resName], s[k])
+            // NAV-005-D4: <plurals> resolve through getQuantityString with the locale's rule (1 → one, 2 → other)
+            val plurals = TestStrings.plurals(lang)
+            for (k in PluralKey.entries) {
+                assertEquals("${k.resName} one ($lang)", plurals[k.resName]?.get("one"), s.plural(k, true))
+                assertEquals("${k.resName} other ($lang)", plurals[k.resName]?.get("other"), s.plural(k, false))
+            }
         }
     }
 }

@@ -28,8 +28,11 @@ class QaGpxReplayTest {
 
     private val coordinate = Regex("-?\\d{1,3}\\.\\d{4,}")
 
+    /** Tracks that start on the P1 → P3 car route (destination P3). Exact, so that G10 is not taken for a G1 variant. */
+    private val P1_P3_TRACK = Regex("G[1234567][a-z]?")
+
     private fun car(id: String, lang: Lang = Lang.MN, routeKey: String = "route", responses: MutableList<Resp> = ArrayList(), muted: Boolean = false) =
-        QaRun(QaGpx.routeBytes(id, routeKey), TravelMode.CAR, lang, P3.takeIf { id.startsWith("G1") || id.startsWith("G2") || id.startsWith("G3") || id.startsWith("G4") || id.startsWith("G6") || id.startsWith("G7") }, responses, muted = muted)
+        QaRun(QaGpx.routeBytes(id, routeKey), TravelMode.CAR, lang, P3.takeIf { P1_P3_TRACK.matches(id) }, responses, muted = muted)
 
     /** AC 31: never blank; AC 28 / AC 30 scans on every non-recalculating banner. */
     private fun bannerProblems(r: QaRun, lang: Lang): List<String> {
@@ -178,6 +181,9 @@ class QaGpxReplayTest {
             r.run(fixes, tailMs = 10_000)
             problems += bannerProblems(r, Lang.EN).map { "$id AC 30: $it" }
             r.spokenTexts().filter { Regex("[Ѐ-ӿ]").containsMatchIn(it) }.forEach { problems += "$id AC 32 en: Cyrillic in voice «$it»" }
+            // NAV-005-D4 (round 3): English singular only when the formatted number is exactly "1" (navigation-ux §4.1).
+            r.spokenTexts().filter { Regex("(^|[^\\d.,])1 (kilometers|meters)\\b").containsMatchIn(it) }.forEach { problems += "$id AC 32 en / D4: plural after 1 «$it»" }
+            r.spokenTexts().filter { Regex("(\\d\\.\\d+|(^|\\D)([02-9]|\\d{2,})) (kilometer|meter)(?!s)\\b").containsMatchIn(it) }.forEach { problems += "$id AC 32 en / D4: singular after a number other than 1 «$it»" }
             if (r.requests.isNotEmpty()) problems += "$id: ${r.requests.size} requests"
             println("$id en spoken: " + r.spokenTexts())
         }
@@ -597,6 +603,145 @@ class QaGpxReplayTest {
         if (r.events.count { it.second == GuidanceEvent.Arrived } != 1) p += "arrivals ${r.events.count { it.second == GuidanceEvent.Arrived }}"
         println("$id outlier at ${outlierAt / 1000.0} s, spoken: " + r.spoken.map { "${it.first / 1000.0}s ${it.second.text}" })
         println("$id banners: " + r.bannerChanges().map { "${it.first / 1000.0}s ${it.second}" })
+        assertTrue(p.joinToString("\n"), p.isEmpty())
+    }
+
+    // ------------------------------------------------------------------------------------------------ round 3: arrival gating
+
+    /**
+     * Arrival problems shared by TC-R19 / TC-R20 (AC 55–57, ADR-0009 Amendment 1 / Amendment 3 §5): exactly one arrival;
+     * it fires only after the TRUE position (oracle on [trueFixes]) is on the last leg (past the last manoeuvre before
+     * `arrive`) and within 60 m of the route end; the arrival prompt is spoken once and nothing after it; no arrival text
+     * is spoken or shown before that.
+     */
+    private fun arrivalGatingProblems(r: QaRun, trueFixes: List<Fix>, label: String): List<String> {
+        val p = ArrayList<String>()
+        val oracle = RouteOracle(r.initial.plan)
+        val tl = oracle.alongTimeline(trueFixes)
+        val lastManeuverAlong = oracle.maneuverAlong[r.initial.plan.steps.size - 2]
+        val arrivals = r.events.filter { it.second == GuidanceEvent.Arrived }
+        if (arrivals.size != 1) p += "$label AC 56: ${arrivals.size} arrival events at ${arrivals.map { it.first / 1000.0 }} s"
+        val arrivedAt = arrivals.firstOrNull()?.first
+        if (arrivedAt != null) {
+            val along = interpolate(tl, arrivedAt)
+            if (along < lastManeuverAlong) p += "$label AC 55/57 (Amendment 1 §5): arrival at ${arrivedAt / 1000.0} s while the true position is ${along.toInt()} m along, before the last manoeuvre at ${lastManeuverAlong.toInt()} m"
+            if (oracle.length - along > 60) p += "$label AC 55: arrival at ${arrivedAt / 1000.0} s, ${(oracle.length - along).toInt()} m before the route end"
+        }
+        val arrivalTexts = r.spoken.filter { it.second.text.startsWith("Таны очих газар") || it.second.text.startsWith("Та очих газартаа") }
+        if (arrivalTexts.size != 1) p += "$label AC 55: arrival spoken ${arrivalTexts.size} times ${arrivalTexts.map { "${it.first / 1000.0}s ${it.second.text}" }}"
+        arrivalTexts.firstOrNull()?.let { (t, _) -> if (arrivedAt != null && t < arrivedAt) p += "$label AC 55: arrival prompt at ${t / 1000.0} s before the arrival event" }
+        if (arrivedAt != null && r.spoken.any { it.first > arrivedAt && it.second.cls != PromptClass.ARRIVAL }) p += "$label AC 55: prompts after arrival"
+        val earlyArrivalBanner = r.states.firstOrNull { (t, s) -> s.banner is Banner.Arrival && interpolate(tl, t) < lastManeuverAlong }
+        if (earlyArrivalBanner != null) p += "$label AC 55: arrival banner at ${earlyArrivalBanner.first / 1000.0} s before the last manoeuvre"
+        if (r.states.last().second.phase != GuidancePhase.ARRIVED) p += "$label: final phase ${r.states.last().second.phase}"
+        if (r.requests.isNotEmpty()) p += "$label AC 41/55: ${r.requests.size} route requests"
+        if (r.spokenTexts().contains("Та маршрутаас гарлаа")) p += "$label AC 41: off-route prompt"
+        return p
+    }
+
+    /**
+     * TC-R19 (round 3, ADR-0009 Amendment 3 §5 review probe): G6e = G1 with ONE 5 m-accuracy fix exactly on the route's
+     * last coordinate after ~300 m of driving (step 0 of 4), and the probe's own variant 20 m north of it. Before the
+     * fix guidance ended at the outlier (rule (c) without step gating). Expected: no arrival, banner still the left turn,
+     * every manoeuvre announced, exactly one arrival at the true end (AC 41 one outlier, AC 31, AC 34, AC 55–57).
+     */
+    @Test
+    fun tcR19_g6eOutlierOnTheRouteEndDoesNotArrive() {
+        val p = ArrayList<String>()
+        val base = QaGpx.fixes("G6e")
+        val oi = QaGpx.meta("G6e")["outlier_index"]!!.toString().toInt()
+        val g1 = QaGpx.fixes("G1")
+        for ((label, fixes) in listOf(
+            "G6e (outlier on the end coordinate)" to base,
+            "G6e-20m (outlier 20 m from the end, review probe)" to base.mapIndexed { i, f ->
+                if (i != oi) f else f.copy(lat = Geo.offset(f.latLon, 0.0, 20.0).lat, lon = Geo.offset(f.latLon, 0.0, 20.0).lon)
+            },
+        )) {
+            val r = car("G6e")
+            val end = r.initial.plan.end
+            // fixture precondition: the outlier is within 30 m of the route end while the true position is on step 0
+            val dEnd = Geo.distance(fixes[oi].latLon, end)
+            assertTrue("$label: fixture outlier is ${dEnd.toInt()} m from the route end", dEnd <= 25.0)
+            r.run(fixes, tailMs = 10_000)
+            val outlierAt = fixes[oi].elapsedMs
+            val trueFixes = fixes.mapIndexed { i, f -> if (i == oi) g1[i] else f }
+            p += arrivalGatingProblems(r, trueFixes, label)
+            val left = r.bannerText(Banner.Maneuver(r.initial.plan.steps[1].key, 0.0, "", null, false))
+            for (dt in listOf(200L, 1_000L, 5_000L)) {
+                val shown = r.stateAt(outlierAt + dt)?.let { r.bannerText(it.banner) }
+                if (shown != left) p += "$label AC 31/55: banner ${dt / 1000.0} s after the outlier «$shown», expected «$left»"
+            }
+            if (r.stateAt(outlierAt + 1_000L)?.phase != GuidancePhase.NAVIGATING) p += "$label AC 55: phase 1 s after the outlier ${r.stateAt(outlierAt + 1_000L)?.phase}"
+            p += ac34Problems(r, trueFixes).map { "$label AC 34: $it" }
+            p += bannerAdvanceProblems(r, trueFixes).map { "$label AC 31: $it" }
+            println("$label outlier at ${outlierAt / 1000.0} s, arrival ${r.events.filter { it.second == GuidanceEvent.Arrived }.map { it.first / 1000.0 }} s, spoken: " + r.spoken.map { "${it.first / 1000.0}s ${it.second.text}" })
+        }
+        assertTrue(p.joinToString("\n"), p.isEmpty())
+    }
+
+    /**
+     * TC-R20 (round 3, ADR-0009 Amendment 1 §5 / Amendment 3 §5 fixture): G10, a recorded route on the divided Peace
+     * Ave that passes 22.7 m from its own end on its first step (3 fixes within 30 m of the end at 29–31 s), U-turns at
+     * ~759 m and arrives 391 m later. Expected: arrival exactly once, on the last leg, at the end; the U-turn and the
+     * arrival announced (AC 34), banner advances (AC 31), 0 requests.
+     */
+    @Test
+    fun tcR20_g10RoutePassingCloseToItsOwnEnd() {
+        val fixes = QaGpx.fixes("G10")
+        val r = QaRun(QaGpx.routeBytes("G10"), TravelMode.CAR, Lang.MN)
+        val p = ArrayList<String>()
+        val oracle = RouteOracle(r.initial.plan)
+        val end = r.initial.plan.end
+        val steps = r.initial.plan.steps
+        // fixture precondition: >= 1 fix within 30 m of the end while the true position is before the last manoeuvre
+        val tl = oracle.alongTimeline(fixes)
+        val nearEarly = fixes.indices.filter { Geo.distance(fixes[it].latLon, end) <= 30.0 && tl[it].second < oracle.maneuverAlong[steps.size - 2] - 50 }
+        assertTrue("fixture: no fix within 30 m of the end before the U-turn", nearEarly.isNotEmpty())
+        assertTrue("fixture: the route has a manoeuvre between the near pass and arrive (${steps.size} steps)", steps.size >= 3)
+        r.run(fixes, tailMs = 10_000)
+        p += arrivalGatingProblems(r, fixes, "G10")
+        val passAt = fixes[nearEarly.last()].elapsedMs
+        if (r.stateAt(passAt + 1_000L)?.phase != GuidancePhase.NAVIGATING) p += "AC 55: phase 1 s after the near pass ${r.stateAt(passAt + 1_000L)?.phase}"
+        p += bannerProblems(r, Lang.MN).map { "AC 28/31: $it" }
+        p += voiceProblems(r).map { "AC 33: $it" }
+        p += ac34Problems(r, fixes).map { "AC 34: $it" }
+        p += bannerAdvanceProblems(r, fixes).map { "AC 31: $it" }
+        p += privacyProblems(r).map { "AC 67: $it" }
+        println("G10 near-end fixes ${nearEarly.map { "${fixes[it].elapsedMs / 1000}s ${Geo.distance(fixes[it].latLon, end).toInt()} m" }}")
+        println("G10 spoken: " + r.spoken.map { "${it.first / 1000.0}s ${it.second.text}" })
+        println("G10 banners: " + r.bannerChanges().map { "${it.first / 1000.0}s ${it.second}" })
+        assertTrue(p.joinToString("\n"), p.isEmpty())
+    }
+
+    /**
+     * TC-R21 (round 3, ADR-0009 Amendment 3 §5 rule (b) trust): G6f = G1 with ONE 5 m-accuracy fix 60 m beside the
+     * route end while the car is on the last leg ~100 m before the end. The fix is > 50 m off the current step
+     * (untrusted) and Ferrostar snaps it to the end (distanceRemaining ≈ 0), and it is 60 m from the end (rule (c) does
+     * not apply). Expected: no arrival at the outlier; exactly one arrival when the true position is at the end.
+     */
+    @Test
+    fun tcR21_g6fUntrustedFixDoesNotArriveByRemainingDistance() {
+        val id = "G6f"
+        val fixes = QaGpx.fixes(id)
+        val g1 = QaGpx.fixes("G1")
+        val oi = QaGpx.meta(id)["outlier_index"]!!.toString().toInt()
+        val r = car(id)
+        val end = r.initial.plan.end
+        val oracle = RouteOracle(r.initial.plan)
+        val trueFixes = fixes.mapIndexed { i, f -> if (i == oi) g1[i] else f }
+        val tl = oracle.alongTimeline(trueFixes)
+        val outlierAt = fixes[oi].elapsedMs
+        // fixture preconditions: on the last leg, ~100 m before the end, outlier > 50 m off the route and > 30 m from the end
+        val trueRemaining = oracle.length - tl[oi].second
+        assertTrue("fixture: true remaining at the outlier ${trueRemaining.toInt()} m", trueRemaining in 70.0..115.0 && tl[oi].second > oracle.maneuverAlong[r.initial.plan.steps.size - 2])
+        assertTrue("fixture: outlier ${Geo.distance(fixes[oi].latLon, end).toInt()} m from the end", Geo.distance(fixes[oi].latLon, end) > 50.0)
+        r.run(fixes, tailMs = 10_000)
+        val p = ArrayList<String>()
+        p += arrivalGatingProblems(r, trueFixes, id)
+        if (r.stateAt(outlierAt + 200L)?.phase != GuidancePhase.NAVIGATING) p += "AC 55 (Amendment 3 §5 rule (b)): phase 0.2 s after the untrusted fix ${r.stateAt(outlierAt + 200L)?.phase}"
+        p += ac34Problems(r, trueFixes).map { "AC 34: $it" }
+        p += bannerAdvanceProblems(r, trueFixes).map { "AC 31: $it" }
+        println("$id outlier at ${outlierAt / 1000.0} s (true remaining ${trueRemaining.toInt()} m), arrival ${r.events.filter { it.second == GuidanceEvent.Arrived }.map { it.first / 1000.0 }} s, spoken: " + r.spoken.map { "${it.first / 1000.0}s ${it.second.text}" })
         assertTrue(p.joinToString("\n"), p.isEmpty())
     }
 

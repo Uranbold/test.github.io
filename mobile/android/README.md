@@ -124,7 +124,29 @@ Pure packages have no Android or Ferrostar types; all time is injected.
   that is more than 50 m from the current step and not caught up is flagged (`NavSnapshot.fixOnCurrentStep = false`).
   Ferrostar snaps it to the nearest point of the step, often the manoeuvre itself, so `GuidanceCore` keeps the last
   trusted snapshot (banner distance, progress, puck) and does not evaluate the voice schedule for it. Off-route
-  detection and arrival still see every fix. G6b: no early "now" prompt; the 150 m and "now" prompts are spoken.
+  detection still sees every fix. G6b: no early "now" prompt; the 150 m and "now" prompts are spoken.
+- **Walking dead band (NAV-005-D8, Amendment 3 §1).** A second catch-up branch covers fixes that resume 30–50 m past
+  the END of the current step (neither Ferrostar's 30 m entry nor the 50 m rule catches them): the fix projects onto
+  the step's last coordinate, is more than `STEP_ENTRY_M` (30 m) from it and within 25 m of a later non-arrive step.
+  Same two-fix gate; a pending match is untrusted like the D9 case. `Geo.nearestIsLast` uses a 0.5 m tolerance so a
+  fix exactly perpendicular to the step end (a 90° turn) counts as "past the end". G5b: the next turn is shown with
+  its true distance 1 s after the restore and the passed turn is not announced.
+- **Arrival gating (Amendment 1, Amendment 3 §5).** `ArrivalDetector` gets the step index: the 30 m straight-line rule
+  (c) fires only while the upcoming manoeuvre is `arrive` (current step ≥ last − 1), and the ≤ 30 m remaining rule (b)
+  only with a trusted fix. `ArrivalGatingReplayTest`: G1 with one fix 20 m from the end after 300 m, and a loop route
+  whose end lies 20 m beside its first street, both arrive once, at the end.
+- **Voice rule 2 from the playback start (NAV-005-D2).** `PlaybackQueue` reports starts and drops to a
+  `PlaybackListener`; `VoiceScheduler` measures the 8 s same-manoeuvre gap from the start (the trigger stands in until
+  the start is known; a dropped prompt does not count).
+- **English plurals (NAV-005-D4).** The four voice distance templates are `<plurals>` (`PluralKey`,
+  `Strings.plural`): `one` only when the formatted number is exactly "1" (`Plurals.isOne`), never from an int cast.
+  Mongolian items are identical. `tools/check-glossary.mjs` checks every `<plurals>` item too.
+- **Browse layout on short screens (NAV-005-D5).** Without a preview, portrait keeps the controls and the coordinate
+  card at the bottom and lets the search results / messages above shrink and scroll; wide windows (≥ 600 dp, or
+  landscape ≥ 480 dp) give the controls their own lane on the right below the search row. The coordinate card
+  scrolls instead of squeezing «Маршрут гаргах».
+- **Preview ETA (NAV-005-D6, NAV-004 AC 25).** `PreviewEtaClock`: the response time for the first 60 s, then the
+  current clock, refreshed every 60 s counted from the response (also right after a recomposition).
 - **Map-screen location (Amendment 1 §9).** `AppViewModel.mapLocation` is collected by `MainActivity` only inside
   `repeatOnLifecycle(STARTED)` and is paused while a guidance engine exists (arrival panel included). The one-shot
   preview origin (`freshGoodFix`) is unchanged.
