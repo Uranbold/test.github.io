@@ -270,7 +270,7 @@ export class DemoController {
   private pickerPadding(): { top: number; bottom: number; left: number; right: number } {
     const m = this.map!;
     const box = m.getContainer().getBoundingClientRect();
-    const r1 = el("top-bar").getBoundingClientRect();
+    const r1 = (document.querySelector(".r1") as HTMLElement).getBoundingClientRect();
     const r2 = el("messages").getBoundingClientRect();
     const sheet = this.picker.section.getBoundingClientRect();
     const wide = window.matchMedia("(min-width: 840px)").matches;
