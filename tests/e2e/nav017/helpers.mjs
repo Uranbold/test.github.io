@@ -173,12 +173,14 @@ export function voiceScanProblems(text) {
 // ---------------------------------------------------------------- browser stubs (addInitScript)
 /**
  * cfg: { voices: ['mn-MN', 'en-US'] | [], lang, theme, muted, speechErrorAt: n (1-based non-empty speak call that fails),
- *        wakeLock: 'ok' | 'reject' | 'missing', voicesLate: true (getVoices empty until voiceschanged after 500 ms) }
+ *        wakeLock: 'ok' | 'reject' | 'missing',
+ *        voicesLate: true (getVoices empty until voiceschanged after 500 ms) | <ms> (after that many ms)
+ *                    | 'manual' (empty until the test calls window.__qaListVoices(); ADR-0011 §7 pending-decision case) }
  */
 export function qaInit(cfg) {
   const log = (window.__qa = {
     geo: 0, speak: [], cancel: 0, chimes: [], ctxCreated: [], ctxResume: [], wake: [], wakeRelease: [], inClick: false,
-    startClicks: [], lastClick: null, rec: [], live: [], banners: [], console: [],
+    startClicks: [], lastClick: null, rec: [], live: [], banners: [], console: [], voicesCalls: [],
   });
   const now = () => performance.now();
   try {
@@ -211,7 +213,7 @@ export function qaInit(cfg) {
   let current = null, endTimer = null, nCalls = 0, nPrompts = 0;
   const fire = (u, type, extra) => { const ev = Object.assign(new Event(type), extra || {}); try { u['on' + type] && u['on' + type](ev); } catch {} u.dispatchEvent(ev); };
   const synth = {
-    getVoices: () => (listed ? voices.slice() : []),
+    getVoices: () => { log.voicesCalls.push(now()); return listed ? voices.slice() : []; },
     speak(u) {
       nCalls++;
       log.speak.push({ text: u.text, lang: u.lang, voice: u.voice ? u.voice.lang : null, t: now(), inClick: log.inClick, volume: u.volume });
@@ -229,7 +231,9 @@ export function qaInit(cfg) {
     removeEventListener(t, f) { listeners.delete(f); },
     get speaking() { return !!current; }, pending: false, paused: false, onvoiceschanged: null,
   };
-  if (cfg.voicesLate) setTimeout(() => { listed = true; listeners.forEach((f) => f(new Event('voiceschanged'))); }, 500);
+  const listVoices = () => { listed = true; listeners.forEach((f) => f(new Event('voiceschanged'))); if (typeof synth.onvoiceschanged === 'function') synth.onvoiceschanged(new Event('voiceschanged')); };
+  window.__qaListVoices = listVoices;
+  if (cfg.voicesLate === true || typeof cfg.voicesLate === 'number') setTimeout(listVoices, cfg.voicesLate === true ? 500 : cfg.voicesLate);
   Object.defineProperty(window, 'speechSynthesis', { get: () => synth, configurable: true });
   window.SpeechSynthesisUtterance = Utt;
   // Web Audio: counts chimes (one 880 Hz oscillator start per chime, navigation-ux §4.8)

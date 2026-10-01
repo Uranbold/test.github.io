@@ -111,7 +111,9 @@ WebKit could not verify: AC 37 safe-area insets (no emulation; Chromium CDP cove
 
 ### 3.4 Late results
 
-Appended when the isolated re-runs finish.
+The session ended before the isolated re-runs finished. They were done in **run 2** on the same build:
+[`NAV-017-run2.md`](NAV-017-run2.md) (WebKit R3 en and G4 replays, the NAV-004 suite, the isolated NAV-002/003 re-runs,
+a fresh Chromium execution of every file, and three new reproducing tests for the ADR-0011 review items).
 
 ## 4. Defects
 

@@ -293,3 +293,54 @@ bottom padding is clamped to half the map height (`clamp(40 + bottom, box.height
 tall on these phones, so the fitted bounds end exactly at the clamp edge (334 and 422 px), not above the sheet. The
 clamp should keep a minimum map band instead (for example `top + bottom ≤ map height − 120 px`, then let `maxZoom` and
 MapLibre's own fit limits apply). Not an architecture change.
+
+### Amendment 2 (2026-10-01): integration review after QA run 1 (third pass)
+Verified on the committed tree `ee3832a` (no `web/` change since `7b72cea`): `npm test` 30 files / 602 tests, lint
+and the i18n scan (163 keys), typecheck, `check:glossary` 163/163, the three builds, and the AC 3/4 scans all pass.
+QA's `tests/e2e/nav017/build.test.mjs` (16 tests, Node) passes against a fresh demo build; QA's `picker.test.mjs` on
+Chromium reproduces the AC 9 camera-fit defect at 375×667 and 390×844; the 7 other picker tests that ran before the
+runner was killed (exit 137, cause not found; the Caddy site was stopped by hand) passed, and QA's run 1 covers the
+remaining ones. Read with QA's run-1 report
+(`docs/qa/reports/NAV-017-run1.md`). No contract change: `openapi.yaml` stays 0.5.2.
+
+**§1, §4 Tiles and Basic auth: partial evidence now exists.** QA's local stand-in (Caddy, `/locked-demo/` with Basic
+auth, `/tiles/basemap.pmtiles` unprotected at the origin root) answers 401 without and 200 with credentials, every
+asset, the WASM and the route data load, and the tiles are 206, in Chromium and in Playwright WebKit (`iPhone 13`
+descriptor). §9 "partial evidence only" is therefore met; Safari's credential caching (W7) and the PO's host stay
+real-iPhone checks (AC 48/49).
+
+**§9 WebKit availability (fact).** The container has no WebKit system libraries, but the official Playwright image
+(`mcr.microsoft.com/playwright:v1.56.1-noble`, `--network host`) runs the WebKit project against the same local site.
+WebKit cannot emulate safe-area insets, so the AC 37 inset checks are Chromium (CDP) plus the real iPhone.
+
+**§6 Lockstep rule, QA defect D3 (shared behaviour, not web-only).** A track that starts just past a manoeuvre (G4,
+test-only) shows that manoeuvre's banner for about 2 s and speaks its "now" prompt at 1.4 s, before the two-fix
+catch-up gate (≤ 3 s) confirms the step. The web port and the Kotlin original behave the same, which is what §6 asks
+for, so the port is correct and the **rule** is at fault: the scheduler trusts Ferrostar's step 0 before the catch-up has
+decided. Any fix must change `StepCatchUp`/`VoiceScheduler` on **both** platforms in the same change, with a golden-set
+regeneration through the BA and a `QaGpxReplayTest` assertion. G4 is not in the picker, so NAV-017 does not need it;
+the Android side goes through triage as a NAV-005 item.
+
+**§2 Layout defects D1, D2, D4 (web-only, no architecture change).** D1 (`pickerPadding()` half-height clamp, already
+described in Amendment 1), D2 (picker sheet, R1/R4 control cluster and the R5 attribution strip lack
+`env(safe-area-inset-left/right)` in landscape) and D4 (WebKit wraps the A1 notice one line longer at 200 % in
+landscape, so the message card clips it). D2 touches the OSM attribution (rule 8): in landscape on an iPhone the first
+characters of «© OpenStreetMap contributors» sit under the sensor housing on one rotation. All three are fixed in the
+NAV-017 fix loop before the PO uploads the build.
+
+**§10 Licence text (still open).** `web/THIRD_PARTY_NOTICES.md` still carries only the licence name and the repository
+URL for `@stadiamaps/ferrostar` 0.57.0. The requirement of Amendment 1 stands: the full upstream `LICENSE.txt`
+(`Copyright (c) 2023, Stadia Maps, Inc.`, BSD-3-Clause conditions and disclaimer) is reproduced in the notices file
+before the first upload. The generator `scripts/gen-third-party-notices.mjs` needs an override source for packages that
+ship no licence file, so a regeneration does not drop the text again.
+
+**§7 Pending-decision priming (still open, minor).** Not implemented yet (see Amendment 1). Unchanged rating.
+
+**§10 Shared resource files (clarification, accepted).** The public builds carry the new `demo.*`, `nav.*` and
+`voice.*` values of `mn.json`/`en.json` as resource text. They are not shown anywhere in those builds and are not code,
+WASM or route data, so AC 4 is met. If the BA or PO wants the unreviewed guidance wording kept out of the public bundle
+before NAV-007, the resource file is split into a demo-only part; that is a product choice, not required by any AC.
+
+**README data note (mobile-engineer).** `web/README.md` › Demo mode › Build describes R2 as "→ near Улсын их дэлгүүр"
+while the manifest and the picker name the destination «Хаан банк» (the State Department Store is about 377 m away).
+The README should name what the picker shows.
