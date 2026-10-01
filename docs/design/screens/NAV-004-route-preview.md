@@ -288,8 +288,8 @@ Key = `maneuver.` + the ADR-0008 key. Stored with a lower-case first letter as i
 | `maneuver.continue` | Чигээрээ явна уу | Continue straight |
 | `maneuver.keep.left` / `.right` | Зүүн талаа барина уу / Баруун талаа барина уу | Keep left / Keep right |
 | `maneuver.merge` / `.left` / `.right` | Замд нийлнэ үү / Зүүн талаас замд нийлнэ үү / Баруун талаас замд нийлнэ үү | Merge / Merge from the left / Merge from the right |
-| `maneuver.onRamp` / `.left` / `.right` | Орох замаар орно уу / Зүүн талын орох замаар орно уу / Баруун талын орох замаар орно уу | Take the ramp / Take the ramp on the left / Take the ramp on the right |
-| `maneuver.offRamp` / `.left` / `.right` | Гарах замаар гарна уу / Зүүн талын гарах замаар гарна уу / Баруун талын гарах замаар гарна уу | Take the exit / Take the exit on the left / Take the exit on the right |
+| `maneuver.onRamp` / `.left` / `.right` | Орох зам руу эргэнэ үү / Зүүн талын орох зам руу эргэнэ үү / Баруун талын орох зам руу эргэнэ үү | Take the ramp / Take the ramp on the left / Take the ramp on the right |
+| `maneuver.offRamp` / `.left` / `.right` | Гарах зам руу эргэнэ үү / Зүүн талын гарах зам руу эргэнэ үү / Баруун талын гарах зам руу эргэнэ үү | Take the exit / Take the exit on the left / Take the exit on the right |
 | `maneuver.roundabout.exit` | Тойрог: {n}-р гарц | Roundabout: exit {n} |
 | `maneuver.roundabout.enter` | Тойрогт орно уу | Enter the roundabout |
 | `maneuver.roundabout.leave` | Тойргоос гарна уу | Exit the roundabout |
@@ -298,7 +298,7 @@ Key = `maneuver.` + the ADR-0008 key. Stored with a lower-case first letter as i
 Depart sectors: 8 sectors of 45° centred on 0°, 45°, … (`n` = [337.5°, 22.5°), `ne` = [22.5°, 67.5°), …). The boundary 22.5° belongs to `ne`, 337.5° to `n`; 22.4° is `n` (AC 27 fixture).
 
 Notes
-- **Length, Mongolian first.** Longest strings: «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна» (62), «Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу» (58), «Хамгийн ойрын зам сонгосон цэгээс 1,4 км зайтай» (47), «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» (46), «Баруун талын гарах замаар гарна уу» (34, a turn row). All wrap, none is truncated; the prototype checks 320 px in both languages. Only the field texts ellipsise (they are names; the full name is in the card and the marker name). English is longer only for the placeholder "Choose starting point" (21 vs 16) and fits.
+- **Length, Mongolian first.** Longest strings: «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна» (62), «Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу» (58), «Хамгийн ойрын зам сонгосон цэгээс 1,4 км зайтай» (47), «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» (46), «Баруун талын гарах зам руу эргэнэ үү» (36, a turn row). All wrap, none is truncated; the prototype checks 320 px in both languages. Only the field texts ellipsise (they are names; the full name is in the card and the marker name). English is longer only for the placeholder "Choose starting point" (21 vs 16) and fits.
 - **`en` "Directions"** is both the button (`route.getDirections`) and the turn-list heading (`route.directions`), as the glossary lists; two keys keep them independent.
 - **Plural keys:** `.one`/`.other` picked with `Intl.PluralRules(uiLang)`; Mongolian values are identical (same approach as NAV-003 `search.resultCount`).
 - **Punctuation** (" · ", ", " in accessible names, the space before «+1 өдөр») is formatting, not a string.

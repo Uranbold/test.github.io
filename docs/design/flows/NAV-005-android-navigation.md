@@ -217,7 +217,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Approaching: «{n} метрт очих газартаа ирнэ» at the main trigger (if the schedule has one)"] --> B{"≤ 30 m from the route end or past it"}
+    A["Approaching: «{n} метрт очих газартаа хүрнэ» at the main trigger (if the schedule has one)"] --> B{"≤ 30 m from the route end or past it"}
     B --> C["Banner arrival variant «Та очих газартаа ирлээ» (or side variant)<br/>spoken once (or chime); exactly 1 arrival message, also while stationary (G4)"]
     C --> D["Progress panel → S6 arrival panel: destination name + «Хаах»"]
     C --> E["≤ 10 s: service stopped, location updates stopped,<br/>notification removed, screen-on cleared; 0 prompts, 0 reroutes"]
