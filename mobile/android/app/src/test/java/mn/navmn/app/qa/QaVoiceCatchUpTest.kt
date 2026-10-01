@@ -69,7 +69,7 @@ class QaVoiceCatchUpTest {
      * TC-C02, navigation-ux v0.3 §4.3 `arrive` sub-rule (NAV-005-D12 fix, orchestrator option b; AC 32 / D67, AC 45,
      * AC 52). On the recorded G9 plan, over the whole final step (30 m to 2,990 m, 0.5 m steps), both catch-up paths,
      * mn and en, the catch-up for an upcoming `arrive` at distance d is:
-     *  - d <= 500 m: the approaching prompt A11 with the current d prefix («{n} метрт очих газартаа ирнэ» /
+     *  - d <= 500 m: the approaching prompt A11 with the current d prefix («{n} метрт очих газартаа хүрнэ» /
      *    "In {n} meters, you will arrive"), n <= 500;
      *  - 500 m < d < 2 km: no prompt;
      *  - d >= 2 km: "continue on" A12 («{n} километр үргэлжлүүлэн явна уу» / "Continue for {n} kilometers"), as in the
@@ -80,7 +80,7 @@ class QaVoiceCatchUpTest {
     fun tcC02_d12ArriveCatchUpBandsAndLaterApproachingPrompt() {
         val finalStep = g9.steps[last - 1].distance
         check(g9.steps[last].maneuver.type == "arrive" && finalStep >= 2_500.0) { "G9 fixture changed: final step $finalStep m" }
-        val a11 = mapOf(Lang.MN to Regex("^(\\d+) метрт очих газартаа ирнэ$"), Lang.EN to Regex("^In (\\d+) meters?, you will arrive$"))
+        val a11 = mapOf(Lang.MN to Regex("^(\\d+) метрт очих газартаа хүрнэ$"), Lang.EN to Regex("^In (\\d+) meters?, you will arrive$"))
         val a12 = mapOf(Lang.MN to Regex("^\\d+(,\\d)? километр үргэлжлүүлэн явна уу$"), Lang.EN to Regex("^Continue for \\d+(\\.\\d)? kilometers?$"))
         val problems = ArrayList<String>()
         val counts = IntArray(3)

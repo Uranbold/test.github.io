@@ -84,7 +84,7 @@ class VoiceTextTest {
     @Test
     fun departApproachingContinueOnChained() {
         assertEquals("Хойд зүг рүү явна уу", m(VoiceContent.Depart(k("depart", bearing = 0.0))))
-        assertEquals("300 метрт очих газартаа ирнэ", m(VoiceContent.Approaching(310.0)))
+        assertEquals("300 метрт очих газартаа хүрнэ", m(VoiceContent.Approaching(310.0)))
         assertEquals("12 километр үргэлжлүүлэн явна уу", m(VoiceContent.ContinueOn(12_300.0)))
         assertEquals("2,5 километр үргэлжлүүлэн явна уу", m(VoiceContent.ContinueOn(2_480.0)))
         assertEquals(
