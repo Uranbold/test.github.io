@@ -1,6 +1,7 @@
 // NAV-017 A/B: sub-folder hosting (AC 2), the local Basic-auth stand-in for hPanel protection (ADR-0011 §9), and the
 // route picker (AC 8–11), plus the double-tap edge case. Production demo-mode build from nav017/site.mjs.
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './helpers.mjs';
 import { S, ROUTES, demoUrl, netLog, openDemo, qaInit, selectRoute, site, tick, tid, fmtDistance, fmtDuration, nb, readJson, waitPicker } from './helpers.mjs';
 
 const ORIGIN = () => site().origin;
@@ -55,14 +56,14 @@ test.describe('A. Sub-folder hosting and protection', () => {
     expect(Math.abs(demo.w - pub.w)).toBeLessThanOrEqual(2);
   });
 
-  test('ADR-0011 §9 Basic auth stand-in: /locked-demo/ answers 401 without credentials and 200 with them; every asset, the WASM and the route data load with credentials; tiles come from the unprotected /tiles/ (206)', async ({ browser, request }, ti) => {
+  test('ADR-0011 §9 Basic auth stand-in: /locked-demo/ answers 401 without credentials and 200 with them; every asset, the WASM and the route data load with credentials; tiles come from the unprotected /tiles/ (206)', async ({ freshBrowser: browser, request }, ti) => {
     const s = site();
     const url = s.origin + s.folders.locked;
     expect((await request.get(url, { failOnStatusCode: false })).status()).toBe(401);
     expect((await request.get(url + 'demo-routes/r1.json', { failOnStatusCode: false })).status()).toBe(401);
     const auth = 'Basic ' + Buffer.from(`${s.user}:${s.pass}`).toString('base64');
     expect((await request.get(url, { headers: { Authorization: auth } })).status()).toBe(200);
-    const { defaultBrowserType, ...use } = ti.project.use;
+    const { defaultBrowserType, trace, ...use } = ti.project.use;
     const ctx = await browser.newContext({ ...use, httpCredentials: { username: s.user, password: s.pass } });
     const page = await ctx.newPage();
     const res = [];

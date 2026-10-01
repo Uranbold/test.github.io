@@ -34,13 +34,21 @@ export function goldenProblems(spokenList, track, lang) {
  */
 export function scheduleProblems(spokenList, label, track, lang, mode, oracle = oracleFor(label)) {
   const { o, alongs } = oracle;
-  const g = golden(track, lang);
+  // manoeuvre index of prompt i: from the golden row of this language when its text matches, else from the mn row of the
+  // same track at the same position (the demo plays the mn recording in both UI languages, story › Demo routes)
+  const gl = golden(track, lang), gm = golden(track, 'mn');
+  const g = spokenList.map((s, i) => (gl[i]?.text === s.text ? gl[i] : gm.length === spokenList.length ? { ...gm[i], text: s.text } : undefined));
   const p = [];
   const seen = new Set();
   const within = new Map();
   spokenList.forEach((s, i) => {
-    const m = g[i]?.m;
-    if (m === undefined || g[i].text !== s.text) return;
+    let m = g[i]?.m;
+    if (m === undefined) {
+      // no golden rows (G4): the next manoeuvre ahead of the position (arrival texts: the last one)
+      const a = alongAt(alongs, s.t * 1000);
+      m = /очих газар|destination|arrived/i.test(s.text) && !/метрт|meters/.test(s.text) ? o.steps.length - 1 : i === 0 ? 0 : o.maneuverAlong.findIndex((x, k) => k > 0 && x > a - 15);
+      if (m < 0) m = o.steps.length - 1;
+    }
     const key = `${m}|${s.text}`;
     if (seen.has(key)) p.push(`#${i} «${s.text}» produced twice`);
     seen.add(key);
@@ -62,6 +70,7 @@ export function scheduleProblems(spokenList, label, track, lang, mode, oracle = 
   });
   if (mode === 'car') {
     for (let m = 1; m < o.steps.length; m++) {
+      if (o.maneuverAlong[m] < alongs[0].along + 20) continue; // already passed (or too close) when the track starts
       const isArrive = o.steps[m].maneuver.type === 'arrive';
       const lastStepLen = o.steps[m - 1].distance;
       if (isArrive && lastStepLen < 30) continue; // D68

@@ -3,7 +3,8 @@
 // checker uses the same method), in the picker, guidance (with recenter shown), A1 notice and arrival states.
 // Safe-area insets cannot be emulated in a headless engine (env(safe-area-inset-*) is 0 here): the CSS is checked
 // statically instead, and the real insets stay a real-iPhone check (AC 48).
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './helpers.mjs';
 import AxeBuilder from '@axe-core/playwright';
 import { readdirSync, readFileSync } from 'node:fs';
 import { S, ROUTES, WEB, openDemo, selectRoute, startReplay, tick, tid, routeBody, readGpx, intersects } from './helpers.mjs';
@@ -107,9 +108,9 @@ async function layoutProblems(page, state) {
 
 for (const [w, h] of VIEWPORTS) {
   for (const zoom of ZOOMS) {
-    test(`AC37 ${w}×${h} at ${zoom} %: picker, guidance (recenter shown), A1 notice, arrival: attribution visible and uncovered, controls inside the viewport and reachable, banner ≤ 3 lines without truncation`, async ({ browser }, ti) => {
+    test(`AC37 ${w}×${h} at ${zoom} %: picker, guidance (recenter shown), A1 notice, arrival: attribution visible and uncovered, controls inside the viewport and reachable, banner ≤ 3 lines without truncation`, async ({ freshBrowser: browser }, ti) => {
       test.setTimeout(10 * 60_000);
-      const { defaultBrowserType, ...use } = ti.project.use;
+      const { defaultBrowserType, trace, ...use } = ti.project.use;
       const problems = [];
       for (const state of ['picker', 'guidance', 'a1', 'arrival']) {
         const ctx = await browser.newContext({ ...use, viewport: { width: w, height: h }, reducedMotion: 'reduce' });

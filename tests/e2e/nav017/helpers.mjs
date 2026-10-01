@@ -118,10 +118,11 @@ export class RouteOracle {
   }
   /** Along positions of a whole track (forward search, so a self-crossing route is not mis-projected). */
   alongTrack(track) {
-    let last = 0;
+    let last = null;
     return track.map((p) => {
-      const r = this.project(p, Math.max(0, last - 30), last + 400);
-      last = Math.max(last, r.along);
+      // first point: global search (G4 starts 3.8 km along R1); then forward search near the previous position
+      const r = last === null ? this.project(p) : this.project(p, Math.max(0, last - 30), last + 400);
+      last = Math.max(last ?? 0, r.along);
       return { ...r, tMs: p.tMs };
     });
   }
@@ -168,7 +169,7 @@ export function voiceScanProblems(text) {
 
 // ---------------------------------------------------------------- browser stubs (addInitScript)
 /**
- * cfg: { voices: ['mn-MN', 'en-US'] | [], lang, theme, muted, speechErrorAt: n (1-based speak call that fails),
+ * cfg: { voices: ['mn-MN', 'en-US'] | [], lang, theme, muted, speechErrorAt: n (1-based non-empty speak call that fails),
  *        wakeLock: 'ok' | 'reject' | 'missing', voicesLate: true (getVoices empty until voiceschanged after 500 ms) }
  */
 export function qaInit(cfg) {
@@ -204,16 +205,17 @@ export function qaInit(cfg) {
   class Utt extends EventTarget {
     constructor(text) { super(); this.text = text; this.voice = null; this.lang = ''; this.rate = 1; this.pitch = 1; this.volume = 1; this.onstart = null; this.onend = null; this.onerror = null; }
   }
-  let current = null, endTimer = null, nCalls = 0;
+  let current = null, endTimer = null, nCalls = 0, nPrompts = 0;
   const fire = (u, type, extra) => { const ev = Object.assign(new Event(type), extra || {}); try { u['on' + type] && u['on' + type](ev); } catch {} u.dispatchEvent(ev); };
   const synth = {
     getVoices: () => (listed ? voices.slice() : []),
     speak(u) {
       nCalls++;
       log.speak.push({ text: u.text, lang: u.lang, voice: u.voice ? u.voice.lang : null, t: now(), inClick: log.inClick, volume: u.volume });
-      if (!u.text) return;
+      if (!u.text) return; // an empty priming utterance (unlock) is not a prompt
+      nPrompts++;
       current = u;
-      if (cfg.speechErrorAt && nCalls === cfg.speechErrorAt) { setTimeout(() => { if (current === u) { current = null; fire(u, 'error', { error: 'synthesis-failed' }); } }, 20); return; }
+      if (cfg.speechErrorAt && nPrompts === cfg.speechErrorAt) { setTimeout(() => { if (current === u) { current = null; fire(u, 'error', { error: 'synthesis-failed' }); } }, 20); return; }
       setTimeout(() => current === u && fire(u, 'start'), 10);
       const ms = Math.min(5000, 300 + 55 * u.text.length);
       endTimer = setTimeout(() => { if (current === u) { current = null; fire(u, 'end'); } }, ms);
@@ -507,3 +509,24 @@ async function fullReplayLive(browser, project, opts) {
   const out = { log, reqs, errors, storage, page, ctx };
   return out;
 }
+
+// ---------------------------------------------------------------- one browser per test
+// Software WebGL in a long-lived browser grows the GPU process (3.7 GB after a few replays) and slowed one replay
+// second from ~0.4 s to ~3 s of wall time. Every NAV-017 browser test therefore gets its own browser: `context`/`page`
+// come from a browser launched for that test (project options kept), and `freshBrowser` is the same for tests that
+// create several contexts.
+import { test as base } from '@playwright/test';
+export const projectContextOptions = (ti, extra = {}) => { const { defaultBrowserType, ...use } = ti.project.use; delete use.trace; delete use.serviceWorkers; return { ...use, serviceWorkers: 'allow', ...extra }; };
+export const test = base.extend({
+  reducedMotion: [null, { option: true }],
+  freshBrowser: async ({ playwright, browserName }, use) => {
+    const b = await playwright[browserName].launch();
+    await use(b);
+    await b.close();
+  },
+  context: async ({ freshBrowser, reducedMotion }, use, ti) => {
+    const ctx = await freshBrowser.newContext(projectContextOptions(ti, reducedMotion ? { reducedMotion } : {}));
+    await use(ctx);
+    await ctx.close();
+  },
+});

@@ -5,7 +5,8 @@
 // Oracles: tests/gpx/nav005/golden/voice-golden.tsv (AC 26 cross-platform check, never relaxed), the recorded response
 // and the GPX track (QA's RouteOracle), NAV-004 AC 23–27 transcriptions. The map canvas is not painted during these
 // logic replays (helpers.fullReplay › hideCanvas); layout and rendering are covered in ui.test.mjs and layout.test.mjs.
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './helpers.mjs';
 import { ROUTES, G4, S, SENTINEL, fullReplay, golden, readGpx, readJson, routeBody, sentinelCopy, spoken, intersects } from './helpers.mjs';
 import { bannerProblems, goldenProblems, layoutDuringReplayProblems, liveRegionProblems, oracleFor, progressProblems, scheduleProblems, voiceTextProblems } from './checks.mjs';
 
@@ -44,7 +45,7 @@ function privacyProblems(run) {
  * mode, expectChime, track (override) }.
  */
 function replaySuite(spec) {
-  test(`${spec.name}`, async ({ browser }, ti) => {
+  test(`${spec.name}`, async ({ freshBrowser: browser }, ti) => {
     test.setTimeout(40 * 60_000);
     let run;
     let said;
@@ -137,7 +138,8 @@ function replaySuite(spec) {
         expect.soft(said.slice(idx + 1), '0 prompts after arrival').toEqual([]);
         // approaching prompt before it, when the schedule has one (A11)
         const approach = said.slice(0, idx).filter((s) => /очих газартаа хүрнэ|you will arrive/i.test(s.text));
-        if (golden(spec.golden?.[0] ?? '', spec.golden?.[1] ?? '').some((g) => /очих газартаа хүрнэ|you will arrive/i.test(g.text)) || spec.track) expect.soft(approach.length).toBeGreaterThanOrEqual(1);
+        // required when the schedule of the played (mn) recording has one: the mn golden rows of the same track
+        if (golden(spec.golden?.[0] ?? '', 'mn').some((g) => /очих газартаа хүрнэ/.test(g.text)) || spec.track) expect.soft(approach.length).toBeGreaterThanOrEqual(1);
       }
       // arrival banner stays (no further banner changes)
       const iArr = run.log.banners.findIndex((b) => b.text === want);

@@ -2,7 +2,8 @@
 // mute (AC 30), language switch (AC 31), «Дуусгах» (AC 35), wake lock variants (AC 39), offline (AC 40), theme and
 // rotation (AC 41), the depart prompt and audio unlock inside the «Эхлэх» handler (AC 27) and the 3 s voice wait
 // (AC 28). Production demo-mode build, Playwright clock installed before navigation, stubs from helpers.qaInit.
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './helpers.mjs';
 import { S, ROUTES, openDemo, selectRoute, startReplay, qa, spoken, tick, tid, golden, netLog, site, routeBody, readGpx, intersects } from './helpers.mjs';
 
 test.use({ reducedMotion: 'reduce' });
@@ -150,15 +151,15 @@ test('AC29: a speech error during the replay switches to the chime for the rest 
   await run(page, 175, 5000);
   await run(page, 4, 500); // speak call 2 («1 километрт …» at ~176 s) fails
   const log = await qa(page);
-  const failedAt = log.speak.filter((s) => s.text)[1].rel;
+  const failedAt = log.speakRel.filter((s) => s.text)[1].rel;
   const chimeAfter = log.chimesRel.find((t) => t >= failedAt);
   expect(chimeAfter, 'chime replaces the failed prompt').toBeDefined();
   expect(chimeAfter - failedAt).toBeLessThanOrEqual(1000);
   await expect(page.locator('[data-testid="demo-nav-messages"] [data-kind="voice-unavailable"]')).toBeVisible();
   await expect(page.locator('[data-kind="voice-unavailable"]')).toContainText(S.mn.a1);
-  await run(page, 80, 5000);
+  await run(page, 135, 5000); // to 314 s: past the arrival at ~305 s
   const end = await qa(page);
-  const later = end.speak.filter((s) => s.text && s.rel > failedAt + 100);
+  const later = end.speakRel.filter((s) => s.text && s.rel > failedAt + 100);
   expect(later, 'no speech after the error').toEqual([]);
   const chimes = end.chimesRel.filter((t) => t >= failedAt);
   expect(chimes.length).toBe(golden('G1', 'mn').filter((g) => g.t >= 176).length);
@@ -254,7 +255,8 @@ test('AC35: «Дуусгах» stops the replay ≤ 1 s: utterance stopped, rout
   await openDemo(page, { voices: ['mn-MN'] });
   await selectRoute(page, 'R2');
   await startReplay(page);
-  await tick(page, 1500); // depart prompt playing
+  await tick(page, 500); // depart prompt «Өмнө зүг рүү явна уу» (≈ 1.4 s in the stub) is playing
+  expect((await qa(page)).speak.filter((s) => s.text).length).toBe(1);
   const c0 = (await qa(page)).cancel;
   await tid(page, 'demo-nav-end').click();
   await tick(page, 1000);
