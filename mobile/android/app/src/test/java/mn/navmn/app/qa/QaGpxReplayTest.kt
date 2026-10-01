@@ -253,9 +253,9 @@ class QaGpxReplayTest {
 
     // ------------------------------------------------------------------------------------------------ G3, G3b
 
-    private fun gpsLossProblems(id: String): Pair<QaRun, List<String>> {
+    private fun gpsLossProblems(id: String, mk: () -> QaRun = { car(id) }): Pair<QaRun, List<String>> {
         val fixes = QaGpx.fixes(id)
-        val r = car(id)
+        val r = mk()
         r.run(fixes, tailMs = 10_000)
         val p = ArrayList<String>()
         val gapAt = fixes.zipWithNext().first { (a, b) -> b.elapsedMs - a.elapsedMs > 2_000 }
@@ -275,7 +275,10 @@ class QaGpxReplayTest {
         if (r.requests.isNotEmpty()) p += "AC 51/53: ${r.requests.size} requests"
         // AC 52: restored visible ~3 s; resumes within 2 s: banner = next manoeuvre by the oracle.
         val restoredVisible = r.states.filter { it.second.gpsRestoredVisible }.map { it.first }
-        if (restoredVisible.isEmpty() || restoredVisible.first() - resume > 1_000 || restoredVisible.last() - restoredVisible.first() !in 2_500..3_100) {
+        // The arrival panel (S6) replaces the guidance screen, so arrival within 3 s of the restore may end the message early.
+        val arrivedAt = r.events.firstOrNull { it.second == GuidanceEvent.Arrived }?.first ?: Long.MAX_VALUE
+        val endsAtArrival = restoredVisible.isNotEmpty() && arrivedAt - restoredVisible.first() in 0..3_000 && restoredVisible.last() >= arrivedAt - 1_000
+        if (restoredVisible.isEmpty() || restoredVisible.first() - resume > 1_000 || (!endsAtArrival && restoredVisible.last() - restoredVisible.first() !in 2_500..3_100)) {
             p += "AC 52: restored message visible ${restoredVisible.firstOrNull()}..${restoredVisible.lastOrNull()} (resume $resume)"
         }
         val oracle = RouteOracle(r.initial.plan)
@@ -284,6 +287,14 @@ class QaGpxReplayTest {
         val expected = r.bannerText(Banner.Maneuver(r.initial.plan.steps[m].key, 0.0, "", null, false))
         val shown = r.stateAt(resume + 2_000)?.let { r.bannerText(it.banner) }
         if (shown != expected) p += "AC 53: banner 2 s after resume «$shown», expected «$expected»"
+        // AC 52/53 (round 1): the banner distance is to the TRUE next manoeuvre, not a passed one with the same text.
+        val at2 = fixes.last { it.elapsedMs <= resume + 2_000 }
+        val along2 = oracle.along(at2.latLon, global = true).first
+        val m2 = oracle.maneuverAlong.indexOfFirst { it > along2 + 5 }.takeIf { it >= 0 } ?: (oracle.maneuverAlong.size - 1)
+        val dTrue = (if (m2 == oracle.maneuverAlong.size - 1) oracle.length else oracle.maneuverAlong[m2]) - along2
+        (r.stateAt(resume + 2_000)?.banner as? Banner.Maneuver)?.let { b ->
+            if (Math.abs(b.distanceM - dTrue) > maxOf(30.0, 0.2 * dTrue)) p += "AC 52/53: banner distance 2 s after resume ${b.distanceM.toInt()} m, true distance to manoeuvre $m2 ${dTrue.toInt()} m"
+        }
         val remTrue = oracle.length - along
         val remShown = r.stateAt(resume + 2_000)?.progress?.distanceRemaining
         if (remShown == null || Math.abs(remShown - remTrue) > 60) p += "AC 52: remaining distance 2 s after resume ${remShown?.toInt()} m, true ${remTrue.toInt()} m"
@@ -454,6 +465,139 @@ class QaGpxReplayTest {
             golden.writeText(sb.toString())
         }
         assertEquals("golden set changed (review, then regenerate with QA_UPDATE_GOLDEN=1)", golden.readText(), sb.toString())
+    }
+
+    // ------------------------------------------------------------------------------------------------ round 1: D1 catch-up
+
+    /** Manoeuvres whose along-route position lies inside the gap must not be announced after the restore (AC 52). */
+    private fun passedInGapAnnounced(r: QaRun, fixes: List<Fix>): List<String> {
+        val gap = fixes.zipWithNext().first { (a, b) -> b.elapsedMs - a.elapsedMs > 2_000 }
+        val oracle = RouteOracle(r.initial.plan)
+        val a0 = oracle.along(gap.first.latLon, global = true).first
+        val a1 = oracle.along(gap.second.latLon, global = true).first
+        val inside = oracle.maneuverAlong.indices.filter { it >= 1 && oracle.maneuverAlong[it] in a0..a1 }
+        return r.spoken.filter { it.first >= gap.second.elapsedMs && it.second.maneuver?.first == 0 && it.second.maneuver?.second in inside }
+            .map { "AC 52: manoeuvre ${it.second.maneuver?.second} passed during the loss announced after restore at ${it.first / 1000.0} s: «${it.second.text}»" }
+    }
+
+    /**
+     * TC-R14 (NAV-005-D1 re-verification): the 30 s gap covers the left turn and fixes resume only 40 m past it.
+     * Last fix before the gap is 360 m before the turn (Ferrostar's 30 m step-advance entry never armed); the first fix
+     * after it is 40 m from the passed step, so StepCatchUp (> 50 m) does not apply on that fix.
+     */
+    @Test
+    fun tcR14_g3cResumeFortyMetresPastTheTurn() {
+        val (r, p0) = gpsLossProblems("G3c")
+        val p = ArrayList(p0)
+        p += passedInGapAnnounced(r, QaGpx.fixes("G3c"))
+        p += bannerProblems(r, Lang.MN).map { "AC 28/31: $it" }
+        assertTrue(p.joinToString("\n"), p.isEmpty())
+    }
+
+    /** TC-R15: one 53 s gap covers BOTH turns; resume 60 m past the right turn, 55 m before the end (AC 52, 53, 55). */
+    @Test
+    fun tcR15_g3dGapCoversTwoManoeuvres() {
+        val (r, p0) = gpsLossProblems("G3d")
+        val p = ArrayList(p0)
+        p += passedInGapAnnounced(r, QaGpx.fixes("G3d"))
+        p += bannerProblems(r, Lang.MN).map { "AC 28/31: $it" }
+        println("G3d banners: " + r.bannerChanges().map { "${it.first / 1000.0}s ${it.second}" })
+        assertTrue(p.joinToString("\n"), p.isEmpty())
+    }
+
+    /** TC-R16: walking, a 57 s gap covers the right turn onto Seoul st.; fixes resume 40 m past it (AC 52, 53 for walk). */
+    @Test
+    fun tcR16_g5bWalkingGapOverATurn() {
+        val (r, p0) = gpsLossProblems("G5b") { QaRun(QaGpx.routeBytes("G5b"), TravelMode.WALK, Lang.MN) }
+        val p = ArrayList(p0)
+        p += passedInGapAnnounced(r, QaGpx.fixes("G5b"))
+        p += bannerProblems(r, Lang.MN).map { "AC 28/31: $it" }
+        println("G5b banners: " + r.bannerChanges().map { "${it.first / 1000.0}s ${it.second}" })
+        println("G5b banner distance/street after the restore: " + (270..330 step 5).map { s -> (r.stateAt(s * 1_000L)?.banner as? Banner.Maneuver)?.let { "${s}s ${it.distanceM.toInt()} m «${it.street}»" } })
+        assertTrue(p.joinToString("\n"), p.isEmpty())
+    }
+
+    /**
+     * TC-R17: a single 5 m-accuracy outlier that lands ON a later step (Dunjingarav st., 200 m past the left turn) must not
+     * skip steps or reroute: G6b during continuous tracking, G6c as the first fix after a 12 s gap (AC 41 "one outlier
+     * → 0 reroute requests", AC 31 banner, AC 34 the left turn still announced 20–250 m ahead, AC 52/53).
+     */
+    @Test
+    fun tcR17_outlierOnALaterStepDoesNotSkipSteps() {
+        val p = ArrayList<String>()
+        for (id in listOf("G6b", "G6c")) {
+            val fixes = QaGpx.fixes(id)
+            val r = car(id)
+            r.run(fixes, tailMs = 10_000)
+            val oi = QaGpx.meta(id)["outlier_index"]!!.toString().toInt()
+            val outlierAt = fixes[oi].elapsedMs
+            if (r.requests.isNotEmpty()) p += "$id AC 41: ${r.requests.size} reroute requests (first at ${r.requests[0].first / 1000.0} s, outlier at ${outlierAt / 1000.0} s)"
+            if (r.states.any { it.second.banner is Banner.Rerouting }) p += "$id AC 41/31: recalculating banner shown"
+            if (r.spokenTexts().contains("Та маршрутаас гарлаа")) p += "$id AC 41: off-route prompt"
+            val left = r.bannerText(Banner.Maneuver(r.initial.plan.steps[1].key, 0.0, "", null, false))
+            for (dt in listOf(2_000L, 5_000L)) {
+                val shown = r.stateAt(outlierAt + dt)?.let { r.bannerText(it.banner) }
+                if (shown != left) p += "$id AC 31/53: banner ${dt / 1000} s after the outlier «$shown», expected «$left» (still before the left turn)"
+            }
+            p += ac34Problems(r, fixes.filterIndexed { i, _ -> i != oi }).map { "$id AC 34: $it" }
+            // AC 34: a prompt starts only after the TRUE position passes its trigger. A "now" prompt (no stated distance)
+            // fires at 58–80 m (fast) or less (navigation-ux §4.2), so a true distance > 100 m means it fired early.
+            val oracle = RouteOracle(r.initial.plan)
+            val tl = oracle.alongTimeline(fixes.filterIndexed { i, _ -> i != oi })
+            for ((t, sp) in r.spoken) {
+                val m = sp.maneuver ?: continue
+                if (m.first != 0 || m.second < 1 || sp.cls != PromptClass.MANEUVER || Ac27.statedMetres(sp.text) != null || sp.text.contains("километр")) continue
+                val d = oracle.maneuverAlong[m.second] - interpolate(tl, t)
+                if (d > 100) p += "$id AC 34: «${sp.text}» (now prompt, manoeuvre ${m.second}) spoken at ${t / 1000.0} s while the manoeuvre is ${d.toInt()} m ahead"
+            }
+            p += bannerAdvanceProblems(r, fixes.filterIndexed { i, _ -> i != oi }).map { "$id AC 31: $it" }
+            if (r.events.count { it.second == GuidanceEvent.Arrived } != 1) p += "$id: arrivals ${r.events.count { it.second == GuidanceEvent.Arrived }}"
+            println("$id spoken: " + r.spoken.map { "${it.first / 1000}s ${it.second.text}" })
+            println("$id banners: " + r.bannerChanges().map { "${it.first / 1000.0}s ${it.second}" })
+        }
+        assertTrue(p.joinToString("\n"), p.isEmpty())
+    }
+
+    /**
+     * TC-R18 (round 2, NAV-005-D9 re-verification near the turn): G6d puts the same single 5 m-accuracy outlier on the
+     * next step while the car is ~120 m before the left turn, after the main (150 m) prompt and before the "now"
+     * prompt. The held position must keep the "now" prompt at the true distance (AC 34), keep the banner on the left
+     * turn (AC 31), and send 0 reroute requests (AC 41). Same oracles as TC-R17.
+     */
+    @Test
+    fun tcR18_outlierOnALaterStepNearTheTurn() {
+        val id = "G6d"
+        val p = ArrayList<String>()
+        val fixes = QaGpx.fixes(id)
+        val r = car(id)
+        r.run(fixes, tailMs = 10_000)
+        val oi = QaGpx.meta(id)["outlier_index"]!!.toString().toInt()
+        val outlierAt = fixes[oi].elapsedMs
+        val trueFixes = fixes.filterIndexed { i, _ -> i != oi }
+        if (r.requests.isNotEmpty()) p += "AC 41: ${r.requests.size} reroute requests (first at ${r.requests[0].first / 1000.0} s, outlier at ${outlierAt / 1000.0} s)"
+        if (r.states.any { it.second.banner is Banner.Rerouting }) p += "AC 41/31: recalculating banner shown"
+        if (r.spokenTexts().contains("Та маршрутаас гарлаа")) p += "AC 41: off-route prompt"
+        val left = r.bannerText(Banner.Maneuver(r.initial.plan.steps[1].key, 0.0, "", null, false))
+        val shown = r.stateAt(outlierAt + 1_000L)?.let { r.bannerText(it.banner) }
+        if (shown != left) p += "AC 31: banner 1 s after the outlier «$shown», expected «$left» (still before the left turn)"
+        p += ac34Problems(r, trueFixes).map { "AC 34: $it" }
+        val oracle = RouteOracle(r.initial.plan)
+        val tl = oracle.alongTimeline(trueFixes)
+        for ((t, sp) in r.spoken) {
+            val m = sp.maneuver ?: continue
+            if (m.first != 0 || m.second < 1 || sp.cls != PromptClass.MANEUVER || Ac27.statedMetres(sp.text) != null || sp.text.contains("километр")) continue
+            val d = oracle.maneuverAlong[m.second] - interpolate(tl, t)
+            if (d > 100) p += "AC 34: «${sp.text}» (now prompt, manoeuvre ${m.second}) spoken at ${t / 1000.0} s while the manoeuvre is ${d.toInt()} m ahead"
+        }
+        p += bannerAdvanceProblems(r, trueFixes).map { "AC 31: $it" }
+        // Banner distance right after the outlier must stay close to the true distance (held position, not the snapped turn).
+        val b = r.stateAt(outlierAt + 200L)?.banner as? Banner.Maneuver
+        val trueD = oracle.maneuverAlong[1] - interpolate(tl, outlierAt)
+        if (b != null && kotlin.math.abs(b.distanceM - trueD) > maxOf(30.0, 0.2 * trueD)) p += "AC 21: banner distance ${b.distanceM.toInt()} m at the outlier, true ${trueD.toInt()} m"
+        if (r.events.count { it.second == GuidanceEvent.Arrived } != 1) p += "arrivals ${r.events.count { it.second == GuidanceEvent.Arrived }}"
+        println("$id outlier at ${outlierAt / 1000.0} s, spoken: " + r.spoken.map { "${it.first / 1000.0}s ${it.second.text}" })
+        println("$id banners: " + r.bannerChanges().map { "${it.first / 1000.0}s ${it.second}" })
+        assertTrue(p.joinToString("\n"), p.isEmpty())
     }
 
     @Suppress("unused")

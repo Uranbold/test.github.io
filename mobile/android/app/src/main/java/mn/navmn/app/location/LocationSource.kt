@@ -20,21 +20,38 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
+ * Location for the screen and the guidance engine (ADR-0009 §9). Every flow registers its platform listener when
+ * collection starts and removes it when collection stops, so the collector's scope decides how long a location
+ * request lives (AC 16, 19; Amendment 1 §9). Bound to [PlatformLocationSource]; Robolectric tests bind a fake (§10).
+ */
+interface LocationSource {
+    fun servicesEnabled(): Boolean
+
+    /** 1 Hz GPS fixes for guidance; collection stops the updates (AC 16, 19). */
+    fun guidanceUpdates(): Flow<Fix>
+
+    /** Map screen "my location" fixes; collected only while the Activity is STARTED and no guidance runs. */
+    fun mapUpdates(): Flow<Fix>
+
+    /** Route-preview origin (AC 9): a good recent fix, or null (one-shot; no listener stays registered). */
+    suspend fun freshGoodFix(timeoutMs: Long = 10_000): Fix?
+}
+
+/**
  * ADR-0009 §9 location: only the phone's own providers through LocationManager (no Google Play services, AC 14).
  * Guidance: GPS_PROVIDER at 1,000 ms, minDistance 0, no last-known location, fixes older than 10 s dropped (AC 16).
  * Callers must hold a location permission (checked by the permission flow before any call).
  */
 @Singleton
-class LocationSource @Inject constructor(@ApplicationContext private val context: Context) {
+class PlatformLocationSource @Inject constructor(@ApplicationContext private val context: Context) : LocationSource {
     private val manager: LocationManager = context.getSystemService(LocationManager::class.java)
     private val thread by lazy { HandlerThread("navmn-location").apply { start() } }
     private val looper: Looper get() = thread.looper
 
-    fun servicesEnabled(): Boolean = LocationManagerCompat.isLocationEnabled(manager)
+    override fun servicesEnabled(): Boolean = LocationManagerCompat.isLocationEnabled(manager)
 
-    /** 1 Hz GPS fixes for guidance; collection stops the updates (AC 16, 19). */
     @SuppressLint("MissingPermission")
-    fun guidanceUpdates(): Flow<Fix> = callbackFlow {
+    override fun guidanceUpdates(): Flow<Fix> = callbackFlow {
         val listener = LocationListener { loc ->
             val fix = loc.toFix()
             if (SystemClock.elapsedRealtime() - fix.elapsedMs <= Fix.FRESH_MS) trySend(fix)
@@ -45,7 +62,7 @@ class LocationSource @Inject constructor(@ApplicationContext private val context
 
     /** Map screen "my location": GPS plus the platform fused provider (API 31+), 1 s. */
     @SuppressLint("MissingPermission")
-    fun mapUpdates(): Flow<Fix> = callbackFlow {
+    override fun mapUpdates(): Flow<Fix> = callbackFlow {
         val listener = LocationListener { loc -> trySend(loc.toFix()) }
         for (p in providers()) runCatching { manager.requestLocationUpdates(p, 1_000L, 0f, listener, looper) }
         awaitClose { manager.removeUpdates(listener) }
@@ -56,7 +73,7 @@ class LocationSource @Inject constructor(@ApplicationContext private val context
      * otherwise the first good fix within [timeoutMs] (10 s). null → «Байршил тодорхойлж чадсангүй», 0 requests.
      */
     @SuppressLint("MissingPermission")
-    suspend fun freshGoodFix(timeoutMs: Long = 10_000): Fix? {
+    override suspend fun freshGoodFix(timeoutMs: Long): Fix? {
         val now = SystemClock.elapsedRealtime()
         providers().mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull()?.toFix() }
             .filter { it.isGood(now, Fix.PREVIEW_FRESH_MS) }

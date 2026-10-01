@@ -19,6 +19,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import mn.navmn.app.location.LocationSource
+import mn.navmn.app.map.MapSurface
 import mn.navmn.app.permission.PermissionStatus
 import javax.inject.Inject
 
@@ -30,6 +31,7 @@ import javax.inject.Inject
 class MainActivity : AppCompatActivity() {
     private val vm: AppViewModel by viewModels()
     @Inject lateinit var location: LocationSource
+    @Inject lateinit var mapSurface: MapSurface
 
     private val locationPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         vm.onLocationPermissionResult()
@@ -47,6 +49,8 @@ class MainActivity : AppCompatActivity() {
         vm.bindPermissionState { permissionStatus() to location.servicesEnabled() }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                // ADR-0009 Amendment 1 §9: map-screen location only while the Activity is visible (cancelled at onStop).
+                launch { vm.collectMapLocation() }
                 vm.ui.collect { ui ->
                     if (ui.requestLocationPermission) {
                         locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
@@ -66,6 +70,7 @@ class MainActivity : AppCompatActivity() {
         setContent {
             NavRoot(
                 vm,
+                mapSurface,
                 PlatformActions(
                     openAppSettings = {
                         startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))

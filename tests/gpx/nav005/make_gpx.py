@@ -265,6 +265,59 @@ def build():
     add("G9", "First 20 km of P1 -> X1 (Peace Ave west, roundabout exit 2 onto the Darkhan road) at 80 km/h",
         drive(l9, speed_profile(80 / 3.6, 8.0, 0.1, a9), 0, 0.0, 20_000.0), g9, extra={"partial": True})
 
+    # ---- QA variants, round 1 (NAV-005-D1 re-verification: the StepCatchUp rule and its outlier gate) ----
+
+    # G3c: as G3b, but fixes resume 40 m past the left turn: inside the band where Ferrostar's step advance is not
+    # armed (last fix > 30 m before the step end, first fix > 30 m after it) and the catch-up rule does not apply yet
+    # (<= 50 m from the passed step).
+    gap_c = math.ceil((along[1] - 360.0) / v3)
+    g3c = all3[:gap_c] + all3[gap_c + 30:]
+    add("G3c", "QA variant of G3b: the 30 s gap covers the left turn and fixes resume 40 m past it (AC 52/53)", g3c, car_mn,
+        extra={"gap_start_s": all3[gap_c][0], "gap_s": 30, "gap_m": 400})
+
+    # G3d: one gap covers BOTH turns (left, then right 571 m later); fixes resume ~60 m past the right turn,
+    # 55 m before the route end.
+    gap_d = math.ceil(3500.0 / v3)
+    resume_d = math.ceil(4210.0 / v3)
+    g3d = all3[:gap_d] + all3[resume_d:]
+    add("G3d", "QA variant of G3: a 53 s gap covers both turns; fixes resume past the right turn, 55 m before the end (AC 52/55)",
+        g3d, car_mn, extra={"gap_start_s": all3[gap_d][0], "gap_s": resume_d - gap_d})
+
+    # G5b: walking, a 57 s gap (underpass / passage) covers the right turn onto Seoul st.; fixes resume 40 m past it.
+    wl5, _, wa5 = load(walk)
+    all5 = drive(wl5, lambda d: 1.4)
+    gap_w = math.ceil((wa5[3] - 40.0) / 1.4)
+    g5b = all5[:gap_w] + all5[gap_w + 57:]
+    add("G5b", "QA variant of G5 (walk): a 57 s gap covers the right turn onto Seoul st.; fixes resume 40 m past it (AC 52/53)",
+        g5b, walk, mode="walk", extra={"gap_start_s": all5[gap_w][0], "gap_s": 57})
+
+    # G6b: G1 with one good-accuracy outlier that lands ON a later step (Dunjingarav st., 200 m past the left turn)
+    # while the car is still ~570 m before that turn. Must not skip steps (StepCatchUp gate) nor reroute (AC 41).
+    g1_along = [sum(p[3] for p in g1[:i]) for i in range(len(g1))]  # drive() advances d by the speed each second
+    g6b = [list(p) for p in g1]
+    i6b = next(i for i, a in enumerate(g1_along) if a >= along[1] - 570.0)
+    g6b[i6b][1] = line.at(along[1] + 200.0)
+    add("G6b", "G1 with one 5 m-accuracy outlier placed on the next step (200 m past the left turn) ~570 m before the turn",
+        g6b, car_mn, extra={"outlier_index": i6b})
+
+    # G6c: G1 with a 12 s gap (GPS lost) ~800 m before the left turn; the FIRST fix after the gap is an outlier on the
+    # next step (as G6b), then true fixes resume. A single outlier after a gap must not skip steps or reroute.
+    i6c = next(i for i, a in enumerate(g1_along) if a >= along[1] - 800.0)
+    g6c = [list(p) for p in g1[:i6c]] + [list(p) for p in g1[i6c + 12:]]
+    g6c[i6c][1] = line.at(along[1] + 200.0)
+    add("G6c", "G1 with a 12 s gap ~800 m before the left turn; the first fix after the gap is an outlier on the next step",
+        g6c, car_mn, extra={"gap_start_s": g1[i6c][0], "gap_s": 12, "outlier_index": i6c})
+
+    # ---- QA variant, round 2 (NAV-005-D9 re-verification: held position near the turn) ----
+
+    # G6d: as G6b, but the 5 m-accuracy outlier on the next step comes while the car is ~120 m before the left turn,
+    # between the main (150 m) and the "now" prompt. The "now" prompt must still start at the true distance.
+    g6d = [list(p) for p in g1]
+    i6d = next(i for i, a in enumerate(g1_along) if a >= along[1] - 120.0)
+    g6d[i6d][1] = line.at(along[1] + 200.0)
+    add("G6d", "G1 with one 5 m-accuracy outlier placed on the next step (200 m past the left turn) ~120 m before the turn",
+        g6d, car_mn, extra={"outlier_index": i6d})
+
     files["manifest.json"] = json.dumps(manifest, ensure_ascii=False, indent=1) + "\n"
     return files
 

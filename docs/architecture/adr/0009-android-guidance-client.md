@@ -357,3 +357,103 @@ Apache-2.0 unless stated; patch bumps as before):
 
 **Release build.** Release builds are not minified in this slice (no store upload before NAV-007, D17). R8 keep
 rules for JNA and the UniFFI bindings are decided with NAV-012, before any release build is distributed.
+
+### Amendment 2 (2026-10-01): step catch-up after a jump (NAV-005-D1) and the platform test seams
+Requested by the mobile engineer after the NAV-005 fix round. Checked against `mobile/android` and a fresh
+`./gradlew assembleDebug testDebugUnitTest lint` run in this environment. No contract change.
+
+**New fact.**
+
+| # | Fact | Consequence |
+|---|---|---|
+| F14 | With `stepAdvanceDistanceEntryAndExit(30, 5, 25)`, Ferrostar 0.57.0 advances a step only after a fix within 30 m of that step's end. If no fix lands there (a GPS gap over a junction, QA track G3b), the step never advances. `StaticThreshold` then reports `OffStepOnRoute`, which neither advances nor starts a deviation. The banner stays on the passed turn until arrival | The app needs a catch-up rule. Shortening the step-advance distances would not help, because the gap can be any length |
+
+**§1 Step catch-up (decision).** The step-advance condition in §1 stays as it is. `StepCatchUp`
+(`engine/StepCatchUp.kt`, applied in the Ferrostar adapter after every `updateUserLocation`) adds one rule:
+- **Condition.** The fix is good (accuracy ≤ 25 m), it is **more than 50 m** from the current step's geometry, and it is
+  **within 50 m** of a later step that is not `arrive`. The first matching later step is the target. These are the same
+  25 m / 50 m values as the §1 deviation threshold (AC 41), so this is Ferrostar's own `OffStepOnRoute` test applied
+  to the current fix (F13). The distances change only together with AC 41, through the BA.
+- **Action.** Ferrostar's public `NavigationSession.advanceToNextStep` is called until the target is the current
+  step. Snapping, progress and the step-advance reset stay Ferrostar's. This uses the public API; it is not a fork.
+- **Outlier gate.** *(Superseded by Amendment 3: there is no shortcut after a gap.)* The catch-up applies at once only
+  if there was no good fix for **≥ 3 s** before this fix (the tunnel case). During continuous tracking, **two
+  consecutive good fixes** must agree on the same target. So a single outlier (G6) never skips a step.
+- **Not applied** when only `arrive` follows the current step. Arrival stays with §5 and Amendment 1.
+- **Voice and banner.** The banner shows the target's next manoeuvre on the same fix. Passed manoeuvres are never
+  announced (§3.3 staleness rule). After a GPS restore, the navigation-ux §4.3 catch-up prompt names the upcoming
+  manoeuvre (G3b: «GPS дохио сэргэлээ» at 280 s, then the next turn at 281 s).
+- **Interaction with §4.** A catch-up can end an off-route episode by rule (a) when the user rejoins the route at a
+  later step. A reroute answer that arrives after that is discarded (P11). That is the intended outcome, and no extra
+  request is sent.
+- **Known limit.** On loops, U-turn routes or dual carriageways, a later step can lie within 50 m of a position that
+  is also more than 50 m from the current step. The gate then advances after two agreeing fixes. Ferrostar's own
+  classification has the same limit. There is no fixture for this yet; QA adds one in a follow-up.
+- **Re-check on every Ferrostar upgrade,** together with F2–F7 and F13. Check the `advanceToNextStep` semantics and
+  whether upstream adds its own catch-up. If it does, remove this rule.
+
+**§10 Platform seams (as built).** Three interfaces are bound in `di/PlatformModule`:
+- `LocationSource`, implemented by `PlatformLocationSource` (`LocationManager`)
+- `MapSurface` / `MapCamera`, implemented by `MapLibreSurface` and `NavMapController`
+- `GuidanceVoice`, implemented by `VoiceOutput`
+
+Robolectric tests replace the module with `TestPlatformModule` (`@TestInstallIn`, `src/test` only). Its fakes are
+`FakeLocation` (counts listeners), `RecordingMapSurface` (no native code) and `RecordingVoice`. With these,
+`MainActivityTest` covers AC 8, 10–13 and 64 and the Amendment 1 §9 listener lifecycle at Activity level. None of
+these fakes is in the release APK (AC 72).
+
+### Amendment 3 (2026-10-01): outlier handling (NAV-005-D9, D10), the walking dead band (D8) and arrival gating
+Requested by the mobile engineer after the D9/D10 fix round and by QA (test plan §8 Q3). Checked against
+`mobile/android` (`StepCatchUp.kt`, `FerrostarNavigation.kt`, `GuidanceCore.kt`, `ArrivalDetector.kt`) and a fresh
+`./gradlew assembleDebug lint :app:testDebugUnitTest -Pnav.hostFerrostar=required` run in an isolated copy of the
+working tree. No contract change.
+
+**§1 Step catch-up, outlier gate (replaces the Amendment 2 bullet; as built for D10).** A catch-up is applied only when
+**two consecutive good fixes** agree on the same target step and are at most **3 s** apart (fix time). This also holds
+right after a GPS gap: the first fix after a tunnel can itself be the outlier (G6c). Poor fixes (accuracy > 25 m) neither
+confirm nor cancel a pending target. A good fix with no target (on the current step, or off the route) cancels it. A new
+session state (start, new route) resets it. At 1 Hz the confirming fix comes 1 s after the first, inside AC 53's 2 s.
+No speed-based plausibility check is added: the two-fix rule already rejects a single jump, and a speed check would
+also reject legitimate catch-ups after long gaps.
+
+**§1 / §3.3 Untrusted fix (new, as built for D9).** A good fix that is **more than 50 m** from the current step's
+geometry and is **not** applied as a catch-up is *untrusted* (`NavSnapshot.fixOnCurrentStep = false`). Ferrostar snaps
+such a fix to the nearest point of the current step, often the manoeuvre itself, so its `distanceToNextManeuver`,
+progress and snapped position are wrong. For an untrusted fix the core:
+- keeps the last trusted snapshot for the banner distance, trip progress and puck;
+- does not evaluate the voice schedule (so no early "now" prompt, and the main prompt is not consumed);
+- still feeds the fix's deviation to the §4 off-route debounce. Once an episode starts, the puck shows the raw fix as
+  before, so a real departure from the route freezes the puck for at most the 3-fix debounce;
+- still passes the fix to arrival, but only under the gating below.
+
+The schedule itself (`VoiceScheduler`) stays a pure function of trusted input. The 50 m value is the §1 deviation
+threshold (AC 41) and changes only with it.
+
+**§1 Walking dead band (decision for D8).** After a gap, fixes that resume **30–50 m past the end** of the current step
+are caught neither by Ferrostar (its entry condition needs a fix within 30 m of the step end) nor by the 50 m rule. A
+car leaves the band in about 2 s, a walker needs about 8 s (G5b). The catch-up condition gets a second branch:
+- **(a) lateral, unchanged:** the fix is more than 50 m from the current step and within 50 m of a later step.
+- **(b) past the end, new:** the fix's nearest point on the current step is the step's **last coordinate** (the
+  projection is clamped at the end), the fix is **more than 30 m** (`STEP_ENTRY_M`) from that point, it is within
+  **25 m** (`MIN_ACCURACY_M`) of a later step that is not `arrive`, and it is closer to that later step than to the
+  current step.
+
+Both branches use the same target choice (first matching later step) and the same two-fix gate. A fix that matches
+branch (b) but is still pending is **untrusted** like the D9 case, so the passed turn is not announced while the
+second fix is awaited. Normal tracking never reaches branch (b): a fix within 30 m of the step end lets Ferrostar's
+own entry and exit condition advance the step. The 30 m constant is tied to `STEP_ENTRY_M`; if the step-advance
+distances are tuned (§1), branch (b) follows them. Acceptance: QA's `tcR16` (G5b) passes unchanged, and `tcR06`,
+`tcR14`, `tcR15` and `tcR17` stay green.
+
+**§5 Arrival gating (clarification and new rule).**
+- **Rule (c)** fires only while the upcoming manoeuvre is the `arrive` step (current step ≥ last step − 1), as
+  Amendment 1 already decided. As of this amendment `ArrivalDetector.check` and its call in `GuidanceCore.onFix`
+  receive no step index, so this gating is **not implemented yet**. A review probe on the real engine (P1 → P3,
+  4,265 m, 4 steps) fed one good fix 20 m from the route end after 300 m of driving. Arrival fired at once, guidance
+  ended and «Таны очих газар баруун талд байна» was spoken. So a single G6-type outlier near the destination, or a
+  route that passes close to its own end, ends guidance early. It is a NAV-005 defect for the mobile engineer,
+  with a QA fixture: a route that passes within 30 m of its end before the last manoeuvre, such as a divided avenue
+  with a U-turn or a loop round a block, plus a single outlier at the end coordinate early in G1.
+- **Rule (b)** (`distanceRemaining` ≤ 30 m) uses only a **trusted** fix. An untrusted fix's `distanceRemaining` comes
+  from the snap to the current step's end and can be near 0 while the user is still well before the destination.
+- Rule (a) (Ferrostar `TripState.Complete`) is unchanged.

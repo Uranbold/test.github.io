@@ -163,7 +163,12 @@ class VoiceScheduler(private val walk: Boolean) {
         return ScheduledPrompt(content, gen to m, kind, now)
     }
 
-    /** One evaluation (every snapshot and ticker step); at most one prompt. */
+    /**
+     * One evaluation (every snapshot and ticker step); at most one prompt. Precondition (NAV-005-D9): [Input] comes from
+     * a trusted position, i.e. the latest fix is on the current step or was caught up. [mn.navmn.app.engine.GuidanceCore]
+     * does not call this for a good fix > 50 m from the current step, because Ferrostar snaps such an outlier to the end
+     * of the step and d ≈ 0 would fire the "now" prompt early and mark the main prompt as handled.
+     */
     fun evaluate(input: Input): ScheduledPrompt? {
         val plan = input.plan
         val gen = plan.generation

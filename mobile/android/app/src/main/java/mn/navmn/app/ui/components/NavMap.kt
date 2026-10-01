@@ -15,13 +15,34 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import mn.navmn.app.geo.LatLon
+import mn.navmn.app.map.MapCamera
 import mn.navmn.app.map.MapContent
+import mn.navmn.app.map.MapSurface
 import mn.navmn.app.map.NavMapController
 import mn.navmn.app.ui.theme.TokenColours
 import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
+import javax.inject.Inject
+
+/** ADR-0009 §6 / §10: the app's [MapSurface] is MapLibre Native through [NavMap]. */
+class MapLibreSurface @Inject constructor() : MapSurface {
+    @Composable
+    override fun Map(
+        modifier: Modifier,
+        description: String,
+        night: Boolean,
+        colours: TokenColours,
+        pmtilesUrl: String,
+        content: MapContent,
+        onReady: (MapCamera) -> Unit,
+        onLongPress: ((LatLon) -> Unit)?,
+        onGesture: () -> Unit,
+        onCameraIdle: (center: LatLon, bearing: Double, zoom: Double) -> Unit,
+        onFailed: () -> Unit,
+    ) = NavMap(modifier, description, night, colours, pmtilesUrl, content, onReady, onLongPress, onGesture, onCameraIdle, onFailed)
+}
 
 /**
  * MapLibre Native in Compose (ADR-0009 §6: AndroidView wrapper). The style flavor follows the theme; our layers are

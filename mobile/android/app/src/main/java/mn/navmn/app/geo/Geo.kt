@@ -48,6 +48,33 @@ object Geo {
 
     fun length(line: List<LatLon>): Double = (0 until line.size - 1).sumOf { distance(line[it], line[it + 1]) }
 
+    /**
+     * Shortest distance in metres from [p] to the polyline [line] (local equirectangular projection around [p], which
+     * is accurate to well under 1 % at the street scale this is used for). [Double.POSITIVE_INFINITY] for an empty line.
+     */
+    fun distanceToLine(p: LatLon, line: List<LatLon>): Double {
+        if (line.isEmpty()) return Double.POSITIVE_INFINITY
+        if (line.size == 1) return distance(p, line[0])
+        val kx = EARTH_RADIUS_M * Math.toRadians(1.0) * cos(Math.toRadians(p.lat))
+        val ky = EARTH_RADIUS_M * Math.toRadians(1.0)
+        var best = Double.POSITIVE_INFINITY
+        for (i in 0 until line.size - 1) {
+            val ax = (line[i].lon - p.lon) * kx
+            val ay = (line[i].lat - p.lat) * ky
+            val bx = (line[i + 1].lon - p.lon) * kx
+            val by = (line[i + 1].lat - p.lat) * ky
+            val dx = bx - ax
+            val dy = by - ay
+            val len2 = dx * dx + dy * dy
+            val t = if (len2 == 0.0) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+            val cx = ax + t * dx
+            val cy = ay + t * dy
+            val d = sqrt(cx * cx + cy * cy)
+            if (d < best) best = d
+        }
+        return best
+    }
+
     /** Point [distanceM] from [from] in direction [bearingDeg] (spherical). */
     fun offset(from: LatLon, bearingDeg: Double, distanceM: Double): LatLon {
         val δ = distanceM / EARTH_RADIUS_M

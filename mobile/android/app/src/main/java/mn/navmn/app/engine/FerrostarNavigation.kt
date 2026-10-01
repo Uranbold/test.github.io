@@ -42,7 +42,8 @@ class FerrostarRouteParser : RouteParser {
 
 /**
  * ADR-0009 §1 `NavigationControllerConfig`. The deviation values are the story's (AC 41) and change only through the
- * BA; the step-advance distances may be tuned if a replay shows a late banner change (recorded in README).
+ * BA; the step-advance distances may be tuned if a replay shows a late banner change (recorded in README). A jump
+ * past a step end (GPS gap) is caught up by [StepCatchUp] (NAV-005-D1).
  */
 object FerrostarConfig {
     const val WAYPOINT_RANGE_M = 30.0
@@ -72,16 +73,58 @@ class FerrostarNavigator(route: FerrostarRoute) : Navigator {
 
     override fun initial(fix: Fix): NavSnapshot {
         val s = session.getInitialState(userLocation(fix))
+        catchUpGate.reset()
+        lastFixOffStep = false
         state = s
         return snapshot(s, fix)
     }
 
     override fun update(fix: Fix): NavSnapshot {
         val prev = state ?: return initial(fix)
-        val s = session.updateUserLocation(userLocation(fix), prev)
+        val s = catchUp(session.updateUserLocation(userLocation(fix), prev), fix)
         state = s
         return snapshot(s, fix)
     }
+
+    private val catchUpGate = StepCatchUp.Gate()
+
+    /** NAV-005-D9: the last fix was good, > 50 m from the current step and not caught up. */
+    private var lastFixOffStep = false
+
+    /**
+     * NAV-005-D1: after a jump past the end of the current step (GPS gap over a junction), advance to the step the
+     * fix is clearly on, through Ferrostar's public `advanceToNextStep` (which re-snaps the fix and resets the
+     * step-advance condition). The rule is [StepCatchUp]; [StepCatchUp.Gate] keeps single outliers out (D10). A good
+     * fix off the current step that is not caught up sets [lastFixOffStep] (D9).
+     */
+    private fun catchUp(s: NavState, fix: Fix): NavState {
+        lastFixOffStep = false
+        val good = fix.accuracyM <= StepCatchUp.MIN_ACCURACY_M
+        val t = s.tripState as? TripState.Navigating
+        if (t == null) {
+            catchUpGate.decide(null, good, fix.elapsedMs)
+            return s
+        }
+        // Lazy view: usually only the current step's geometry is converted.
+        val remaining = object : AbstractList<List<LatLon>>() {
+            override val size: Int get() = t.remainingSteps.size
+            override fun get(index: Int): List<LatLon> = t.remainingSteps[index].geometry.map { LatLon(it.lat, it.lng) }
+        }
+        val n = StepCatchUp.stepsToAdvance(fix.latLon, fix.accuracyM, remaining)
+        val current = ferrostarRoute.steps.size - t.remainingSteps.size
+        if (!catchUpGate.decide(if (n == 0) null else current + n, good, fix.elapsedMs)) {
+            lastFixOffStep = remaining.isNotEmpty() && StepCatchUp.offCurrentStep(fix.latLon, fix.accuracyM, remaining[0])
+            return s
+        }
+        var next = s
+        repeat(n) { next = session.advanceToNextStep(next) }
+        stepCatchUps += n
+        return next
+    }
+
+    /** Steps advanced by [catchUp] in this session (tests and the debug log only). */
+    var stepCatchUps: Int = 0
+        private set
 
     override fun close() {
         session.close()
@@ -117,6 +160,7 @@ class FerrostarNavigator(route: FerrostarRoute) : Navigator {
             snapped = LatLon(t.snappedUserLocation.coordinates.lat, t.snappedUserLocation.coordinates.lng),
             snappedCourseDeg = t.snappedUserLocation.courseOverGround?.degrees?.toDouble(),
             complete = false,
+            fixOnCurrentStep = !lastFixOffStep,
         )
         is TripState.Complete -> NavSnapshot(
             stepIndex = (ferrostarRoute.steps.size - 1).coerceAtLeast(0),

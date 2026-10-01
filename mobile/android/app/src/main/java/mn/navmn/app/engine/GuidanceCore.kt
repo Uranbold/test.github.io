@@ -61,6 +61,13 @@ class GuidanceCore(
      */
     private var previousFixGood = false
     private var previousFixElapsed = 0L
+    /**
+     * NAV-005-D9: false while the latest fix is a good fix > 50 m from the current step that was not caught up
+     * ([NavSnapshot.fixOnCurrentStep]). Ferrostar snaps it to the nearest point of the current step (often the
+     * manoeuvre itself), so [snapshot] keeps the last trusted position and the voice schedule is not evaluated (one
+     * outlier must not fire the "now" prompt early, AC 34). Off-route detection and arrival still see every fix.
+     */
+    private var positionTrusted = true
 
     private val gps = GpsMonitor()
     private val offRoute = OffRouteDetector()
@@ -104,6 +111,7 @@ class GuidanceCore(
         previousFixElapsed = fix.elapsedMs
         val snap = navigator.initial(fix)
         snapshot = snap
+        positionTrusted = true
         updateProgress(snap)
         val depart = scheduler.start(plan, now)
         speak(depart, PromptClass.MANEUVER, now)
@@ -117,14 +125,17 @@ class GuidanceCore(
         lastFix = fix
         val good = fix.isGood(now)
         val snap = navigator.update(fix)
+        positionTrusted = snap.fixOnCurrentStep
         if (good) {
             lastGoodFix = fix
             speed.add(fix.elapsedMs, fix.speedMps)
             if (gps.onGoodFix(fix.elapsedMs) == GpsMonitor.Event.RESTORED) onGpsRestored(now)
         }
         if (!gps.lost) {
-            snapshot = snap
-            updateProgress(snap)
+            if (positionTrusted) {
+                snapshot = snap
+                updateProgress(snap)
+            }
             val event = offRoute.onFix(previousFixGood, snap.deviation == Deviation.COMPLETELY_OFF_ROUTE, previousFixElapsed)
             when (event) {
                 OffRouteDetector.Event.STARTED -> startEpisode(now)
@@ -271,6 +282,7 @@ class GuidanceCore(
             snapshot = snap
             updateProgress(snap)
         }
+        positionTrusted = true
         previousFixGood = false
         offRoute.reset()
         policy.onEpisodeEnd()
@@ -300,7 +312,7 @@ class GuidanceCore(
     }
 
     private fun evaluateVoice(now: Long) {
-        if (phase != GuidancePhase.NAVIGATING || gps.lost) return
+        if (phase != GuidancePhase.NAVIGATING || gps.lost || !positionTrusted) return
         val snap = snapshot ?: return
         val p = scheduler.evaluate(
             VoiceScheduler.Input(now, plan, snap.stepIndex, snap.distanceToNextManeuver, speed.mean()),

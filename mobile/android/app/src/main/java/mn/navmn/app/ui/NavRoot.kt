@@ -37,13 +37,13 @@ import mn.navmn.app.config.AppConfig
 import mn.navmn.app.engine.GuidancePhase
 import mn.navmn.app.engine.GuidanceState
 import mn.navmn.app.map.CameraRules
+import mn.navmn.app.map.MapCamera
 import mn.navmn.app.map.MapContent
-import mn.navmn.app.map.NavMapController
+import mn.navmn.app.map.MapSurface
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.search.SearchView
 import mn.navmn.app.settings.ThemeChoice
 import mn.navmn.app.ui.components.AttributionStrip
-import mn.navmn.app.ui.components.NavMap
 import mn.navmn.app.ui.components.rememberStrings
 import mn.navmn.app.ui.screens.BrowseActions
 import mn.navmn.app.ui.screens.BrowseModel
@@ -62,18 +62,18 @@ class PlatformActions(
 )
 
 @Composable
-fun NavRoot(vm: AppViewModel, platform: PlatformActions) {
+fun NavRoot(vm: AppViewModel, mapSurface: MapSurface, platform: PlatformActions) {
     val themeChoice by vm.theme.collectAsState()
     val night = when (themeChoice) {
         ThemeChoice.DAY -> false
         ThemeChoice.NIGHT -> true
         ThemeChoice.AUTO -> isSystemInDarkTheme()
     }
-    NavTheme(night) { NavScreen(vm, platform, night) }
+    NavTheme(night) { NavScreen(vm, mapSurface, platform, night) }
 }
 
 @Composable
-private fun NavScreen(vm: AppViewModel, platform: PlatformActions, night: Boolean) {
+private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: PlatformActions, night: Boolean) {
     val ui by vm.ui.collectAsState()
     val lang by vm.lang.collectAsState()
     val muted by vm.muted.collectAsState()
@@ -87,7 +87,7 @@ private fun NavScreen(vm: AppViewModel, platform: PlatformActions, night: Boolea
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    var controller by remember { mutableStateOf<NavMapController?>(null) }
+    var controller by remember { mutableStateOf<MapCamera?>(null) }
     var bearing by remember { mutableDoubleStateOf(0.0) }
     var zoom by remember { mutableDoubleStateOf(AppViewModel.DEFAULT_ZOOM) }
     var covered by remember { mutableStateOf(Covered()) }
@@ -177,7 +177,7 @@ private fun NavScreen(vm: AppViewModel, platform: PlatformActions, night: Boolea
 
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            NavMap(
+            mapSurface.Map(
                 modifier = Modifier.fillMaxSize().testTag("map"),
                 description = stringResource(R.string.map_content_description),
                 night = night,
@@ -187,7 +187,7 @@ private fun NavScreen(vm: AppViewModel, platform: PlatformActions, night: Boolea
                 onReady = { c ->
                     controller = c
                     if (c.center == null || c.zoom < 3) c.moveTo(AppViewModel.DEFAULT_CENTER, AppViewModel.DEFAULT_ZOOM)
-                    mapHeightPx = c.mapView.height
+                    mapHeightPx = c.heightPx
                 },
                 onLongPress = if (!guiding && preview == null) ({ p -> vm.onLongPress(p) }) else null,
                 onGesture = { if (guiding) vm.onMapGesture() else vm.stopFollowingMe() },
@@ -195,7 +195,7 @@ private fun NavScreen(vm: AppViewModel, platform: PlatformActions, night: Boolea
                     vm.mapCenter = center
                     bearing = b
                     zoom = z
-                    controller?.let { mapHeightPx = it.mapView.height }
+                    controller?.let { mapHeightPx = it.heightPx }
                 },
                 onFailed = { vm.setTilesFailed(true) },
             )

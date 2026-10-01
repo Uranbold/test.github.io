@@ -26,6 +26,12 @@ data class NavSnapshot(
     val snapped: LatLon,
     val snappedCourseDeg: Double?,
     val complete: Boolean,
+    /**
+     * NAV-005-D9: false when this (good) fix is more than 50 m from the current step and was not caught up
+     * ([StepCatchUp.offCurrentStep]). Its distance, progress and snapped position are then not trustworthy: the core
+     * holds the last trusted snapshot and does not evaluate the voice schedule. [deviation] is still used.
+     */
+    val fixOnCurrentStep: Boolean = true,
 )
 
 /** One navigation session over one route (Ferrostar `NavigationSession` on the device). Single-threaded. */

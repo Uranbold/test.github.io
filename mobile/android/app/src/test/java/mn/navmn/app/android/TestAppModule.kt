@@ -19,8 +19,44 @@ import mn.navmn.app.route.RouteRequest
 import mn.navmn.app.route.RouteRequester
 import mn.navmn.app.search.SearchClient
 import mn.navmn.app.support.FakeRouteParser
+import mn.navmn.app.support.Fixtures
+import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
+import java.util.Collections
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Singleton
+
+/**
+ * The gateway for Robolectric Activity tests: `POST /v1/route` answers the recorded P1 → P3 response (the preview),
+ * everything else 404. Counts route requests (AC 64: 0 during a configuration change).
+ */
+object FakeGateway : Interceptor {
+    val routeRequests = AtomicInteger(0)
+    val paths: MutableList<String> = Collections.synchronizedList(ArrayList())
+
+    fun reset() {
+        routeRequests.set(0)
+        paths.clear()
+    }
+
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val req = chain.request()
+        paths += req.url.encodedPath
+        val ok = req.method == "POST" && req.url.encodedPath == "/v1/route"
+        if (ok) routeRequests.incrementAndGet()
+        return Response.Builder()
+            .request(req)
+            .protocol(Protocol.HTTP_1_1)
+            .code(if (ok) 200 else 404)
+            .message(if (ok) "OK" else "Not Found")
+            .body((if (ok) Fixtures.route("p1-p3-car-mn.json") else ByteArray(0)).toResponseBody("application/json".toMediaType()))
+            .build()
+    }
+}
 
 /** Records route requests (there must be 0 during on-route guidance, AC 15, 19). */
 object RecordingRequester : RouteRequester {
@@ -45,7 +81,7 @@ object FakeNavigators : NavigatorFactory {
 @Module
 @TestInstallIn(components = [SingletonComponent::class], replaces = [AppModule::class])
 object TestAppModule {
-    @Provides @Singleton fun okHttp(): OkHttpClient = OkHttpClient()
+    @Provides @Singleton fun okHttp(): OkHttpClient = OkHttpClient.Builder().addInterceptor(FakeGateway).build()
 
     @Provides @Singleton
     fun routeClient(http: OkHttpClient, network: NetworkMonitor): RouteClient =

@@ -131,6 +131,84 @@
    "points": 916,
    "duration_s": 915,
    "partial": true
+  },
+  {
+   "id": "G3c",
+   "file": "tests/gpx/nav005/G3c.gpx",
+   "description": "QA variant of G3b: the 30 s gap covers the left turn and fixes resume 40 m past it (AC 52/53)",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 290,
+   "duration_s": 319,
+   "gap_start_s": 242,
+   "gap_s": 30,
+   "gap_m": 400
+  },
+  {
+   "id": "G3d",
+   "file": "tests/gpx/nav005/G3d.gpx",
+   "description": "QA variant of G3: a 53 s gap covers both turns; fixes resume past the right turn, 55 m before the end (AC 52/55)",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 267,
+   "duration_s": 319,
+   "gap_start_s": 263,
+   "gap_s": 53
+  },
+  {
+   "id": "G5b",
+   "file": "tests/gpx/nav005/G5b.gpx",
+   "description": "QA variant of G5 (walk): a 57 s gap covers the right turn onto Seoul st.; fixes resume 40 m past it (AC 52/53)",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p2-walk-mn.json",
+   "mode": "walk",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 876,
+   "duration_s": 932,
+   "gap_start_s": 213,
+   "gap_s": 57
+  },
+  {
+   "id": "G6b",
+   "file": "tests/gpx/nav005/G6b.gpx",
+   "description": "G1 with one 5 m-accuracy outlier placed on the next step (200 m past the left turn) ~570 m before the turn",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 309,
+   "duration_s": 308,
+   "outlier_index": 205
+  },
+  {
+   "id": "G6c",
+   "file": "tests/gpx/nav005/G6c.gpx",
+   "description": "G1 with a 12 s gap ~800 m before the left turn; the first fix after the gap is an outlier on the next step",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 297,
+   "duration_s": 308,
+   "gap_start_s": 190,
+   "gap_s": 12,
+   "outlier_index": 190
+  },
+  {
+   "id": "G6d",
+   "file": "tests/gpx/nav005/G6d.gpx",
+   "description": "G1 with one 5 m-accuracy outlier placed on the next step (200 m past the left turn) ~120 m before the turn",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 309,
+   "duration_s": 308,
+   "outlier_index": 236
   }
  ]
 }

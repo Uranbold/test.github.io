@@ -44,7 +44,7 @@ data class MapContent(
  * Imperative MapLibre Native wrapper (ADR-0009 §6: MapLibre used directly through an AndroidView). Owns our sources,
  * layers and images (map-style §7.1–§7.4). MapLibre's attribution and logo are off; the app draws its own strip.
  */
-class NavMapController(private val context: Context, val mapView: MapView) {
+class NavMapController(private val context: Context, val mapView: MapView) : MapCamera {
     var map: MapLibreMap? = null
         private set
     private var style: Style? = null
@@ -67,7 +67,7 @@ class NavMapController(private val context: Context, val mapView: MapView) {
     }
 
     /** Loads the day or night style (no-op if already loaded) and re-adds our layers with the current data. */
-    fun setStyle(night: Boolean, colours: TokenColours, pmtilesUrl: String) {
+    override fun setStyle(night: Boolean, colours: TokenColours, pmtilesUrl: String) {
         val m = map ?: return
         val key = "$night|$pmtilesUrl"
         this.colours = colours
@@ -187,11 +187,11 @@ class NavMapController(private val context: Context, val mapView: MapView) {
 
     // ------------------------------------------------------------------------------------------- camera
 
-    fun moveTo(p: LatLon, zoom: Double) {
+    override fun moveTo(p: LatLon, zoom: Double) {
         map?.moveCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(LatLng(p.lat, p.lon)).zoom(zoom).bearing(0.0).tilt(0.0).build()))
     }
 
-    fun easeTo(p: LatLon, zoom: Double? = null, durationMs: Int = 300) {
+    override fun easeTo(p: LatLon, zoom: Double?, durationMs: Int) {
         val m = map ?: return
         val b = CameraPosition.Builder(m.cameraPosition).target(LatLng(p.lat, p.lon))
         if (zoom != null) b.zoom(zoom)
@@ -199,7 +199,7 @@ class NavMapController(private val context: Context, val mapView: MapView) {
     }
 
     /** NAV-004 camera rule in the preview: fit the route above the sheet (padding = sheet + 40 dp). */
-    fun fit(points: List<LatLon>, left: Int, top: Int, right: Int, bottom: Int) {
+    override fun fit(points: List<LatLon>, left: Int, top: Int, right: Int, bottom: Int) {
         val m = map ?: return
         if (points.size < 2) return
         val bounds = LatLngBounds.Builder().includes(points.map { LatLng(it.lat, it.lon) }).build()
@@ -207,7 +207,7 @@ class NavMapController(private val context: Context, val mapView: MapView) {
     }
 
     /** navigation-ux §8 follow camera; [animate] false with reduced motion. */
-    fun follow(target: LatLon, bearing: Double, tilt: Double, zoom: Double, padding: CameraRules.Padding, animate: Boolean) {
+    override fun follow(target: LatLon, bearing: Double, tilt: Double, zoom: Double, padding: CameraRules.Padding, animate: Boolean) {
         val m = map ?: return
         val pos = CameraPosition.Builder()
             .target(LatLng(target.lat, target.lon))
@@ -219,18 +219,19 @@ class NavMapController(private val context: Context, val mapView: MapView) {
         if (animate) m.easeCamera(CameraUpdateFactory.newCameraPosition(pos), CameraRules.FOLLOW_MS, false) else m.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
     }
 
-    fun resetNorth() {
+    override fun resetNorth() {
         val m = map ?: return
         m.easeCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(m.cameraPosition).bearing(0.0).tilt(0.0).build()), 300)
     }
 
-    fun zoomBy(delta: Double) {
+    override fun zoomBy(delta: Double) {
         map?.easeCamera(CameraUpdateFactory.zoomBy(delta), 200)
     }
 
-    val bearing: Double get() = map?.cameraPosition?.bearing ?: 0.0
-    val center: LatLon? get() = map?.cameraPosition?.target?.let { LatLon(it.latitude, it.longitude) }
-    val zoom: Double get() = map?.cameraPosition?.zoom ?: 12.0
+    override val bearing: Double get() = map?.cameraPosition?.bearing ?: 0.0
+    override val center: LatLon? get() = map?.cameraPosition?.target?.let { LatLon(it.latitude, it.longitude) }
+    override val zoom: Double get() = map?.cameraPosition?.zoom ?: 12.0
+    override val heightPx: Int get() = mapView.height
 
     companion object {
         const val SRC_ROUTE = "nav-route"

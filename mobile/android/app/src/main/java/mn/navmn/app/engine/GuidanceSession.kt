@@ -16,7 +16,7 @@ import mn.navmn.app.route.ParsedRoute
 import mn.navmn.app.route.RouteRequester
 import mn.navmn.app.service.GuidanceForegroundService
 import mn.navmn.app.settings.SettingsRepository
-import mn.navmn.app.voice.VoiceOutput
+import mn.navmn.app.voice.GuidanceVoice
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,7 +28,7 @@ class GuidanceSession @Inject constructor(
     private val requester: RouteRequester,
     private val location: LocationSource,
     private val network: NetworkMonitor,
-    private val voice: VoiceOutput,
+    private val voice: GuidanceVoice,
     private val settings: SettingsRepository,
 ) {
     private val _engine = MutableStateFlow<GuidanceEngine?>(null)

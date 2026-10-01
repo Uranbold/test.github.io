@@ -4,14 +4,21 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -37,7 +44,7 @@ import mn.navmn.app.search.SearchClient
 import mn.navmn.app.search.SearchController
 import mn.navmn.app.settings.SettingsRepository
 import mn.navmn.app.settings.ThemeChoice
-import mn.navmn.app.voice.VoiceOutput
+import mn.navmn.app.voice.GuidanceVoice
 import javax.inject.Inject
 
 enum class Orientation { HEADING_UP, NORTH_UP }
@@ -75,7 +82,7 @@ class AppViewModel @Inject constructor(
     private val routeClient: RouteClient,
     private val searchClient: SearchClient,
     private val session: GuidanceSession,
-    private val voice: VoiceOutput,
+    private val voice: GuidanceVoice,
 ) : ViewModel() {
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
@@ -87,7 +94,9 @@ class AppViewModel @Inject constructor(
 
     private val _myLocation = MutableStateFlow<Fix?>(null)
     val myLocation: StateFlow<Fix?> = _myLocation.asStateFlow()
-    private var locationJob: Job? = null
+
+    /** Set once a location action proceeded (permission and services OK): the map may show «Миний байршил». */
+    private val mapLocationWanted = MutableStateFlow(false)
 
     /** Map centre for the search bias when there is no fresh device fix (D30). Updated by the map. */
     @Volatile var mapCenter: LatLon = DEFAULT_CENTER
@@ -115,6 +124,21 @@ class AppViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val guiding: Boolean get() = session.engine.value != null
+
+    /**
+     * Map-screen location (ADR-0009 Amendment 1 §9): fixes for the my-location dot and the search bias. The platform
+     * request is registered only while this flow is collected, and the Activity collects it only while it is at least
+     * STARTED ([collectMapLocation] inside `repeatOnLifecycle(STARTED)`). While guidance runs (also on the arrival
+     * panel) no map request is made; the guidance provider is the only listener. Nothing is registered in the
+     * background without the foreground service (AC 16, 19).
+     */
+    val mapLocation: Flow<Fix> = combine(mapLocationWanted, session.engine.map { it != null }) { wanted, guiding -> wanted && !guiding }
+        .distinctUntilChanged()
+        .flatMapLatest { active -> if (active) location.mapUpdates().catch { } else emptyFlow() }
+        .onEach { _myLocation.value = it }
+
+    /** Called by the Activity from `repeatOnLifecycle(Lifecycle.State.STARTED)`; returns when the Activity stops. */
+    suspend fun collectMapLocation() = mapLocation.collect()
 
     private var pending: LocationAction? = null
     private var askedLocation = false
@@ -256,8 +280,7 @@ class AppViewModel @Inject constructor(
     }
 
     private fun startLocationUpdates() {
-        if (locationJob?.isActive == true) return
-        locationJob = viewModelScope.launch { runCatching { location.mapUpdates().collect { _myLocation.value = it } } }
+        mapLocationWanted.value = true
     }
 
     fun onMyLocation() {

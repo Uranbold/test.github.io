@@ -16,7 +16,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import mn.navmn.app.BuildConfig
 import mn.navmn.app.i18n.Lang
 import mn.navmn.app.log.DebugLog
-import mn.navmn.app.voiceplan.Speaker
 import mn.navmn.app.voiceplan.SpokenPrompt
 import java.util.Locale
 import javax.inject.Inject
@@ -30,7 +29,7 @@ import javax.inject.Singleton
  * opens ([prepare]). Engine and voice names go only to the debug log (never coordinates).
  */
 @Singleton
-class VoiceOutput @Inject constructor(@ApplicationContext private val context: Context) : Speaker {
+class VoiceOutput @Inject constructor(@ApplicationContext private val context: Context) : GuidanceVoice {
     private val main = Handler(Looper.getMainLooper())
     private val audio = context.getSystemService(AudioManager::class.java)
     private val log: DebugLog = if (BuildConfig.DEBUG_LOGS) DebugLog { android.util.Log.d("navmn.voice", it) } else DebugLog.NONE
@@ -46,10 +45,10 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
     private var current: SpokenPrompt? = null
 
     /** Called on the main thread with the id of the prompt that ended (spoken, chimed, skipped or failed). */
-    @Volatile var onDone: ((Long) -> Unit)? = null
+    @Volatile override var onDone: ((Long) -> Unit)? = null
 
     /** Called when a prompt is played as a chime because there is no usable voice (navigation-ux §4.6 notice). */
-    @Volatile var onFallback: (() -> Unit)? = null
+    @Volatile override var onFallback: (() -> Unit)? = null
 
     private val attributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
@@ -62,8 +61,12 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
     }
 
     /** Starts TextToSpeech initialisation (route preview open, language switch). Idempotent. */
-    fun prepare() = main.post {
-        if (tts != null) return@post
+    override fun prepare() {
+        main.post { initTts() }
+    }
+
+    private fun initTts() {
+        if (tts != null) return
         initStartedAt = SystemClock.elapsedRealtime()
         tts = TextToSpeech(context.applicationContext) { status ->
             main.post {
@@ -78,7 +81,9 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
     }
 
     /** New guidance session: the TTS-error fallback is per session (AC 39). */
-    fun newSession() = main.post { sessionFallback = false }
+    override fun newSession() {
+        main.post { sessionFallback = false }
+    }
 
     private fun localeFor(lang: Lang): Locale? {
         if (sessionFallback) return null
@@ -198,5 +203,7 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
     }
 
     /** Language switch (AC 60): selection re-evaluated for the next prompt. */
-    fun onLanguageChanged() = main.post { selected.clear() }
+    override fun onLanguageChanged() {
+        main.post { selected.clear() }
+    }
 }

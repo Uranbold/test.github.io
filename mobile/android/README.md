@@ -84,12 +84,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | `reroute` | off-route debounce, `ReroutePolicy` P1–P10 | §4, AC 41–50 |
 | `gps`, `arrival` | GPS-loss and arrival state machines | §5, AC 51–57 |
 | `voiceplan` | device-side prompt schedule (navigation-ux §4.2–4.4, named constants), playback queue (§4.5) | §3.3, AC 32–35 |
-| `engine` | `GuidanceCore` (pure, single-threaded), Ferrostar adapter, `GuidanceEngine` (engine thread), `GuidanceSession` | §1, §10 |
+| `engine` | `GuidanceCore` (pure, single-threaded), Ferrostar adapter, `StepCatchUp` (NAV-005-D1), `GuidanceEngine` (engine thread), `GuidanceSession` | §1, §10 |
 | `voice` | TTS usable-voice decision, chime (generated PCM), `VoiceOutput` (focus, ducking, fallback) | §3.4, AC 36–39 |
-| `location`, `net`, `settings` | platform `LocationManager` (no Play services), validated network, DataStore + per-app locale | §5, §8, §9 |
+| `location`, `net`, `settings` | `LocationSource` interface + `PlatformLocationSource` (`LocationManager`, no Play services), validated network, DataStore + per-app locale | §5, §8, §9 |
 | `service` | `GuidanceForegroundService` (type `location`, channel «Замчлал»), notification text | §9, AC 13–20 |
 | `search`, `preview`, `permission` | NAV-003 search profile (query as typed), preview states, location access decisions | AC 3–12 |
-| `map`, `ui` | MapLibre controller, camera rules, Compose screens S1–S8, tokens → `TokenColours` (generated) | §6, AC 1–2, 21–25, 58–64 |
+| `map`, `ui` | `MapSurface` / `MapCamera` seam (MapLibre: `MapLibreSurface` + `NavMapController`), camera rules, Compose screens S1–S8, tokens → `TokenColours` (generated) | §6, §10, AC 1–2, 21–25, 58–64 |
+| `di` | `AppModule` (gateway clients, Ferrostar), `PlatformModule` (location, map surface, voice: replaced by fakes in Robolectric tests) | §10 |
 
 Pure packages have no Android or Ferrostar types; all time is injected.
 
@@ -110,6 +111,27 @@ Pure packages have no Android or Ferrostar types; all time is injected.
   as `place_type_*`. `values/` = Mongolian, `values-en/` = English.
 - **Ferrostar 0.57.0 detail:** `updateUserLocation` reports the deviation of the *previous* location (one fix of lag);
   `GuidanceCore` pairs it with that fix's accuracy and time. G2 detection is about 3 s after the first fix > 50 m away.
+- **Step advance after a jump (NAV-005-D1).** Ferrostar's `stepAdvanceDistanceEntryAndExit(30, 5, 25)` is unchanged.
+  It only advances after a fix within 30 m of the step end, so a GPS gap over a junction left guidance on the passed
+  turn. `StepCatchUp` adds a fallback: when a good fix (accuracy ≤ 25 m) is more than 50 m from the current step and
+  within 50 m of a later step (never the `arrive` step), the adapter calls Ferrostar's public
+  `NavigationSession.advanceToNextStep` until that step is current. This is Ferrostar's own `OffStepOnRoute` rule, applied
+  to the current fix instead of the previous one. Normal turns never reach it. G3b: the right turn is shown and announced
+  1 s after «GPS дохио сэргэлээ», and the passed left turn is not announced.
+- **Single outliers (NAV-005-D9, D10).** `StepCatchUp.Gate` applies a catch-up only after two consecutive good fixes
+  agree on the same later step, within 3 s of each other, also right after a GPS gap: the first fix after a tunnel may
+  be the outlier (G6c). At 1 Hz this costs 1 s, inside AC 53's 2 s. Poor fixes neither confirm nor reset. A good fix
+  that is more than 50 m from the current step and not caught up is flagged (`NavSnapshot.fixOnCurrentStep = false`).
+  Ferrostar snaps it to the nearest point of the step, often the manoeuvre itself, so `GuidanceCore` keeps the last
+  trusted snapshot (banner distance, progress, puck) and does not evaluate the voice schedule for it. Off-route
+  detection and arrival still see every fix. G6b: no early "now" prompt; the 150 m and "now" prompts are spoken.
+- **Map-screen location (Amendment 1 §9).** `AppViewModel.mapLocation` is collected by `MainActivity` only inside
+  `repeatOnLifecycle(STARTED)` and is paused while a guidance engine exists (arrival panel included). The one-shot
+  preview origin (`freshGoodFix`) is unchanged.
+- **Activity tests (AC 71).** `PlatformModule` binds `PlatformLocationSource`, `MapLibreSurface` and `VoiceOutput`.
+  Robolectric tests replace it with `TestPlatformModule`: `FakeLocation` counts listeners, `RecordingMapSurface` has no
+  native code and offers `longPress(p)`, and `RecordingVoice` records prompts. `TestAppModule.FakeGateway` serves the
+  recorded P1→P3 route to the preview. `MainActivityTest` covers AC 8, 10–13 and 64 at Activity level.
 - **Not verifiable here (AC 73):** MapLibre rendering of `pmtiles://` and `asset://` glyphs on a device, real TTS and
   the `mn` voice, real GPS and tunnels, foreground service with the screen off, Doze/OEM battery savers, the
   notification-permission dialog, audio ducking, chime audibility, battery use.
