@@ -9,7 +9,7 @@
 //    summaries as the virtual module "virtual:navmn-demo-routes". Nothing is copied into web/ or web/public/.
 import { existsSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
-import type { Plugin } from "vite";
+import { loadEnv, type Plugin } from "vite";
 import { distance, type LatLon } from "../src/guidance/geo";
 import { decodePolyline } from "../src/route/polyline";
 
@@ -224,4 +224,43 @@ export function demoRoutesStub(): Plugin {
       return id === RESOLVED_VIRTUAL_ID ? "export default [];" : null;
     },
   };
+}
+
+/** True when the Vite mode's env turns demo mode on (an invalid value counts as off here; the guard fails the build). */
+export function isDemoMode(mode: string, webRoot: string): boolean {
+  const env = loadEnv(mode, webRoot, "VITE_");
+  return parseDemoMode(env.VITE_DEMO_MODE ?? process.env.VITE_DEMO_MODE) === true;
+}
+
+/**
+ * Every NAV-017 build plugin, decided per Vite mode, so vite.config.ts stays a plain object:
+ *  - always: the guard, and the compile-time switch `__NAVMN_DEMO_MODE__` (the only branch into the demo code, so other
+ *    builds contain no demo chunk, no WASM and no route data, AC 4);
+ *  - demo mode only: relative base "./" (any sub-folder, AC 2), no module preload and one CSS file (no runtime-created
+ *    `<link crossorigin>`, ADR-0011 W5/W7), repo files readable by the dev server, the demo index.html and the route
+ *    emitter. Public builds keep base "/" (ADR-0004 §4).
+ */
+export function demoModePlugins(o: { webRoot: string; repoRoot: string; parseStaticDemo: (raw: string | undefined) => boolean | null }): Plugin[] {
+  const demoOnly = (p: Plugin): Plugin => ({ ...p, apply: (_c, env) => isDemoMode(env.mode, o.webRoot) });
+  return [
+    demoModeGuard(o.parseStaticDemo),
+    {
+      name: "navmn-demo-mode-config",
+      config(_c, env) {
+        const demo = isDemoMode(env.mode, o.webRoot);
+        return {
+          define: { __NAVMN_DEMO_MODE__: JSON.stringify(demo) },
+          ...(demo ? { base: "./", build: { modulePreload: false, cssCodeSplit: false }, server: { fs: { allow: [o.repoRoot] } } } : {}),
+        };
+      },
+      configResolved(config) {
+        // ADR-0011 §2: the NAV-002 label-rule fixture page is not part of the demo-mode build.
+        const input = config.build.rollupOptions.input;
+        if (isDemoMode(config.mode, o.webRoot) && input && typeof input === "object" && !Array.isArray(input)) delete (input as Record<string, string>).labelRule;
+      },
+    },
+    demoOnly(demoHtml()),
+    demoOnly(demoRoutes(o.webRoot, o.repoRoot)),
+    { ...demoRoutesStub(), apply: (_c, env) => !isDemoMode(env.mode, o.webRoot) },
+  ];
 }

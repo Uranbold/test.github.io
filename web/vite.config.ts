@@ -1,8 +1,8 @@
 /// <reference types="vitest/config" />
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig, loadEnv, runnerImport, type Plugin } from "vite";
-import { demoHtml, demoModeGuard, demoRoutes, demoRoutesStub, parseDemoMode } from "./buildtools/demoMode";
+import { defineConfig, runnerImport, type Plugin } from "vite";
+import { demoModePlugins } from "./buildtools/demoMode";
 import { bootLoading, type BootConfig } from "./src/boot/bootLoading";
 import { parseStaticDemo } from "./src/config";
 import en from "./src/i18n/en.json";
@@ -88,53 +88,34 @@ function staticDemoGuard(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
-  // NAV-017 (ADR-0011 §2): demo mode is decided at build time. The guard plugin rejects invalid values; here an invalid
-  // value counts as off, so the switch below can never turn demo code on by accident.
-  const env = loadEnv(mode, webRoot, "VITE_");
-  const demo = parseDemoMode(env.VITE_DEMO_MODE ?? process.env.VITE_DEMO_MODE) === true;
-  return {
-    plugins: [
-      bootIndicator(),
-      staticDemoGuard(),
-      demoModeGuard((raw) => parseStaticDemo(raw)),
-      ...(demo ? [demoHtml(), demoRoutes(webRoot, repoRoot)] : [demoRoutesStub()]),
-    ],
-    // The only branch into the demo code (src/main.ts) is on this compile-time constant, so every other build contains
-    // no demo chunk, no WASM and no route data (NAV-017 AC 4).
-    define: { __NAVMN_DEMO_MODE__: JSON.stringify(demo) },
-    // Demo-mode build only: relative URLs, so the output works from any sub-folder without a rebuild (AC 2). Public
-    // builds keep "/" (ADR-0004 §4).
-    base: demo ? "./" : "/",
-    resolve: { alias },
-    server: {
-      host: "localhost",
-      port: 5173,
-      strictPort: true,
-      fs: { allow: [".", designDir, ...(demo ? [repoRoot] : [])] },
-    },
-    preview: {
-      host: "localhost",
-      port: 4173,
-      strictPort: true,
-    },
-    build: {
-      target: "es2022",
-      chunkSizeWarningLimit: 1600,
-      // Demo mode: no runtime-created <link crossorigin> (preloads, split CSS), ADR-0011 §2 / W5, W7.
-      ...(demo ? { modulePreload: false as const, cssCodeSplit: false } : {}),
-      rollupOptions: {
-        input: (demo
-          ? { main: fileURLToPath(new URL("./index.html", import.meta.url)) }
-          : {
-              main: fileURLToPath(new URL("./index.html", import.meta.url)),
-              labelRule: fileURLToPath(new URL("./fixtures/label-rule.html", import.meta.url)),
-            }) as Record<string, string>,
+// The config stays a plain object (tests/e2e wrap it with `{ ...base }`). Demo mode is decided per Vite mode by the
+// plugins in buildtools/demoMode.ts (NAV-017, ADR-0011 §2): base, the compile-time switch and the demo-only settings.
+export default defineConfig({
+  plugins: [bootIndicator(), staticDemoGuard(), ...demoModePlugins({ webRoot, repoRoot, parseStaticDemo: (raw) => parseStaticDemo(raw) })],
+  resolve: { alias },
+  server: {
+    host: "localhost",
+    port: 5173,
+    strictPort: true,
+    fs: { allow: [".", designDir] },
+  },
+  preview: {
+    host: "localhost",
+    port: 4173,
+    strictPort: true,
+  },
+  build: {
+    target: "es2022",
+    chunkSizeWarningLimit: 1600,
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        labelRule: fileURLToPath(new URL("./fixtures/label-rule.html", import.meta.url)),
       },
     },
-    test: {
-      include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
-      environment: "node",
-    },
-  };
+  },
+  test: {
+    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
+    environment: "node",
+  },
 });

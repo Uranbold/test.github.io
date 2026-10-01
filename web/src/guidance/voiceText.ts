@@ -85,7 +85,7 @@ export function voiceInstruction(r: KeyResult, t: T): string {
   if (r.key === "roundabout.exit") {
     const n = r.params?.n;
     return n !== undefined && n >= 1 && n <= 10
-      ? t("voice.roundaboutExit").replace("{ordinal}", t(ORDINALS[n - 1]!))
+      ? t("voice.roundaboutExit").replace("{ordinal}", () => t(ORDINALS[n - 1]!))
       : t("maneuver.roundabout.enter");
   }
   let text = t(messageKey(r.key));
@@ -104,7 +104,8 @@ function prefixed(d: number, instruction: string, lang: Lang, t: T): string {
 function chained(first: string, then: KeyResult | null, lang: Lang, t: T): string {
   if (!then) return first;
   const second = lowercaseFirst(voiceInstruction(then, t), lang);
-  return capitalizeFirst(t("voice.then").replace("{first}", first).replace("{second}", second), lang);
+  // Function replacers: the inserted texts are used literally (no "$&"-style patterns).
+  return capitalizeFirst(t("voice.then").replace("{first}", () => first).replace("{second}", () => second), lang);
 }
 
 /** The spoken text of one prompt in `lang` (VoiceText.render). */

@@ -212,3 +212,58 @@ Platform behaviour below comes from public documentation and reports. It was **n
 - **Contract 0.5.2** (documentation only): static-host tiles guarantees, and 0 backend requests plus the recorded-response rule for the demo build. Backend has nothing to implement.
 - **Open data item:** the golden set has no G5 `en` rows (W8). AC 26 asks for them. The BA either narrows AC 26 to G5 `mn`, or QA and the mobile-engineer add G5 `en` to `tcR13` and regenerate.
 - **Real-iPhone evidence** (AC 48) is needed for every item marked (R) in §7, and for W7. The README checklist lists them.
+
+## Amendments
+
+### Amendment 1 (2026-10-01): as-built facts and clarifications from the NAV-017 integration review
+Requested by the mobile engineer in the NAV-017 handoff. Verified against `web/` at the working tree on 2026-10-01
+(including the uncommitted `vite.config.ts` / `buildtools/demoMode.ts` / `voiceText.ts` changes) with `npm test`,
+`npm run lint`, `npm run typecheck`, `npm run check:glossary` and the three builds. No contract change.
+
+**§2 Build, config shape (accepted).** `web/vite.config.ts` stays a **plain object**, because
+`tests/e2e/nav002/vite.alt.config.mjs` spreads it. The demo-mode settings are applied per Vite mode inside plugins
+(`buildtools/demoMode.ts` › `demoModePlugins`): a `config` hook sets `base: "./"`, the `__NAVMN_DEMO_MODE__` define,
+`modulePreload: false` and `cssCodeSplit: false` only in demo mode; `apply()` limits the index.html transform and the
+route emitter to demo mode; `configResolved` drops the `labelRule` input there. This is equivalent to §2. Measured: the
+demo build has 0 `crossorigin`, the `noindex` meta, no server files; the public builds keep `base: "/"`, and against
+the pre-NAV-017 commit `f396517` their only code change is the extra `document.baseURI` argument of `assetBaseUrl`,
+which is unused when the base is absolute.
+
+**§2 Viewport (clarification).** The public `index.html` already has `viewport-fit=cover` (NAV-002). No demo-only
+viewport transform is needed; the demo-only `text-size-adjust` and safe-area padding live in the demo CSS chunk, which
+public builds do not contain.
+
+**§6 Parity gate, `en` source recording (changed).** The sentence "The `en` runs use the `mn` recording with the
+English UI" is replaced: **each golden row is compared against its own source recording** (the `mn` rows against the
+`mn` recording, the `en` rows against the `en` recording named in `tests/gpx/nav005/manifest.json` `also_en`), because
+`QaGpxReplayTest.tcR13` generated the `en` rows from the `en` recordings. The demo itself plays the `mn` recording in
+both UI languages (story "Demo routes"). Measured on 2026-10-01 with the real WASM core and the ports, `mn` recording
+in the English UI:
+- G1: equals the G1 `en` golden rows exactly (8 rows, same times).
+- G8: equals the first 26 G8 `en` golden rows; the last two differ (`16 In 100 meters, turn left` / `17 Your destination
+  is on the left` instead of `16 In 100 meters, you will arrive` / `16 You have arrived`), because
+  `g8-roundabout-car-en.json` has 17 steps and the `mn` recording 18. This is a **fixture difference, not a client
+  defect**. Whether AC 26 is met by per-recording parity, or the G8 `en` golden rows are regenerated from the `mn`
+  recording, is a BA decision (with the open G5 `en` item below).
+
+**§7 Unlock when the voice decision is still pending (added).** If the 3 s voice decision has not finished when «Эхлэх»
+is activated, the handler cannot know whether to speak. It then chimes the depart prompt (as implemented) **and also
+primes speech with one empty, zero-volume utterance with no voice set** (no Mongolian text is involved), so that iOS
+allows the later prompts if the decision then finds a usable voice. Without this, a fast tap on an iPhone whose voice
+list loads late leads to a refused first `speak()`, which the error rule turns into the chime fallback for the whole
+replay.
+
+**§10 Size and public builds (clarification).** Measured: the demo chunk (72 KB) plus the WASM (883 KB) plus the
+single CSS file add about 1.0 MB over the static-demo build, within the 1.5 MB budget. "Public builds gain 0 bytes"
+means 0 bytes of demo **code, WASM and route data** (AC 4). The shared resource files (`mn.json`, `en.json`, with the
+new `demo.*`, `nav.*` and `voice.*` keys) and `tokens.json` v0.5.0 are bundled into every build, as all resources are;
+this is accepted.
+
+**§10 Licence text (required).** BSD-3-Clause requires the copyright notice, the conditions and the disclaimer to be
+reproduced with binary redistributions, and the demo-mode build redistributes the Ferrostar WASM binary. The npm
+package ships no licence file, so `web/THIRD_PARTY_NOTICES.md` must carry the **full upstream `LICENSE` text** of
+`stadiamaps/ferrostar` at the 0.57.0 tag (copyright line included), like the other entries there. A separate
+`web/licenses/` copy is not required. This is fixed in the NAV-017 fix loop, before the PO uploads the build.
+
+**Consequences, open data items (updated).** Two golden-set items are now open with the BA: G5 `en` has no rows, and
+the G8 `en` rows come from a recording that differs from the one the demo plays.
