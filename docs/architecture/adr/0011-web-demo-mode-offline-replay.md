@@ -344,3 +344,37 @@ before NAV-007, the resource file is split into a demo-only part; that is a prod
 **README data note (mobile-engineer).** `web/README.md` › Demo mode › Build describes R2 as "→ near Улсын их дэлгүүр"
 while the manifest and the picker name the destination «Хаан банк» (the State Department Store is about 377 m away).
 The README should name what the picker shows.
+
+### Amendment 3 (2026-10-01): integration review verdict after QA run 1 (fourth pass)
+Verified on the committed tree `18cb22a`. **`web/` is unchanged since `7b72cea`** (only `docs/` and `tests/e2e/nav017/`
+changed), so every QA run-1 finding and every open item of Amendments 1–2 still stands in the code under review.
+Re-run here: `npm run typecheck` 0 errors; `npm run lint` 0 problems and the i18n scan OK (163 keys, mn/en identical);
+`npm run check:glossary` 163/163; `npm test` 30 files / 602 tests passed (36 s, includes the golden parity on the real
+WASM core); repository scan for `.htpasswd`, `AuthUserFile`/`AuthName`, host names and IPv4 literals: only test code,
+the README and documentation mention the terms, no real value anywhere. No contract change: `openapi.yaml` stays 0.5.2;
+the demo build still reads `<origin>/tiles/basemap.pmtiles` through `VITE_GATEWAY_BASE_URL=same-origin`, sends 0
+backend requests, calls Geolocation 0 times, writes no coordinates to storage, console or URL, and stays within the
+§10 size budget (about 1.0 MB over the static-demo build).
+
+**Verdict: not passed; the NAV-017 fix loop runs before the PO uploads the build.** Architect severities (they differ
+from QA's S3 ratings where a hard rule or the PO's device class is hit):
+
+| Item | Severity | Why | Owner / where |
+|---|---|---|---|
+| §10 Ferrostar licence text | **major** | `web/THIRD_PARTY_NOTICES.md` (lines 847–852) still says "ships no licence file". BSD-3-Clause requires the copyright line, conditions and disclaimer with the redistributed WASM binary. Required since Amendment 1; QA's reproducing test exists (`tests/e2e/nav017/adr.test.mjs`). The generator `scripts/gen-third-party-notices.mjs` needs an override source (as for `pmtiles` and `@protomaps/basemaps` in `web/licenses/`) so a regeneration keeps the text | mobile-engineer |
+| D1 AC 9 camera fit | **major** | `web/src/demo/demoMain.ts:282` clamps the bottom padding to `box.height / 2`; on 375×667 and 390×844 (the PO's device class) a route end lands under the picker sheet. Replace the half-height clamp with a minimum-map-band rule (for example `top + bottom ≤ map height − 120 px`) and let `maxZoom` and MapLibre's fit limits apply | mobile-engineer |
+| D2 landscape horizontal insets | **major** | Only `.demo-nav` pads `env(safe-area-inset-left/right)` (`demo.css:249`); the picker sheet, the R1/R4 control cluster and the R5 attribution strip (`styles.css:619` pads the bottom only) do not, so in landscape «© OpenStreetMap contributors» starts under the sensor housing (CLAUDE.md rule 8) and controls sit in the inset (AC 37, 844×390). **Fix in `demo.css` only** (the demo chunk is not in the public builds); changing the shared `styles.css` would alter NAV-002 behaviour and must go through triage | mobile-engineer |
+| D4 A1 notice clipped (WebKit, 844×390, 200 %) | minor | message-card `max-height`/overflow in the landscape column; UX may decide the 200 % landscape layout of the message stack | mobile-engineer, ux-designer |
+| §7 pending-decision priming | minor | unchanged from Amendments 1–2; QA's reproducing test exists (`adr.test.mjs`, soft assertions) | mobile-engineer |
+| README R2 destination name | minor | README says "near Улсын их дэлгүүр", the picker shows «Хаан банк»; QA's test exists | mobile-engineer |
+| D3 passed-manoeuvre prompt (G4) | minor for NAV-017 | shared rule, same on Android (§6 lockstep); not reachable from the picker; Android side through triage as a NAV-005 item, fix on both platforms in one change with a golden regeneration through the BA | triage, both clients |
+
+Everything else reviewed passes: contract conformance (0.5.2, static-host tile rules, recorded responses unchanged),
+AC 10 error handling in `routeData.ts` (non-200, non-JSON, shape, plan and WASM failures all reach the error state
+with retry; offline waits and reloads), localisation (0 hard-coded user strings in `src/demo` and `src/guidance`; every
+`mn` value a glossary term), OSM attribution in every portrait state, privacy (§8 as built), and the timing targets
+(fix application ± 100 ms, golden prompts ± 2 s, WASM init in milliseconds).
+
+Carried open questions (unchanged): silent-switch override (PO, after AC 48 evidence); G5 `en` golden rows and the G8
+`en` fixture difference (BA); U1 «Сонгосон цэг» fallback (BA); manifest end names (QA verified the OSM ids in run 1
+§7); whether the unreviewed guidance strings may stay in the public bundle before NAV-007 (PO).
