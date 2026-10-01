@@ -7,7 +7,7 @@
 // For every viewport x state x theme x language x text zoom it checks the screen-spec layout rules
 // (docs/design/screens/NAV-017-web-demo-mode.md › Layout rules; story AC 8, 14, 22, 29, 37, 38):
 //   - the attribution strip is fully inside the viewport, text >= 11px, and intersects no other box or control (AC 37)
-//   - no two boxes (banner, badge, status message, voice notice, progress/arrival panel, picker, recenter) overlap,
+//   - no two boxes (banner, badge, message stack, progress/arrival panel, picker, recenter) overlap,
 //     and no control overlaps a box it is not inside
 //   - every control is >= 44x44 CSS px (AC 38); 44-48 px is reported as INFO (design target 48)
 //   - no control lies under a simulated safe-area inset (AC 37)
@@ -130,11 +130,12 @@ for (const [w, h, insets, label] of viewports) {
       if (prog && banner) {
         const top = document.getElementById("top");
         const topBottom = wide ? 0 : rect(top).bottom;
-        const bottomTop = rect(document.querySelector('[data-box="voice-notice"]') || prog).top;
+        const stackEl = document.querySelector('[data-box="messages"]');
+        const bottomTop = rect(stackEl && !wide ? stackEl : prog).top;
         const band = bottomTop - Math.max(topBottom, wide ? 0 : 0);
         if (!wide) {
           info.band = Math.round(band);
-          const notice = !!document.querySelector('[data-box="voice-notice"]');
+          const notice = !!stackEl && stackEl.dataset.hasA1 === "true";
           const need = notice ? (window.__tz > 1 ? 64 : 80) : (window.__tz > 1 ? 80 : 150);
           if (band < need) out.push(`map band ${band.toFixed(0)}px < ${need}px`);
         }

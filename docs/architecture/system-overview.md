@@ -176,6 +176,31 @@ sequenceDiagram
   Note over A: arrival (≤ 30 m) → once, service and location stop
 ```
 
+## 1d. Web demo mode (NAV-017, ADR-0011)
+
+A **separate build** of the web client (`npm run build:demo-mode` → `dist-demo-mode/`) that the PO uploads by hand into a **password-protected sub-folder** of the shared web hosting (hPanel "Password protect directories"; folder and host names are never in the repo, D35). It replays three recorded UB routes (R1–R3) with simulated turn-by-turn guidance. It sends **0** requests to `search`, `reverse` or `route` and has no backend. The public static site (D44) and its build are unchanged.
+
+```mermaid
+flowchart LR
+  subgraph Host["PO shared web host (one HTTPS origin)"]
+    PUB["/ public map-only site (D44)"]
+    PM["/tiles/basemap.pmtiles (public, Range 206)"]
+    subgraph DF["/&lt;demo-folder&gt;/ (HTTP Basic auth)"]
+      APP["index.html (noindex) · JS/CSS · fonts · sprites · Ferrostar WASM"]
+      RD["demo-routes/r1–r3.json<br/>recorded postRoute 200 + 1 Hz GPX track"]
+    end
+  end
+  subgraph Phone["iPhone Safari (D72)"]
+    W["demo-mode SPA<br/>ReplayEngine → Ferrostar core 0.57.0 (WASM)<br/>+ ported ADR-0009 rules → banner / speechSynthesis or chime"]
+  end
+  W -->|"GET with Basic credentials (same folder)"| DF
+  W -->|"pmtiles:// Range, no credentials"| PM
+```
+
+- **Build inputs (read-only):** the recorded responses under `mobile/android/app/src/test/resources/routes/`, the GPX tracks under `tests/gpx/nav005/`, and the manifest `web/src/demo/routes.manifest.json`. The cross-platform guard is `tests/gpx/nav005/golden/voice-golden.tsv`, the same file the Android client is tested against.
+- **Hosts at runtime:** the page origin only. The demo folder serves the app and data, and the origin root serves the public tile archive. No other host is contacted, and there is no service worker.
+- **Deployment:** manual upload of the build output's contents. After every upload, three checks: 401 without credentials, 200 with them, and 206 for the archive Range request (NAV-017 AC 5). Re-uploading the public site must not delete the demo folder.
+
 ## 2. Path map (symbolic names from NAV-001)
 
 | Symbol | Gateway | Upstream | Notes |
@@ -264,6 +289,9 @@ sequenceDiagram
 | NFR-W1 | Web client hosts | at runtime the web demo contacts only the page origin and the gateway. No font, sprite or style CDN | NAV-002 AC 46, ADR-0004 | QA e2e |
 | NFR-L5 | Search-as-you-type in the web demo | results or «Илэрц олдсонгүй» rendered ≤ 1,000 ms after the last keystroke for ≥ 19 of 20 samples; debounce 250 ms; loading shown after 300 ms; unavailable state within 8 s, never an endless spinner | NAV-003 AC 3, 12, 13, 33 | QA e2e |
 | NFR-P3 | Search bias privacy | bias `lat`/`lon` at most 3 decimals; only `search` (bias) and `reverse` (user-chosen point) carry coordinates; no query text or coordinates in storage or the console | NAV-003 AC 9, 46; ADR-0006 §3 | QA e2e, architect review |
+| NFR-W2 | Web demo-mode hosts and backend calls | the demo-mode build contacts only its page origin (demo folder plus `/tiles/basemap.pmtiles`); **0** `search`/`reverse`/`route` requests; no service worker; public builds contain 0 bytes of demo code | NAV-017 AC 4, 42; ADR-0011 §1, §2 | QA e2e request log, build-output scan |
+| NFR-P5 | Web demo-mode privacy | Geolocation never called; storage holds only theme, language and voice-mute; 0 coordinates in storage, console or URL; voice names never stored or sent; password, `.htpasswd`, host names and IPs never in the repo | NAV-017 AC 6, 14, 43; D35, D74 | QA storage/console scan, repo scan |
+| NFR-L6 | Web demo-mode replay timing | simulated fix applied ± 100 ms of its track time at 1×; prompts within ± 2 s of the shared golden set; core cost ≤ 1 ms per fix on the main thread (measured 0.2–0.8 ms in Node, ADR-0011 W2) | NAV-017 AC 12, 26 | Vitest fake clock + golden test |
 | NFR-R2 | Search request budget | ≤ 2 `search` requests per settled query, 1 `reverse` per coordinate card, no automatic retry except one resume on `online`; 429 honoured per operation | NAV-003 AC 3, 15, 35, 36; openapi 0.4.0 rate-limit rules | QA e2e |
 
 These targets are BA-proposed Phase 0 baselines (NAV-001 Open question 3), not production SLAs.

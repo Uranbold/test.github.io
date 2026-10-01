@@ -127,16 +127,19 @@
   :root[data-stacked="1"] #banner .textcol { grid-area: text; margin-top: 8px; }
   :root[data-stacked="1"] #banner.nodist { grid-template-areas: "icon ." "text text"; }
   /* RD demo row: badge + language + theme */
-  #rd { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; flex: none; }
+  #rd { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: nowrap; flex: none; min-height: 48px; }
   #rd .btns { display: flex; gap: 8px; margin-left: auto; }
-  .badge { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px 4px 8px; border-radius: 9999px; background: var(--badge); color: var(--on-badge); border: 1px solid var(--badge-outline);
+  #rd .langbtn { font-size: calc(14px * var(--fsB)); }
+  .badge { display: inline-flex; align-items: center; gap: 4px; min-width: 0; flex: 0 1 auto; min-height: 32px; padding: 4px 12px 4px 8px; border-radius: 16px; background: var(--badge); color: var(--on-badge); border: 1px solid var(--badge-outline);
     font-size: calc(14px * var(--fsB)); line-height: 1.43; font-weight: 600; }
   .badge svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; flex: none; }
+  .badge span { min-width: 0; overflow-wrap: normal; }
   #rs .msg { font-size: calc(14px * var(--fsB)); }
   #recenter { position: absolute; left: calc(16px + var(--sal)); bottom: 12px; min-height: 56px; max-width: calc(100% - 32px - var(--sal)); border-radius: 16px; background: var(--primary-container); color: var(--on-primary-container); border: 0; padding: 8px 20px 8px 16px; display: flex; align-items: center; gap: 12px; font: inherit; font-size: calc(14px * var(--fsB)); font-weight: 500; text-align: left; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
   :root[data-wide="1"] #recenter { left: 16px; max-width: calc(100% - 32px); }
   #recenter svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
-  .notice { background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 16px; padding: 12px 16px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; font-size: calc(14px * var(--fsB)); }
+  .notice { background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 16px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; font-size: calc(14px * var(--fsB)); }
+  .notice .item { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; }
   .notice .ico { width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; }
   .panel { background: var(--surface); color: var(--on-surface); border-radius: 16px; padding: 12px 12px 12px 16px; min-height: 72px; display: flex; align-items: center; gap: 8px; }
   .panel .txt { min-width: 0; flex: 1 1 0; }
@@ -250,10 +253,15 @@ function render() {
     let icon = I.right, dist = st === "notice" || st === "offline" ? t.d1 : t.d300, instr = t.turnR, street = t.street, nodist = false;
     if (st === "long" || st === "worst") { icon = I.ramp; instr = t.offRampR; street = t.streetLong; }
     if (st === "arrival") { icon = I.flag; dist = ""; instr = t.arriveR; nodist = true; }
-    const msgs = (st === "offline" || st === "worst") ? `<div id="rs"><div class="msg card" data-box="status-offline" role="status"><span class="ico" aria-hidden="true"></span><span>${t.offline}</span></div></div>` : "";
+    // RN message stack above the progress panel: A1 notice (8 s, once per replay) and the offline indicator share ONE card (Layout rule 5).
+    const items = [];
+    if (st === "notice" || st === "worst") items.push(["a1", t.voiceNotice]);
+    if (st === "offline" || st === "worst") items.push(["offline", t.offline]);
+    const stack = items.length ? `<div class="notice card" data-box="messages" data-has-a1="${items.some((i) => i[0] === "a1")}">${items.map(([k, m]) => `<div class="item" role="status" data-msg="${k}"><span class="ico" aria-hidden="true"></span><span>${m}</span></div>`).join("")}</div>` : "";
+    const msgs = "";
     const stacked = root.dataset.stacked === "1";
     const distEl = dist ? `<div class="dist" data-check="distance">${dist}</div>` : "";
-    const bottom = (st === "notice" || st === "worst" ? `<div class="notice card" data-box="voice-notice" role="status" data-control-soft><span class="ico" aria-hidden="true"></span><span>${t.voiceNotice}</span></div>` : "")
+    const bottom = stack
       + (st === "arrival"
         ? `<div class="panel card" data-box="progress"><div class="txt"><div class="dest">${I.flag24}<span>${ROUTES[0].d}</span></div></div><button class="btn filled" data-control>${t.close}</button></div>`
         : `<div class="panel card" data-box="progress"><div class="txt"><div class="eta">${t.eta} 14:35</div><div class="meta">${t.remaining}</div></div>
@@ -265,7 +273,10 @@ function render() {
       <div id="band">${(st === "recenter" || st === "worst") ? `<button id="recenter" data-control data-box="recenter">${I.loc}<span>${t.recenter}</span></button>` : ""}
         <div id="puck" style="position:absolute;left:calc(50% + var(--sal) / 2);top:70%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;background:var(--puck);border:3px solid var(--puck-stroke);outline:1px solid var(--puck-outline)"></div></div>
       <div id="bottom">${bottom}</div>${attr}${insetDivs}`;
-    if (root.dataset.wide === "1") { const p = document.getElementById("puck"); p.style.left = "50%"; }
+    if (root.dataset.wide === "1") {
+      const p = document.getElementById("puck"); p.style.left = "50%";
+      const m = document.querySelector('[data-box="messages"]'); if (m) document.getElementById("top").appendChild(m);
+    }
     document.getElementById("top").style.maxHeight = root.dataset.wide === "1" ? "" : Math.floor(H * 0.5) + "px";
   }
   renderToolbar(P);

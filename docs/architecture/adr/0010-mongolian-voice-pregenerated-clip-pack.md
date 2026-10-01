@@ -1,6 +1,6 @@
-# ADR-0010: Mongolian voice prompts are played from a pre-generated segment clip pack, not from device TTS
+# ADR-0010: Mongolian voice prompts are played from a pre-generated segment clip pack instead of relying on device TTS
 
-- **Status:** proposed (2026-10-01). It is accepted only after NAV-007 AC 9 device evidence and the PO's D23 decision (backlog owed decision 7). Until then the D23 minimum (on-screen text plus a chime, NAV-005 AC 39) stays in force, and nothing in this ADR is implemented.
+- **Status:** proposed (2026-10-01). It is accepted only after NAV-007 AC 9 device evidence and the PO's D23 decision (backlog owed decision 7). Until then the D23 minimum (on-screen text plus a chime, NAV-005 AC 39) stays in force, and nothing in this ADR is implemented. Revised 2026-10-01 after the skeptic review of the spike: context corrected (Gemini-TTS, eSpeak NG), the "no device TTS for Mongolian" rule moved to an open PO option, and non-final takes for chained prompts added. Still proposed.
 - **Date:** 2026-10-01
 - **Stories:** NAV-016 (draft: voice fallback implementation), NAV-005 (AC 34, 38–40), NAV-007 (AC 9–12), NAV-015 (iOS), the web demo mode (parallel run). Evidence: [spike `mongolian-voice-tts`](../spikes/mongolian-voice-tts.md).
 
