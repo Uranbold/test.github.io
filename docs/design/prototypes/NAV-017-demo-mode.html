@@ -106,7 +106,11 @@
   .entry .meta { font-size: calc(14px * var(--tz)); color: var(--on-surface-variant); font-variant-numeric: tabular-nums; margin-top: 2px; }
   /* State row: pinned above «Эхлэх» (outside the scrolling list) so it is always visible next to the button it explains. */
   .state { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 12px; padding: 8px 16px; min-height: 56px; align-items: center; border-top: 1px solid var(--outline-variant); flex: none; }
-  .state .acts { grid-column: 2; display: flex; justify-content: flex-end; }
+  /* NAV-002 rule 5: the action sits at the end of the text line; below a 480 px viewport (or above 100 % text zoom) it gets its own line. */
+  .state { grid-template-columns: 24px minmax(0,1fr) auto; }
+  .state .acts { display: flex; justify-content: flex-end; }
+  :root[data-narrow="1"] .state { grid-template-columns: 24px minmax(0,1fr); }
+  :root[data-narrow="1"] .state .acts { grid-column: 2; }
   #picker .foot { padding: 8px 16px 12px; flex: none; border-top: 1px solid var(--outline-variant); }
   #picker .foot .btn { width: 100%; min-height: 56px; font-size: calc(16px * var(--tz)); }
 
@@ -231,6 +235,7 @@ function render() {
   // Column layouts: picker side panel from 840 px (NAV-004 expanded); guidance left column from 840 px or on a phone in landscape (height < 500).
   const W = innerWidth, H = innerHeight;
   root.dataset.wide = (W >= 840 || (!picker && W > H && H < 500)) ? "1" : "0";
+  root.dataset.narrow = (W < 480 || P.tz > 1) ? "1" : "0";
   const themeBtn = P.theme === "day" ? ["moon", t.night] : ["sun", t.day];
   const app = document.getElementById("app");
   const attr = `<div id="attr" data-box="attribution"><a href="#" data-attr-link>© OpenStreetMap contributors</a></div>`;
