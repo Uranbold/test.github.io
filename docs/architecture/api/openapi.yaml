@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.5.1
+  version: 0.5.2
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
@@ -11,7 +11,19 @@ info:
     ADR-0005 (staging hosting; deployment in `docs/architecture/deployment-staging.md`), ADR-0006 (web search
     client: query assistance and request orchestration over `search` / `reverse`), ADR-0008 (on-screen route
     instruction text is generated on the client from OSRM manoeuvre fields, not taken from Valhalla's narrative)
-    and ADR-0009 (Android guidance client: app-owned route requests and reroute policy, keyed banner and voice text).
+    and ADR-0009 (Android guidance client: app-owned route requests and reroute policy, keyed banner and voice text)
+    and ADR-0011 (web demo mode NAV-017: offline replay of recorded routes, no backend calls).
+
+    **Changes in 0.5.2 (2026-10-01, NAV-017 design, ADR-0011).** Documentation only. No path, parameter, status
+    code, header, schema or gateway behaviour change, so there is nothing for backend to implement:
+    - `getBasemapPmtiles`: the same path served as a **plain static file by the PO's shared web host** (D44), not by
+      the gateway. Which guarantees a static host must meet (200/206 with `Content-Range`, no `Content-Encoding`)
+      and which gateway-only guarantees clients must not rely on there (416 JSON body, CORS headers,
+      `Cache-Control` values). The NAV-017 demo-mode build reads the archive at `<page origin>/tiles/basemap.pmtiles`,
+      **outside** its password-protected folder.
+    - `postRoute`: the NAV-017 demo-mode build sends **0** requests to this path (and to `search` and `reverse`).
+      It bundles three recorded `200` responses of this operation (Valhalla 3.9.0, NAV-005 QA fixtures), which
+      must validate against `OsrmRouteResponse` unchanged (checked 2026-10-01: all three validate).
 
     **Changes in 0.5.1 (2026-10-01, NAV-005 design, ADR-0009).** Documentation only. No path, parameter, status
     code, header, schema type or gateway behaviour change, so there is nothing for backend to implement (backend
@@ -226,7 +238,23 @@ paths:
         `pmtiles://` + gateway base URL + `/tiles/basemap.pmtiles`, with HTTP Range requests and no `Origin`
         header (CORS does not apply). Style, glyphs and sprites are bundled in the APK; this path is the only
         tiles request.
-      x-stories: [NAV-001, NAV-002, NAV-005]
+
+        **Static web host (D44 public demo; NAV-017 demo mode, ADR-0011 §4).** On the PO's shared web hosting the
+        same path is a plain file uploaded next to the public static site, at `<page origin>/tiles/basemap.pmtiles`
+        (host name never in the repo, D35). There is no gateway in front of it. A static host must:
+        - answer a `Range` request with **206** and `Content-Range: bytes <start>-<end>/<total>`, and a request
+          without `Range` with 200;
+        - send **no** `Content-Encoding` (no gzip or brotli on the archive), because compressed ranges break PMTiles
+          reads;
+        - serve it over HTTPS on the page origin, so no CORS is involved.
+        Clients must **not** rely on the gateway-only behaviour on a static host: the 416 JSON `GatewayError` body,
+        the `Access-Control-*` headers and the gateway's `Cache-Control` values. They need only 200/206 and treat
+        any other status as "tiles unavailable" (NAV-002 behaviour).
+
+        The NAV-017 demo-mode build is served from a **password-protected sub-folder** (HTTP Basic auth set in the
+        host's panel) and still reads the archive from the **origin root**, outside the protected folder. Those
+        requests carry no `Authorization` header and need none. The archive is not duplicated into the folder.
+      x-stories: [NAV-001, NAV-002, NAV-005, NAV-017]
       parameters:
         - $ref: "#/components/parameters/Range"
         - $ref: "#/components/parameters/IfNoneMatch"
@@ -372,6 +400,12 @@ paths:
         - A `waypoints[].distance` above 500 m shows a snap notice (the route ends at the nearest mapped road).
         - Static public demo build (`VITE_STATIC_DEMO`, D44, NAV-002 AC 53-54): **0** requests to this path from
           any host; the client shows "routing unavailable" without calling the network.
+        - Web demo-mode build (NAV-017, ADR-0011): **0** requests to this path (and to `search` and `reverse`)
+          from any host. The build bundles three recorded `200` responses of this operation (Valhalla 3.9.0, OSRM
+          format, recorded for the NAV-005 QA set: `p1-p3-car-mn`, `p1-p2-walk-mn`, `g8-roundabout-car-mn`).
+          Their JSON content is used unchanged (only wrapped with the track data at build time, ADR-0011 §5) and
+          must validate against `OsrmRouteResponse`. If a later contract version changes that schema
+          incompatibly, the recordings are re-validated or re-recorded.
         - Expected load: at most one request per settled user action, typically well under 1 request/s per client.
 
         **Android guidance client profile (NAV-005, `mobile/android/`, ADR-0009 §2 and §4).** Informative for
@@ -402,7 +436,7 @@ paths:
           and schedules voice prompts on the device from the live distance and speed (`docs/design/navigation-ux.md`
           §4.2), not from `distanceAlongGeometry`. `voice_instructions: true` is still sent (NAV-005 AC 5). It uses
           `waypoints[].distance` for the snap notice.
-      x-stories: [NAV-001, NAV-004, NAV-005, NAV-008]
+      x-stories: [NAV-001, NAV-004, NAV-005, NAV-008, NAV-017]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route, docs: "https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/" }
       requestBody:
         required: true

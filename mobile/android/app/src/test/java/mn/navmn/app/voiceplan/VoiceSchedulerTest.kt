@@ -149,7 +149,7 @@ class VoiceSchedulerTest {
         s.start(plan, 0)
         val heard = approach(s, plan, 0, 12.0, t0 = 10_000)
         assertEquals(1, heard.size)
-        assertTrue(heard[0].text, heard[0].text.endsWith("метрт очих газартаа ирнэ"))
+        assertTrue(heard[0].text, heard[0].text.endsWith("метрт очих газартаа хүрнэ"))
     }
 
     @Test
@@ -234,7 +234,7 @@ class VoiceSchedulerTest {
             // The normal approaching prompt fires once, at its usual threshold (500 m), with the usual text.
             assertEquals("catch-up at $catchUpD m", listOf(500.0), heard.map { it.first })
             assertEquals(PromptKind.MAIN, heard[0].second.kind)
-            assertEquals("500 метрт очих газартаа ирнэ", VoiceText.render(heard[0].second.content, Lang.MN, mn))
+            assertEquals("500 метрт очих газартаа хүрнэ", VoiceText.render(heard[0].second.content, Lang.MN, mn))
             assertEquals("In 500 meters, you will arrive", VoiceText.render(heard[0].second.content, Lang.EN, en))
         }
     }
@@ -255,12 +255,12 @@ class VoiceSchedulerTest {
             assertEquals("restore=$restore", listOf(400.0), heard.map { it.first }) // main prompt handled by the catch-up
             val p = heard[0].second
             assertEquals(PromptKind.CATCH_UP, p.kind)
-            assertEquals("400 метрт очих газартаа ирнэ", VoiceText.render(p.content, Lang.MN, mn))
+            assertEquals("400 метрт очих газартаа хүрнэ", VoiceText.render(p.content, Lang.MN, mn))
             assertEquals("In 400 meters, you will arrive", VoiceText.render(p.content, Lang.EN, en))
         }
         val atLimit = arriveCatchUp(restore = true, 500.0, later = emptyList())
         assertEquals(PromptKind.CATCH_UP, atLimit.single().second.kind)
-        assertEquals("500 метрт очих газартаа ирнэ", VoiceText.render(atLimit.single().second.content, Lang.MN, mn))
+        assertEquals("500 метрт очих газартаа хүрнэ", VoiceText.render(atLimit.single().second.content, Lang.MN, mn))
     }
 
     @Test
@@ -270,6 +270,6 @@ class VoiceSchedulerTest {
         assertEquals(PromptKind.CATCH_UP, heard[0].second.kind)
         assertTrue(heard[0].second.content is VoiceContent.ContinueOn)
         assertEquals("2,4 километр үргэлжлүүлэн явна уу", VoiceText.render(heard[0].second.content, Lang.MN, mn))
-        assertEquals("500 метрт очих газартаа ирнэ", VoiceText.render(heard[1].second.content, Lang.MN, mn))
+        assertEquals("500 метрт очих газартаа хүрнэ", VoiceText.render(heard[1].second.content, Lang.MN, mn))
     }
 }

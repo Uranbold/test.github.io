@@ -173,7 +173,7 @@ class GuidanceOverlayTest {
         show(state())
         rule.onNodeWithContentDescription("Дараа нь, Зүүн тийш эргэнэ үү").assertIsDisplayed()
         val live = rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion)).fetchSemanticsNodes()
-        assertTrue(live.any { n -> n.config.getOrNull(SemanticsProperties.Text)?.any { it.text.contains("Баруун талын гарах замаар гарна уу") } == true })
+        assertTrue(live.any { n -> n.config.getOrNull(SemanticsProperties.Text)?.any { it.text.contains("Баруун талын гарах зам руу эргэнэ үү") } == true })
     }
 
     @Test

@@ -15,7 +15,7 @@ sealed interface VoiceContent {
     /** The depart text at the start (§4.3), optionally chained with the first manoeuvre. */
     data class Depart(val key: KeyResult, val then: KeyResult? = null) : VoiceContent
 
-    /** «{n} метрт очих газартаа ирнэ» (A11). */
+    /** «{n} метрт очих газартаа хүрнэ» (A11). */
     data class Approaching(val distanceM: Double) : VoiceContent
 
     /** «Та очих газартаа ирлээ» or the side variant (AC 55). */

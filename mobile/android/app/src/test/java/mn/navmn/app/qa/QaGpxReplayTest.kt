@@ -207,7 +207,7 @@ class QaGpxReplayTest {
         val arriveText = r.spokenTexts().filter { it.startsWith("Таны очих газар") || it.startsWith("Та очих газартаа") }
         if (arriveText != listOf("Таны очих газар баруун талд байна")) problems += "AC 55: arrival prompts $arriveText"
         val iArr = r.spokenTexts().indexOfFirst { it.startsWith("Таны очих газар") }
-        if (r.spokenTexts().take(maxOf(iArr, 0)).none { it.endsWith("метрт очих газартаа ирнэ") }) problems += "AC 55: no approaching prompt «{n} метрт очих газартаа ирнэ» before arrival: ${r.spokenTexts()}"
+        if (r.spokenTexts().take(maxOf(iArr, 0)).none { it.endsWith("метрт очих газартаа хүрнэ") }) problems += "AC 55: no approaching prompt «{n} метрт очих газартаа хүрнэ» before arrival: ${r.spokenTexts()}"
         if (iArr >= 0 && iArr != r.spoken.lastIndex) problems += "AC 55: prompts after arrival: ${r.spokenTexts().drop(iArr + 1)}"
         val arrivedBanner = r.states.last().second.banner
         if (r.bannerText(arrivedBanner) != "Таны очих газар баруун талд байна") problems += "AC 55: final banner «${r.bannerText(arrivedBanner)}»"
