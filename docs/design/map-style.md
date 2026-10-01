@@ -1,9 +1,9 @@
 # Map style spec (MapLibre)
 
 - **Owner:** ux-designer
-- **Stories:** NAV-002 (AC 5–10, 15, 26–29, 35, 46), NAV-003 (§7.1 selected-place pin; AC 21, 23, 25), NAV-004 (§7.2 route lines and alternatives, §7.3 route markers; AC 9, 16–18, 20, 30), NAV-005 (§7.4 Android guidance route line, puck and native style; §8 automatic theme; AC 1, 2, 23, 51, 58, 59). Later stories add sections (traffic: Phase 3).
+- **Stories:** NAV-002 (AC 5–10, 15, 26–29, 35, 46), NAV-003 (§7.1 selected-place pin; AC 21, 23, 25), NAV-004 (§7.2 route lines and alternatives, §7.3 route markers; AC 9, 16–18, 20, 30), NAV-005 (§7.4 Android guidance route line, puck and native style; §8 automatic theme; AC 1, 2, 23, 51, 58, 59), NAV-017 (§7.5 web demo-mode picker route, replay route line and puck; AC 9, 13, 22, 41, 44). Later stories add sections (traffic: Phase 3).
 - **Colour values:** `docs/design/tokens.json` is the single source of truth. The tables below quote it for readability. `node docs/design/prototypes/check-contrast.mjs` fails if a table value here drifts from `tokens.json`, or if a listed text/background pair drops below WCAG AA.
-- **Status:** v0.5, 2026-10-01 (§7.4 NAV-005 Android guidance: route line, off-route display, puck, native style rules; §8 «Автомат» theme on Android). v0.4, 2026-09-30 (§7.2–7.3 NAV-004 route lines, origin marker, destination = NAV-003 pin, candidate point, manoeuvre point). v0.3, 2026-09-30 (§1 zoom range: D1 max zoom 14 read from the archive header; §7.1 NAV-003 pin). v0.2, 2026-09-30 (§1 post-processing moved to runtime per ADR-0004 §3; PO decisions D11–D13, D16 recorded). v0.1, 2026-09-29. Colours are a first proposal. The PO judges them on real tiles in the NAV-002 demo (story goal: "is the open basemap good enough for Mongolian users").
+- **Status:** v0.6, 2026-10-01 (§7.5 NAV-017 web demo mode: picker route and markers, replay route line, web puck; no new colours). v0.5, 2026-10-01 (§7.4 NAV-005 Android guidance: route line, off-route display, puck, native style rules; §8 «Автомат» theme on Android). v0.4, 2026-09-30 (§7.2–7.3 NAV-004 route lines, origin marker, destination = NAV-003 pin, candidate point, manoeuvre point). v0.3, 2026-09-30 (§1 zoom range: D1 max zoom 14 read from the archive header; §7.1 NAV-003 pin). v0.2, 2026-09-30 (§1 post-processing moved to runtime per ADR-0004 §3; PO decisions D11–D13, D16 recorded). v0.1, 2026-09-29. Colours are a first proposal. The PO judges them on real tiles in the NAV-002 demo (story goal: "is the open basemap good enough for Mongolian users").
 - **Checked on real tiles (2026-09-29, design preview only, not app code):** both styles were generated from `tokens.json` with `@protomaps/basemaps` 5.7.2 plus the §3.2, §3.3 and §4 post-processing (the same steps `buildStyle` now runs at runtime, §1), validated with the MapLibre style validator (0 errors, 0 layers left reading `name:ru` / `pgf:*` / `name2` / `name3`), and rendered against the NAV-001 gateway archive at P1 z12, z14, z16.5 and Mongolia z6/z7, day and night. Result: Cyrillic labels incl. ө/ү render, Энх тайваны өргөн чөлөө shows as trunk, and the night map has no bright areas. Two things to watch in the demo: the low-zoom road *widths* are thin Protomaps defaults (colours fixed in §3.3; widths: PO decision D16, 2026-09-30, the PO judges them in the demo and a later widening comes back to this spec as a change), and some POI names are Latin because that is the OSM `name` (story R2).
 
 ## 1. Base and build approach
@@ -268,6 +268,24 @@ Story NAV-005 AC 1, 2, 23, 51, 58, 59. Rules for the camera, banner and states: 
 **Theme switch during guidance (AC 59):** re-add `nav-route*` with the current data and the new mode's colours in the same frame as the style switch; the puck bitmap switches with it; 0 route requests.
 
 **Camera** (pitch 45° heading-up / 0° north-up, zoom by speed, puck at 70 % of the uncovered map height, 1 s follow): `navigation-ux.md` §8. Above the archive max zoom (14) MapLibre over-zooms, so guidance zooms 15–17.5 show roads and labels (§1).
+
+### 7.5 Web demo mode (NAV-017)
+Story NAV-017 AC 9, 13, 14, 22, 41, 44. Screen spec: [`screens/NAV-017-web-demo-mode.md`](screens/NAV-017-web-demo-mode.md); replay rules: [`navigation-ux.md` §11](navigation-ux.md). Demo-mode build only; the public and normal builds draw none of this (story AC 4). **No new colours:** every value below is an existing `route.*`, `pin.*` or `nav.*` token.
+
+**Picker (D1, AC 9).** The selected entry's recorded route is drawn like a NAV-004 route with **one** feature: source `nav-route` with `selected: true`, layers `nav-route-sel-casing` and `nav-route-sel` (§7.2 widths and tokens). No alternative layers and no `nav-route-hit` layer (there is nothing to click). Markers: the §7.3 **origin marker** (18 px circle, `route.origin-*`) at the route start and the §7.1 **pin** at the route end, accessible names = the manifest names (or «Сонгосон цэг»). Selecting another entry replaces the source data; the selection never leaves two routes on the map.
+
+**Replay (D2/D3).** At «Эхлэх» the origin marker is removed (as NAV-005: no origin marker during guidance); the destination pin stays. The route line switches to the §7.4 guidance widths with the selected tokens (CSS px, linear by zoom):
+
+| Layer id | Type | Colour token | Width z12 / z15 / z18 |
+|---|---|---|---|
+| `nav-route-sel-casing` | `line`, round cap and join | `route.selected-casing` | 10 / 14 / 18 |
+| `nav-route-sel` | `line` | `route.selected` | 6 / 9 / 13 |
+
+- Inserted below the first symbol layer (as §7.2), so street names stay readable over the line. No old-route layers (no reroute), no travelled-route trimming, no manoeuvre arrows (as §7.4).
+- **Puck:** the §7.4 chevron (40 px including the 3 px `nav.puck-stroke` ring and the 1 px `nav.puck-outline` hairline, `nav.puck-fill`, elevation 1), drawn as a MapLibre HTML `Marker` (decorative: `aria-hidden="true"`, not focusable) with `rotationAlignment: "map"`, `pitchAlignment: "map"` and rotation = the course (navigation-ux §11.2), so it points up while the camera follows heading-up and turns with the map after a user rotation. Night inverts it as §7.4. **No stale variant** (no GPS loss in a replay), **no accuracy circle**, and the NAV-002 location dot and its accuracy layers are never added in the demo-mode build.
+- **Glide:** the marker position animates along the route line between snapped fixes (navigation-ux §11.2), with `requestAnimationFrame`; reduced motion = jump per fix.
+- **Theme switch (AC 41):** re-add `nav-route` with its current data and the new mode's colours in the same frame as the style switch (as §7.2); the puck and pin colours switch through the UI custom properties. 0 requests except tiles.
+- **Attribution (AC 44):** the recorded routes are derived from OSM (ODbL), so the R5 strip «© OpenStreetMap contributors» is shown wherever the route is drawn: every demo state (screen spec Layout rule 1).
 
 ## 8. Day / night switching
 - NAV-002: manual toggle, day on first visit, choice remembered (AC 26–28; PO decision D12, 2026-09-30).

@@ -22,7 +22,11 @@ const noHardcodedText = [
 ];
 
 export default tseslint.config(
-  { ignores: ["dist/**", "dist-static-demo/**", "node_modules/**", "public/**"] },
+  { ignores: ["dist/**", "dist-static-demo/**", "dist-demo-mode/**", "node_modules/**", "public/**"] },
+  {
+    files: ["buildtools/**/*.ts"],
+    languageOptions: { globals: { process: "readonly", console: "readonly", URL: "readonly" } },
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

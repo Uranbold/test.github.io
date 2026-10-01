@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "description": "NAV-017 demo route manifest (ADR-0011 §5). Data, not UI strings: the i18n and glossary scans skip it. route/track are repo-relative paths read in place at build time (no copies under web/). Place names follow the map label rule name:mn -> name -> name:en of the named OSM feature at each route end (within 50 m), else the glossary term T6. OSM ids to be verified by QA (story › Demo routes).",
+  "routes": [
+    {
+      "id": "r1",
+      "label": "R1",
+      "picker": true,
+      "mode": "car",
+      "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+      "track": "tests/gpx/nav005/G1.gpx",
+      "origin": { "name": "Сүхбаатарын талбай", "osm": "relation/15638347" },
+      "destination": { "name": "Зайсан Голден Вилл", "osm": "node/13915417488" }
+    },
+    {
+      "id": "r2",
+      "label": "R2",
+      "picker": true,
+      "mode": "walk",
+      "route": "mobile/android/app/src/test/resources/routes/p1-p2-walk-mn.json",
+      "track": "tests/gpx/nav005/G5.gpx",
+      "origin": { "name": "Сүхбаатарын талбай", "osm": "relation/15638347" },
+      "destination": { "name": "Хаан банк", "osm": "node/2492506305" }
+    },
+    {
+      "id": "r3",
+      "label": "R3",
+      "picker": true,
+      "mode": "car",
+      "route": "mobile/android/app/src/test/resources/routes/g8-roundabout-car-mn.json",
+      "track": "tests/gpx/nav005/G8.gpx",
+      "origin": { "name": "Сонгосон цэг", "osm": null },
+      "destination": { "name": "Золтамир", "osm": "node/3591754765" }
+    },
+    {
+      "id": "g4",
+      "label": "G4",
+      "picker": false,
+      "mode": "car",
+      "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+      "track": "tests/gpx/nav005/G4.gpx",
+      "origin": { "name": "Сонгосон цэг", "osm": null },
+      "destination": { "name": "Зайсан Голден Вилл", "osm": "node/13915417488" }
+    }
+  ]
+}

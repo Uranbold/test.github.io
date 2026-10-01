@@ -1,7 +1,7 @@
 // UI chrome and map wiring for NAV-002 (screen spec: docs/design/screens/NAV-002-web-map.md), plus the NAV-003 search
 // feature (src/ui/searchFeature.ts, screen spec NAV-003-search.md) and the NAV-004 route preview (src/ui/routePreview.ts,
 // screen spec NAV-004-route-preview.md).
-import { Marker, type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
+import { Marker, type GeoJSONSource, type Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
 import type { AppConfig } from "../config";
 import { circlePolygon } from "../geo/circle";
 import { computeScaleBar, distanceMeters } from "../geo/scale";
@@ -42,6 +42,13 @@ export interface AppDeps {
   freshArchive: () => void;
   createMap: (o: CreateMapOptions) => MapLibreMap;
   createLocation: (camera: CameraPort) => LocationController;
+  /**
+   * NAV-003 search and the NAV-004 route preview (default true). False builds the map shell only: no search field, no
+   * long-press card, no «Маршрут гаргах» (NAV-017 screen spec › Design notes 1).
+   */
+  searchAndRoute?: boolean;
+  /** Post-processes every style the app sets (initial, theme switch, reloads), e.g. to add a mode's own map layers. */
+  styleTransform?: (style: StyleSpecification, theme: Theme) => StyleSpecification;
 }
 
 function el<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -117,28 +124,7 @@ export class App {
     this.ui.locateDesc.id = "locate-desc";
     this.bindChrome();
     // NAV-003: search works in every NAV-002 state, including loading and the blocking card (screen spec rule 8).
-    this.search = new SearchFeature({
-      cfg: this.deps.cfg,
-      i18n: this.i18n,
-      tooltip: this.tooltip,
-      map: () => this.map,
-      bias: () => this.searchBias(),
-      mapReady: () => this.status.state.ready,
-      stopFollowing: () => this.location?.userMovedMap(),
-    });
-    // NAV-004: route preview (its panel is built now, so the language pass below fills its labels).
-    this.route = new RoutePreview({
-      cfg: this.deps.cfg,
-      i18n: this.i18n,
-      tooltip: this.tooltip,
-      map: () => this.map,
-      search: this.search,
-      bias: () => this.searchBias(),
-      freshFix: () => this.freshFix(),
-      location: () => this.location,
-      stopFollowing: () => this.location?.userMovedMap(),
-      mapReady: () => this.status.state.ready,
-    });
+    if (this.deps.searchAndRoute !== false) this.startSearchAndRoute();
     // Start the status first, so the first render already has the right view: if the pre-module loading
     // pill from index.html is showing (more than 300 ms since navigation start), it stays on (AC 37).
     this.status.start(performance.now());
@@ -161,8 +147,43 @@ export class App {
     this.location.onChange((v) => this.renderLocation(v));
     this.renderLocation(this.location.view);
     this.bindMap(this.map);
-    this.search.attachMap(this.map);
-    this.route.attachMap(this.map);
+    this.search?.attachMap(this.map);
+    this.route?.attachMap(this.map);
+  }
+
+  /** Current theme (NAV-002 toggle). */
+  get currentTheme(): Theme {
+    return this.theme;
+  }
+
+  /** The status machine (map readiness, online state), for features built on the map shell. */
+  get statusMachine(): StatusMachine {
+    return this.status;
+  }
+
+  private startSearchAndRoute(): void {
+    this.search = new SearchFeature({
+      cfg: this.deps.cfg,
+      i18n: this.i18n,
+      tooltip: this.tooltip,
+      map: () => this.map,
+      bias: () => this.searchBias(),
+      mapReady: () => this.status.state.ready,
+      stopFollowing: () => this.location?.userMovedMap(),
+    });
+    // NAV-004: route preview (its panel is built now, so the language pass below fills its labels).
+    this.route = new RoutePreview({
+      cfg: this.deps.cfg,
+      i18n: this.i18n,
+      tooltip: this.tooltip,
+      map: () => this.map,
+      search: this.search,
+      bias: () => this.searchBias(),
+      freshFix: () => this.freshFix(),
+      location: () => this.location,
+      stopFollowing: () => this.location?.userMovedMap(),
+      mapReady: () => this.status.state.ready,
+    });
   }
 
   /**
@@ -191,7 +212,8 @@ export class App {
   // ---------------------------------------------------------------- map
 
   private style() {
-    return buildStyle(this.theme, this.deps.cfg, this.locationData, this.route?.styleData);
+    const style = buildStyle(this.theme, this.deps.cfg, this.locationData, this.route?.styleData);
+    return this.deps.styleTransform ? this.deps.styleTransform(style, this.theme) : style;
   }
 
   private bindMap(map: MapLibreMap): void {

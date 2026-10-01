@@ -79,6 +79,11 @@ export interface PinColours {
   center: string;
 }
 
+/** Any colour group of a theme as a flat map (e.g. "nav", "demo"), for features that add their own custom properties. */
+export function colourGroup(theme: Theme, group: string): Record<string, string> {
+  return modeGroup(theme, group) as Record<string, string>;
+}
+
 /** NAV-003 selected-place pin (tokens.json › color.<mode>.pin, map-style.md §7.1). */
 export function pinColours(theme: Theme): PinColours {
   return modeGroup(theme, "pin") as unknown as PinColours;

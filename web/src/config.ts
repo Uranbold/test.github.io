@@ -23,7 +23,13 @@ export function pmtilesSourceUrl(gatewayBaseUrl: string): string {
  * Absolute base URL of the bundled static assets (fonts, sprites), ending with "/".
  * Built by string concatenation: new URL() would percent-encode the {fontstack}/{range} tokens.
  */
-export function assetBaseUrl(origin: string, viteBase: string): string {
+export function assetBaseUrl(origin: string, viteBase: string, documentBaseUri?: string): string {
+  // NAV-017 demo-mode build (ADR-0011 §3): a relative base ("./") resolves against the page, so the same output works
+  // from any sub-folder. Public builds have an absolute base and keep the result below unchanged.
+  if (documentBaseUri && (viteBase === "" || viteBase.startsWith("."))) {
+    const href = new URL(viteBase || "./", documentBaseUri).href.replace(/[?#].*$/, "");
+    return href.endsWith("/") ? href : href.slice(0, href.lastIndexOf("/") + 1);
+  }
   const base = viteBase.startsWith("/") ? viteBase : "/" + viteBase;
   return origin.replace(/\/+$/, "") + (base.endsWith("/") ? base : base + "/");
 }
@@ -101,7 +107,8 @@ export interface ConfigEnv {
   BASE_URL: string;
 }
 
-export function loadConfig(env: ConfigEnv, origin: string): AppConfig {
+/** `documentBaseUri` (document.baseURI) is only used when BASE_URL is relative (NAV-017 demo-mode build). */
+export function loadConfig(env: ConfigEnv, origin: string, documentBaseUri?: string): AppConfig {
   const staticDemo = parseStaticDemo(env.VITE_STATIC_DEMO) ?? true;
   // The static demo is served next to its basemap archive, so an unset gateway URL means the page origin there.
   const gatewayBaseUrl = resolveGatewayBaseUrl(env.VITE_GATEWAY_BASE_URL, origin, staticDemo ? SAME_ORIGIN : DEFAULT_GATEWAY_BASE_URL);
@@ -109,7 +116,7 @@ export function loadConfig(env: ConfigEnv, origin: string): AppConfig {
     gatewayBaseUrl,
     tilesUrl: tilesUrl(gatewayBaseUrl),
     sourceUrl: pmtilesSourceUrl(gatewayBaseUrl),
-    assetBaseUrl: assetBaseUrl(origin, env.BASE_URL),
+    assetBaseUrl: assetBaseUrl(origin, env.BASE_URL, documentBaseUri),
     staticDemo,
     features: staticDemo ? STATIC_DEMO_FEATURES : ALL_FEATURES,
   };

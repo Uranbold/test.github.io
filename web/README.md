@@ -36,6 +36,8 @@ PO decision D14 (NAV-002 AC 50). Supported:
 **Safari and iOS are not supported yet** (planned later). The automated tests (`tests/e2e/nav002/`, Playwright) run
 on **desktop Chromium only**; the other supported browsers are checked by hand.
 
+The separate demo-mode build also supports iPhone Safari (D72); see [Demo mode (NAV-017)](#demo-mode-nav-017).
+
 ## Commands
 
 Run everything from `web/`.
@@ -46,6 +48,7 @@ Run everything from `web/`.
 | Dev server (http://localhost:5173) | `npm run dev` |
 | Production build (to `dist/`) | `npm run build` |
 | Static public demo build (to `dist-static-demo/`, map only, D44) | `npm run build:static-demo` |
+| Demo-mode build (to `dist-demo-mode/`, route picker and simulated guidance, NAV-017) | `npm run build:demo-mode` |
 | Serve the build (http://localhost:4173) | `npm run preview` |
 | Typecheck | `npm run typecheck` |
 | Unit tests (Vitest) | `npm test` |
@@ -67,12 +70,14 @@ story-only fallback any more. `scripts/check-glossary.test.mjs` (part of `npm te
 |---|---|---|
 | `VITE_GATEWAY_BASE_URL` | `http://localhost:8080` (static demo: the page origin) | Gateway base URL. Tiles are read from `<base>/tiles/basemap.pmtiles`; trailing slashes are ignored. **`same-origin`** (or `/`) means the page's own origin at runtime (`window.location.origin`), so one build works on any host without a rebuild. A value starting with one `/` (e.g. `/gw`) means the page origin plus that path. An absolute URL is used as is. |
 | `VITE_STATIC_DEMO` | `false` | **Static public demo build setting** (NAV-002 AC 51, 53, 54). `true` (or `1`) turns **search, reverse and routing off**: 0 requests to `/v1/search`, `/v1/reverse` or `/v1/route` on any host, and the search box and the coordinate card show «Хайлт түр ажиллахгүй байна» with «Дахин оролдох» at once (250 ms after the last keystroke). The map, day/night, my location and attribution work as usual. `false`, `0` or unset = normal build. Any other value fails the build (and would count as `true` at runtime). In code: `cfg.staticDemo` and `cfg.features` (`search`, `reverse`, `routing`) in `src/config.ts`; routing (NAV-004) uses `cfg.features.routing` (no second switch). |
+| `VITE_DEMO_MODE` | `false` | **Demo-mode build setting** (NAV-017, ADR-0011 §2). `true` (or `1`) builds the route picker and the simulated turn-by-turn replay into the output; it needs `VITE_STATIC_DEMO=true` (otherwise the build fails), and any value other than `true`/`1`/`false`/`0` fails the build. Read at build time only: in every other build the demo code, the Ferrostar WASM and the route data are not in the output. `npm run build:demo-mode` sets it (`.env.demo-mode`); `.env.static-demo` sets it to `false` explicitly. |
 
 Copy `.env.example` to `.env` and edit it, or pass the variable on the command line
 (`VITE_GATEWAY_BASE_URL=http://localhost:8081 npm run dev`). Vite reads it at start-up, so restart the dev server after a change.
 
 Mode files: `.env.static-demo` (committed, no hostnames) holds the keys for `npm run build:static-demo` and overrides
-`.env` / `.env.local`. Use `.env.static-demo.local` (ignored by git) for a local override.
+`.env` / `.env.local`. Use `.env.static-demo.local` (ignored by git) for a local override. `.env.demo-mode` does the same
+for `npm run build:demo-mode` (`.env.demo-mode.local` for a local override).
 
 **CORS:** the gateway must allow the web origin. Its `CORS_ALLOWED_ORIGINS` setting (NAV-001, default `*`) must include
 `http://localhost:5173` (dev) and `http://localhost:4173` (preview) if it is ever narrowed. If it does not, the browser blocks
@@ -106,6 +111,129 @@ and the coordinate card's nearest place show «Хайлт түр ажиллах�
 refusing fetch, `src/route/routeClient.ts`). Offline still shows
 «Интернэт холболт алга» (state precedence offline > unavailable). Pointing the public site at a backend is a story change
 recorded after the NAV-008 AC 24 legal review (AC 54), not a setting to flip here.
+
+## Demo mode (NAV-017)
+
+A **separate build** for the PO and the team members the PO chooses: pick one of three recorded Ulaanbaatar routes and
+watch simulated turn-by-turn guidance (moving position, Mongolian banner and distance, voice or a chime, recenter,
+arrival) on an iPhone. It sends **0** requests to `search`, `reverse` or `route` on any host and never calls the
+Geolocation API. It is served from a **password-protected sub-folder** of the PO's web hosting; the public static demo
+(D44) does not contain it. Story `docs/requirements/stories/NAV-017-web-demo-mode-replay.md`; screen spec and flow
+`docs/design/screens/NAV-017-web-demo-mode.md`, `docs/design/flows/NAV-017-web-demo-mode.md`; navigation-ux §11;
+map style §7.5; ADR-0011.
+
+Placeholders below: `<demo-host>` (the site's host name), `<demo-folder>` (the protected folder), `<username>`. Real
+values are **never** written into the repo, an issue, a commit or a document (D35, CLAUDE.md rule 9).
+
+### Build
+
+`npm run build:demo-mode` → **`dist-demo-mode/`** (git-ignored). It uses `.env.demo-mode` (`VITE_STATIC_DEMO=true`,
+`VITE_GATEWAY_BASE_URL=same-origin`, `VITE_DEMO_MODE=true`) and prints "demo mode build: demo mode on; search, reverse
+and routing are off (NAV-017)". The output:
+
+- uses **relative URLs** only, so it works from any folder name and depth without a rebuild;
+- has `<meta name="robots" content="noindex, nofollow">`, no `crossorigin` attributes and a trailing-slash guard;
+- contains **no** `.htaccess`, `.htpasswd` or other server configuration file (an upload never overwrites the hPanel
+  protection);
+- holds the route data as `demo-routes/r1.json`, `r2.json`, `r3.json`, generated at build time from the recorded NAV-005
+  QA fixtures named in `src/demo/routes.manifest.json` (read in place, never copied into `web/`). The build fails if a
+  fixture is missing, is not an OSRM `Ok` response with one route and one leg, or its GPX track is not continuous at
+  1 Hz or does not start and end within 30 m of the route;
+- adds the Ferrostar 0.57.0 core as `assets/ferrostar_bg-*.wasm` (about 0.9 MB).
+
+Routes: R1 Сүхбаатарын талбай → Зайсан (car, G1, 308 s), R2 Сүхбаатарын талбай → near Улсын их дэлгүүр (walk, G5,
+932 s), R3 over Их тойруу with two roundabouts (car, G8, 787 s). The routes are a **recorded snapshot** (Valhalla 3.9.0,
+OSM at recording time) and the tracks are synthetic, so the replay is smoother than real driving and durations are not
+live ETAs. Replays run at 1× only.
+
+### Upload and password (hPanel)
+
+1. Upload the **contents** of `dist-demo-mode/` (not the folder itself) into `<web root>/<demo-folder>/` with the hPanel
+   File Manager. The folder name can be anything; it is never in the build.
+2. In hPanel, open **Password protect directories**, choose `<demo-folder>`, and set a username and password that the PO
+   chooses. hPanel stores the protection as a server file in that folder: never delete the folder, and never upload a
+   file named `.htaccess` into it.
+3. **Tiles:** the demo reads the public basemap archive at `https://<demo-host>/tiles/basemap.pmtiles` (outside the
+   protected folder, ADR-0011 §4), the same file the public static demo uses. It must stay there. Fallback, only if the
+   public archive is ever removed: put a copy into `<demo-folder>/tiles/basemap.pmtiles` and build with a git-ignored
+   `.env.demo-mode.local` containing `VITE_GATEWAY_BASE_URL=/<demo-folder>` (then Range under the password becomes a
+   real-iPhone check).
+4. **Re-uploading the public static demo** (`dist-static-demo/` into the web root) must not delete `<demo-folder>/` or
+   its protection: upload over the existing files, never "empty the web root first".
+
+**Checks after every upload** (public or demo):
+
+- `curl -s -o /dev/null -w "%{http_code}\n" https://<demo-host>/<demo-folder>/` answers **401** (without credentials).
+  A 200 here means the protection is missing: stop and set it again before sharing anything.
+- `curl -s -o /dev/null -w "%{http_code}\n" -u <username> https://<demo-host>/<demo-folder>/` (curl asks for the
+  password; never put it on the command line or in a script) answers **200**.
+- `curl -sI -H "Range: bytes=0-16383" https://<demo-host>/tiles/basemap.pmtiles` answers **206** with a `Content-Range`
+  header and **no** `Content-Encoding`; and in the logged-in browser the demo's opening map (P1, zoom 12) draws tiles
+  (in a desktop browser's network panel the archive requests are 206).
+
+**Who may get the password:** the PO and the team members the PO chooses, sent privately, never in a public post,
+issue or document, until NAV-007 (native Mongolian review) is done (D74, D17). The public site never links to the demo
+folder and has no `robots.txt` entry for it (that would reveal its name).
+
+### Supported browsers (demo mode)
+
+- The demo-mode build supports **iPhone Safari on the current major iOS version** in addition to the NAV-002 supported
+  browsers (D72). **Safari and iOS stay unsupported for the rest of the web demo** (D14; see Supported browsers).
+- Automated tests: desktop **Chromium** (Vitest for the guidance core, voice, chime and build outputs; Playwright for the
+  UI against `vite preview` of this build). Playwright **WebKit** with the iPhone descriptors runs the demo-mode UI
+  tests where the container provides WebKit (QA states per AC which engine verified it). Everything below needs the real
+  iPhone.
+
+### Real-iPhone checklist (PO, on `https://<demo-host>/<demo-folder>/`)
+
+Record the iOS version used, and the result of each item:
+
+1. The browser password prompt appears; the 401 / 200 / 206 checks above pass.
+2. The opening map draws tiles under the protection; the picker shows R1–R3 with names, mode, distance and duration.
+3. Does the notice «Энэ утсанд монгол дуут заавар ажиллахгүй байна. Заавар зөвхөн дэлгэцэнд харагдана.» appear after
+   «Эхлэх» (no Mongolian voice found)? Does **Settings › Accessibility › Spoken Content › Voices** list a Mongolian voice?
+   (input for NAV-007 AC 9 and the voice spike, D75)
+4. English UI: English speech is heard.
+5. Speech or the chime starts **without an extra tap** after «Эхлэх».
+6. Chime audibility with the ring/silent switch **off first, then on** (the demo keeps the iOS default; a change would
+   come through triage).
+7. The screen stays on for the whole R3 replay (787 s).
+8. Lock the phone (or switch apps) mid-replay and come back: the replay paused and resumes at the same place, with no
+   repeated prompt; audio still works after a phone call or Control Centre (otherwise a tap anywhere should resume it).
+9. Safe areas in portrait and landscape (nothing under the notch or the home indicator), Safari's toolbar never covering
+   «Эхлэх», «Дуусгах» or the attribution, rotation keeps the replay; Safari text size (aA) at 200 %; a pinch that starts
+   on the banner does not zoom the page.
+10. VoiceOver: every control has a name, each new instruction is announced once.
+11. Complete R1 from «Эхлэх» to the arrival panel (AC 49).
+
+### Behaviour and test hooks
+
+- **Picker** (in the NAV-004 route slot): «Туршилтын горим», «Маршрут сонгох», R1–R3 as a radio list; selecting an entry
+  loads its data file (loading row after 300 ms; «Алдаа гарлаа» + «Дахин оролдох» on a 404/500/HTML/unparsable file;
+  «Интернэт холболт алга» offline, loading by itself when back), draws the route and fits the camera; «Эхлэх» is enabled
+  only when the data, the Ferrostar core and the plan are ready, and disabled again at the first tap. Search, the
+  place and coordinate cards, «Маршрут гаргах» and the my-location button are not part of this build.
+- **Replay:** Ferrostar core 0.57.0 (WASM, ADR-0009 §1 settings) plus TypeScript ports of the Android step catch-up,
+  arrival detector, voice schedule, playback queue and voice text; the golden test (`src/guidance/golden.test.ts`) checks
+  the prompt sequence against `tests/gpx/nav005/golden/voice-golden.tsv`. The replay clock pauses while the page is
+  hidden. Zoom buttons, compass and scale bar are hidden during the replay; a map gesture stops following
+  («Байршил руу буцах», or 15 s).
+- **Voice:** the browser's speech only with a voice whose `lang` matches `^mn([-_]|$)` (Mongolian UI) or `^en([-_]|$)`
+  (English UI, en-US preferred); otherwise one Web Audio chime per prompt (no sound file) and, in the Mongolian UI, the
+  notice above once per replay for 8 s. The first `speak()` and the `AudioContext` unlock happen inside the «Эхлэх»
+  handler. A screen wake lock is held during the replay where the browser offers it.
+- **Storage:** only the NAV-002 keys `navmn.theme`, `navmn.lang` and the voice choice **`navmn.voiceMuted`** (`"1"` =
+  muted). No coordinates in storage, the console or the URL; no service worker.
+- **Test ids:** every demo-mode element has a `data-testid` starting with **`demo-`** (`demo-picker`, `demo-heading`,
+  `demo-route` with `data-route="R1|R2|R3"`, `demo-state` with `data-state="loading|error|offline"`, `demo-retry`,
+  `demo-start`, `demo-nav`, `demo-nav-banner` with `data-variant="maneuver|arrival"`, `demo-nav-distance`,
+  `demo-nav-text`, `demo-nav-street`, `demo-badge`, `demo-nav-recenter`, `demo-nav-messages` with items
+  `data-kind="voice-unavailable|offline"`, `demo-nav-progress`, `demo-nav-eta`, `demo-nav-remaining`, `demo-nav-voice`,
+  `demo-nav-end`, `demo-nav-arrival`, `demo-nav-close`, `demo-nav-live`, `demo-nav-puck`, `demo-origin-marker`,
+  `demo-destination-pin`). The public and normal builds contain **0** matches of `demo-` (AC 4, checked in
+  `src/demo/build.test.ts`). Playwright notes: install `page.clock` **before** navigating (installing it mid-replay
+  changes `performance.now()` under MapLibre's running camera animation); route data can be intercepted at
+  `**/demo-routes/r1.json`.
 
 ## What is bundled
 
@@ -155,6 +283,16 @@ src/ui/routePreview.ts, .css     route panel, fields, tabs, avoid switch, result
                                  coordinate card during the preview
 src/ui/routeField.ts             origin / destination combobox (reuses the NAV-003 SearchController)
 src/ui/routeIcons.ts             mode, swap and manoeuvre icons (own paths)
+src/guidance/                    NAV-017 guidance core (pure, no DOM; ports of the Android ADR-0009 rules): geo.ts,
+                                 plan.ts (plan + Valhalla text rewrite), ferrostarCore.ts (WASM loader, navigator,
+                                 step catch-up via stepCatchUp.ts), arrivalDetector.ts, voiceSchedule.ts,
+                                 playbackQueue.ts, voiceText.ts, guidanceCore.ts, replay.ts (engine + clock), fix.ts;
+                                 golden.test.ts (AC 26 parity against tests/gpx/nav005/golden/voice-golden.tsv)
+src/demo/                        NAV-017 demo-mode UI (only in the demo-mode build): demoMain.ts (controller), picker.ts,
+                                 guidanceView.ts, mapLayers.ts (route line, markers, puck glide), camera.ts, audio.ts
+                                 (voice decision, speech, chime, iOS unlock), wakeLock.ts, routeData.ts, demo.css,
+                                 routes.manifest.json (route ends and fixture paths: data, never scanned as UI text)
+buildtools/demoMode.ts           NAV-017 Vite plugins: demo-mode guard, demo index.html, route-data emitter
 src/i18n/{mn,en}.json            every UI string (mn default); src/i18n/i18n.ts
 fixtures/label-rule.html         AC 8 fixture page (test hook)
 scripts/                         vendor-assets.sh, check-i18n.mjs, check-glossary.mjs, gen-third-party-notices.mjs

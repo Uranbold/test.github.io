@@ -2,6 +2,7 @@
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, runnerImport, type Plugin } from "vite";
+import { demoModePlugins } from "./buildtools/demoMode";
 import { bootLoading, type BootConfig } from "./src/boot/bootLoading";
 import { parseStaticDemo } from "./src/config";
 import en from "./src/i18n/en.json";
@@ -13,6 +14,8 @@ import { LOADING_DELAY_MS, LOADING_REVEAL_MS } from "./src/state/status";
 // docs/design/tokens.json is the single source of truth for colours (owner: ux-designer).
 // It is imported read-only through the @design alias; web/ never copies the values by hand.
 const designDir = fileURLToPath(new URL("../docs/design", import.meta.url));
+const webRoot = fileURLToPath(new URL(".", import.meta.url));
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const alias = { "@design": designDir };
 
 const escapeHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -85,8 +88,10 @@ function staticDemoGuard(): Plugin {
   };
 }
 
+// The config stays a plain object (tests/e2e wrap it with `{ ...base }`). Demo mode is decided per Vite mode by the
+// plugins in buildtools/demoMode.ts (NAV-017, ADR-0011 §2): base, the compile-time switch and the demo-only settings.
 export default defineConfig({
-  plugins: [bootIndicator(), staticDemoGuard()],
+  plugins: [bootIndicator(), staticDemoGuard(), ...demoModePlugins({ webRoot, repoRoot, parseStaticDemo: (raw) => parseStaticDemo(raw) })],
   resolve: { alias },
   server: {
     host: "localhost",

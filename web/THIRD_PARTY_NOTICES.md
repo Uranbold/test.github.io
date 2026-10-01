@@ -32,6 +32,7 @@ low-zoom landcover is © ESA WorldCover (CC BY 4.0). Both credits are shown on t
 | `@maplibre/mlt` | 1.3.0 | (MIT OR Apache-2.0) | https://github.com/maplibre/maplibre-tile-spec |
 | `@maplibre/vt-pbf` | 4.3.2 | MIT | https://github.com/maplibre/vt-pbf |
 | `@protomaps/basemaps` | 5.7.2 | BSD-3-Clause | https://github.com/protomaps/basemaps |
+| `@stadiamaps/ferrostar` | 0.57.0 | BSD-3-Clause | https://github.com/stadiamaps/ferrostar |
 | `@types/geojson` | 7946.0.16 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | `bidi-js` | 1.1.0 | MIT | https://github.com/lojjic/bidi-js |
 | `earcut` | 3.2.4 | ISC | https://github.com/mapbox/earcut |
@@ -841,6 +842,14 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
 LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+#### @stadiamaps/ferrostar 0.57.0 (BSD-3-Clause)
+
+From package.json.
+
+```text
+BSD-3-Clause. The npm package ships no licence file; see https://github.com/stadiamaps/ferrostar.
 ```
 
 #### @types/geojson 7946.0.16 (MIT)
