@@ -1,0 +1,19 @@
+{
+ "locations": [
+  {
+   "lat": 47.898108,
+   "lon": 106.95068
+  },
+  {
+   "lat": 47.930156,
+   "lon": 106.90019
+  }
+ ],
+ "costing": "auto",
+ "alternates": 0,
+ "format": "osrm",
+ "banner_instructions": true,
+ "voice_instructions": true,
+ "units": "kilometers",
+ "language": "en-US"
+}

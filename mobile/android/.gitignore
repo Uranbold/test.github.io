@@ -1,0 +1,13 @@
+# Never commit SDK paths, keys, local gateway URLs or build output (NAV-005 AC 66, CLAUDE.md rule 9).
+local.properties
+gateway.local.properties
+*.jks
+*.keystore
+*.p12
+.gradle/
+build/
+app/build/
+.idea/
+*.iml
+captures/
+.kotlin/

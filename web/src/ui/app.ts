@@ -1,5 +1,6 @@
 // UI chrome and map wiring for NAV-002 (screen spec: docs/design/screens/NAV-002-web-map.md), plus the NAV-003 search
-// feature (src/ui/searchFeature.ts, screen spec NAV-003-search.md).
+// feature (src/ui/searchFeature.ts, screen spec NAV-003-search.md) and the NAV-004 route preview (src/ui/routePreview.ts,
+// screen spec NAV-004-route-preview.md).
 import { Marker, type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import type { AppConfig } from "../config";
 import { circlePolygon } from "../geo/circle";
@@ -20,6 +21,7 @@ import { buildStyle, EMPTY_LOCATION, LOCATION_SOURCE_ID, SOURCE_ID, type Locatio
 import { cancelBootReveal, hasBootReveal } from "../boot/bootLoading";
 import { type StatusMachine, type StatusView } from "../state/status";
 import { ICONS } from "./icons";
+import { FIX_MAX_AGE_MS, RoutePreview } from "./routePreview";
 import { SearchFeature } from "./searchFeature";
 import { Tooltip } from "./tooltip";
 
@@ -68,6 +70,8 @@ export class App {
   private tooltip: Tooltip;
   /** NAV-003 search (null only if its DOM is missing). */
   search: SearchFeature | null = null;
+  /** NAV-004 route preview. */
+  route: RoutePreview | null = null;
   private lastFix: Fix | null = null;
   private lastFixAt = 0;
 
@@ -122,6 +126,19 @@ export class App {
       mapReady: () => this.status.state.ready,
       stopFollowing: () => this.location?.userMovedMap(),
     });
+    // NAV-004: route preview (its panel is built now, so the language pass below fills its labels).
+    this.route = new RoutePreview({
+      cfg: this.deps.cfg,
+      i18n: this.i18n,
+      tooltip: this.tooltip,
+      map: () => this.map,
+      search: this.search,
+      bias: () => this.searchBias(),
+      freshFix: () => this.freshFix(),
+      location: () => this.location,
+      stopFollowing: () => this.location?.userMovedMap(),
+      mapReady: () => this.status.state.ready,
+    });
     // Start the status first, so the first render already has the right view: if the pre-module loading
     // pill from index.html is showing (more than 300 ms since navigation start), it stays on (AC 37).
     this.status.start(performance.now());
@@ -145,6 +162,17 @@ export class App {
     this.renderLocation(this.location.view);
     this.bindMap(this.map);
     this.search.attachMap(this.map);
+    this.route.attachMap(this.map);
+  }
+
+  /**
+   * NAV-004 "location is on": my location was activated and the last fix is ≤ 60 s old. Reads the NAV-002 state only;
+   * never calls the Geolocation API (NAV-004 AC 3–4, NAV-002 AC 18).
+   */
+  private freshFix(): Fix | null {
+    const v = this.location?.view;
+    if (!v?.fix || v.button === "denied" || v.button === "unsupported") return null;
+    return performance.now() - this.lastFixAt <= FIX_MAX_AGE_MS ? v.fix : null;
   }
 
   /**
@@ -163,7 +191,7 @@ export class App {
   // ---------------------------------------------------------------- map
 
   private style() {
-    return buildStyle(this.theme, this.deps.cfg, this.locationData);
+    return buildStyle(this.theme, this.deps.cfg, this.locationData, this.route?.styleData);
   }
 
   private bindMap(map: MapLibreMap): void {
@@ -322,6 +350,7 @@ export class App {
     saveLang(lang);
     this.applyI18n();
     this.search?.langChanged();
+    this.route?.langChanged();
   }
 
   private setTheme(theme: Theme): void {
@@ -371,6 +400,7 @@ export class App {
     if (this.location) this.renderLocation(this.location.view);
     this.renderScale();
     this.search?.renderI18n();
+    this.route?.renderI18n(); // NAV-004 AC 40, 50: labels and turn texts switch in place, 0 route requests
     this.tooltip.refresh();
   }
 

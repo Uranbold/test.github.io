@@ -6,11 +6,19 @@
 //   1. the "Approved Mongolian" column of the term tables (sections 2–8): quoted strings and unquoted pieces;
 //   2. the "Definition" column of those rows: «quoted» usage forms (e.g. "UI: «…»", "Others: «…»");
 //   3. the "Rule" column of the language-conventions table (C1–C8): «quoted» examples.
-// Never from the Notes or Status columns, the change log, the header prose or any other table, and in 2–3 never
+// Never from the Notes or Status columns (one exception, 4 below), the change log, the header prose or any other
+// table, and in 2–3 never
 // from a sentence that names rejected or avoided wording (Avoid, Rejected, Alternative, Previous proposal, not):
 // those are exactly the places where banned terms such as «навигаци» are quoted. ("never" is not a marker: in the
 // convention rules it scopes screen vs voice, e.g. C3 "Voice text never contains «м», «км»", which are the approved
 // screen abbreviations.)
+//
+// English option names are not markers: before the marker test a sentence loses its English labels in “…” / "…" and
+// the glossary's own English term names that contain "Avoid" (column 1 of the term tables, e.g. "Avoid unpaved
+// roads"), the same rule as the NAV-002 AC 33 test (tests/e2e/nav002/static.test.mjs, TC-33-03).
+//
+// Matching is exact (first-letter case aside). Placeholders such as {n} are compared literally (NAV-004 AC 48): the
+// glossary quotes the resource form, e.g. «Тойрог: {n}-р гарц». Nothing is derived from a pattern.
 //
 //   node scripts/check-glossary.mjs [--mn <file>] [--glossary <file>]
 // Exit code 1 if any value has no match.
@@ -52,10 +60,37 @@ function sentences(text) {
   if (cur.trim()) out.push(cur);
   return out;
 }
-const positiveQuoted = (text) => sentences(text).filter((s) => !NEGATIVE.test(s)).flatMap(quoted);
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Column-1 English term names of the term tables that contain "Avoid" (without a trailing "(…)" qualifier). */
+function avoidTermNames(md) {
+  const names = [];
+  let inTerms = false;
+  for (const line of md.split("\n")) {
+    if (!line.startsWith("|")) {
+      inTerms = false;
+      continue;
+    }
+    if (isSeparator(line)) continue;
+    if (/Approved Mongolian/i.test(line)) {
+      inTerms = true;
+      continue;
+    }
+    if (!inTerms) continue;
+    const name = norm(cells(line)[0] ?? "").replace(/\s*\([^)]*\)\s*$/, "");
+    if (/\bAvoid\b/.test(name) && !names.includes(name)) names.push(name);
+  }
+  return names.sort((a, b) => b.length - a.length); // longest first
+}
+/** The sentence without English labels and English "Avoid …" term names, for the marker test only. */
+function markerText(sentence, names) {
+  const t = norm(sentence).replace(/“[^”]*”|"[^"]*"/g, "");
+  return names.length ? t.replace(new RegExp(`\\b(?:${names.map(escapeRe).join("|")})\\b`, "g"), "") : t;
+}
+const positiveQuoted = (text, names) => sentences(text).filter((s) => !NEGATIVE.test(markerText(s, names))).flatMap(quoted);
 
 /** Approved terms with where they come from. */
 function glossaryTerms(md) {
+  const names = avoidTermNames(md);
   const terms = new Map();
   const add = (t, where) => {
     const n = norm(t);
@@ -74,8 +109,9 @@ function glossaryTerms(md) {
       const h = c.map((x) => norm(x).toLowerCase());
       const mnCol = h.findIndex((x) => x.startsWith("approved mongolian"));
       const defCol = h.findIndex((x) => x.startsWith("definition"));
+      const notesCol = h.findIndex((x) => x.startsWith("notes"));
       const ruleCol = h.findIndex((x) => x === "rule");
-      if (mnCol >= 0) table = { kind: "terms", mnCol, defCol };
+      if (mnCol >= 0) table = { kind: "terms", mnCol, defCol, notesCol };
       else if (ruleCol >= 0 && h.includes("convention")) table = { kind: "conventions", ruleCol };
       else table = { kind: "other" };
       continue;
@@ -86,9 +122,9 @@ function glossaryTerms(md) {
       for (const t of quoted(mnCell)) add(t, `glossary "${row}" (Mongolian column)`);
       const unquoted = mnCell.replace(/«[^»]*»/g, "|").replace(/\([^)]*\)/g, "|");
       for (const piece of unquoted.split(/[|/,;:.]/)) add(piece, `glossary "${row}" (Mongolian column)`);
-      if (table.defCol >= 0) for (const t of positiveQuoted(c[table.defCol] ?? "")) add(t, `glossary "${row}" (Definition)`);
+      if (table.defCol >= 0) for (const t of positiveQuoted(c[table.defCol] ?? "", names)) add(t, `glossary "${row}" (Definition)`);
     } else if (table.kind === "conventions") {
-      for (const t of positiveQuoted(c[table.ruleCol] ?? "")) add(t, `glossary ${row} (convention rule)`);
+      for (const t of positiveQuoted(c[table.ruleCol] ?? "", names)) add(t, `glossary ${row} (convention rule)`);
     }
   }
   return terms;

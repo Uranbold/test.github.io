@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher background: tokens.json color.light.nav.banner (the launcher icon cannot read generated Kotlin). -->
+    <color name="launcher_background">#0F6B45</color>
+</resources>

@@ -617,6 +617,126 @@
     "c7": true
    },
    "note": "QA row for story tier C row C7 (2026-09-30, D34): UB outlying düüreg in lang=en"
+  },
+  {
+   "id": "C8a",
+   "tier": "C",
+   "q": "Төв",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Төв» in the Mongolian UI"
+  },
+  {
+   "id": "C8b",
+   "tier": "C",
+   "q": "Төв",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Төв» in the English UI"
+  },
+  {
+   "id": "C8c",
+   "tier": "C",
+   "q": "Töv",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Töv» in the Mongolian UI"
+  },
+  {
+   "id": "C8d",
+   "tier": "C",
+   "q": "Töv",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Töv» in the English UI"
+  },
+  {
+   "id": "C8e",
+   "tier": "C",
+   "q": "Улаанбаатар",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Улаанбаатар» in the Mongolian UI"
+  },
+  {
+   "id": "C8f",
+   "tier": "C",
+   "q": "Улаанбаатар",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Улаанбаатар» in the English UI"
+  },
+  {
+   "id": "C8g",
+   "tier": "C",
+   "q": "Ulaanbaatar",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Ulaanbaatar» in the Mongolian UI"
+  },
+  {
+   "id": "C8h",
+   "tier": "C",
+   "q": "Ulaanbaatar",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Ulaanbaatar» in the English UI"
+  },
+  {
+   "id": "C8i",
+   "tier": "C",
+   "q": "Сүхбаатар",
+   "ui": "mn",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Сүхбаатар» in the Mongolian UI"
+  },
+  {
+   "id": "C8j",
+   "tier": "C",
+   "q": "Сүхбаатар",
+   "ui": "en",
+   "bias": "P1",
+   "expect": {
+    "baseline": "C8 (D45, R13): type label, rule row and osm_key/osm_value/type of the top 3 options; records whether rule 3 (b) type=state OR place/state labels the capital or any other object that is not an aimag «Аймаг»",
+    "c8": true
+   },
+   "note": "QA row for story tier C row C8 (2026-09-30, D45): «Сүхбаатар» in the English UI"
   }
  ]
 }

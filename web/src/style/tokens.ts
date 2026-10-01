@@ -84,6 +84,22 @@ export function pinColours(theme: Theme): PinColours {
   return modeGroup(theme, "pin") as unknown as PinColours;
 }
 
+export interface RouteColours {
+  selected: string;
+  "selected-casing": string;
+  alternative: string;
+  "alternative-casing": string;
+  "origin-fill": string;
+  "origin-stroke": string;
+  "step-fill": string;
+  "step-stroke": string;
+}
+
+/** NAV-004 route lines and markers (tokens.json › color.<mode>.route, map-style.md §7.2–7.3). */
+export function routeColours(theme: Theme): RouteColours {
+  return modeGroup(theme, "route") as unknown as RouteColours;
+}
+
 type Scalar = string | number;
 
 function cssDeclarations(theme: Theme): string[] {
@@ -91,6 +107,7 @@ function cssDeclarations(theme: Theme): string[] {
   for (const [k, v] of Object.entries(uiColours(theme))) decl.push(`--ui-${k}:${v}`);
   for (const [k, v] of Object.entries(locationColours(theme))) decl.push(`--loc-${k}:${v}`);
   for (const [k, v] of Object.entries(pinColours(theme))) decl.push(`--pin-${k}:${v}`);
+  for (const [k, v] of Object.entries(routeColours(theme))) decl.push(`--route-${k}:${v}`);
   const flavor = tokenFlavor(theme) as unknown as Record<string, unknown>;
   decl.push(`--map-earth:${String(flavor.earth)}`);
   decl.push(`color-scheme:${theme === "night" ? "dark" : "light"}`);
@@ -99,6 +116,17 @@ function cssDeclarations(theme: Theme): string[] {
 
 function simpleGroup(name: string): Record<string, Scalar> {
   return resolveGroup((tokens as unknown as Record<string, TokenTree>)[name] as TokenTree) as Record<string, Scalar>;
+}
+
+/**
+ * A motion duration token in milliseconds (tokens.json › motion.<name>, e.g. "700ms" -> 700).
+ * Throws when the token is missing or not a millisecond duration, so a renamed token fails the build's tests.
+ */
+export function motionMs(name: string): number {
+  const v = simpleGroup("motion")[name];
+  const m = typeof v === "string" ? /^(\d+(?:\.\d+)?)ms$/.exec(v) : null;
+  if (!m) throw new Error(`tokens.json motion.${name} is not a millisecond duration: ${String(v)}`);
+  return Number(m[1]);
 }
 
 /**

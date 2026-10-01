@@ -36,10 +36,16 @@ describe("resource files (AC 30–32)", () => {
 
   it("en.json has Mongolian (Cyrillic) text only where a decision asks for it", () => {
     // language.mn: a language name in its own language (above). placeType.soum: PO decision D34 (NAV-003, 2026-09-30),
-    // «Сум» is shown untranslated in the English UI; the glossary "Soum" row records it. Anything else is a mistake.
-    const INTENTIONAL: Record<string, string> = { "language.mn": mn["language.mn"], "placeType.soum": mn["placeType.soum"] };
+    // «Сум» is shown untranslated in the English UI; the glossary "Soum" row records it. placeType.aimag: PO decision
+    // D45 (NAV-003, 2026-09-30), «Аймаг» likewise; glossary "Aimag" row. Anything else is a mistake.
+    const INTENTIONAL: Record<string, string> = {
+      "language.mn": mn["language.mn"],
+      "placeType.soum": mn["placeType.soum"],
+      "placeType.aimag": mn["placeType.aimag"],
+    };
     const cyrillic = Object.fromEntries(Object.entries(en).filter(([, v]) => /[\u0400-\u04FF]/.test(v)));
     expect(cyrillic).toEqual(INTENTIONAL);
     expect(en["placeType.soum"]).toBe("Сум");
+    expect(en["placeType.aimag"]).toBe("Аймаг");
   });
 });

@@ -115,6 +115,32 @@ export class PlaceCard {
     this.wrapper.hidden = this.content === null || open;
   }
 
+  /** NAV-004 AC 1–2: what the card shows, for «Маршрут гаргах» (the coordinates shown on the card). */
+  get selection(): { kind: "place" | "point"; name: string; point: LatLon } | null {
+    const c = this.content;
+    if (!c) return null;
+    if (c.kind === "place") return { kind: "place", name: c.name, point: { lat: c.info.lat, lon: c.info.lon } };
+    return { kind: "point", name: this.deps.i18n.t("place.selectedPoint"), point: c.point };
+  }
+
+  /** NAV-004: while the route panel is open the pin is the destination marker (map-style.md §7.3, AC 9). */
+  pinTo(p: LatLon, label: string): void {
+    this.placePin(p);
+    this.pinEl.setAttribute("aria-label", label);
+  }
+
+  /** NAV-004 AC 41: panel closed → the pin goes back to the card's point, or is removed when no card is open. */
+  restorePin(): void {
+    const sel = this.selection;
+    if (!sel) {
+      this.marker?.remove();
+      this.marker = null;
+      return;
+    }
+    this.placePin(sel.point);
+    this.render();
+  }
+
   focusHeading(): void {
     if (!this.wrapper.hidden) this.title.focus({ preventScroll: true });
   }

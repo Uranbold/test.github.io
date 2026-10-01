@@ -1,0 +1,3942 @@
+{
+ "story": "NAV-003",
+ "ac": [
+  19,
+  20,
+  45
+ ],
+ "description": "Live Photon 1.3.0 results (gateway GET /v1/search, lang=mn and lang=en, captured 2026-09-30 by QA; properties exactly as returned, traditional script kept) for the aimag type-label change (story Open question 9, decisions.md Items to confirm 6, PO approval 2026-09-30). AM01-AM21: the 21 aimag relations (Photon layer=state holds exactly these 21 objects; 20 are place/state/type=state, Töv R 3382267 is boundary/administrative/type=state). AMN1: the Töv place=state label node N 2704047290 (type=other, no extent). AX01-AX31: objects that are not aimags (Ulaanbaatar, düüregs, soums incl. names shared with aimags, cities, a suburb and a village named like aimags). Expected labels derived by QA from the story type-label table (rows 1, 4, 4a, 5-7; AM/AMN from the PO-approved change), not from web/ code. Recommended condition: type=state OR (osm_key=place AND osm_value=state) -> AM01-AM21 and AMN1 in mn and en, none of AX. place/state alone (story Open question 9 option (b)) or place/state AND type=state misses Töv R 3382267. 'before' = the label before the change (row 32).",
+ "fixtures": [
+  {
+   "id": "AM01",
+   "group": "aimag",
+   "osm": "R270075",
+   "note": null,
+   "query": "Архангай",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Архангай",
+   "nameEn": "Arkhangai",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270075,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Архангай ᠠᠷᠤ ᠬᠠᠩᠭ᠋ᠠᠢ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      98.173393,
+      49.204927,
+      103.677711,
+      46.823547
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      101.0316283,
+      47.862646
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270075,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Arkhangai",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      98.173393,
+      49.204927,
+      103.677711,
+      46.823547
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      101.0316283,
+      47.862646
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM02",
+   "group": "aimag",
+   "osm": "R3382266",
+   "note": null,
+   "query": "Баян-Өлгий",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Баян-Өлгий",
+   "nameEn": "Bayan-Ulgii",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 3382266,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Баян-Өлгий ᠪᠠᠶ᠋ᠠᠨ ᠥᠯᠦᠭᠡᠢ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      87.7345852,
+      50.0012214,
+      91.927123,
+      46.541686
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      89.8549358,
+      48.5470083
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 3382266,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Bayan-Ulgii",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      87.7345852,
+      50.0012214,
+      91.927123,
+      46.541686
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      89.8549358,
+      48.5470083
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM03",
+   "group": "aimag",
+   "osm": "R270052",
+   "note": null,
+   "query": "Баянхонгор",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Баянхонгор",
+   "nameEn": "Bayankhongor",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270052,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Баянхонгор ᠪᠠᠶᠠᠨ ᠬᠣᠩᠭᠣᠷ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      97.6326649,
+      47.721683,
+      101.807892,
+      42.5663427
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      99.5146799,
+      45.2380937
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270052,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Bayankhongor",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      97.6326649,
+      47.721683,
+      101.807892,
+      42.5663427
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      99.5146799,
+      45.2380937
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM04",
+   "group": "aimag",
+   "osm": "R270073",
+   "note": null,
+   "query": "Булган",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Булган",
+   "nameEn": "Bulgan",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270073,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Булган ᠪᠤᠯᠠᠭᠠᠨ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      101.632462,
+      50.4104194,
+      104.76046,
+      47.250622
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      103.3965591,
+      48.9521438
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270073,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Bulgan",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      101.632462,
+      50.4104194,
+      104.76046,
+      47.250622
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      103.3965591,
+      48.9521438
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM05",
+   "group": "aimag",
+   "osm": "R270054",
+   "note": null,
+   "query": "Говь-Алтай",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Говь-Алтай",
+   "nameEn": "Govi-Altai",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270054,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Говь-Алтай ᠭᠣᠪᠢ ᠠᠯᠲᠠᠢ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      93.0988469,
+      47.7925667,
+      98.4852951,
+      42.7019331
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      95.9325806,
+      45.3463139
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270054,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Govi-Altai",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      93.0988469,
+      47.7925667,
+      98.4852951,
+      42.7019331
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      95.9325806,
+      45.3463139
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM06",
+   "group": "aimag",
+   "osm": "R270095",
+   "note": null,
+   "query": "Говьсүмбэр",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Говьсүмбэр",
+   "nameEn": "Govisümber",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270095,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Говьсүмбэр ᠭᠣᠪᠢ ᠰᠦᠮᠪᠦᠷ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      107.8839312,
+      47.0000639,
+      109.1197996,
+      45.8807194
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      108.5173101,
+      46.4610827
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270095,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Govisümber",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      107.8839312,
+      47.0000639,
+      109.1197996,
+      45.8807194
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      108.5173101,
+      46.4610827
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM07",
+   "group": "aimag",
+   "osm": "R270091",
+   "note": null,
+   "query": "Дархан-Уул",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Дархан-Уул",
+   "nameEn": "Darkhan-Uul",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270091,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Дархан-Уул ᠳᠠᠷᠬᠠᠨ ᠠᠭᠤᠯᠠ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      105.8380237,
+      49.9280821,
+      106.8237362,
+      49.122306
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.2901384,
+      49.3767291
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270091,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Darkhan-Uul",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      105.8380237,
+      49.9280821,
+      106.8237362,
+      49.122306
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.2901384,
+      49.3767291
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM08",
+   "group": "aimag",
+   "osm": "R270050",
+   "note": null,
+   "query": "Дорноговь",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Дорноговь",
+   "nameEn": "East Gobi",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270050,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Дорноговь",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      107.647224,
+      46.623979,
+      111.9678192,
+      42.395607
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      109.7783753,
+      44.4179637
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270050,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "East Gobi",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      107.647224,
+      46.623979,
+      111.9678192,
+      42.395607
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      109.7783753,
+      44.4179637
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM09",
+   "group": "aimag",
+   "osm": "R269886",
+   "note": null,
+   "query": "Дорнод",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Дорнод",
+   "nameEn": "Dornod",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 269886,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Дорнод ᠳᠣᠷᠤᠨᠠᠳᠤ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      111.9960559,
+      50.2856376,
+      119.9322079,
+      46.2887059
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      115.2177155,
+      47.6772781
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 269886,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Dornod",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      111.9960559,
+      50.2856376,
+      119.9322079,
+      46.2887059
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      115.2177155,
+      47.6772781
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM10",
+   "group": "aimag",
+   "osm": "R270094",
+   "note": null,
+   "query": "Дундговь",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Дундговь",
+   "nameEn": "Middle Gobi",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270094,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Дундговь",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      103.615212,
+      46.7812874,
+      108.653,
+      44.177429
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.2611562,
+      45.5186722
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270094,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Middle Gobi",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      103.615212,
+      46.7812874,
+      108.653,
+      44.177429
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.2611562,
+      45.5186722
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM11",
+   "group": "aimag",
+   "osm": "R4074177",
+   "note": null,
+   "query": "Завхан",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Завхан",
+   "nameEn": "Zavkhan",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 4074177,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Завхан ᠵᠠᠪᠬᠠᠨ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      93.182357,
+      50.043625,
+      99.215377,
+      46.564344
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      96.3015635,
+      48.2567965
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 4074177,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Zavkhan",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      93.182357,
+      50.043625,
+      99.215377,
+      46.564344
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      96.3015635,
+      48.2567965
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM12",
+   "group": "aimag",
+   "osm": "R270092",
+   "note": null,
+   "query": "Орхон",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Орхон",
+   "nameEn": "Orkhon",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270092,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Орхон ᠣᠷᠬᠤᠨ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      103.9564387,
+      49.1689528,
+      104.6325416,
+      48.8976391
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.2998863,
+      49.0243744
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270092,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Orkhon",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      103.9564387,
+      49.1689528,
+      104.6325416,
+      48.8976391
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.2998863,
+      49.0243744
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM13",
+   "group": "aimag",
+   "osm": "R270074",
+   "note": null,
+   "query": "Өвөрхангай",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Өвөрхангай",
+   "nameEn": "Uvurkhangai",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270074,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Өвөрхангай ᠥᠪᠦᠷ ᠬᠠᠩᠭ᠋ᠠᠢ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      101.136322,
+      47.4306758,
+      104.653283,
+      44.048863
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      102.7237769,
+      45.8297039
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270074,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Uvurkhangai",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      101.136322,
+      47.4306758,
+      104.653283,
+      44.048863
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      102.7237769,
+      45.8297039
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM14",
+   "group": "aimag",
+   "osm": "R270051",
+   "note": null,
+   "query": "Өмнөговь",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Өмнөговь",
+   "nameEn": "South Gobi",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270051,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Өмнөговь",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      99.417008,
+      45.202245,
+      108.03369,
+      41.5800276
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.1133864,
+      43.282363
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270051,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "South Gobi",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      99.417008,
+      45.202245,
+      108.03369,
+      41.5800276
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.1133864,
+      43.282363
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM15",
+   "group": "aimag",
+   "osm": "R269874",
+   "note": null,
+   "query": "Сүхбаатар",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Сүхбаатар",
+   "nameEn": "Sükhbaatar",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 269874,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Сүхбаатар ᠰᠦᠬᠡ ᠪᠠᠭᠠᠲᠤᠷ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      111.167098,
+      47.793868,
+      116.5775996,
+      44.742385
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      113.5077196,
+      46.2093417
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 269874,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Sükhbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      111.167098,
+      47.793868,
+      116.5775996,
+      44.742385
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      113.5077196,
+      46.2093417
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM16",
+   "group": "aimag",
+   "osm": "R270089",
+   "note": null,
+   "query": "Сэлэнгэ",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Сэлэнгэ",
+   "nameEn": "Selenge",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270089,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Сэлэнгэ ᠰᠡᠯᠡᠩᠭᠡ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      104.3632707,
+      50.4794989,
+      108.5714018,
+      48.504783
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      107.0629034,
+      49.3910136
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270089,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Selenge",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      104.3632707,
+      50.4794989,
+      108.5714018,
+      48.504783
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      107.0629034,
+      49.3910136
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM17",
+   "group": "aimag",
+   "osm": "R3382267",
+   "note": null,
+   "query": "Төв",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "state",
+   "nameMn": "Төв",
+   "nameEn": "Töv",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 3382267,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "state",
+     "name": "Төв",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      104.068596,
+      49.125305,
+      109.038757,
+      46.38046
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      105.6150598,
+      47.7529235
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 3382267,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "state",
+     "name": "Töv",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      104.068596,
+      49.125305,
+      109.038757,
+      46.38046
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      105.6150598,
+      47.7529235
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM18",
+   "group": "aimag",
+   "osm": "R270059",
+   "note": null,
+   "query": "Увс",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Увс",
+   "nameEn": "Uvs",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270059,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Увс ᠤᠪᠰᠤ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      90.0023,
+      50.8842878,
+      95.725991,
+      48.424298
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      92.9558186,
+      49.6313887
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270059,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Uvs",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      90.0023,
+      50.8842878,
+      95.725991,
+      48.424298
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      92.9558186,
+      49.6313887
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM19",
+   "group": "aimag",
+   "osm": "R270055",
+   "note": null,
+   "query": "Ховд",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Ховд",
+   "nameEn": "Khovd",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270055,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Ховд ᠬᠣᠪᠳᠤ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      90.6677627,
+      48.968842,
+      94.3068313,
+      44.99941
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      92.2959651,
+      46.8997977
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270055,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Khovd",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      90.6677627,
+      48.968842,
+      94.3068313,
+      44.99941
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      92.2959651,
+      46.8997977
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM20",
+   "group": "aimag",
+   "osm": "R270072",
+   "note": null,
+   "query": "Хөвсгөл",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Хөвсгөл",
+   "nameEn": "Khövsgöl",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270072,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Хөвсгөл ᠬᠥᠪᠰᠦᠭᠦᠯ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      96.875489,
+      52.1496,
+      102.784729,
+      48.235275
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      99.9170492,
+      50.2206196
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270072,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Khövsgöl",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      96.875489,
+      52.1496,
+      102.784729,
+      48.235275
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      99.9170492,
+      50.2206196
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AM21",
+   "group": "aimag",
+   "osm": "R269885",
+   "note": null,
+   "query": "Хэнтий",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "state",
+   "nameMn": "Хэнтий",
+   "nameEn": "Khentii",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 269885,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Хэнтий",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      108.3856424,
+      49.3918856,
+      112.694053,
+      46.059845
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      110.4201043,
+      47.885981
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 269885,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "state",
+     "name": "Khentii",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      108.3856424,
+      49.3918856,
+      112.694053,
+      46.059845
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      110.4201043,
+      47.885981
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "type=state and osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AMN1",
+   "group": "aimagNode",
+   "osm": "N2704047290",
+   "note": "aimag place=state label node (type=other, no extent)",
+   "query": "Төв",
+   "osm_key": "place",
+   "osm_value": "state",
+   "type": "other",
+   "nameMn": "Төв",
+   "nameEn": "Central",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 2704047290,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "other",
+     "name": "Төв",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.5525161,
+      47.4692538
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 2704047290,
+     "osm_key": "place",
+     "osm_value": "state",
+     "type": "other",
+     "name": "Central",
+     "country": "Mongolia",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.5525161,
+      47.4692538
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": "placeType.aimag",
+    "mn": "Аймаг",
+    "en": "Аймаг",
+    "ruleCondition": "osm_key=place, osm_value=state",
+    "before": {
+     "labelKey": "placeType.place",
+     "mn": "Газар",
+     "en": "Place"
+    }
+   }
+  },
+  {
+   "id": "AX01",
+   "group": "negative",
+   "osm": "R270090",
+   "note": "capital city (Ulaanbaatar), relation 1",
+   "query": "Улаанбаатар",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Улаанбаатар",
+   "nameEn": "Ulaanbaatar",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270090,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Улаанбаатар",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      106.362609,
+      48.271931,
+      108.5007801,
+      47.3019581
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9177016,
+      47.9184676
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 270090,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Ulaanbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      106.362609,
+      48.271931,
+      108.5007801,
+      47.3019581
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9177016,
+      47.9184676
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX02",
+   "group": "negative",
+   "osm": "R4479697",
+   "note": "capital city (Ulaanbaatar), relation 2",
+   "query": "Улаанбаатар",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Улаанбаатар",
+   "nameEn": "Ulaanbaatar",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 4479697,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Улаанбаатар",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      106.5345659,
+      48.149007,
+      107.2200527,
+      47.7328999
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9179638,
+      47.940974
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 4479697,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Ulaanbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      106.5345659,
+      48.149007,
+      107.2200527,
+      47.7328999
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9179638,
+      47.940974
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX03",
+   "group": "negative",
+   "osm": "R14669144",
+   "note": "UB düüreg sharing the Sükhbaatar name",
+   "query": "Сүхбаатар дүүрэг",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "district",
+   "nameMn": "Сүхбаатар дүүрэг",
+   "nameEn": "Sükhbaatar",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669144,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Сүхбаатар дүүрэг",
+     "city": "Улаанбаатар",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      106.86347,
+      48.197306,
+      107.03429,
+      47.9080639
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9674981,
+      48.0526333
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669144,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Sükhbaatar",
+     "city": "Ulaanbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      106.86347,
+      48.197306,
+      107.03429,
+      47.9080639
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9674981,
+      48.0526333
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.district",
+     "en": "placeType.district"
+    },
+    "mn": "Дүүрэг",
+    "en": "District",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX04",
+   "group": "negative",
+   "osm": "R14669145",
+   "note": "UB düüreg",
+   "query": "Чингэлтэй",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "district",
+   "nameMn": "Чингэлтэй",
+   "nameEn": "Chingeltei",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669145,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Чингэлтэй",
+     "city": "Улаанбаатар",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      106.831478,
+      48.139083,
+      106.9328993,
+      47.9152254
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.8897969,
+      48.0271889
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669145,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Chingeltei",
+     "city": "Ulaanbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      106.831478,
+      48.139083,
+      106.9328993,
+      47.9152254
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.8897969,
+      48.0271889
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.district",
+     "en": "placeType.district"
+    },
+    "mn": "Дүүрэг",
+    "en": "District",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX05",
+   "group": "negative",
+   "osm": "R14669143",
+   "note": "UB düüreg",
+   "query": "Баянзүрх дүүрэг",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "district",
+   "nameMn": "Баянзүрх дүүрэг",
+   "nameEn": "Bayanzürkh",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669143,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Баянзүрх дүүрэг",
+     "city": "Улаанбаатар",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      106.9221379,
+      48.208965,
+      107.410785,
+      47.721608
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      107.1507173,
+      47.964783
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669143,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Bayanzürkh",
+     "city": "Ulaanbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      106.9221379,
+      48.208965,
+      107.410785,
+      47.721608
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      107.1507173,
+      47.964783
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.district",
+     "en": "placeType.district"
+    },
+    "mn": "Дүүрэг",
+    "en": "District",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX06",
+   "group": "negative",
+   "osm": "R14669148",
+   "note": "UB düüreg",
+   "query": "Хан-Уул дүүрэг",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "district",
+   "nameMn": "Хан-Уул дүүрэг",
+   "nameEn": "Khan-Uul",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669148,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Хан-Уул дүүрэг",
+     "city": "Улаанбаатар",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      106.50749,
+      47.9082535,
+      106.9563019,
+      47.705838
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.7192407,
+      47.8085313
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669148,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Khan-Uul",
+     "city": "Ulaanbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      106.50749,
+      47.9082535,
+      106.9563019,
+      47.705838
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.7192407,
+      47.8085313
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.district",
+     "en": "placeType.district"
+    },
+    "mn": "Дүүрэг",
+    "en": "District",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX07",
+   "group": "negative",
+   "osm": "R14669142",
+   "note": "UB outlying düüreg",
+   "query": "Налайх дүүрэг",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "district",
+   "nameMn": "Налайх дүүрэг",
+   "nameEn": "Nalaikh",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669142,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Налайх дүүрэг",
+     "city": "Улаанбаатар",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "postcode": "12770",
+     "countrycode": "MN",
+     "extent": [
+      107.217627,
+      48.000354,
+      107.62131,
+      47.646258
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      107.4284327,
+      47.822243
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669142,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Nalaikh",
+     "city": "Ulaanbaatar",
+     "country": "Mongolia",
+     "postcode": "12770",
+     "countrycode": "MN",
+     "extent": [
+      107.217627,
+      48.000354,
+      107.62131,
+      47.646258
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      107.4284327,
+      47.822243
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.district",
+     "en": "placeType.district"
+    },
+    "mn": "Дүүрэг",
+    "en": "District",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX08",
+   "group": "negative",
+   "osm": "R14669140",
+   "note": "UB outlying düüreg",
+   "query": "Багануур",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "district",
+   "nameMn": "Багануур",
+   "nameEn": "Baganuur",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669140,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Багануур ᠪᠠᠭᠠᠨᠠᠭᠤᠷ",
+     "city": "Улаанбаатар",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      108.2061329,
+      47.9877644,
+      108.5007801,
+      47.6661434
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      108.3477143,
+      47.8260403
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669140,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Baganuur",
+     "city": "Ulaanbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      108.2061329,
+      47.9877644,
+      108.5007801,
+      47.6661434
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      108.3477143,
+      47.8260403
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.district",
+     "en": "placeType.district"
+    },
+    "mn": "Дүүрэг",
+    "en": "District",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX09",
+   "group": "negative",
+   "osm": "R14669141",
+   "note": "UB outlying düüreg",
+   "query": "Багахангай дүүрэг",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "district",
+   "nameMn": "Багахангай дүүрэг",
+   "nameEn": "Bagakhangai",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669141,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Багахангай дүүрэг",
+     "city": "Улаанбаатар",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      107.346796,
+      47.4414272,
+      107.5542278,
+      47.3019581
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      107.4472162,
+      47.3716583
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 14669141,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "district",
+     "name": "Bagakhangai",
+     "city": "Ulaanbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      107.346796,
+      47.4414272,
+      107.5542278,
+      47.3019581
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      107.4472162,
+      47.3716583
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.district",
+     "en": "placeType.district"
+    },
+    "mn": "Дүүрэг",
+    "en": "District",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX10",
+   "group": "negative",
+   "osm": "R16031519",
+   "note": "soum sharing an aimag name (Selenge)",
+   "query": "Сүхбаатар сум",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Сүхбаатар сум",
+   "nameEn": "Sukhbaatar",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 16031519,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Сүхбаатар сум",
+     "state": "Сэлэнгэ ᠰᠡᠯᠡᠩᠭᠡ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      106.1370917,
+      50.2673091,
+      106.2732011,
+      50.1845003
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.2263945,
+      50.2267008
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 16031519,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Sukhbaatar",
+     "state": "Selenge",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      106.1370917,
+      50.2673091,
+      106.2732011,
+      50.1845003
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.2263945,
+      50.2267008
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX11",
+   "group": "negative",
+   "osm": "R7304591",
+   "note": "soum sharing an aimag name (Sükhbaatar aimag)",
+   "query": "Sukhbaatar",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Сүхбаатар",
+   "nameEn": "Sukhbaatar",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304591,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Сүхбаатар",
+     "state": "Сүхбаатар ᠰᠦᠬᠡ ᠪᠠᠭᠠᠲᠤᠷ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      112.880132,
+      47.56376,
+      114.901123,
+      46.3402028
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      113.6612074,
+      46.943723
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304591,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Sukhbaatar",
+     "state": "Sükhbaatar",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      112.880132,
+      47.56376,
+      114.901123,
+      46.3402028
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      113.6612074,
+      46.943723
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX12",
+   "group": "negative",
+   "osm": "R7302706",
+   "note": "soum sharing an aimag name (Selenge)",
+   "query": "Орхон сум",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Орхон сум",
+   "nameEn": "Orkhon",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302706,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Орхон сум",
+     "state": "Сэлэнгэ ᠰᠡᠯᠡᠩᠭᠡ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      105.0787189,
+      49.2782386,
+      105.8579514,
+      48.756596
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      105.4040763,
+      49.0171453
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302706,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Orkhon",
+     "state": "Selenge",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      105.0787189,
+      49.2782386,
+      105.8579514,
+      48.756596
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      105.4040763,
+      49.0171453
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX13",
+   "group": "negative",
+   "osm": "R7302549",
+   "note": "soum sharing an aimag name (Arkhangai)",
+   "query": "Булган сум",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Булган сум",
+   "nameEn": "Bulgan",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302549,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Булган сум",
+     "state": "Архангай ᠠᠷᠤ ᠬᠠᠩᠭ᠋ᠠᠢ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      100.695343,
+      47.4022491,
+      101.6596371,
+      46.824672
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      101.1461847,
+      47.1270526
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302549,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Bulgan",
+     "state": "Arkhangai",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      100.695343,
+      47.4022491,
+      101.6596371,
+      46.824672
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      101.1461847,
+      47.1270526
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX14",
+   "group": "negative",
+   "osm": "R7305294",
+   "note": "soum sharing an aimag name (Uvs)",
+   "query": "Ховд сум",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Ховд сум",
+   "nameEn": "Khovd",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7305294,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Ховд сум",
+     "state": "Увс ᠤᠪᠰᠤ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      90.4551731,
+      49.6670982,
+      91.464086,
+      49.039448
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      91.0607322,
+      49.3462665
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7305294,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Khovd",
+     "state": "Uvs",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      90.4551731,
+      49.6670982,
+      91.464086,
+      49.039448
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      91.0607322,
+      49.3462665
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX15",
+   "group": "negative",
+   "osm": "R7302585",
+   "note": "soum sharing an aimag name (Bulgan)",
+   "query": "Сэлэнгэ сум",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Сэлэнгэ сум",
+   "nameEn": "Selenge",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302585,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Сэлэнгэ сум",
+     "state": "Булган ᠪᠤᠯᠠᠭᠠᠨ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      103.6347531,
+      50.2631785,
+      104.73352,
+      49.0824907
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.0759003,
+      49.6723933
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302585,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Selenge",
+     "state": "Bulgan",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      103.6347531,
+      50.2631785,
+      104.73352,
+      49.0824907
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.0759003,
+      49.6723933
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX16",
+   "group": "negative",
+   "osm": "R7304614",
+   "note": "soum sharing an aimag name (Dornogovi)",
+   "query": "Хөвсгөл сум",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Хөвсгөл сум",
+   "nameEn": "Khovsgol",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304614,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Хөвсгөл сум",
+     "state": "Дорноговь",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      108.8091903,
+      44.0421416,
+      110.9874191,
+      42.8418836
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      109.9122629,
+      43.4391686
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304614,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Khovsgol",
+     "state": "East Gobi",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      108.8091903,
+      44.0421416,
+      110.9874191,
+      42.8418836
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      109.9122629,
+      43.4391686
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX17",
+   "group": "negative",
+   "osm": "R7304538",
+   "note": "soum named like Darkhan (Khentii)",
+   "query": "Дархан сум",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Дархан сум",
+   "nameEn": "Darkhan",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304538,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Дархан сум",
+     "state": "Хэнтий",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      108.9510869,
+      47.0169148,
+      109.6529353,
+      46.2799972
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      109.3392789,
+      46.6497957
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304538,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Darkhan",
+     "state": "Khentii",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      108.9510869,
+      47.0169148,
+      109.6529353,
+      46.2799972
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      109.3392789,
+      46.6497957
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX18",
+   "group": "negative",
+   "osm": "R7302453",
+   "note": "soum, aimag centre of Töv",
+   "query": "Зуунмод сум",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Зуунмод сум",
+   "nameEn": "Zuunmod",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302453,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Зуунмод сум",
+     "state": "Төв",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      106.9158471,
+      47.7283611,
+      106.9755253,
+      47.6777652
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9461981,
+      47.7013708
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302453,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Zuunmod",
+     "state": "Töv",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      106.9158471,
+      47.7283611,
+      106.9755253,
+      47.6777652
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9461981,
+      47.7013708
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX19",
+   "group": "negative",
+   "osm": "R7304689",
+   "note": "soum (Dornod)",
+   "query": "Чойбалсан сум",
+   "osm_key": "boundary",
+   "osm_value": "administrative",
+   "type": "county",
+   "nameMn": "Чойбалсан сум",
+   "nameEn": "Choibalsan",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304689,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Чойбалсан сум",
+     "state": "Дорнод ᠳᠣᠷᠤᠨᠠᠳᠤ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      114.4435778,
+      49.6357562,
+      116.4823112,
+      48.1450095
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      115.4966781,
+      48.8967118
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304689,
+     "osm_key": "boundary",
+     "osm_value": "administrative",
+     "type": "county",
+     "name": "Choibalsan",
+     "state": "Dornod",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      114.4435778,
+      49.6357562,
+      116.4823112,
+      48.1450095
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      115.4966781,
+      48.8967118
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.soum",
+     "en": "placeType.soum"
+    },
+    "mn": "Сум",
+    "en": "Сум",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX20",
+   "group": "negative",
+   "osm": "R7302213",
+   "note": "city Darkhan",
+   "query": "Дархан",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Дархан",
+   "nameEn": "Darkhan",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302213,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Дархан",
+     "state": "Дархан-Уул ᠳᠠᠷᠬᠠᠨ ᠠᠭᠤᠯᠠ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      105.8908677,
+      49.5265898,
+      106.020576,
+      49.3788585
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      105.9361613,
+      49.4922428
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302213,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Darkhan",
+     "state": "Darkhan-Uul",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      105.8908677,
+      49.5265898,
+      106.020576,
+      49.3788585
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      105.9361613,
+      49.4922428
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX21",
+   "group": "negative",
+   "osm": "N293929556",
+   "note": "city Erdenet (node)",
+   "query": "Эрдэнэт",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Эрдэнэт",
+   "nameEn": "Erdenet",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 293929556,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Эрдэнэт",
+     "city": "Эрдэнэт",
+     "county": "Баян-Өндөр сум",
+     "state": "Орхон ᠣᠷᠬᠤᠨ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "postcode": "61020",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.0443867,
+      49.0276045
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 293929556,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Erdenet",
+     "city": "Эрдэнэт",
+     "county": "Bayan-Ondor",
+     "state": "Orkhon",
+     "country": "Mongolia",
+     "postcode": "61020",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.0443867,
+      49.0276045
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX22",
+   "group": "negative",
+   "osm": "W372836163",
+   "note": "city Erdenet (area)",
+   "query": "Эрдэнэт",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Эрдэнэт",
+   "nameEn": "Erdenet",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 372836163,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Эрдэнэт",
+     "county": "Баян-Өндөр сум",
+     "state": "Орхон ᠣᠷᠬᠤᠨ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      103.9551904,
+      49.0870192,
+      104.1692691,
+      48.9792067
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.043253,
+      49.0346023
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 372836163,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Erdenet",
+     "county": "Bayan-Ondor",
+     "state": "Orkhon",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      103.9551904,
+      49.0870192,
+      104.1692691,
+      48.9792067
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      104.043253,
+      49.0346023
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX23",
+   "group": "negative",
+   "osm": "N293932664",
+   "note": "city Choibalsan",
+   "query": "Чойбалсан",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Чойбалсан",
+   "nameEn": "Choibalsan",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 293932664,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Чойбалсан",
+     "county": "Хэрлэн сум",
+     "state": "Дорнод ᠳᠣᠷᠤᠨᠠᠳᠤ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "postcode": "21065",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      114.5241352,
+      48.0688183
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 293932664,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Choibalsan",
+     "county": "Kherlen",
+     "state": "Dornod",
+     "country": "Mongolia",
+     "postcode": "21065",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      114.5241352,
+      48.0688183
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX24",
+   "group": "negative",
+   "osm": "W41700355",
+   "note": "city Sükhbaatar (Selenge)",
+   "query": "Сүхбаатар",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Сүхбаатар",
+   "nameEn": "Sukhbaatar",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 41700355,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Сүхбаатар",
+     "county": "Сүхбаатар сум",
+     "state": "Сэлэнгэ ᠰᠡᠯᠡᠩᠭᠡ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      106.1728318,
+      50.2533362,
+      106.2464343,
+      50.2233403
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.2094944,
+      50.2358909
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 41700355,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Sukhbaatar",
+     "county": "Sukhbaatar",
+     "state": "Selenge",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      106.1728318,
+      50.2533362,
+      106.2464343,
+      50.2233403
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.2094944,
+      50.2358909
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX25",
+   "group": "negative",
+   "osm": "R7304756",
+   "note": "city Bayankhongor (place=city relation)",
+   "query": "Баянхонгор",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Баянхонгор",
+   "nameEn": "Bayankhongor",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304756,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Баянхонгор",
+     "state": "Баянхонгор ᠪᠠᠶᠠᠨ ᠬᠣᠩᠭᠣᠷ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      100.5747087,
+      46.2408775,
+      100.7614048,
+      46.124199
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      100.7142654,
+      46.1936649
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7304756,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Bayankhongor",
+     "state": "Bayankhongor",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      100.5747087,
+      46.2408775,
+      100.7614048,
+      46.124199
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      100.7142654,
+      46.1936649
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX26",
+   "group": "negative",
+   "osm": "R7302596",
+   "note": "city Bulgan (place=city relation)",
+   "query": "Булган",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Булган",
+   "nameEn": "Bulgan",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302596,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Булган",
+     "state": "Булган ᠪᠤᠯᠠᠭᠠᠨ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      103.4025736,
+      48.9200566,
+      103.5918158,
+      48.7829759
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      103.5322785,
+      48.8129203
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7302596,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Bulgan",
+     "state": "Bulgan",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      103.4025736,
+      48.9200566,
+      103.5918158,
+      48.7829759
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      103.5322785,
+      48.8129203
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX27",
+   "group": "negative",
+   "osm": "N385713356",
+   "note": "city Zuunmod",
+   "query": "Зуунмод",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Зуунмод",
+   "nameEn": "Zuunmod",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 385713356,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Зуунмод",
+     "county": "Зуунмод сум",
+     "state": "Төв",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9544868,
+      47.7082682
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 385713356,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Zuunmod",
+     "county": "Zuunmod",
+     "state": "Töv",
+     "country": "Mongolia",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      106.9544868,
+      47.7082682
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX28",
+   "group": "negative",
+   "osm": "R7305539",
+   "note": "city Mörön (place=city relation)",
+   "query": "Мөрөн",
+   "osm_key": "place",
+   "osm_value": "city",
+   "type": "city",
+   "nameMn": "Мөрөн",
+   "nameEn": "Murun",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7305539,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Мөрөн",
+     "state": "Хөвсгөл ᠬᠥᠪᠰᠦᠭᠦᠯ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      100.0787532,
+      49.7330366,
+      100.3389907,
+      49.5915044
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      100.1745571,
+      49.6284811
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "R",
+     "osm_id": 7305539,
+     "osm_key": "place",
+     "osm_value": "city",
+     "type": "city",
+     "name": "Murun",
+     "state": "Khövsgöl",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      100.0787532,
+      49.7330366,
+      100.3389907,
+      49.5915044
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      100.1745571,
+      49.6284811
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.city",
+     "en": "placeType.city"
+    },
+    "mn": "Хот",
+    "en": "City or town",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX29",
+   "group": "negative",
+   "osm": "N4355349394",
+   "note": "suburb named Töv",
+   "query": "Төв",
+   "osm_key": "place",
+   "osm_value": "suburb",
+   "type": "district",
+   "nameMn": "Төв",
+   "nameEn": "Төв",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4355349394,
+     "osm_key": "place",
+     "osm_value": "suburb",
+     "type": "district",
+     "name": "Төв",
+     "city": "Чойбалсан",
+     "county": "Хэрлэн сум",
+     "state": "Дорнод ᠳᠣᠷᠤᠨᠠᠳᠤ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "postcode": "21065",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      114.5012124,
+      48.0608913
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4355349394,
+     "osm_key": "place",
+     "osm_value": "suburb",
+     "type": "district",
+     "name": "Төв",
+     "city": "Choibalsan",
+     "county": "Kherlen",
+     "state": "Dornod",
+     "country": "Mongolia",
+     "postcode": "21065",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      114.5012124,
+      48.0608913
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.neighbourhood",
+     "en": "placeType.neighbourhood"
+    },
+    "mn": "Хороолол",
+    "en": "Neighbourhood",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX30",
+   "group": "negative",
+   "osm": "W229130893",
+   "note": "village named Orkhon",
+   "query": "Орхон",
+   "osm_key": "place",
+   "osm_value": "village",
+   "type": "city",
+   "nameMn": "Орхон",
+   "nameEn": "Орхон",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 229130893,
+     "osm_key": "place",
+     "osm_value": "village",
+     "type": "city",
+     "name": "Орхон",
+     "county": "Орхон сум",
+     "state": "Сэлэнгэ ᠰᠡᠯᠡᠩᠭᠡ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "countrycode": "MN",
+     "extent": [
+      105.3810771,
+      49.1539813,
+      105.4037792,
+      49.1414053
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      105.3904612,
+      49.1479485
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 229130893,
+     "osm_key": "place",
+     "osm_value": "village",
+     "type": "city",
+     "name": "Орхон",
+     "county": "Orkhon",
+     "state": "Selenge",
+     "country": "Mongolia",
+     "countrycode": "MN",
+     "extent": [
+      105.3810771,
+      49.1539813,
+      105.4037792,
+      49.1414053
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      105.3904612,
+      49.1479485
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.settlement",
+     "en": "placeType.settlement"
+    },
+    "mn": "Суурин",
+    "en": "Settlement",
+    "notAimag": true
+   }
+  },
+  {
+   "id": "AX31",
+   "group": "negative",
+   "osm": "N4355349288",
+   "note": "suburb named Khan-Uul (Dornod)",
+   "query": "Хан-Уул",
+   "osm_key": "place",
+   "osm_value": "suburb",
+   "type": "district",
+   "nameMn": "Хан-Уул",
+   "nameEn": "Khan-Uul",
+   "mn": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4355349288,
+     "osm_key": "place",
+     "osm_value": "suburb",
+     "type": "district",
+     "name": "Хан-Уул",
+     "city": "Чойбалсан",
+     "county": "Хэрлэн сум",
+     "state": "Дорнод ᠳᠣᠷᠤᠨᠠᠳᠤ",
+     "country": "Монгол улс ᠮᠤᠩᠭᠤᠯ ᠤᠯᠤᠰ",
+     "postcode": "21065",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      114.5129371,
+      48.0734766
+     ]
+    }
+   },
+   "en": {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4355349288,
+     "osm_key": "place",
+     "osm_value": "suburb",
+     "type": "district",
+     "name": "Khan-Uul",
+     "city": "Choibalsan",
+     "county": "Kherlen",
+     "state": "Dornod",
+     "country": "Mongolia",
+     "postcode": "21065",
+     "countrycode": "MN"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      114.5129371,
+      48.0734766
+     ]
+    }
+   },
+   "expect": {
+    "labelKey": {
+     "mn": "placeType.neighbourhood",
+     "en": "placeType.neighbourhood"
+    },
+    "mn": "Хороолол",
+    "en": "Neighbourhood",
+    "notAimag": true
+   }
+  }
+ ]
+}

@@ -27,6 +27,16 @@ test('AC40: combobox pattern attributes; axe 0 serious/critical with list, card 
       await openApp(page, { theme, lang });
       const tag = `${theme}/${lang}`;
       const run = async (what) => {
+        // AC 42 adaptation (NAV-004, Q-A, orchestrator go 2026-09-30): wait until every FINITE animation has finished
+        // (the 150 ms `card-in` fade of the place card / coordinate card), so axe measures the settled colours and not
+        // a blend mid-fade (NAV-004 run 1: day/en «Маршрут гаргах» 3.23:1 at ~59 ms, 6.4:1 at opacity 1). Infinite
+        // animations (loading `spin`) are not waited for. The axe assertion itself (0 serious/critical) is unchanged.
+        await page.evaluate(() => Promise.race([
+          Promise.all(document.getAnimations()
+            .filter((a) => a.playState !== 'finished' && Number.isFinite(a.effect?.getComputedTiming().endTime))
+            .map((a) => a.finished.catch(() => {}))),
+          new Promise((r) => setTimeout(r, 2000)),
+        ]));
         const r = await new AxeBuilder({ page }).analyze();
         for (const p of seriousOrCritical(r)) problems.push(`${tag} ${what}: ${p}`);
       };

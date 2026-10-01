@@ -279,6 +279,9 @@ test.describe('NAV-002 D. Metric scale bar', () => {
   };
 
   test('AC16 metric only at any zoom and latitude: «м» below 1 km, «км» from 1 km (mn); m/km (en)', async ({ page }) => {
+    // AC 16 has no timing requirement. 60 jumpTo + idle steps exceeded the default 60 s test budget on the loaded
+    // reference machine (2026-09-30 run 9, also on the 829051a baseline), so the budget is raised; assertions unchanged.
+    test.setTimeout(180_000);
     await openApp(page);
     const places = [P1, { lat: 42.5, lng: 105 }, { lat: 51.5, lng: 99 }];
     for (const lang of ['mn', 'en']) {

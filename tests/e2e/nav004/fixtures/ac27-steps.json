@@ -1,0 +1,51 @@
+{
+  "$comment": "NAV-004 AC 26-28 fixture route (QA-authored). One OSRM leg whose steps cover every AC 27 row, including a 2nd-exit roundabout, a roundabout without exit, on/off ramps on each side and without side, fork left/right/straight, merge none/left/right, U-turn, slight/sharp turns, continue/new name/notification, end of road, unknown type and modifier, continue + turning modifier (ADR-0008 rule 11), exit roundabout/rotary, arrive right (last). 'expect' is the AC 27 row key in tests/e2e/nav004/helpers.mjs AC27 (derived by QA from the story table, not from web/). Street names include zero-width characters (AC 26: removed), an empty name, a Latin OSM name and a road ref (shown on the street line only). departBearings: the sector boundary cases for the first step (AC 27 unit-test list plus 360 from ADR-0008 M3).",
+  "steps": [
+    { "maneuver": { "type": "depart", "bearing_after": 22.4 }, "name": "Энхтайвны​ өргөн чөлөө", "expect": "depart.n", "street": "Энхтайвны өргөн чөлөө" },
+    { "maneuver": { "type": "turn", "modifier": "left" }, "name": "Чингисийн өргөн чөлөө", "expect": "turn.left" },
+    { "maneuver": { "type": "turn", "modifier": "right" }, "name": "", "expect": "turn.right", "street": null },
+    { "maneuver": { "type": "turn", "modifier": "slight left" }, "name": "Сөүлийн гудамж", "expect": "turn.slightLeft" },
+    { "maneuver": { "type": "turn", "modifier": "slight right" }, "name": "Бага тойруу", "expect": "turn.slightRight" },
+    { "maneuver": { "type": "turn", "modifier": "sharp left" }, "name": "Их тойруу", "expect": "turn.sharpLeft" },
+    { "maneuver": { "type": "turn", "modifier": "sharp right" }, "name": "﻿Жуулчны гудамж‍", "expect": "turn.sharpRight", "street": "Жуулчны гудамж" },
+    { "maneuver": { "type": "end of road", "modifier": "left" }, "name": "Нарны зам", "expect": "turn.left" },
+    { "maneuver": { "type": "continue", "modifier": "left" }, "name": "Нарны зам", "expect": "turn.left" },
+    { "maneuver": { "type": "new name", "modifier": "straight" }, "name": "Токиогийн гудамж", "expect": "continue" },
+    { "maneuver": { "type": "notification" }, "name": "", "expect": "continue", "street": null },
+    { "maneuver": { "type": "continue", "modifier": "uturn" }, "name": "Токиогийн гудамж", "expect": "uturn" },
+    { "maneuver": { "type": "fork", "modifier": "slight left" }, "name": "A0401", "expect": "keep.left" },
+    { "maneuver": { "type": "fork", "modifier": "right" }, "name": "AH3", "expect": "keep.right" },
+    { "maneuver": { "type": "fork", "modifier": "straight" }, "name": "", "expect": "continue", "street": null },
+    { "maneuver": { "type": "merge" }, "name": "Erdenet-Selenge road", "expect": "merge" },
+    { "maneuver": { "type": "merge", "modifier": "slight left" }, "name": "", "expect": "merge.left", "street": null },
+    { "maneuver": { "type": "merge", "modifier": "slight right" }, "name": "", "expect": "merge.right", "street": null },
+    { "maneuver": { "type": "on ramp" }, "name": "", "expect": "onRamp", "street": null },
+    { "maneuver": { "type": "on ramp", "modifier": "left" }, "name": "", "expect": "onRamp.left", "street": null },
+    { "maneuver": { "type": "on ramp", "modifier": "slight right" }, "name": "", "expect": "onRamp.right", "street": null },
+    { "maneuver": { "type": "off ramp" }, "name": "", "expect": "offRamp", "street": null },
+    { "maneuver": { "type": "off ramp", "modifier": "slight left" }, "name": "", "expect": "offRamp.left", "street": null },
+    { "maneuver": { "type": "off ramp", "modifier": "right" }, "name": "", "expect": "offRamp.right", "street": null },
+    { "maneuver": { "type": "roundabout", "modifier": "right", "exit": 2 }, "name": "Гурвалжингийн тойрог", "expect": "roundabout.exit.2" },
+    { "maneuver": { "type": "exit roundabout", "modifier": "right" }, "name": "Гурвалжингийн тойрог", "expect": "roundabout.leave" },
+    { "maneuver": { "type": "rotary", "modifier": "straight", "exit": 3 }, "name": "", "expect": "roundabout.exit.3", "street": null },
+    { "maneuver": { "type": "exit rotary", "modifier": "slight left" }, "name": "", "expect": "roundabout.leave", "street": null },
+    { "maneuver": { "type": "roundabout", "modifier": "left" }, "name": "", "expect": "roundabout.enter", "street": null },
+    { "maneuver": { "type": "use lane", "modifier": "sharp right" }, "name": "", "expect": "turn.sharpRight", "street": null },
+    { "maneuver": { "type": "use lane" }, "name": "", "expect": "continue", "street": null },
+    { "maneuver": { "type": "turn", "modifier": "hard left" }, "name": "", "expect": "continue", "street": null },
+    { "maneuver": { "type": "turn", "modifier": "uturn" }, "name": "", "expect": "uturn", "street": null },
+    { "maneuver": { "type": "arrive", "modifier": "right" }, "name": "Улсын их дэлгүүр", "expect": "arrive.right" }
+  ],
+  "departBearings": [
+    { "b": 0, "expect": "depart.n" }, { "b": 22.4, "expect": "depart.n" }, { "b": 22.5, "expect": "depart.ne" }, { "b": 67.4, "expect": "depart.ne" },
+    { "b": 67.5, "expect": "depart.e" }, { "b": 135, "expect": "depart.se" }, { "b": 180, "expect": "depart.s" }, { "b": 225, "expect": "depart.sw" },
+    { "b": 270, "expect": "depart.w" }, { "b": 315, "expect": "depart.nw" }, { "b": 337.4, "expect": "depart.nw" }, { "b": 337.5, "expect": "depart.n" },
+    { "b": 360, "expect": "depart.n" }
+  ],
+  "arriveVariants": [
+    { "maneuver": { "type": "arrive" }, "expect": "arrive" },
+    { "maneuver": { "type": "arrive", "modifier": "straight" }, "expect": "arrive" },
+    { "maneuver": { "type": "arrive", "modifier": "sharp left" }, "expect": "arrive.left" },
+    { "maneuver": { "type": "arrive", "modifier": "right" }, "expect": "arrive.right" }
+  ]
+}

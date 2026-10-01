@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Own path (same artwork as web/src/ui/routeIcons.ts); decorative. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <group android:pivotX="12" android:scaleX="-1"><path android:fillColor="#FFFFFFFF" android:pathData="M11 21V11L5 5l1.4-1.4L12 9.2l4.6-4.6H14V2.6h6v6h-2V6L13 11v10Z" /></group>
+</vector>

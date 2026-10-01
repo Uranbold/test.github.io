@@ -17,7 +17,11 @@ const feature = (properties: PhotonProperties, lon = 106.9176, lat = 47.9189): P
 const RULES: Array<[number | "4a", PhotonProperties, PlaceTypeKey, string, string]> = [
   [1, { name: "Баянзүрх дүүрэг", osm_key: "boundary", osm_value: "administrative" }, "placeType.district", "Дүүрэг", "District"],
   [2, { name: "БЗД-ийн 4-р хороо", osm_key: "office", osm_value: "government" }, "placeType.khoroo", "Хороо", "Khoroo"],
-  [3, { name: "Сэлэнгэ аймаг", osm_key: "boundary", osm_value: "administrative" }, "placeType.aimag", "Аймаг", "Aimag"],
+  // Row 3: «Аймаг» in both UI languages (PO decision D45, untranslated in en); (a) name ending, (b) type=state or place/state.
+  [3, { name: "Сэлэнгэ аймаг", osm_key: "boundary", osm_value: "administrative" }, "placeType.aimag", "Аймаг", "Аймаг"],
+  [3, { name: "Arkhangai", osm_key: "place", osm_value: "state", type: "state" }, "placeType.aimag", "Аймаг", "Аймаг"],
+  [3, { name: "Töv", osm_key: "boundary", osm_value: "administrative", type: "state" }, "placeType.aimag", "Аймаг", "Аймаг"],
+  [3, { name: "Central", osm_key: "place", osm_value: "state", type: "other" }, "placeType.aimag", "Аймаг", "Аймаг"],
   // Row 4: «Сум» in both UI languages (PO decision D34, untranslated in en).
   [4, { name: "Баруунхараа сум", osm_key: "place", osm_value: "village" }, "placeType.soum", "Сум", "Сум"],
   [4, { name: "Bayan-Undur", osm_key: "boundary", osm_value: "administrative", type: "county" }, "placeType.soum", "Сум", "Сум"],
@@ -114,8 +118,23 @@ describe("type labels (story table, AC 19)", () => {
     expect(typeLabelKey({ name: "Налайх дүүрэг", osm_key: "boundary", osm_value: "administrative", type: "county" })).toBe("placeType.district");
     expect(typeLabelKey({ name: "Nalaikh duureg", osm_key: "boundary", osm_value: "administrative", type: "county" })).toBe("placeType.district");
     expect(typeLabelKey({ name: "Сэлэнгэ аймаг", osm_key: "boundary", osm_value: "administrative", type: "county" })).toBe("placeType.aimag");
-    // Aimags are not part of D34 (story Open question 9): Photon's type=state is not read, so no ending → «Газар».
-    expect(typeLabelKey({ name: "Uvurkhangai", osm_key: "boundary", osm_value: "administrative", type: "state" })).toBe("placeType.place");
+    // An aimag boundary without an ending is rule 3 (b), not 4 (b) or «Газар» (D45; was «Газар» before, Open question 9).
+    expect(typeLabelKey({ name: "Uvurkhangai", osm_key: "boundary", osm_value: "administrative", type: "state" })).toBe("placeType.aimag");
+  });
+  it("rule 3 (b) reads type=state or place/state and runs after rules 1–2, before rules 4, 4a and 5–7 (D45, R13)", () => {
+    // Either half alone is enough: type=state (Töv R 3382267, boundary/administrative) or place/state (Töv node, type=other).
+    expect(typeLabelKey({ name: "Töv", osm_key: "boundary", osm_value: "administrative", type: "state" })).toBe("placeType.aimag");
+    expect(typeLabelKey({ name: "Central", osm_key: "place", osm_value: "state", type: "other" })).toBe("placeType.aimag");
+    expect(typeLabelKey({ name: "Central", osm_key: "place", osm_value: "state" })).toBe("placeType.aimag");
+    // Not an aimag: other place values with no ending, and osm_value=state under another key.
+    expect(typeLabelKey({ name: "Ulaanbaatar", osm_key: "place", osm_value: "city", type: "city" })).toBe("placeType.city");
+    expect(typeLabelKey({ name: "Chingeltei", osm_key: "boundary", osm_value: "administrative", type: "district" })).toBe("placeType.district");
+    expect(typeLabelKey({ name: "Sukhbaatar", osm_key: "boundary", osm_value: "administrative", type: "county" })).toBe("placeType.soum");
+    expect(typeLabelKey({ name: "Төв", osm_key: "place", osm_value: "suburb", type: "district" })).toBe("placeType.neighbourhood");
+    expect(typeLabelKey({ name: "State", osm_key: "office", osm_value: "state" })).toBe("placeType.place");
+    // Name endings of rules 1–2 still win over rule 3 (b).
+    expect(typeLabelKey({ name: "Сүхбаатар дүүрэг", osm_key: "boundary", osm_value: "administrative", type: "state" })).toBe("placeType.district");
+    expect(typeLabelKey({ name: "1-р хороо", osm_key: "place", osm_value: "state" })).toBe("placeType.khoroo");
   });
   it("uses the name after removing traditional script (AC 18)", () => {
     expect(typeLabelKey({ name: "Сэлэнгэ аймаг ᠰᠡᠯᠡᠩᠭᠡ", osm_key: "boundary" })).toBe("placeType.aimag");
@@ -202,6 +221,95 @@ describe("fixture F17 (AC 19, 20, 45; D34)", () => {
     const noExtent = feature({ ...soum, name: "Bayan-Undur" });
     expect(resultInfo(noExtent).bounds).toBeNull();
     expect(zoomForType(resultInfo(noExtent).typeKey)).toBe(13);
+  });
+});
+
+/**
+ * Story fixture F18 (PO decision D45; QA check test plan › tier C row C8, live Photon 1.3.0, 2026-09-30): the 21 aimag
+ * relations and the Töv label node, each with its lang=mn and lang=en name, get row 3 «Аймаг» in both UI languages.
+ * The lang=en names carry no " aimag" / " province" ending ("East Gobi", "Töv"), so only condition (b) can match them.
+ * Objects that are not aimags (Ulaanbaatar, düüregs, soums, cities and suburbs sharing aimag names) never get «Аймаг».
+ */
+describe("fixture F18: aimags (AC 19, 20, 45; D45)", () => {
+  type Obj = readonly [osmType: "N" | "W" | "R", osmId: number, osmKey: string, osmValue: string, type: string, nameMn: string, nameEn: string];
+  const AIMAGS: readonly Obj[] = [
+    ["R", 270075, "place", "state", "state", "Архангай ᠠᠷᠤ ᠬᠠᠩᠭ᠋ᠠᠢ", "Arkhangai"],
+    ["R", 3382266, "place", "state", "state", "Баян-Өлгий", "Bayan-Ulgii"],
+    ["R", 270052, "place", "state", "state", "Баянхонгор", "Bayankhongor"],
+    ["R", 270073, "place", "state", "state", "Булган", "Bulgan"],
+    ["R", 270054, "place", "state", "state", "Говь-Алтай", "Govi-Altai"],
+    ["R", 270095, "place", "state", "state", "Говьсүмбэр", "Govisümber"],
+    ["R", 270091, "place", "state", "state", "Дархан-Уул", "Darkhan-Uul"],
+    ["R", 270050, "place", "state", "state", "Дорноговь", "East Gobi"],
+    ["R", 269886, "place", "state", "state", "Дорнод", "Dornod"],
+    ["R", 270094, "place", "state", "state", "Дундговь", "Middle Gobi"],
+    ["R", 4074177, "place", "state", "state", "Завхан", "Zavkhan"],
+    ["R", 270092, "place", "state", "state", "Орхон", "Orkhon"],
+    ["R", 270074, "place", "state", "state", "Өвөрхангай", "Uvurkhangai"],
+    ["R", 270051, "place", "state", "state", "Өмнөговь", "South Gobi"],
+    ["R", 269874, "place", "state", "state", "Сүхбаатар", "Sükhbaatar"],
+    ["R", 270089, "place", "state", "state", "Сэлэнгэ", "Selenge"],
+    ["R", 3382267, "boundary", "administrative", "state", "Төв", "Töv"],
+    ["R", 270059, "place", "state", "state", "Увс", "Uvs"],
+    ["R", 270055, "place", "state", "state", "Ховд", "Khovd"],
+    ["R", 270072, "place", "state", "state", "Хөвсгөл", "Khövsgöl"],
+    ["R", 269885, "place", "state", "state", "Хэнтий", "Khentii"],
+  ];
+  const TOV_NODE: Obj = ["N", 2704047290, "place", "state", "other", "Төв", "Central"];
+  const NOT_AIMAGS: ReadonlyArray<readonly [Obj, PlaceTypeKey]> = [
+    [["R", 270090, "place", "city", "city", "Улаанбаатар", "Ulaanbaatar"], "placeType.city"],
+    [["R", 4479697, "place", "city", "city", "Улаанбаатар", "Ulaanbaatar"], "placeType.city"],
+    [["R", 14669144, "boundary", "administrative", "district", "Сүхбаатар дүүрэг", "Sükhbaatar"], "placeType.district"],
+    [["R", 14669145, "boundary", "administrative", "district", "Чингэлтэй", "Chingeltei"], "placeType.district"],
+    [["R", 14669140, "boundary", "administrative", "district", "Багануур", "Baganuur"], "placeType.district"],
+    [["R", 16031519, "boundary", "administrative", "county", "Сүхбаатар сум", "Sukhbaatar"], "placeType.soum"],
+    [["R", 7304591, "boundary", "administrative", "county", "Сүхбаатар", "Sukhbaatar"], "placeType.soum"],
+    [["R", 7302706, "boundary", "administrative", "county", "Орхон сум", "Orkhon"], "placeType.soum"],
+    [["R", 7302453, "boundary", "administrative", "county", "Зуунмод сум", "Zuunmod"], "placeType.soum"],
+    [["R", 7302213, "place", "city", "city", "Дархан", "Darkhan"], "placeType.city"],
+    [["W", 41700355, "place", "city", "city", "Сүхбаатар", "Sukhbaatar"], "placeType.city"],
+    [["R", 7302596, "place", "city", "city", "Булган", "Bulgan"], "placeType.city"],
+    [["N", 4355349394, "place", "suburb", "district", "Төв", "Төв"], "placeType.neighbourhood"],
+    [["N", 4355349288, "place", "suburb", "district", "Хан-Уул", "Khan-Uul"], "placeType.neighbourhood"],
+    [["W", 229130893, "place", "village", "city", "Орхон", "Орхон"], "placeType.settlement"],
+  ];
+  // Extent as Photon returns it: [minLon, maxLat, maxLon, minLat] (Arkhangai, live).
+  const EXTENT: [number, number, number, number] = [98.173393, 49.204927, 103.677711, 46.823547];
+  const both = ([osm_type, osm_id, osm_key, osm_value, type, nameMn, nameEn]: Obj, extent?: typeof EXTENT): PhotonFeature[] =>
+    [nameMn, nameEn].map((name) => feature({ osm_type, osm_id, osm_key, osm_value, type, name, countrycode: "MN", ...(extent ? { extent } : {}) }));
+
+  it("has the 21 aimags of QA's layer=state enumeration, none named with an aimag ending", () => {
+    expect(new Set(AIMAGS.map((a) => a[1])).size).toBe(21);
+    for (const a of AIMAGS) expect(a[6]).not.toMatch(/ (aimag|province)$/i);
+  });
+
+  it("every aimag relation is row 3 «Аймаг» in the mn and the en UI, for the lang=mn and the lang=en name", () => {
+    for (const a of AIMAGS) {
+      for (const f of both(a, EXTENT)) {
+        const k = resultInfo(f).typeKey;
+        expect([k, mn[k], en[k]], `${a[0]} ${a[1]} ${f.properties.name}`).toEqual(["placeType.aimag", "Аймаг", "Аймаг"]);
+      }
+    }
+    expect(en["placeType.aimag"]).not.toBe("Aimag");
+  });
+
+  it("the Töv label node N 2704047290 (place/state, type=other) is «Аймаг» and flies to zoom 13 without extent (AC 20)", () => {
+    for (const f of both(TOV_NODE)) {
+      const info = resultInfo(f);
+      expect(info.typeKey).toBe("placeType.aimag");
+      expect(info.bounds).toBeNull();
+      expect(zoomForType(info.typeKey)).toBe(13);
+    }
+  });
+
+  it("an aimag relation fits its extent (AC 20)", () => {
+    expect(resultInfo(both(AIMAGS[0]!, EXTENT)[1]!).bounds).toEqual([[98.173393, 46.823547], [103.677711, 49.204927]]);
+  });
+
+  it("Ulaanbaatar, düüregs, soums, cities and suburbs sharing aimag names are never «Аймаг»", () => {
+    for (const [o, expected] of NOT_AIMAGS) {
+      for (const f of both(o)) expect(typeLabelKey(f.properties), `${o[0]} ${o[1]} ${f.properties.name}`).toBe(expected);
+    }
   });
 });
 

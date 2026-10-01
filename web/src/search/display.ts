@@ -59,14 +59,22 @@ type Rule = readonly [PlaceTypeKey, (p: PhotonProperties, name: string) => boole
 
 /**
  * Story section D, table "Type labels" (rows 1, 2, 3, 4, 4a, 5–31; row 32 is the fallback in typeLabelKey): applied
- * top to bottom, the first match wins. Rules 1–3 and 4 (a) read the name ending (it differs between `lang=mn` and
- * `lang=en`); rules 4 (b), 4a–31 read Photon's `osm_key` / `osm_value` / `type`, which are the same in both languages
- * (AC 19; rule 4 (b) added by PO decision D34).
+ * top to bottom, the first match wins. Rules 1, 2, 3 (a) and 4 (a) read the name ending (it differs between `lang=mn`
+ * and `lang=en`); rules 3 (b), 4 (b), 4a–31 read Photon's `osm_key` / `osm_value` / `type`, which are the same in both
+ * languages (AC 19; rule 4 (b) added by PO decision D34, rule 3 (b) by D45).
  */
 export const TYPE_LABEL_RULES: readonly Rule[] = [
   ["placeType.district", (_, n) => endsWithAny(n, SUFFIX.district)],
   ["placeType.khoroo", (_, n) => endsWithAny(n, SUFFIX.khoroo)],
-  ["placeType.aimag", (_, n) => endsWithAny(n, SUFFIX.aimag)],
+  // Rule 3: (a) an aimag name ending, or (b) Photon's aimag class, whatever its name ("Arkhangai", "East Gobi" with
+  // lang=en): type=state (all 21 aimag relations, incl. Töv R 3382267 boundary/administrative) or place/state (the Töv
+  // label node N 2704047290, type=other). Both halves are needed (QA check, test plan tier C row C8). Ulaanbaatar is
+  // place/city/type=city and is not matched. The en value of placeType.aimag is «Аймаг», untranslated (PO decision D45).
+  // After rules 1–2, so a «… дүүрэг» / «… хороо» name still wins; before rules 4, 4a and 5–7.
+  [
+    "placeType.aimag",
+    (p, n) => endsWithAny(n, SUFFIX.aimag) || p.type === "state" || is(p, "place", ["state"]),
+  ],
   // Rule 4: (a) a soum name ending on a boundary or place, or (b) Photon's soum boundary class, whatever its name
   // ("Bayan-Undur" with lang=en). One row, so a soum gets the same row in both UI languages (AC 19). The en value of
   // placeType.soum is the Mongolian word «Сум», untranslated (PO decision D34). After rules 1–3, so a type=county

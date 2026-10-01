@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.5.0
+  version: 0.5.1
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
@@ -9,8 +9,25 @@ info:
 
     Design decisions: ADR-0002 (gateway, pass-through, CORS, paths), ADR-0003 (Photon index source),
     ADR-0005 (staging hosting; deployment in `docs/architecture/deployment-staging.md`), ADR-0006 (web search
-    client: query assistance and request orchestration over `search` / `reverse`) and ADR-0008 (on-screen route
-    instruction text is generated on the client from OSRM manoeuvre fields, not taken from Valhalla's narrative).
+    client: query assistance and request orchestration over `search` / `reverse`), ADR-0008 (on-screen route
+    instruction text is generated on the client from OSRM manoeuvre fields, not taken from Valhalla's narrative)
+    and ADR-0009 (Android guidance client: app-owned route requests and reroute policy, keyed banner and voice text).
+
+    **Changes in 0.5.1 (2026-10-01, NAV-005 design, ADR-0009).** Documentation only. No path, parameter, status
+    code, header, schema type or gateway behaviour change, so there is nothing for backend to implement (backend
+    re-runs the contract check, which now also sends the new request examples):
+    - `postRoute`: **Android guidance client profile (NAV-005)**: exact request body (`alternates: 0`,
+      `voice_instructions: true`), reroute body with `locations[0].heading`, client timeout and the client reroute
+      pacing that keeps load bounded (at most 1 in flight, starts >= 5 s apart, <= 6 per 60 s per device). New
+      request examples `guidanceCarMn`, `guidanceRerouteHeading`, `guidanceWalkEn`.
+    - `ValhallaLocation.heading`: client rule (integer 0-359, course over ground, only when speed >= 2 m/s; no
+      `heading_tolerance`).
+    - `VoiceInstruction` / `BannerInstruction` / `OsrmStep.voiceInstructions`: which manoeuvre a step's
+      instructions describe, and the measured Valhalla 3.9.0 trigger layout (depart trigger, "continue" trigger at
+      step distance - 10 m, short-step triggers at the step start). Informative: NAV-005 neither speaks
+      `announcement` nor uses these trigger points; it schedules prompts on the device.
+    - `search` and `getBasemapPmtiles`: NAV-005 Android client notes (same NAV-003 search profile with the query sent
+      as typed; MapLibre Native reads the archive with `pmtiles://`, no CORS involved).
 
     **Changes in 0.5.0 (2026-09-30, NAV-004 design, ADR-0008).** Backward compatible, additive only. No path,
     status code, header or gateway behaviour change, so there is nothing for backend to implement (backend re-runs
@@ -115,7 +132,8 @@ info:
     per-IP rate limits (PO decision D8). Authentication is decided before any public release.
 
     Story traceability: NAV-001 (all operations), NAV-003 (`search`, `reverse` web client profile),
-    NAV-004 (`postRoute` web route-preview client profile, `bicycle`), NAV-008 (staging server, 429).
+    NAV-004 (`postRoute` web route-preview client profile, `bicycle`), NAV-005 (`postRoute` Android guidance and
+    reroute profile, `search`, tiles from MapLibre Native), NAV-008 (staging server, 429).
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -203,7 +221,12 @@ paths:
         Label fields in the Protomaps schema are `name`, `name:en`, `name:ru` and other
         languages, but **not** `name:mn` (ADR-0002 Consequences). Clients use `name` as the
         Mongolian label.
-      x-stories: [NAV-001, NAV-002]
+
+        **Android (NAV-005, ADR-0009 §6):** MapLibre Native Android reads the archive with the source URL
+        `pmtiles://` + gateway base URL + `/tiles/basemap.pmtiles`, with HTTP Range requests and no `Origin`
+        header (CORS does not apply). Style, glyphs and sprites are bundled in the APK; this path is the only
+        tiles request.
+      x-stories: [NAV-001, NAV-002, NAV-005]
       parameters:
         - $ref: "#/components/parameters/Range"
         - $ref: "#/components/parameters/IfNoneMatch"
@@ -287,15 +310,17 @@ paths:
       operationId: postRoute
       summary: Route between locations (story symbol ROUTE), Valhalla pass-through
       description: |
-        Forwards the JSON body unchanged to Valhalla `/route`. This is the endpoint Ferrostar's
-        Valhalla route provider POSTs to, and its OSRM route adapter parses the 200 response.
+        Forwards the JSON body unchanged to Valhalla `/route`. Native clients POST here from their own route
+        client and parse the 200 response with Ferrostar's exported OSRM parser (ADR-0009 §2; Ferrostar's stock
+        Valhalla route provider is not used because it adds fields and drops `Retry-After`).
 
         **Client rules:**
         - Send `format: "osrm"`, `banner_instructions: true` and `voice_instructions: true` for turn-by-turn use.
         - Send `language` explicitly (`mn-MN` by default in the apps, `en-US` for English UI).
           Valhalla silently falls back to `en-US` for unknown languages.
         - Send `units: "kilometers"`.
-        - Rerouting is decided on the client (Ferrostar) and simply calls this endpoint again.
+        - Rerouting is decided on the client (off-route detection by Ferrostar's navigation session, request
+          pacing by the app, ADR-0009 §4) and simply calls this endpoint again.
 
         Dev coverage is the configured OSM extract. `data/build-info.json` records the current bbox.
         - **Default (dev):** all of Mongolia, from the dev-only mirror `https://geo2day.com/asia/mongolia.pbf`
@@ -348,6 +373,35 @@ paths:
         - Static public demo build (`VITE_STATIC_DEMO`, D44, NAV-002 AC 53-54): **0** requests to this path from
           any host; the client shows "routing unavailable" without calling the network.
         - Expected load: at most one request per settled user action, typically well under 1 request/s per client.
+
+        **Android guidance client profile (NAV-005, `mobile/android/`, ADR-0009 §2 and §4).** Informative for
+        backend and QA; the binding rules are the NAV-005 acceptance criteria:
+        - POST only. One request when the route preview opens or changes mode or the avoid toggle, and **0** when
+          guidance starts (the previewed route is navigated). Body, with a fixed set of fields:
+          - `locations` [origin, destination], each `{lat, lon}` with >= 5 decimals
+          - `costing` `auto` | `pedestrian`
+          - `costing_options: {"auto":{"exclude_unpaved":true}}` only for `auto` with the toggle on
+          - `alternates: 0`, `format: "osrm"`, `banner_instructions: true`, `voice_instructions: true`,
+            `units: "kilometers"`
+          - `language` `mn-MN` | `en-US` from the UI language
+          - nothing else: no `filters`, `street_side_tolerance`, `type`, `heading_tolerance`, toll or other options
+        - **Reroute** (decided on the device, NFR-N1): the same body with `locations[0]` = the current position and,
+          when the device moves at >= 2 m/s with a usable bearing, `locations[0].heading` (integer 0-359).
+          `locations[1]` is the original destination. Costing, options, units and language are the ones of the route
+          being followed.
+        - Client pacing per device (fake-clock tested on the client): at most **1** request in flight; consecutive
+          starts **>= 5 s** apart; at most **6** in any rolling 60 s. After network errors, 502, 503 or 504 the
+          back-off is 5, 10, 20, 30, 30 ... s. After 429 there are no requests for `Retry-After` seconds (5 s if
+          unreadable), then exactly one. After 400 `NoRoute` / `NoSegment` / error 171 the next request needs both
+          >= 200 m of movement and >= 30 s. No requests without a validated network, during a GPS loss, or after
+          arrival. So one device produces at most 6 route requests per minute, far below the staging per-IP limit.
+        - Client timeout 12 s (gateway read timeout 10 s + margin). Coordinates only in the POST body.
+        - The client never shows or speaks `maneuver.instruction`, banner `text` or `voiceInstructions[].announcement`.
+          It replaces banner and manoeuvre text with opaque tokens and empties `voiceInstructions` before Ferrostar
+          parses the response. It renders glossary text from `maneuver.type` / `modifier` / `exit` / `bearing_after`,
+          and schedules voice prompts on the device from the live distance and speed (`docs/design/navigation-ux.md`
+          §4.2), not from `distanceAlongGeometry`. `voice_instructions: true` is still sent (NAV-005 AC 5). It uses
+          `waypoints[].distance` for the snap notice.
       x-stories: [NAV-001, NAV-004, NAV-005, NAV-008]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route, docs: "https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/" }
       requestBody:
@@ -439,6 +493,46 @@ paths:
                   banner_instructions: true
                   units: kilometers
                   language: mn-MN
+              guidanceCarMn:
+                summary: NAV-005 Android guidance profile, P1 to P3 by car, Mongolian UI, avoid unpaved on (measured 2026-10-01 without the option, 1 route, 4 steps, voiceInstructions on 3 steps)
+                value:
+                  locations:
+                    - { lat: 47.91890, lon: 106.91760 }
+                    - { lat: 47.88580, lon: 106.91730 }
+                  costing: auto
+                  costing_options: { auto: { exclude_unpaved: true } }
+                  alternates: 0
+                  format: osrm
+                  banner_instructions: true
+                  voice_instructions: true
+                  units: kilometers
+                  language: mn-MN
+              guidanceRerouteHeading:
+                summary: NAV-005 reroute from the current position moving east (heading 90, speed >= 2 m/s) back to P3, car, Mongolian UI
+                value:
+                  locations:
+                    - { lat: 47.91890, lon: 106.91760, heading: 90 }
+                    - { lat: 47.88580, lon: 106.91730 }
+                  costing: auto
+                  alternates: 0
+                  format: osrm
+                  banner_instructions: true
+                  voice_instructions: true
+                  units: kilometers
+                  language: mn-MN
+              guidanceWalkEn:
+                summary: NAV-005 Android guidance profile, P1 to P2 on foot, English UI (no costing_options for pedestrian)
+                value:
+                  locations:
+                    - { lat: 47.91890, lon: 106.91760 }
+                    - { lat: 47.91390, lon: 106.90440 }
+                  costing: pedestrian
+                  alternates: 0
+                  format: osrm
+                  banner_instructions: true
+                  voice_instructions: true
+                  units: kilometers
+                  language: en-US
       responses:
         "200":
           $ref: "#/components/responses/RouteOk"
@@ -538,8 +632,12 @@ paths:
           empty result). Results are merged client-side, without duplicates by `osm_type` + `osm_id`.
         - Client timeout 8 s. A response for a superseded query is discarded.
 
+        **NAV-005 Android client:** the same profile (debounce 250 ms, `lang` from the UI language, bias rounded to 3
+        decimals, at most 2 requests per settled query, 429 per `Retry-After`), but the query is sent **as typed**
+        only. The ADR-0006 assisted variants come with NAV-011. `reverse` is not called by the Android app in NAV-005.
+
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 36). The gateway read timeout is 5 s.
-      x-stories: [NAV-001, NAV-003, NAV-008]
+      x-stories: [NAV-001, NAV-003, NAV-005, NAV-008]
       x-upstream: { service: photon, version: "1.3.0", path: /api, docs: "https://github.com/komoot/photon/blob/1.3.0/docs/api-v1.md" }
       parameters:
         - name: q
@@ -1023,7 +1121,7 @@ components:
           enum: [osrm, json]
           description: Clients send `osrm`. `json` (Valhalla native) is forwarded but not contracted.
         banner_instructions: { type: boolean, description: "OSRM `bannerInstructions` per step (needs format=osrm)" }
-        voice_instructions: { type: boolean, description: "OSRM `voiceInstructions` per step (needs format=osrm). Needed for guidance (NAV-005); omitted by previews (NAV-004)." }
+        voice_instructions: { type: boolean, description: "OSRM `voiceInstructions` per step (needs format=osrm). Sent as `true` by the NAV-005 Android client (preview and reroute, so a previewed route can be navigated without another request); omitted by the NAV-004 web preview." }
         language:
           type: string
           description: Narrative language. Unknown values silently fall back to `en-US`.
@@ -1058,8 +1156,12 @@ components:
           type: integer
           minimum: 0
           maximum: 360
-          description: Travel direction in degrees, used on reroute so the new route starts forward
-        heading_tolerance: { type: integer }
+          description: |
+            Travel direction in degrees clockwise from north, used on reroute so the new route starts forward.
+            NAV-005 client rule (ADR-0009 §2): sent only on `locations[0]` of a reroute, as the course over ground
+            rounded to an integer 0-359, and only when the device moves at >= 2 m/s with a bearing (bearing accuracy
+            <= 45 degrees where the platform reports it). Never on the destination and never in the preview request.
+        heading_tolerance: { type: integer, description: "Not sent by NAV-004/NAV-005 clients (Valhalla default 60 degrees applies)." }
         radius: { type: integer, description: "Snap radius in metres (server max 200)" }
         name: { type: string }
 
@@ -1160,9 +1262,19 @@ components:
           items: { $ref: "#/components/schemas/OsrmIntersection" }
         voiceInstructions:
           type: array
+          description: |
+            Present when `voice_instructions: true`. The entries of step *k* announce the manoeuvre at the **end** of step
+            *k* (the `maneuver` of step *k+1*). The exception is step 0's first entry, the depart prompt, at
+            `distanceAlongGeometry` = step 0's `distance`. The final `arrive` step has none. Ordered by decreasing
+            `distanceAlongGeometry`. Measured layout (Valhalla 3.9.0, 2026-10-01, ADR-0009 F10): a "continue for N km"
+            entry at exactly step `distance` - 10 m on steps that have further entries, an alert entry (car: about
+            500-800 m) and a pre-transition entry (car: about 150-220 m). On short steps a single entry is at the step
+            start. When the following manoeuvre comes within about 12-13 s, Valhalla chains both manoeuvres into
+            one announcement. Clients must not depend on the text; the layout is re-checked on every Valhalla pin change.
           items: { $ref: "#/components/schemas/VoiceInstruction" }
         bannerInstructions:
           type: array
+          description: "Present when `banner_instructions: true`. Like `voiceInstructions`, a step's banners describe the manoeuvre at the end of the step (the `maneuver` of step *k+1*)."
           items: { $ref: "#/components/schemas/BannerInstruction" }
 
     OsrmManeuver:
@@ -1223,8 +1335,8 @@ components:
       required: [announcement, distanceAlongGeometry]
       additionalProperties: true
       properties:
-        distanceAlongGeometry: { type: number, description: Metres before the end of the step at which to speak }
-        announcement: { type: string, description: "Plain text for TTS in the requested language. The `mn-MN` text has the NAV-007 defects; how NAV-005 voices it is decided there (ADR-0008 Consequences)." }
+        distanceAlongGeometry: { type: number, description: "Metres before the end of the step (that is, before the manoeuvre at the end of the step) at which to speak. Not used by NAV-005, which schedules prompts on the device (ADR-0009 §3.3)." }
+        announcement: { type: string, description: "Plain text for TTS in the requested language. The `mn-MN` text has the NAV-007 defects. NAV-005 never speaks it: the Android client empties `voiceInstructions` before parsing and speaks glossary text built from the manoeuvre fields (ADR-0009 §3)." }
         ssmlAnnouncement: { type: string, description: "SSML `<speak>` wrapper around the announcement" }
 
     BannerInstruction:
@@ -1245,7 +1357,7 @@ components:
       required: [text]
       additionalProperties: true
       properties:
-        text: { type: string, description: "Banner text in the requested language. In `mn-MN` not shown on screen as-is (ADR-0008)." }
+        text: { type: string, description: "Banner text in the requested language (Valhalla often puts only the street name here). Not shown on screen as-is by any client, in either language (ADR-0008, ADR-0009)." }
         type: { type: string }
         modifier: { type: string }
         degrees: { type: number }

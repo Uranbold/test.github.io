@@ -22,6 +22,8 @@ declare global {
     __nav002?: { map: MapLibreMap; LABEL_EXPRESSION: typeof LABEL_EXPRESSION; app: App };
     /** NAV-003 test hook, dev builds only (ADR-0006, web/README.md › Test hooks). */
     __nav003?: { search: NonNullable<App["search"]>; map: MapLibreMap | null };
+    /** NAV-004 test hook, dev builds only (web/README.md › Test hooks). */
+    __nav004?: { route: NonNullable<App["route"]>; map: MapLibreMap | null };
   }
 }
 
@@ -78,6 +80,9 @@ function main(): void {
   }
   if (import.meta.env.DEV && app.search) {
     window.__nav003 = { search: app.search, map: app.map };
+  }
+  if (import.meta.env.DEV && app.route) {
+    window.__nav004 = { route: app.route, map: app.map };
   }
 }
 

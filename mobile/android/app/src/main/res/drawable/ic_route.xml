@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Own path (same artwork as web/src/ui/icons.ts); decorative. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M18 3a3 3 0 1 1-2.8 4H9.5a2.5 2.5 0 0 0 0 5h5a4.5 4.5 0 0 1 0 9H8.8A3 3 0 1 1 8.8 19h5.7a2.5 2.5 0 0 0 0-5h-5a4.5 4.5 0 0 1 0-9h5.7A3 3 0 0 1 18 3Z" />
+</vector>
