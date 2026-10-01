@@ -94,8 +94,8 @@
   :root[data-view="picker"][data-wide="1"] #r1, :root[data-view="picker"][data-wide="1"] #r2, :root[data-view="picker"][data-wide="1"] #r4 { padding-left: 16px; }
   #picker .head { padding: 12px 16px 0; font-size: calc(16px * var(--tz)); line-height: 1.5; font-weight: 600; flex: none; }
   #picker .scroll { overflow: auto; min-height: 0; flex: 1 1 auto; overscroll-behavior: contain; }
-  #picker .label { padding: 4px 16px 4px; font-size: calc(14px * var(--tz)); font-weight: 500; color: var(--on-surface-variant); }
-  .entry { display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 16px; padding: 10px 16px; min-height: 56px; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; border-top: 1px solid var(--outline-variant); }
+  #picker .label { padding: 0 16px 4px; font-size: calc(14px * var(--tz)); font-weight: 500; color: var(--on-surface-variant); }
+  .entry { display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 16px; padding: 8px 16px; min-height: 56px; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; border-top: 1px solid var(--outline-variant); }
   .entry .radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--on-surface-variant); margin-top: 2px; }
   .entry[aria-checked="true"] .radio { border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 10px var(--primary); }
   .entry .pt { display: grid; grid-template-columns: 16px minmax(0,1fr); gap: 8px; align-items: start; font-size: calc(16px * var(--tz)); line-height: 1.5; }
