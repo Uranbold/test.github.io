@@ -14,7 +14,7 @@ import { loadLang, loadTheme } from "./prefs";
 import { LABEL_EXPRESSION } from "./style/buildStyle";
 import { tokensCss } from "./style/tokens";
 import { StatusMachine } from "./state/status";
-import { App } from "./ui/app";
+import { App, type AppDeps } from "./ui/app";
 
 declare global {
   interface Window {
@@ -50,6 +50,7 @@ function main(): void {
       BASE_URL: import.meta.env.BASE_URL,
     },
     window.location.origin,
+    document.baseURI,
   );
   const i18n = new I18n(loadLang());
   const status = new StatusMachine(navigator.onLine);
@@ -58,7 +59,7 @@ function main(): void {
   addProtocol("pmtiles", protocol.tile);
   protocol.add(new PMTiles(cfg.tilesUrl));
 
-  const app = new App({
+  const deps: AppDeps = {
     cfg,
     i18n,
     status,
@@ -72,7 +73,24 @@ function main(): void {
         window.isSecureContext,
         camera,
       ),
-  });
+  };
+
+  // NAV-017 demo-mode build only (ADR-0011 §2): the one branch into the demo code. In every other build the constant is
+  // false, so the branch, the demo chunk, the WASM and the route data are not in the output (AC 4).
+  if (__NAVMN_DEMO_MODE__) {
+    void import("./demo/demoMain")
+      .then((m) => m.startDemoMode(deps))
+      .catch((err: unknown) => {
+        // The demo chunk did not load: the map shell with the NAV-002 generic error card («Дахин оролдох» reloads).
+        console.error(err);
+        const shell = new App({ ...deps, searchAndRoute: false, createLocation: (camera) => new LocationController(undefined, false, camera) });
+        shell.start();
+        status.fail();
+      });
+    return;
+  }
+
+  const app = new App(deps);
   app.start();
 
   if (import.meta.env.DEV && app.map) {
