@@ -10,6 +10,16 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { S, ROUTES, WEB, openDemo, selectRoute, startReplay, tick, tid, routeBody, readGpx, intersects } from './helpers.mjs';
 
 const VIEWPORTS = [[375, 667], [390, 844], [430, 932], [844, 390]];
+// iPhone safe-area insets (CSS px) for those viewports: SE (status bar only), 13, 15 Pro Max, 13 landscape (notch left
+// and right, home indicator). Emulated in Chromium with CDP Emulation.setSafeAreaInsetsOverride; WebKit has no
+// equivalent, so its runs check the layout with zero insets (real insets: AC 48).
+const INSETS = { '375x667': { top: 20, left: 0, bottom: 0, right: 0 }, '390x844': { top: 47, left: 0, bottom: 34, right: 0 }, '430x932': { top: 59, left: 0, bottom: 34, right: 0 }, '844x390': { top: 0, left: 47, bottom: 21, right: 47 } };
+async function emulateInsets(page, w, h) {
+  if (page.context().browser()?.browserType().name() !== 'chromium') return false;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: INSETS[`${w}x${h}`] });
+  return true;
+}
 const ZOOMS = [100, 200];
 
 /** Short arrival track: the last 40 s of G1 (the arrival state without a 5 min replay). */
@@ -19,7 +29,8 @@ async function arrivalBody() {
   return tailBody;
 }
 
-async function reach(page, state, zoom) {
+async function reach(page, state, zoom, w, h) {
+  if (w) await emulateInsets(page, w, h);
   if (zoom !== 100) await page.addInitScript((z) => { document.documentElement.style.fontSize = `${z}%`; }, zoom);
   if (state === 'arrival') { const body = await arrivalBody(); await page.route('**/demo-routes/r1.json', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })); }
   await openDemo(page, { voices: state === 'a1' ? ['en-US'] : ['mn-MN'] });
@@ -63,15 +74,22 @@ async function layoutProblems(page, state) {
     // the attribution link is the topmost element at its centre
     const top = document.elementFromPoint((ar.left + ar.right) / 2, (ar.top + ar.bottom) / 2);
     if (!top || !(link.contains(top) || top.contains(link))) out.push(`attribution covered by ${top?.className || top?.tagName}`);
-    // interactive elements inside the viewport (safe-area insets are 0 in a headless engine) and reachable
+    // interactive elements inside the safe area (env(safe-area-inset-*) measured with a probe) and reachable
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;left:env(safe-area-inset-left);top:env(safe-area-inset-top);right:env(safe-area-inset-right);bottom:env(safe-area-inset-bottom)';
+    document.body.append(probe);
+    const pr = probe.getBoundingClientRect();
+    const inset = { l: pr.left, t: pr.top, r: vw - pr.right, b: vh - pr.bottom };
+    probe.remove();
     const controls = [...document.querySelectorAll('button, [role=radio], a[href]')].filter(vis).filter((e) => !e.closest('.maplibregl-ctrl-attrib'));
     for (const c of controls) {
       const r = R(c);
       if (r.width === 0 || r.height === 0) continue;
-      if (r.left < -0.5 || r.right > vw + 0.5 || r.top < -0.5 || r.bottom > vh + 0.5) {
+      if (r.left < inset.l - 0.5 || r.right > vw - inset.r + 0.5 || r.top < inset.t - 0.5 || r.bottom > vh - inset.b + 0.5) {
         // inside a scrolling sheet a row may be scrolled out of view (Known limitation 3): allowed when its scroller can reach it
         const sc = c.closest('.demo-list, .demo-picker');
-        if (!sc || sc.scrollHeight <= sc.clientHeight) out.push(`control outside the viewport: ${c.getAttribute('data-testid') || c.getAttribute('aria-label') || c.textContent.trim().slice(0, 30)}`);
+        const inSafeX = r.left >= inset.l - 0.5 && r.right <= vw - inset.r + 0.5;
+        if (!sc || sc.scrollHeight <= sc.clientHeight || !inSafeX) out.push(`control under a safe-area inset or outside the viewport (insets t${inset.t} r${inset.r} b${inset.b} l${inset.l}): ${c.getAttribute('data-testid') || c.getAttribute('aria-label') || c.textContent.trim().slice(0, 30)} [${r.left | 0},${r.top | 0},${r.right | 0},${r.bottom | 0}]`);
       }
     }
     const must = state === 'picker' ? ['demo-start'] : state === 'arrival' ? ['demo-nav-close'] : ['demo-nav-end', 'demo-nav-voice', ...(state === 'guidance' ? ['demo-nav-recenter'] : [])];
@@ -115,7 +133,7 @@ for (const [w, h] of VIEWPORTS) {
       for (const state of ['picker', 'guidance', 'a1', 'arrival']) {
         const ctx = await browser.newContext({ ...use, viewport: { width: w, height: h }, reducedMotion: 'reduce' });
         const page = await ctx.newPage();
-        await reach(page, state, zoom);
+        await reach(page, state, zoom, w, h);
         if (state === 'a1') await expect(page.locator('[data-kind="voice-unavailable"]')).toBeVisible();
         if (state === 'arrival') await expect(tid(page, 'demo-nav-arrival')).toBeVisible();
         for (const p of await layoutProblems(page, state)) problems.push(`${state}: ${p}`);
@@ -134,9 +152,9 @@ test('AC37 safe areas (static): viewport-fit=cover, and every demo region pads w
   expect(html).toMatch(/viewport-fit=cover/);
   const css = readdirSync(dir + 'assets').filter((f) => f.endsWith('.css')).map((f) => readFileSync(dir + 'assets/' + f, 'utf8')).join('\n');
   for (const edge of ['top', 'bottom', 'left', 'right']) expect(css, `env(safe-area-inset-${edge})`).toContain(`env(safe-area-inset-${edge}`);
-  const demo = css.slice(css.indexOf('.demo-nav'));
-  expect(demo).toMatch(/\.dn-top[^{]*\{[^}]*safe-area-inset-top/);
-  expect(demo).toMatch(/safe-area-inset-bottom/);
+  // the guidance overlay container pads top, right and left; the attribution strip (R5) pads the bottom
+  expect(css).toMatch(/\.demo-nav\{[^}]*safe-area-inset-top[^}]*safe-area-inset-right[^}]*safe-area-inset-left/);
+  expect(css).toMatch(/safe-area-inset-bottom/);
   expect(css).not.toMatch(/height:\s*100vh/);
 });
 
