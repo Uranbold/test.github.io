@@ -5,10 +5,10 @@
 - **Stories:** NAV-016 (draft: voice fallback implementation), NAV-005 (AC 34, 38–40), NAV-007 (AC 9–12), NAV-015 (iOS), the web demo mode (parallel run). Evidence: [spike `mongolian-voice-tts`](../spikes/mongolian-voice-tts.md).
 
 ## Context
-- **No device voice.** The spike found no Mongolian (`mn`) voice in any first-party engine: Apple system voices (so iOS Safari and every iOS browser too), Google Speech Recognition & Synthesis, Samsung TTS, Huawei ML Kit. The open engines eSpeak NG, RHVoice and Piper have none either. The only browser with Mongolian voices is Edge desktop, and those are Microsoft cloud voices. This is desk evidence (spike §2). NAV-007 AC 9 confirms it per device.
+- **Almost no device voice.** The spike found no Mongolian (`mn`) voice in any first-party engine: Apple system voices (so iOS Safari and every iOS browser too), Google Speech Recognition & Synthesis, Samsung TTS, Huawei ML Kit. RHVoice and Piper have none either. The exception is **eSpeak NG**: Mongolian was merged on 2025-05-27 (PR #2202) and ships in NVDA 2025.2 (Windows). But it is formant (robotic), GPL-3.0 (we cannot bundle it), and the official Android build predates the merge, so on phones it is at most a voice a user installs. The only browser with Mongolian voices is Edge desktop, and those are Microsoft cloud voices. This is desk evidence (spike §2). NAV-007 AC 9 confirms it per device, including whether eSpeak NG `mn` is installable.
 - **The prompt set is closed.** Since ADR-0009 §3.3 and navigation-ux §4.1, every Mongolian prompt comes from a pure generator over a closed set: instruction parts (ADR-0008 keys), C4 ordinals, a distance prefix from a fixed rounding table (C3, D67), and fixed phrases (A11–A13, off-route, GPS). **No street names are spoken** in this slice (C5).
-- **Cloud voices exist.** Neural Mongolian voices exist as cloud services: Azure `mn-MN-YesuiNeural`/`BataaNeural`, Chimege and others. Using them **at runtime** brings network dependence while driving, per-use cost and cross-border text (D9).
-- **No usable on-device model.** The only on-device open model, MMS-TTS `mon`, is CC-BY-NC (non-commercial).
+- **Cloud voices exist.** Neural Mongolian voices exist as cloud services: Azure `mn-MN-YesuiNeural`/`BataaNeural`, Chimege and others. Google Gemini-TTS lists mn-MN (Preview); the classic voice types have none. Its Preview terms, output rights and price for our case are unknown (spike §2.2). Using them **at runtime** brings network dependence while driving, per-use cost and cross-border text (D9).
+- **No usable on-device model.** The only on-device open neural model, MMS-TTS `mon`, is CC-BY-NC (non-commercial). The eSpeak NG Mongolian phonemiser makes a self-trained Piper/VITS voice more feasible, but that stays out of the MVP (spike §3.3).
 - **Constraints:**
   - privacy: nothing route-derived leaves the device
   - offline and tunnel behaviour (NAV-005 AC 34: a prompt starts ≤ 1 s after its trigger and is dropped after 3 s)
@@ -17,17 +17,19 @@
   - glossary-exact wording (NAV-007 AC 12–13)
 
 ## Decision (proposed)
-1. **Fallback order for Mongolian voice:** clip pack → chime + A1 notice (pack missing, corrupt or failing to play). **Device TTS is not used for Mongolian**, even if a device reports an `mn` voice. That keeps quality consistent and panel-tested (spike §6 Q5, PO to confirm). **English keeps device TTS** (ADR-0009 §3.4), with the chime fallback.
+1. **Fallback order for Mongolian voice:** clip pack → chime + A1 notice (pack missing, corrupt or failing to play). **English keeps device TTS** (ADR-0009 §3.4), with the chime fallback.
+   - **Open PO option (spike §6 Q5), not decided here:** whether and where a device `mn` voice (today realistically only a user-installed eSpeak NG, which is robotic) fits into this order. Options: never; only when the pack is missing or fails, before the chime; only for engines that pass NAV-007 AC 10; or a user setting. This ADR is accepted with whichever option the PO chooses.
 2. **The voice generator returns segments as well as text.** The pure generator (navigation-ux §4.1; Kotlin in NAV-005, ports for iOS and web) returns, for each prompt, the display string (unchanged; still feeds the golden set, NAV-005 AC 40) **and** an ordered list of **segment keys**. Example: `["dist.m.300", "instr.turn.right"]`, or `["dist.km.1_5", "instr.keep.left", "join.then", "instr.turn.slightRight"]`. Rules:
    - joins only at natural prosodic boundaries: after the distance prefix, and around «дараа нь»
    - numbers and units are one segment («гурван зуун метрт»), never split
    - "continue on" with n ≥ 10 km is composed from attributive numeral segments plus a tail segment
+   - an instruction segment that stands as `{first}` before «дараа нь» may need a **non-final take** (continuing intonation), because the sentence-final take may sound like two sentences. The F4 listening test decides this; if needed, it adds roughly 35–45 segments per voice (spike §3.2)
    - **every generator output must map to existing segments.** A pure test enumerates the generator domain and fails on any unmapped key
 3. **Pack format.** A versioned pack per voice: one audio file per segment, plus `manifest.json` with:
    - `packVersion`, `voiceId`, `source` (vendor + voice, or "recorded"), `glossaryRevision`
-   - per-segment `key`, the exact **spoken text** (spelled-out numerals), `durationMs`, `sha256`
+   - per-segment `key`, the take (final or non-final, if F4 requires both), the exact **spoken text** (spelled-out numerals), `durationMs`, `sha256`
    
-   A single format that decodes natively on Android, iOS and browsers (for example AAC-LC `.m4a`, mono). The codec choice is the mobile engineer's, recorded in NAV-016. Estimated size about 1.2 MB per voice (spike §3.2, estimate).
+   A single format that decodes natively on Android, iOS and browsers (for example AAC-LC `.m4a`, mono). The codec choice is the mobile engineer's, recorded in NAV-016. Estimated size about 1.2 MB per voice, about 1.4 MB with non-final takes (spike §3.2, estimate).
 4. **Generation happens at build time, never at runtime.**
    - **Source (b1), neural.** A generator script calls the chosen TTS vendor **once per segment**, with the spelled-out text. The vendor is chosen by the F4 listening comparison.
    - **Source (b2), recorded.** The same manifest drives a recording script for a voice talent.
@@ -50,9 +52,9 @@
 ## Alternatives considered
 | Option | Pros | Cons |
 |---|---|---|
-| **Device TTS only** (status quo) | No work; free; local | No Mongolian voice on any first-party engine (spike §2). The result would be chime-only for almost all users, so the "Mongolian voice" promise (research §7 Phase 1) is not met |
-| **Runtime cloud TTS through the gateway** (`/v1/tts`, key server-side, cache) | Any text, including future street names; one implementation | Network-dependent while driving (AC 34 drops late prompts); still needs an offline fallback; contract change; per-use cost (about USD 575/month at 1,000 drives/day without a cache, estimate); route-derived text crosses the border (D9) unless a Mongolian provider is used. For a closed set, a cache converges to this ADR anyway |
-| **On-device open model** (MMS-TTS, Piper, own VITS) | Offline; any text | MMS is non-commercial (excluded); Piper has no Mongolian voice and its successor is GPL-3.0; our own model is an ML project with quality risk; tens of MB per voice; impractical on the web |
+| **Device TTS only** (status quo) | No work; free; local | No Mongolian voice on any first-party engine (spike §2); only a user-installed eSpeak NG (robotic, GPL-3.0, not bundleable). The result would be chime-only for almost all users, so the "Mongolian voice" promise (research §7 Phase 1) is not met |
+| **Runtime cloud TTS through the gateway** (`/v1/tts`, key server-side, cache) | Any text, including future street names; one implementation | Network-dependent while driving (AC 34 drops late prompts); still needs an offline fallback; contract change; per-use cost (about USD 540–575/month at 1,000 drives/day without a cache, estimate; the Azure price is from secondary sources, cross-checked against the Azure Retail Prices API, spike §2.2); route-derived text crosses the border (D9) unless a Mongolian provider is used. For a closed set, a cache converges to this ADR anyway |
+| **On-device open model** (MMS-TTS, Piper, eSpeak NG, own VITS) | Offline; any text | MMS is non-commercial (excluded); Piper has no Mongolian voice and its successor is GPL-3.0; eSpeak NG has Mongolian but is formant (robotic) and GPL-3.0; our own model is an ML project with quality risk; tens of MB per voice; impractical on the web |
 | **Full-utterance clips** (one file per complete prompt) | Best prosody, no joins | About 5,000 single prompts plus chained combinations explode the count (estimate). "Continue on" is open-ended in km |
 | **Segment clip pack (chosen, proposed)** | Every phone and browser; offline; < 100 ms start; no runtime data flow; near-zero cost; JVM-testable; wording changes are a regeneration | Join prosody must pass the listening test; the generator gains a segment output; pack versioning tied to the glossary; vendor output terms needed; no street names (acceptable in this slice) |
 
