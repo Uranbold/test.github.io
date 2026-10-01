@@ -5,6 +5,10 @@ import mn.navmn.app.engine.GuidanceEvent
 import mn.navmn.app.engine.GuidancePhase
 import mn.navmn.app.geo.Geo
 import mn.navmn.app.i18n.Lang
+import mn.navmn.app.instructions.ManeuverInput
+import mn.navmn.app.instructions.ManeuverRules
+import mn.navmn.app.instructions.VoiceContent
+import mn.navmn.app.instructions.VoiceText
 import mn.navmn.app.location.Fix
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.service.GuidanceNotificationText
@@ -700,6 +704,16 @@ class QaGpxReplayTest {
         assertTrue("fixture: the route has a manoeuvre between the near pass and arrive (${steps.size} steps)", steps.size >= 3)
         r.run(fixes, tailMs = 10_000)
         p += arrivalGatingProblems(r, fixes, "G10")
+        // AC 55 at the TRUE end (stricter than the shared 60 m bound): the single arrival fires when the GPX position is
+        // within 30 m of the route end along the route and within 30 m straight-line, after the U-turn.
+        r.events.filter { it.second == GuidanceEvent.Arrived }.forEach { (t, _) ->
+            val along = interpolate(tl, t)
+            val fixAt = fixes.last { it.elapsedMs <= t }
+            val straight = Geo.distance(fixAt.latLon, end)
+            if (oracle.length - along > 30.0) p += "AC 55: arrival at ${t / 1000.0} s, true position ${(oracle.length - along).toInt()} m (along) before the route end"
+            if (straight > 30.0) p += "AC 55: arrival at ${t / 1000.0} s, last fix ${straight.toInt()} m straight-line from the route end"
+            if (along < oracle.maneuverAlong[steps.size - 2]) p += "Amendment 3 §5: arrival at ${t / 1000.0} s before the U-turn"
+        }
         val passAt = fixes[nearEarly.last()].elapsedMs
         if (r.stateAt(passAt + 1_000L)?.phase != GuidancePhase.NAVIGATING) p += "AC 55: phase 1 s after the near pass ${r.stateAt(passAt + 1_000L)?.phase}"
         p += bannerProblems(r, Lang.MN).map { "AC 28/31: $it" }
@@ -742,6 +756,66 @@ class QaGpxReplayTest {
         p += ac34Problems(r, trueFixes).map { "AC 34: $it" }
         p += bannerAdvanceProblems(r, trueFixes).map { "AC 31: $it" }
         println("$id outlier at ${outlierAt / 1000.0} s (true remaining ${trueRemaining.toInt()} m), arrival ${r.events.filter { it.second == GuidanceEvent.Arrived }.map { it.first / 1000.0 }} s, spoken: " + r.spoken.map { "${it.first / 1000.0}s ${it.second.text}" })
+        assertTrue(p.joinToString("\n"), p.isEmpty())
+    }
+
+    // ------------------------------------------------------------------------------------------------ D4 English check
+
+    /** English unit agreement problems in one voice text (navigation-ux §4.1: singular only when the number is "1"). */
+    private fun englishUnitProblems(t: String): List<String> {
+        val p = ArrayList<String>()
+        if (Regex("(^|[^\\d.,])1 (kilometers|meters)\\b").containsMatchIn(t)) p += "plural after 1 «$t»"
+        if (Regex("(\\d\\.\\d+|(^|\\D)([02-9]|\\d{2,})) (kilometer|meter)(?!s)\\b").containsMatchIn(t)) p += "singular after a number other than 1 «$t»"
+        return p
+    }
+
+    /**
+     * TC-R22 (NAV-005-D4 regression, AC 32 en, AC 40, navigation-ux §4.1): no English voice text says "1 kilometers" or
+     * "1 meters", and "1.5 kilometers" stays plural. Sources: every `en` line of the golden set, English replays of G1, G8
+     * (en routes), G5 (en walk route) and G9 (mn route, English voice: the "In 2 kilometers" / "Continue for 19
+     * kilometers" path), and the production renderer at 1,040 m / 1,500 m, because no replay reaches a fractional
+     * kilometre (early prompts fire at the 1 km / 2 km thresholds, "continue on" needs ≥ 2 km).
+     */
+    @Test
+    fun tcR22_englishSingularPluralInEveryVoiceText() {
+        val p = ArrayList<String>()
+        val golden = repoFile("tests/gpx/nav005/golden/voice-golden.tsv").readLines().filter { !it.startsWith("#") && it.split('\t').getOrNull(1) == "en" }
+        if (golden.isEmpty()) p += "golden set has no en lines"
+        golden.forEach { line -> englishUnitProblems(line.split('\t')[4]).forEach { p += "golden: $it" } }
+        val texts = golden.map { it.split('\t')[4] }
+        for (expected in listOf("In 1 kilometer, turn slightly left", "In 1 kilometer, enter the roundabout and take the second exit")) {
+            if (expected !in texts) p += "golden: G8 en has no «$expected»"
+        }
+        val replays = listOf(
+            "G1" to QaRun(QaGpx.routeBytes("G1", "also_en"), TravelMode.CAR, Lang.EN),
+            "G8" to QaRun(QaGpx.routeBytes("G8", "also_en"), TravelMode.CAR, Lang.EN),
+            "G5" to QaRun(QaGpx.routeBytes("G5", "also_en"), TravelMode.WALK, Lang.EN),
+            "G9" to QaRun(QaGpx.routeBytes("G9"), TravelMode.CAR, Lang.EN),
+        )
+        var kmTexts = 0
+        for ((id, r) in replays) {
+            r.run(QaGpx.fixes(id), tailMs = if (id == "G9") 0 else 10_000)
+            if (r.spoken.isEmpty()) p += "$id en: nothing spoken"
+            r.spokenTexts().forEach { t -> englishUnitProblems(t).forEach { p += "$id en: $it" } }
+            r.spokenTexts().filter { Regex("[Ѐ-ӿ]").containsMatchIn(it) }.forEach { p += "$id en: Cyrillic in «$it»" }
+            kmTexts += r.spokenTexts().count { it.contains("kilometer") }
+            println("$id en spoken: " + r.spoken.map { "${it.first / 1000.0}s ${it.second.text}" })
+        }
+        if (kmTexts == 0) p += "no replay produced a kilometre prompt (scan would be vacuous)"
+        if (replays.first { it.first == "G9" }.second.spokenTexts().none { it.startsWith("In 2 kilometers, ") }) p += "G9 en: no «In 2 kilometers, …» prompt"
+        // Fractional kilometres through the production renderer (navigation-ux §4.1 examples; mn unchanged).
+        val en = TestStrings.of(Lang.EN)
+        val mn = TestStrings.of(Lang.MN)
+        val slightLeft = ManeuverRules.key(ManeuverInput("turn", "slight left"))
+        val roundabout2 = ManeuverRules.key(ManeuverInput("roundabout", "right", 2.0))
+        val cases = listOf(
+            VoiceText.render(VoiceContent.Maneuver(slightLeft, 1_500.0), Lang.EN, en) to "In 1.5 kilometers, turn slightly left",
+            VoiceText.render(VoiceContent.Maneuver(roundabout2, 1_500.0), Lang.EN, en) to "In 1.5 kilometers, enter the roundabout and take the second exit",
+            VoiceText.render(VoiceContent.ContinueOn(1_500.0), Lang.EN, en) to "Continue for 1.5 kilometers",
+            VoiceText.render(VoiceContent.Maneuver(slightLeft, 1_040.0), Lang.EN, en) to "In 1 kilometer, turn slightly left",
+            VoiceText.render(VoiceContent.Maneuver(slightLeft, 1_500.0), Lang.MN, mn) to "1,5 километрт бага зэрэг зүүн тийш эргэнэ үү",
+        )
+        for ((actual, expected) in cases) if (actual != expected) p += "renderer: «$actual», expected «$expected»"
         assertTrue(p.joinToString("\n"), p.isEmpty())
     }
 
