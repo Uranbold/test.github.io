@@ -10,7 +10,12 @@ test.use({ reducedMotion: 'reduce' });
 
 const run = async (page, seconds, chunk = 1000) => { for (let left = seconds * 1000; left > 0; left -= chunk) await page.clock.runFor(Math.min(chunk, left)); };
 const dist = (page) => tid(page, 'demo-nav-distance').textContent();
-const nonTile = (reqs, from = 0) => reqs.slice(from).filter((r) => !r.url.includes('/tiles/basemap.pmtiles') && !/^(data|blob):/.test(r.url)).map((r) => r.url);
+// AC 23 / AC 41 "0 network requests other than tiles": read as the map's own static assets from the page origin, i.e.
+// tile ranges, sprite sheets (the night theme loads sprites/v4/dark.* on its first switch) and glyph ranges
+// (fonts/*.pbf for labels at a new zoom). Anything else (route data, scripts, other hosts, /v1/*) is a failure.
+// Interpretation recorded in the test plan §5; the BA may tighten it.
+const MAP_ASSET = /\/tiles\/basemap\.pmtiles$|\/sprites\/v4\/[^/]+\.(json|png)$|\/fonts\/.+\.pbf$/;
+const nonTile = (reqs, from = 0) => reqs.slice(from).filter((r) => !/^(data|blob):/.test(r.url) && !(r.url.startsWith(site().origin) && MAP_ASSET.test(new URL(r.url).pathname))).map((r) => r.url);
 const hideCanvas = (page) => page.addStyleTag({ content: '.maplibregl-canvas{visibility:hidden !important}' });
 
 test('AC27: depart prompt starts ≤ 2 s after «Эхлэх»; the first speak() and the AudioContext creation/resume happen inside the «Эхлэх» click handler', async ({ page }) => {

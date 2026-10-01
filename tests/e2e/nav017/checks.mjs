@@ -3,6 +3,36 @@
 // NAV-004 AC 23–27 transcriptions. Never web/src.
 import { RouteOracle, ROUTES, alongAt, readGpx, readJson, statedDistance, voiceScanProblems, ac27Text, ac28Problems, allowedTexts, fmtDistance, fmtDuration, nb, intersects, golden, CYRILLIC } from './helpers.mjs';
 
+/** ADR-0009 §1 step-advance exit distance (m): the position counts as "past" a manoeuvre from here on (AC 20). */
+export const STEP_EXIT_M = 5;
+
+/**
+ * Golden rows the demo cannot reproduce because it plays the mn recording in both UI languages (story › Demo routes:
+ * one recording per route). The Android G8 en rows were generated from g8-roundabout-car-en.json, which has 17 steps
+ * (arrive without a side) where the mn recording has 18 (a last left turn, then arrive on the left). Rows 26 and 27 of
+ * G8 en are therefore replaced by the mn rows' (t, manoeuvre) with the navigation-ux §4.1 English text of the same
+ * prompt. Recorded in the test plan §5 and the report; the BA decides whether the golden set gets G8 en rows from the
+ * mn recording (open question). Every other row is compared exactly.
+ */
+const GOLDEN_DERIVED = {
+  'G8|en': { from: 26, text: { '100 метрт зүүн тийш эргэнэ үү': 'In 100 meters, turn left', 'Таны очих газар зүүн талд байна': 'Your destination is on the left' } },
+};
+export function goldenForDemo(track, lang) {
+  const g = golden(track, lang);
+  const d = GOLDEN_DERIVED[`${track}|${lang}`];
+  if (!d) return { rows: g, derived: [] };
+  const gm = golden(track, 'mn');
+  const rows = g.slice(0, d.from);
+  const derived = [];
+  for (let i = d.from; i < gm.length; i++) {
+    const text = d.text[gm[i].text];
+    if (!text) return { rows: g, derived: [`no English text recorded for mn row ${i} «${gm[i].text}»`] };
+    rows.push({ t: gm[i].t, m: gm[i].m, text });
+    derived.push(`#${i} ${gm[i].t} s m${gm[i].m} «${text}» (from mn «${gm[i].text}»; Android golden: ${g[i] ? `${g[i].t} s m${g[i].m} «${g[i].text}»` : 'none'})`);
+  }
+  return { rows, derived };
+}
+
 export function oracleFor(label, track = null) {
   const r = ROUTES[label];
   const o = new RouteOracle(readJson(r.route));
@@ -12,7 +42,7 @@ export function oracleFor(label, track = null) {
 
 /** AC 26 cross-platform check: (manoeuvre, text) sequence equals the golden rows exactly; each start within ± 2 s. */
 export function goldenProblems(spokenList, track, lang) {
-  const g = golden(track, lang);
+  const { rows: g } = goldenForDemo(track, lang);
   const p = [];
   if (g.length === 0) return [`no golden rows for ${track} ${lang}`];
   const n = Math.max(g.length, spokenList.length);
@@ -36,7 +66,7 @@ export function scheduleProblems(spokenList, label, track, lang, mode, oracle = 
   const { o, alongs } = oracle;
   // manoeuvre index of prompt i: from the golden row of this language when its text matches, else from the mn row of the
   // same track at the same position (the demo plays the mn recording in both UI languages, story › Demo routes)
-  const gl = golden(track, lang), gm = golden(track, 'mn');
+  const gl = goldenForDemo(track, lang).rows, gm = golden(track, 'mn');
   const g = spokenList.map((s, i) => (gl[i]?.text === s.text ? gl[i] : gm.length === spokenList.length ? { ...gm[i], text: s.text } : undefined));
   const p = [];
   const seen = new Set();
@@ -148,6 +178,10 @@ export function bannerProblems(log, label, lang, oracle = oracleFor(label)) {
   // AC 20: next manoeuvre within 1 s after the first fix past manoeuvre k. A step switch is a banner text change or an
   // upward jump of the banner distance (two consecutive manoeuvres can have the same text, R2). Switches are assigned to
   // manoeuvres in order, each after the position came within 30 m of that manoeuvre (Ferrostar's entry distance).
+  // "Past" = the first fix at least STEP_EXIT_M = 5 m beyond the manoeuvre (ADR-0009 §1 stepAdvanceDistanceEntryAndExit
+  // distanceAfterEndOfStep = 5, shared with the web through ferrostarConfig.ts). The Android cross-platform oracle
+  // (QaGpxReplayTest.bannerAdvanceProblems) uses the same +5 m. A walker at 1.4 m/s reaches it 3–4 fixes after the
+  // corner, a car within one fix (test plan §5).
   const parse = (txt) => { const m = nb(txt).match(/^([\d,.]+) (м|m|км|km)$/); return m ? parseFloat(m[1].replace(',', '.')) * (/к|k/.test(m[2]) ? 1000 : 1) : null; };
   const events = [];
   for (const c of log.banners) events.push({ t: c.t, kind: 'text' });
@@ -159,7 +193,7 @@ export function bannerProblems(log, label, lang, oracle = oracleFor(label)) {
   let last = -1;
   for (let k = 1; k < steps.length - 1; k++) {
     const entry = alongs.find((a) => a.along >= o.maneuverAlong[k] - 30);
-    const pass = alongs.find((a) => a.along >= o.maneuverAlong[k] + 1);
+    const pass = alongs.find((a) => a.along >= o.maneuverAlong[k] + STEP_EXIT_M);
     if (!entry || !pass) continue;
     const e = sw.find((x) => x.t >= entry.tMs - 50 && x.t > last);
     if (!e) { p.push(`no banner switch after manoeuvre ${k}`); continue; }

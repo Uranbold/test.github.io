@@ -31,7 +31,12 @@ async function arrivalBody() {
 
 async function reach(page, state, zoom, w, h) {
   if (w) await emulateInsets(page, w, h);
-  if (zoom !== 100) await page.addInitScript((z) => { document.documentElement.style.fontSize = `${z}%`; }, zoom);
+  // WebKit runs init scripts before <html> exists: a throw here would also skip the init scripts added after it
+  // (qaInit), so retry on readystatechange instead of failing.
+  if (zoom !== 100) await page.addInitScript((z) => {
+    const set = () => { try { document.documentElement.style.fontSize = `${z}%`; return true; } catch { return false; } };
+    if (!set()) document.addEventListener('readystatechange', () => set(), { once: true });
+  }, zoom);
   if (state === 'arrival') { const body = await arrivalBody(); await page.route('**/demo-routes/r1.json', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })); }
   await openDemo(page, { voices: state === 'a1' ? ['en-US'] : ['mn-MN'] });
   await selectRoute(page, 'R1');
@@ -113,10 +118,14 @@ async function layoutProblems(page, state) {
       if (cs.textOverflow === 'ellipsis' && cs.overflow !== 'visible') out.push('banner instruction can be truncated (ellipsis)');
       if (cs.wordBreak === 'break-all' || cs.overflowWrap === 'anywhere' || cs.hyphens === 'auto') out.push(`banner instruction may break mid-word (${cs.wordBreak}/${cs.overflowWrap}/${cs.hyphens})`);
     }
-    // controls do not overlap each other
+    // controls do not overlap each other, and none is clipped inside a scrolling card (the message stack has
+    // overflow-y: auto; a clipped A1 notice means its text is cut, which the screen spec forbids: "wraps, never truncated")
     const cs2 = controls.filter((c) => !c.closest('.demo-list'));
+    const clipped = (c) => { const sc = c.closest('.dn-messages'); if (!sc || sc.scrollHeight <= sc.clientHeight + 1) return null; const a = R(c), s = R(sc); return a.bottom > s.bottom + 0.5 || a.top < s.top - 0.5 ? `${c.getAttribute('data-testid') || c.textContent.trim().slice(0, 20)} clipped inside a scrolling card (card ${s.top | 0}–${s.bottom | 0}, control ${a.top | 0}–${a.bottom | 0}, card scrolls ${sc.scrollHeight - sc.clientHeight} px)` : null; };
+    for (const c of cs2) { const m = clipped(c); if (m) out.push(m); }
     for (let i = 0; i < cs2.length; i++) for (let j = i + 1; j < cs2.length; j++) {
       if (cs2[i].contains(cs2[j]) || cs2[j].contains(cs2[i])) continue;
+      if (clipped(cs2[i]) || clipped(cs2[j])) continue; // reported above; the visible parts are bounded by the card
       const a = R(cs2[i]), b = R(cs2[j]);
       if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) out.push(`controls overlap: ${cs2[i].getAttribute('data-testid') || cs2[i].textContent.trim().slice(0, 20)} / ${cs2[j].getAttribute('data-testid') || cs2[j].textContent.trim().slice(0, 20)}`);
     }
@@ -158,6 +167,19 @@ test('AC37 safe areas (static): viewport-fit=cover, and every demo region pads w
   expect(css).not.toMatch(/height:\s*100vh/);
 });
 
+/**
+ * axe-core yields between rule groups with setTimeout; under the paused Playwright clock those timers never fire and
+ * analyze() hangs (seen as 5 min timeouts). Pump the fake clock in small steps until the scan resolves; the page state
+ * stays frozen apart from those timers (verified: the same scan finishes in about 1.5 s with the pump).
+ */
+async function axeAnalyze(page, builder) {
+  let settled = false;
+  const scan = builder.analyze().finally(() => { settled = true; });
+  const t0 = Date.now();
+  while (!settled && Date.now() - t0 < 120_000) { await page.clock.runFor(200).catch(() => {}); await page.waitForTimeout(10); }
+  return scan;
+}
+
 async function a11yState(page, state, theme) {
   await page.addInitScript((t) => localStorage.setItem('navmn.theme', t), theme);
   await reach(page, state === 'guidance' ? 'guidance' : state, 100);
@@ -168,7 +190,7 @@ for (const theme of ['day', 'night']) {
     test(`AC38 ${state} (${theme}): axe WCAG 2.2 AA (contrast ≥ 4.5:1, names, ARIA) on the demo UI; every control has a glossary name; touch targets ≥ 44×44 CSS px`, async ({ page }) => {
       test.setTimeout(5 * 60_000);
       await a11yState(page, state, theme);
-      const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('canvas').exclude('.maplibregl-canvas-container').analyze();
+      const res = await axeAnalyze(page, new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('canvas').exclude('.maplibregl-canvas-container'));
       const v = res.violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).slice(0, 4).join(' | ')}`);
       expect(v).toEqual([]);
       // names

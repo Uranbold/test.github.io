@@ -219,6 +219,11 @@ Platform behaviour below comes from public documentation and reports. It was **n
 Requested by the mobile engineer in the NAV-017 handoff. Verified against `web/` at the working tree on 2026-10-01
 (including the uncommitted `vite.config.ts` / `buildtools/demoMode.ts` / `voiceText.ts` changes) with `npm test`,
 `npm run lint`, `npm run typecheck`, `npm run check:glossary` and the three builds. No contract change.
+Re-verified on the committed tree `7b72cea` (second review pass, 2026-10-01): `npm test` 30 files / 602 tests pass,
+lint and the i18n scan pass (163 keys), typecheck 0 errors, `check:glossary` 163/163, `openapi.yaml` 0.5.2 valid; the
+demo-mode build has 0 `crossorigin`, the `noindex` meta, relative `./assets/` URLs, `demo-routes/r1..r3.json`, one
+`.wasm` and no server files; `dist/` and `dist-static-demo/` have 0 `demo-` test ids, 0 `.wasm`, 0 `demo-routes/`
+files and 0 `NavigationController` matches.
 
 **§2 Build, config shape (accepted).** `web/vite.config.ts` stays a **plain object**, because
 `tests/e2e/nav002/vite.alt.config.mjs` spreads it. The demo-mode settings are applied per Vite mode inside plugins
@@ -261,9 +266,30 @@ this is accepted.
 
 **§10 Licence text (required).** BSD-3-Clause requires the copyright notice, the conditions and the disclaimer to be
 reproduced with binary redistributions, and the demo-mode build redistributes the Ferrostar WASM binary. The npm
-package ships no licence file, so `web/THIRD_PARTY_NOTICES.md` must carry the **full upstream `LICENSE` text** of
+package ships no licence file, so `web/THIRD_PARTY_NOTICES.md` must carry the **full upstream licence text** of
 `stadiamaps/ferrostar` at the 0.57.0 tag (copyright line included), like the other entries there. A separate
 `web/licenses/` copy is not required. This is fixed in the NAV-017 fix loop, before the PO uploads the build.
+Located on 2026-10-01 (second review pass): the file in the upstream repository is named **`LICENSE.txt`** (not
+`LICENSE`, which is why the first fetch failed), at
+`https://raw.githubusercontent.com/stadiamaps/ferrostar/0.57.0/LICENSE.txt` (HTTP 200; 31 lines; first line
+`Copyright (c) 2023, Stadia Maps, Inc.`; standard BSD-3-Clause conditions and disclaimer). Still open in
+`THIRD_PARTY_NOTICES.md` at the time of this pass.
+
+**§7 Pending-decision priming (status).** The priming described above is **not yet implemented**: `unlockForStart()`
+resumes the context, plays the silent buffer and calls `speechSynthesis.cancel()`, and `ensureUnlocked()` primes
+speech only once the decision says the language speaks. With the decision still pending at «Эхлэх», the depart prompt
+is chimed and no `speak()` happens inside the gesture. Rated minor (the picker opens after the map's first `idle`, so
+the 3 s decision is normally over before «Эхлэх»), fixed in the NAV-017 fix loop; the AC 48 real-iPhone check "speech
+starts without an extra tap" covers it.
 
 **Consequences, open data items (updated).** Two golden-set items are now open with the BA: G5 `en` has no rows, and
 the G8 `en` rows come from a recording that differs from the one the demo plays.
+
+**Second-pass finding, AC 9 camera fit on phone viewports (defect, mobile-engineer).** Running QA's
+`tests/e2e/nav017/picker.test.mjs` AC 9 on Chromium against `dist-demo-mode/`: at 375×667 and 390×844 a route end lands
+under the picker sheet (375×667: R1 destination at y 334 with the sheet top at 223; R2 and R3 likewise; 390×844: R1
+destination at y 422, sheet top 400); 1366×768 passes. Cause in `web/src/demo/demoMain.ts` › `pickerPadding()`: the
+bottom padding is clamped to half the map height (`clamp(40 + bottom, box.height / 2)`), while the sheet is about 444 px
+tall on these phones, so the fitted bounds end exactly at the clamp edge (334 and 422 px), not above the sheet. The
+clamp should keep a minimum map band instead (for example `top + bottom ≤ map height − 120 px`, then let `maxZoom` and
+MapLibre's own fit limits apply). Not an architecture change.

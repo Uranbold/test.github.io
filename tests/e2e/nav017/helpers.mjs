@@ -15,6 +15,9 @@ const RUNS = OUT + 'runs/';
 export { AC27, allowedTexts, ac28Problems, fmtDistance, fmtDuration, nb, ROOT };
 export const WEB = ROOT + 'web/';
 export const CYRILLIC = /[Ѐ-ӿ]/;
+/** Fake clock installed before navigation; the page reads CLOCK_START + CLOCK_PAUSE_MS when it first paints. */
+export const CLOCK_START = new Date('2026-10-01T13:50:00+08:00');
+export const CLOCK_PAUSE_MS = 5_000;
 
 // ---------------------------------------------------------------- strings quoted in the story (asserted literally)
 export const S = {
@@ -333,9 +336,12 @@ export async function openDemo(page, cfg = {}, folder = 'a') {
   // install() alone lets time keep flowing in real time; pauseAt() makes page time advance ONLY through tick()/runFor(),
   // so "nothing happened in N ms" assertions are exact.
   if (cfg.clock !== false) {
-    const t = cfg.time ?? new Date('2026-10-01T13:50:00+08:00');
+    const t = cfg.time ?? CLOCK_START;
     await page.clock.install({ time: t });
-    await page.clock.pauseAt(new Date(t.getTime() + 1));
+    // pauseAt() must target a time ahead of the fake clock, which runs in real time between install() and pauseAt().
+    // WebKit needs more than 1 ms for the round trip ("Cannot fast-forward to the past"), so pause CLOCK_PAUSE_MS ahead;
+    // the page's clock then reads CLOCK_START + CLOCK_PAUSE_MS at the first paint (ETA oracle: replay.test START).
+    await page.clock.pauseAt(new Date(t.getTime() + CLOCK_PAUSE_MS));
   }
   await page.goto(demoUrl(folder));
   await waitPicker(page);

@@ -7,10 +7,11 @@
 // logic replays (helpers.fullReplay › hideCanvas); layout and rendering are covered in ui.test.mjs and layout.test.mjs.
 import { expect } from '@playwright/test';
 import { test } from './helpers.mjs';
-import { ROUTES, G4, S, SENTINEL, fullReplay, golden, readGpx, readJson, routeBody, sentinelCopy, spoken, intersects } from './helpers.mjs';
-import { bannerProblems, goldenProblems, layoutDuringReplayProblems, liveRegionProblems, oracleFor, progressProblems, scheduleProblems, voiceTextProblems } from './checks.mjs';
+import { ROUTES, G4, S, SENTINEL, CLOCK_START, CLOCK_PAUSE_MS, fullReplay, golden, readGpx, readJson, routeBody, sentinelCopy, spoken, intersects } from './helpers.mjs';
+import { bannerProblems, goldenForDemo, goldenProblems, layoutDuringReplayProblems, liveRegionProblems, oracleFor, progressProblems, scheduleProblems, voiceTextProblems } from './checks.mjs';
 
-const START = new Date('2026-10-01T13:50:00+08:00');
+/** Page clock at the first paint (helpers.openDemo); «Эхлэх» follows within seconds, the ETA oracle allows ± 1 min. */
+const START = new Date(CLOCK_START.getTime() + CLOCK_PAUSE_MS);
 const COORD = /-?\d{1,3}\.\d{4,}/;
 
 /** Hosts and paths of every request (AC 42). */
@@ -64,6 +65,9 @@ function replaySuite(spec) {
 
     if (spec.golden) {
       await test.step(`AC26 golden: (manoeuvre, text) sequence equals voice-golden.tsv ${spec.golden.join(' ')} exactly, each prompt within ± 2 s`, async () => {
+        const { derived } = goldenForDemo(...spec.golden);
+        // rows the demo cannot reproduce (G8 en: the demo plays the mn recording): derived from the mn rows, reported
+        for (const d of derived) ti.annotations.push({ type: `AC26 golden row derived (${spec.golden.join(' ')})`, description: d });
         const list = spec.expectChime ? run.log.chimesRel.map((t, i) => ({ t: t / 1000, text: golden(...spec.golden)[i]?.text ?? '?' })) : said;
         expect.soft(goldenProblems(list, ...spec.golden)).toEqual([]);
       });
