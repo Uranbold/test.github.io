@@ -203,4 +203,73 @@ class VoiceSchedulerTest {
         s.onGpsRestored()
         assertNull(s.evaluate(VoiceScheduler.Input(40_000, plan, 0, 120.0, 14.0)))
     }
+
+    // navigation-ux §4.3 `arrive` sub-rule (NAV-005-D12, AC 32 / D67): the catch-up path gives no approaching prompt
+    // for an `arrive` more than 500 m ahead; the normal approaching prompt then fires at its main trigger.
+    // Last turn → `arrive` 2,990 m (like G9); 22 m/s is fast and the gap is ≥ 700 m, so the arrive main trigger is 500 m.
+    private val toArrive = Plans.plan(Plans.depart to 300.0, Plans.right to 2_990.0, Plans.arrive to 0.0)
+    private val en = TestStrings.of(Lang.EN)
+
+    /** Catch-up at [catchUpD] on the final step, then the normal schedule at [later]; returns every prompt with its d. */
+    private fun arriveCatchUp(restore: Boolean, catchUpD: Double, later: List<Double>): List<Pair<Double, ScheduledPrompt>> {
+        val s = VoiceScheduler(walk = false)
+        s.start(toArrive, 0)
+        if (restore) s.onGpsRestored() else s.onRouteActive()
+        val out = ArrayList<Pair<Double, ScheduledPrompt>>()
+        var t = 60_000L
+        var prev = catchUpD
+        for (d in listOf(catchUpD) + later) {
+            t += ((prev - d) / 22.0 * 1_000).toLong() // the clock follows the 22 m/s drive (rule 2 uses it)
+            prev = d
+            s.evaluate(VoiceScheduler.Input(t, toArrive, 1, d, 22.0))?.let { out += d to it }
+        }
+        return out
+    }
+
+    @Test
+    fun d12NoCatchUpApproachingForArriveMoreThan500mAheadAfterGpsRestore() {
+        for (catchUpD in listOf(980.0, 1_500.0)) {
+            val heard = arriveCatchUp(restore = true, catchUpD, later = listOf(900.0, 700.0, 520.0, 500.0, 480.0, 300.0, 100.0, 40.0))
+            assertTrue("catch-up at $catchUpD m: ${heard.map { it.first }}", heard.none { it.first == catchUpD })
+            // The normal approaching prompt fires once, at its usual threshold (500 m), with the usual text.
+            assertEquals("catch-up at $catchUpD m", listOf(500.0), heard.map { it.first })
+            assertEquals(PromptKind.MAIN, heard[0].second.kind)
+            assertEquals("500 метрт очих газартаа ирнэ", VoiceText.render(heard[0].second.content, Lang.MN, mn))
+            assertEquals("In 500 meters, you will arrive", VoiceText.render(heard[0].second.content, Lang.EN, en))
+        }
+    }
+
+    @Test
+    fun d12NoCatchUpApproachingForArriveMoreThan500mAheadAfterReroute() {
+        for (catchUpD in listOf(980.0, 1_000.0, 1_500.0, 1_999.5, 500.5)) {
+            val heard = arriveCatchUp(restore = false, catchUpD, later = listOf(500.0, 300.0))
+            assertEquals("catch-up at $catchUpD m", listOf(500.0), heard.map { it.first })
+            assertEquals(PromptKind.MAIN, heard[0].second.kind)
+        }
+    }
+
+    @Test
+    fun d12CatchUpApproachingForArriveWithin500mIsUnchanged() {
+        for (restore in listOf(true, false)) {
+            val heard = arriveCatchUp(restore, 400.0, later = listOf(380.0, 300.0, 100.0, 40.0))
+            assertEquals("restore=$restore", listOf(400.0), heard.map { it.first }) // main prompt handled by the catch-up
+            val p = heard[0].second
+            assertEquals(PromptKind.CATCH_UP, p.kind)
+            assertEquals("400 метрт очих газартаа ирнэ", VoiceText.render(p.content, Lang.MN, mn))
+            assertEquals("In 400 meters, you will arrive", VoiceText.render(p.content, Lang.EN, en))
+        }
+        val atLimit = arriveCatchUp(restore = true, 500.0, later = emptyList())
+        assertEquals(PromptKind.CATCH_UP, atLimit.single().second.kind)
+        assertEquals("500 метрт очих газартаа ирнэ", VoiceText.render(atLimit.single().second.content, Lang.MN, mn))
+    }
+
+    @Test
+    fun d12CatchUpForArriveTwoKilometresOrMoreAheadIsContinueOn() {
+        val heard = arriveCatchUp(restore = false, 2_400.0, later = listOf(1_000.0, 500.0))
+        assertEquals(listOf(2_400.0, 500.0), heard.map { it.first })
+        assertEquals(PromptKind.CATCH_UP, heard[0].second.kind)
+        assertTrue(heard[0].second.content is VoiceContent.ContinueOn)
+        assertEquals("2,4 километр үргэлжлүүлэн явна уу", VoiceText.render(heard[0].second.content, Lang.MN, mn))
+        assertEquals("500 метрт очих газартаа ирнэ", VoiceText.render(heard[1].second.content, Lang.MN, mn))
+    }
 }

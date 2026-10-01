@@ -28,6 +28,8 @@ object VoiceConstants {
     const val CONTINUE_ON_MIN_M = 2_000.0
     const val SAME_MANEUVER_GAP_MS = 8_000L
     const val ARRIVE_MIN_M = 30.0
+    /** §4.3 (NAV-005-D12, D67): no catch-up approaching prompt (A11) for an `arrive` more than this far ahead. */
+    const val ARRIVE_CATCH_UP_MAX_M = 500.0
     const val CHAIN_CAR_M = 150.0
     const val CHAIN_WALK_M = 40.0
     const val RESTORE_MIN_AHEAD_M = 20.0
@@ -214,10 +216,14 @@ class VoiceScheduler(private val walk: Boolean) {
         pendingCatchUp?.let { catchUp ->
             pendingCatchUp = null
             if (catchUp == CatchUp.RESTORE && (id in spoken || d <= VoiceConstants.RESTORE_MIN_AHEAD_M)) return@let
-            if (!walk && d >= VoiceConstants.CONTINUE_ON_MIN_M && !key.isArrive) {
+            if (!walk && d >= VoiceConstants.CONTINUE_ON_MIN_M) {
                 fired += Triple(gen, m, PromptKind.CONTINUE_ON)
                 return emit(gen, m, PromptKind.CATCH_UP, VoiceContent.ContinueOn(d), now)
             }
+            // §4.3 `arrive` (NAV-005-D12): `arrive` has no early distance, so without this the approaching prompt would
+            // be spoken at any d < 2 km (975–1,024 m → «1000 метрт …», AC 32 / D67). Nothing is marked fired, so the
+            // normal approaching prompt still fires at its main trigger (≤ 500 m) below.
+            if (key.isArrive && d > VoiceConstants.ARRIVE_CATCH_UP_MAX_M) return@let
             if (early == null || d <= early) {
                 fired += Triple(gen, m, PromptKind.EARLY)
                 fired += Triple(gen, m, PromptKind.MAIN)

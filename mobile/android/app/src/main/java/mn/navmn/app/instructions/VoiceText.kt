@@ -60,7 +60,7 @@ object VoiceText {
         return if (frac == 0L) whole.toString() else whole.toString() + (if (lang == Lang.MN) "," else ".") + frac
     }
 
-    /** Metres for the approaching prompt (A11): the prefix rule in metres (the main prompt is ≤ 500 m). */
+    /** Metres for the approaching prompt (A11): the prefix rule in metres (main and catch-up prompts are ≤ 500 m, §4.3). */
     private fun metres(d: Double): String =
         if (d < 95.0) (Math.round(d / 10.0) * 10).toString() else (Math.round(d / 50.0) * 50).toString()
 
