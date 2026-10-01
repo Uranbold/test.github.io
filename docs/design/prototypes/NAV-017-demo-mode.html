@@ -121,7 +121,9 @@
   #banner .dist { font-size: calc(32px * var(--fsD)); line-height: 1.25; font-weight: 700; font-variant-numeric: tabular-nums; }
   #banner .instr { font-size: calc(24px * var(--fsB)); line-height: 1.25; font-weight: 500; }
   #banner .street { font-size: calc(18px * var(--fsB)); line-height: 1.333; color: var(--on-banner-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  :root[data-stacked="1"] #banner { grid-template-areas: "icon dist" "text text"; }
+  /* Web stacked layout (text zoom >= 115 %): padding 12 16 and a 48 px icon (navigation-ux §11.3), so a 375 px phone at 200 % keeps its map band. */
+  :root[data-stacked="1"] #banner { grid-template-areas: "icon dist" "text text"; grid-template-columns: 48px minmax(0,1fr); padding: 12px 16px; min-height: 0; }
+  :root[data-stacked="1"] #banner .icon svg { width: 48px; height: 48px; }
   :root[data-stacked="1"] #banner .icon { grid-area: icon; }
   :root[data-stacked="1"] #banner .dist { grid-area: dist; align-self: center; }
   :root[data-stacked="1"] #banner .textcol { grid-area: text; margin-top: 8px; }

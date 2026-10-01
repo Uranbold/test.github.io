@@ -1,6 +1,6 @@
-# ADR-0010: Mongolian voice prompts are played from a pre-generated segment clip pack instead of relying on device TTS
+# ADR-0010: Mongolian voice prompts are played from a pre-generated segment clip pack, not from device TTS
 
-- **Status:** proposed (2026-10-01). It is accepted only after NAV-007 AC 9 device evidence and the PO's D23 decision (backlog owed decision 7). Until then the D23 minimum (on-screen text plus a chime, NAV-005 AC 39) stays in force, and nothing in this ADR is implemented. Revised 2026-10-01 after the skeptic review of the spike: context corrected (Gemini-TTS, eSpeak NG), the "no device TTS for Mongolian" rule moved to an open PO option, and non-final takes for chained prompts added. Still proposed.
+- **Status:** proposed (2026-10-01). It is accepted only after NAV-007 AC 9 device evidence and the PO's D23 decision (backlog owed decision 7). Until then the D23 minimum (on-screen text plus a chime, NAV-005 AC 39) stays in force, and nothing in this ADR is implemented. Revised 2026-10-01 after the skeptic review of the spike: context corrected (Gemini-TTS, eSpeak NG), non-final takes for chained prompts added, and the "no device TTS for Mongolian" rule in Decision 1 now cites the PO decision D80 instead of "PO to confirm". Still proposed, because the clip pack is only the expected fallback pending NAV-007 AC 9 (D76).
 - **Date:** 2026-10-01
 - **Stories:** NAV-016 (draft: voice fallback implementation), NAV-005 (AC 34, 38–40), NAV-007 (AC 9–12), NAV-015 (iOS), the web demo mode (parallel run). Evidence: [spike `mongolian-voice-tts`](../spikes/mongolian-voice-tts.md).
 
@@ -18,7 +18,7 @@
 
 ## Decision (proposed)
 1. **Fallback order for Mongolian voice:** clip pack → chime + A1 notice (pack missing, corrupt or failing to play). **English keeps device TTS** (ADR-0009 §3.4), with the chime fallback.
-   - **Open PO option (spike §6 Q5), not decided here:** whether and where a device `mn` voice (today realistically only a user-installed eSpeak NG, which is robotic) fits into this order. Options: never; only when the pack is missing or fails, before the chime; only for engines that pass NAV-007 AC 10; or a user setting. This ADR is accepted with whichever option the PO chooses.
+   - **Device `mn` TTS is not used for Mongolian once the pack ships: PO decision D80** (2026-10-01, spike §6 Q5, option "clip pack only"). The pack plays even if the phone reports an `mn` voice (for example a user-installed eSpeak NG, which is robotic), so every phone sounds the same. **Until NAV-016 ships, NAV-005 AC 38 is unchanged:** a usable device `mn` voice is used if one is found (ADR-0009 §3.4).
 2. **The voice generator returns segments as well as text.** The pure generator (navigation-ux §4.1; Kotlin in NAV-005, ports for iOS and web) returns, for each prompt, the display string (unchanged; still feeds the golden set, NAV-005 AC 40) **and** an ordered list of **segment keys**. Example: `["dist.m.300", "instr.turn.right"]`, or `["dist.km.1_5", "instr.keep.left", "join.then", "instr.turn.slightRight"]`. Rules:
    - joins only at natural prosodic boundaries: after the distance prefix, and around «дараа нь»
    - numbers and units are one segment («гурван зуун метрт»), never split

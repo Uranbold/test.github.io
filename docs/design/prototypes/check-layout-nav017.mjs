@@ -46,7 +46,7 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 await page.goto(`${url}#toolbar=0`);
 let runs = 0;
-const failures = [], infos = [];
+const failures = [], infos = [], outsideTarget = [];
 const lineInfo = new Map(), bandInfo = new Map(), smallInfo = new Set(), scrollInfo = new Set();
 
 for (const [w, h, insets, label] of viewports) {
@@ -166,7 +166,10 @@ for (const [w, h, insets, label] of viewports) {
     }
     for (const s of r.info.small) smallInfo.add(`${key}: ${s}`);
     for (const s of r.info.scrolls) scrollInfo.add(`${key} ${state}: #${s}`);
-    for (const p of r.out) failures.push(`${w}x${h} ${state} ${theme} ${lang} tz=${tz}: ${p}`);
+    // Outside the design target (screen spec › Known limitations 1): Safari with its toolbars shown on a 375 px iPhone
+    // (375x548) at 200 % text zoom. Reported as INFO, not failed. Every AC 37 viewport is in the target.
+    const target = !(w === 375 && h === 548 && tz > 1);
+    for (const p of r.out) (target ? failures : outsideTarget).push(`${w}x${h} ${state} ${theme} ${lang} tz=${tz}: ${p}`);
   }
 }
 await browser.close();
@@ -175,6 +178,7 @@ for (const [k, v] of bandInfo) console.log(`INFO  min portrait map band ${k}: ${
 for (const k of infos) console.log(k);
 for (const k of scrollInfo) console.log(`INFO  scrolls: ${k}`);
 for (const k of smallInfo) console.log(`INFO  control 44-48px: ${k}`);
+for (const f of outsideTarget) console.log(`INFO  outside target: ${f}`);
 for (const f of failures) console.log(`FAIL  ${f}`);
-console.log(`\n${runs} combinations (font: ${font}), ${failures.length} problem(s)`);
+console.log(`\n${runs} combinations (font: ${font}), ${failures.length} problem(s), ${outsideTarget.length} outside the design target (INFO)`);
 process.exit(failures.length ? 1 : 0);
