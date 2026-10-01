@@ -1,0 +1,682 @@
+/* NAV-017 web demo mode. Imported only by src/demo/demoMain.ts, so only the demo-mode build contains these rules
+   (AC 4); unconditional selectors here never reach the public site. Screen spec: docs/design/screens/
+   NAV-017-web-demo-mode.md › Layout, Regions, Components; map-style.md §7.5. Colours are token custom properties
+   (src/style/tokens.ts and the nav.* / demo.* properties injected by demoMain.ts). Breakpoints: 600 / 840 px; the
+   column arrangement also applies to phones in landscape (height < 500 px). */
+
+/* iPhone Safari (screen spec › Viewport rules): no landscape text inflation, no page rubber-banding. The app container
+   (.ui) is position: fixed; inset: 0, i.e. the visible viewport, never 100vh. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+html,
+body {
+  overscroll-behavior: none;
+}
+
+/* Hidden in the demo-mode build (Design notes 1–2): search, results, place card, my-location button. */
+#search,
+#search-panel,
+#place,
+#locate-btn,
+#location-message {
+  display: none !important;
+}
+
+.demo-rem-probe {
+  position: absolute;
+  left: -10px;
+  top: 0;
+  width: 1px;
+  height: 1rem;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- D1 picker (NAV-004 route slot) */
+.demo-picker {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: var(--size-route-sheet-max);
+  min-height: 0;
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--ui-surface);
+  color: var(--ui-on-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-2);
+  touch-action: pan-x pan-y;
+}
+:root[data-theme="night"] .demo-picker {
+  border: 1px solid var(--ui-outline-variant);
+}
+@media (min-width: 600px) {
+  .demo-picker {
+    max-width: var(--size-search-width);
+  }
+}
+@media (min-width: 840px) {
+  .demo-picker {
+    max-height: none;
+  }
+}
+.demo-head {
+  flex: none;
+  padding: 12px 16px 0;
+}
+.demo-heading {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+.demo-heading:focus {
+  outline: none;
+}
+.demo-heading:focus-visible {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+}
+.demo-list-label {
+  margin: 0;
+  padding: 0 0 4px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  color: var(--ui-on-surface-variant);
+}
+.demo-list {
+  flex: 1 1 auto;
+  min-height: 56px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.demo-route {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: start;
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 8px 16px;
+  border-top: 1px solid var(--ui-outline-variant);
+  cursor: pointer;
+}
+.demo-route:hover {
+  background: var(--ui-state-hover);
+}
+.demo-route:focus-visible {
+  outline-offset: -2px;
+}
+.demo-radio {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--ui-on-surface-variant);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.demo-route[aria-checked="true"] .demo-radio {
+  border-color: var(--ui-primary);
+}
+.demo-route[aria-checked="true"] .demo-radio::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ui-primary);
+}
+.demo-route-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.demo-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  overflow-wrap: anywhere;
+}
+.demo-end-icon {
+  flex: none;
+  display: inline-flex;
+}
+.demo-end-icon svg {
+  width: 12px;
+  height: 12px;
+  fill: var(--ui-on-surface);
+}
+.demo-end-icon.dest svg {
+  width: 12px;
+  height: 17px;
+}
+.demo-end-icon.dest .pin-body {
+  fill: var(--pin-fill);
+}
+.demo-end-icon.dest .pin-center {
+  fill: var(--pin-center);
+}
+.demo-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--ui-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+.demo-mode-icon {
+  display: inline-flex;
+  flex: none;
+}
+.demo-mode-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+.demo-footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--ui-outline-variant);
+}
+.demo-state-live:empty {
+  display: none;
+}
+.demo-state {
+  padding: 4px 0;
+}
+.demo-start {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--ui-primary);
+  color: var(--ui-on-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 24px;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.demo-start .icon {
+  display: inline-flex;
+}
+.demo-start svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+.demo-start[aria-disabled="true"] {
+  background: color-mix(in srgb, var(--ui-on-surface) 12%, transparent);
+  color: var(--ui-disabled-content);
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------- D2 / D3 guidance */
+/* During the replay the NAV-002 rows give way to the guidance regions: no R1 (its language and theme buttons move into
+   the demo row), no R2 (offline goes into the message stack), no R4 (zoom, compass, scale hidden, Design notes 3). */
+.ui.demo-replay > .r1,
+.ui.demo-replay > .r2,
+.ui.demo-replay > .r4,
+.ui.demo-replay > #route {
+  display: none !important;
+}
+.demo-nav {
+  grid-row: 1 / 7;
+  grid-column: 1 / -1;
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* RP stays 20 px above R5 (attribution hit area, layout rule 1). */
+  padding: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) 20px calc(8px + env(safe-area-inset-left));
+  pointer-events: none;
+}
+.demo-nav[hidden] {
+  display: none !important;
+}
+.dn-top {
+  flex: none;
+  max-height: 50%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dn-band {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+}
+.dn-bottom {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dn-top,
+.dn-band,
+.dn-bottom {
+  pointer-events: none;
+}
+.dn-banner,
+.dn-row-buttons > *,
+.dn-recenter,
+.dn-messages,
+.dn-progress,
+.dn-arrival {
+  pointer-events: auto;
+  touch-action: pan-x pan-y;
+}
+
+/* RB banner (NAV-005 NavBanner in CSS px; navigation-ux §2.5, §11.3) */
+.dn-banner {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+  min-height: 104px;
+  box-sizing: border-box;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background: var(--nav-banner);
+  color: var(--nav-on-banner);
+  box-shadow: var(--elevation-2);
+}
+:root[data-theme="night"] .dn-banner {
+  border: 1px solid var(--nav-banner-outline);
+}
+.dn-icon {
+  display: flex;
+}
+.dn-icon svg {
+  width: 56px;
+  height: 56px;
+  fill: currentColor;
+}
+.dn-text {
+  min-width: 0;
+}
+.dn-text p {
+  margin: 0;
+}
+.dn-distance {
+  font-size: min(2rem, 38.4px);
+  line-height: 1.25;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dn-instruction {
+  font-size: min(1.5rem, 31.2px);
+  line-height: 1.25;
+  font-weight: 500;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.dn-instruction:focus {
+  outline: none;
+}
+.dn-instruction:focus-visible {
+  outline: var(--size-focus-ring-width) solid var(--nav-on-banner);
+}
+.dn-street {
+  font-size: min(1.125rem, 23.4px);
+  line-height: 1.34;
+  color: var(--nav-on-banner-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Web stacked variant from 115 % text zoom: row 1 = icon + distance, then instruction and street at full width. */
+.demo-nav[data-stacked="true"] .dn-banner {
+  grid-template-columns: 48px minmax(0, 1fr);
+  padding: 12px 16px;
+}
+.demo-nav[data-stacked="true"] .dn-text {
+  display: contents;
+}
+.demo-nav[data-stacked="true"] .dn-icon svg {
+  width: 48px;
+  height: 48px;
+}
+.demo-nav[data-stacked="true"] .dn-distance {
+  align-self: center;
+}
+.demo-nav[data-stacked="true"] .dn-instruction,
+.demo-nav[data-stacked="true"] .dn-street,
+.demo-nav[data-stacked="true"] .dn-banner[data-variant="arrival"] .dn-instruction {
+  grid-column: 1 / -1;
+}
+.demo-nav[data-stacked="true"] .dn-banner[data-variant="arrival"] .dn-instruction {
+  grid-column: 2;
+}
+
+/* RD demo row: badge left, language and theme right; one row (the badge wraps inside the pill instead). */
+.dn-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+}
+.dn-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 4px 12px 4px 8px;
+  border-radius: 16px;
+  background: var(--demo-badge);
+  color: var(--demo-on-badge);
+  border: 1px solid var(--demo-badge-outline);
+  font-size: min(0.875rem, 18.2px);
+  line-height: 1.43;
+  font-weight: 600;
+}
+.dn-badge-icon {
+  display: inline-flex;
+  flex: none;
+}
+.dn-badge-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+.dn-row-buttons {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+.dn-row-buttons .btn.text {
+  font-size: min(0.875rem, 18.2px);
+}
+
+/* Recenter FAB, bottom-left of the map band, 16 px from the edge, 12 px above RN/RP. */
+.dn-recenter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  max-width: calc(100% - 16px);
+  box-sizing: border-box;
+  margin: 0 0 4px 8px;
+  padding: 8px 16px 8px 12px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--ui-primary-container);
+  color: var(--ui-on-primary-container);
+  box-shadow: var(--elevation-3);
+  font-size: min(0.875rem, 18.2px);
+  line-height: 1.43;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.dn-recenter .icon {
+  display: inline-flex;
+  flex: none;
+}
+.dn-recenter svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+/* RN message stack: one card, A1 first, offline second (layout rule 5). */
+.dn-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--ui-message-surface);
+  color: var(--ui-on-message-surface);
+  border: 1px solid var(--ui-message-outline);
+  box-shadow: var(--elevation-2);
+  font-size: min(0.875rem, 18.2px);
+  line-height: 1.43;
+}
+.dn-messages[hidden],
+.dn-msg[hidden] {
+  display: none !important;
+}
+.dn-msg-btn,
+.dn-msg-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.dn-msg-btn {
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.dn-msg .icon {
+  display: flex;
+}
+.dn-msg svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+/* RP progress panel and arrival panel */
+.dn-progress,
+.dn-arrival {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 72px;
+  box-sizing: border-box;
+  padding: 12px 12px 12px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--ui-surface);
+  color: var(--ui-on-surface);
+  box-shadow: var(--elevation-2);
+}
+:root[data-theme="night"] .dn-progress,
+:root[data-theme="night"] .dn-arrival {
+  border: 1px solid var(--ui-outline-variant);
+}
+.dn-progress[hidden],
+.dn-arrival[hidden] {
+  display: none !important;
+}
+.dn-progress-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dn-progress-text p {
+  margin: 0;
+}
+.dn-eta {
+  font-size: min(1.375rem, 28.6px);
+  line-height: 1.27;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.dn-days {
+  font-size: min(1rem, 20.8px);
+  font-weight: 400;
+  color: var(--ui-on-surface-variant);
+}
+.dn-remaining {
+  font-size: min(1rem, 20.8px);
+  line-height: 1.5;
+  color: var(--ui-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+.dn-voice,
+.dn-end {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+.dn-voice {
+  border: 0;
+  background: transparent;
+  color: var(--ui-on-surface);
+}
+.dn-end {
+  border: 1px solid var(--ui-outline);
+  background: transparent;
+  color: var(--ui-error);
+}
+.dn-voice:hover,
+.dn-end:hover {
+  background: var(--ui-state-hover);
+}
+.dn-voice svg,
+.dn-end svg,
+.dn-flag svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+  display: block;
+}
+.dn-end .icon,
+.dn-flag {
+  display: inline-flex;
+  flex: none;
+}
+.dn-flag {
+  color: var(--ui-on-surface);
+}
+.dn-arrival {
+  gap: 12px;
+}
+.dn-arrival-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: min(1.375rem, 28.6px);
+  line-height: 1.27;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.dn-close {
+  flex: none;
+  min-height: 48px;
+  min-width: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--ui-primary);
+  color: var(--ui-on-primary);
+  font-size: min(0.875rem, 18.2px);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* Column arrangement (≥ 840 px, or any phone in landscape): left column = banner, demo row, message stack; the map,
+   recenter and the progress/arrival panel in the map column. */
+@media (min-width: 840px), (orientation: landscape) and (max-height: 499px) {
+  .demo-nav {
+    display: grid;
+    grid-template-columns: clamp(320px, 40%, 400px) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .dn-top {
+    grid-column: 1;
+    grid-row: 1;
+    max-height: none;
+  }
+  .dn-bottom {
+    display: contents;
+  }
+  .dn-messages {
+    grid-column: 1;
+    grid-row: 2 / 4;
+    align-self: start;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+  .dn-band {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+  .dn-progress,
+  .dn-arrival {
+    grid-column: 2;
+    grid-row: 3;
+  }
+}
+
+/* Puck (map-style.md §7.4 chevron, 40 px incl. the 3 px ring and the 1 px hairline; night inverts via the tokens). */
+.demo-puck {
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+.demo-puck svg {
+  display: block;
+  width: 40px;
+  height: 40px;
+  overflow: visible;
+}
+.demo-puck .puck-outline {
+  fill: none;
+  stroke: var(--nav-puck-outline);
+  stroke-width: 8;
+  stroke-linejoin: round;
+}
+.demo-puck .puck-ring {
+  fill: none;
+  stroke: var(--nav-puck-stroke);
+  stroke-width: 6;
+  stroke-linejoin: round;
+}
+.demo-puck .puck-arrow {
+  fill: var(--nav-puck-fill);
+}
+
+@media (forced-colors: active) {
+  .demo-picker,
+  .dn-banner,
+  .dn-progress,
+  .dn-arrival,
+  .dn-messages,
+  .dn-badge {
+    border: 1px solid CanvasText;
+  }
+}

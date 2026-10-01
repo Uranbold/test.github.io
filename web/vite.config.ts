@@ -124,12 +124,12 @@ export default defineConfig(({ mode }) => {
       // Demo mode: no runtime-created <link crossorigin> (preloads, split CSS), ADR-0011 §2 / W5, W7.
       ...(demo ? { modulePreload: false as const, cssCodeSplit: false } : {}),
       rollupOptions: {
-        input: demo
+        input: (demo
           ? { main: fileURLToPath(new URL("./index.html", import.meta.url)) }
           : {
               main: fileURLToPath(new URL("./index.html", import.meta.url)),
               labelRule: fileURLToPath(new URL("./fixtures/label-rule.html", import.meta.url)),
-            },
+            }) as Record<string, string>,
       },
     },
     test: {
