@@ -51,6 +51,37 @@ S1 map                                   S3 route preview (sheet)               
 └──────────────────────────────────┘     └──────────────────────────────────┘   └──────────────────────────────────┘
 ```
 
+### S1/S2 browse overlay on short and wide windows (NAV-005-D5, as built)
+Recorded from the app as built in QA round 3 (test plan defect NAV-005-D5, question Q4; `BrowseOverlay`). It applies while **no route preview is open**: S1 with its messages, S2 search results and the coordinate card. S3 keeps Layout rule 6. The aim is the D5 invariant that QA's `QaBrowseLayoutTest` tcU01–U03 check: the map controls never overlap the search row, the results, a message or the coordinate card; every target stays ≥ 48 dp; R5 stays visible.
+
+| Window | Arrangement |
+|---|---|
+| **Narrow** (portrait phones: width < 600 dp, and not a landscape window ≥ 480 dp wide) | Top group: search row, then search results, then the S1 message card. Bottom group: the map controls column, right-aligned (16 dp from the right edge and 16 dp above the card or R5), then the coordinate card (8 dp margins). The top group gets only the height left above the bottom group: the results list and the messages **shrink and scroll inside**; they never run under the controls |
+| **Wide** (width ≥ **600 dp**, or landscape (width > height) and width ≥ **480 dp**: landscape phones, tablets) | The search row spans the full width at the top. Below it: a **control lane on the right** (the controls column bottom-aligned, 8 dp left of it, 16 dp from the right edge and from R5) and, to its left, the results and messages at the top and the coordinate card at the bottom (8 dp left, top and bottom margins), all using the width left of the lane. Nothing stacks over the controls on a 360 dp high screen |
+
+```
+Narrow, portrait 360×640 at 200 % (results)    Wide, landscape 640×360 (card)
+┌──────────────────────────────────┐           ┌────────────────────────────────────────────────────────┐
+│┌────────────────────────────┐[⚙] │           │┌──────────────────────────────────────────────┐[⚙]     │
+││🔍 Зайсан                    │    │           ││🔍 Газар, хаяг хайх                            │        │
+│└────────────────────────────┘    │           │└──────────────────────────────────────────────┘        │
+│┌────────────────────────────────┐│           │                                                        │
+││ Зайсан толгой                  ││           │                 (map) 📍                                │
+││ … (list scrolls inside)        ││           │┌──────────────────────────────────────────┐            │
+│└────────────────────────────────┘│           ││ Сонгосон цэг                         [✕] │            │
+│                             [+]  │           ││ 47.88580, 106.91730   (card scrolls)     │      [+]   │
+│                             [−]  │           ││ [➦ Маршрут гаргах]                       │      [−]   │
+│                             [◎]  │           │└──────────────────────────────────────────┘      [◎]   │
+├──────────────────────────────────┤           ├────────────────────────────────────────────────────────┤
+│ © OpenStreetMap contributors     │           │ © OpenStreetMap contributors                           │
+└──────────────────────────────────┘           └────────────────────────────────────────────────────────┘
+```
+
+- **Coordinate card on short heights:** when the card gets less than its natural height, its content **scrolls inside the card**; «Маршрут гаргах» keeps its 48 dp minimum and its label never collapses (D5 measured 36, 28 and 10 dp before the fix).
+- **Controls column:** scrolls only if even the lane is shorter than the controls (extreme font scales in landscape); it never overlaps another control.
+- R5 is below the whole overlay in both arrangements (Layout rule 1); the system bar insets are added as everywhere else. Real system bars and display cutouts are checked on a device (test plan DV14), not by Robolectric.
+- The prototype and `check-layout-nav005.mjs` do not draw S1/S2 in these arrangements yet; the tcU tests are the check.
+
 ### S5 Guidance (portrait 360×640 dp) and S6 Arrival
 ```
 S5 guidance, manoeuvre + Then strip      S5 off-route, reroute failed            S5 first seconds, no Mongolian voice    S6 arrival
@@ -139,7 +170,7 @@ Left column width = `clamp(40 %, 320 dp, 400 dp)`: banner, Then strip and status
 |---|---|---|
 | **Search bar** (S1) | M3 `SearchBar` (docked) | Full width − 16 dp − 56 dp (settings button), 56 dp high, `radius.full`, elevation 2 (day) / outline `ui.outline-variant` (night). Leading search icon, placeholder «Газар, хаяг хайх» (`body-large`, `ui.on-surface-variant`). Tapping expands to S2. Trailing clear button «Хайлтыг арилгах» when text is present. Test tag `search-bar`. |
 | **Settings button** (S1) | M3 icon button (filled tonal, 48 dp) | Gear icon, content description «Тохиргоо», right of the search bar. Opens S7. Test tag `settings`. |
-| **Map controls** (S1) | M3 small FAB / icon buttons, 48 dp, `ui.surface`, elevation 1, right edge | Top→bottom above R5: zoom in «Томруулах», zoom out «Жижигрүүлэх», reset bearing «Хойд зүг дээшээ» (shown only when bearing ≠ 0), my location «Миний байршил» (`ui.primary-container` while following). 8 dp gaps. Not shown on S5. |
+| **Map controls** (S1) | M3 small FAB / icon buttons, 48 dp, `ui.surface`, elevation 1, right edge | Top→bottom above R5: zoom in «Томруулах», zoom out «Жижигрүүлэх», reset bearing «Хойд зүг дээшээ» (shown only when bearing ≠ 0), my location «Миний байршил» (`ui.primary-container` while following). 8 dp gaps. Not shown on S5. On short or wide windows they keep their own space (S1/S2 browse overlay, D5). |
 | **Search results** (S2) | M3 search view (expanded `SearchBar`), `LazyColumn` | List named «Хайлтын илэрц» (`contentDescription` of the list). Rows ≥ 56 dp: name (`body-large`), type label and area (`body`, `ui.on-surface-variant`), NAV-003 content rules. State rows: «Ачаалж байна…» (after 300 ms), «Илэрц олдсонгүй», «Хайлт түр ажиллахгүй байна» + «Дахин оролдох», «Түр хүлээгээд дахин оролдоно уу» (retry disabled for `Retry-After`), «Интернэт холболт алга». A result tap opens S3 within 500 ms (AC 3). |
 | **Coordinate card** (S2) | M3 standard bottom sheet, card layout | Title «Сонгосон цэг» (`title`), close «Хаах» (icon button 48 dp), coordinates `lat, lon` with **5 decimals**, point as decimal separator in both languages (`body`, tabular), filled button «Маршрут гаргах» (48 dp, `ui.primary`). Candidate pin (map-style §7.3) at the point. 0 reverse requests (AC 4). |
 | **Route preview sheet** (S3) | M3 standard bottom sheet (no drag handle in this slice; height = content, max 80 %, Layout rule 6) | Header row: «Маршрут харах» (`title`), close «Хаах». **Points block** (display only in this slice; origin editing is NAV-011): row 1 my-location icon + «Миний байршил» (content description «Эхлэх цэг: Миний байршил»), row 2 pin icon + destination text (result name or «Сонгосон цэг», content description «Очих газар: …»), each 48 dp, text ellipsised (names). **Mode tabs**: M3 `PrimaryTabRow`, group name «Зорчих хэлбэр», tabs «Машин» / «Явган» with icons, 48 dp. **Avoid switch row** «Шороон замаас зайлсхийх» + M3 `Switch` (car only; hidden on «Явган», AC 5). **Result region** (one of: loading row, state row, location message, summary). **Summary**: duration `title-large` + " · " + distance `body-large` `ui.on-surface-variant`; line 2 «Хүрэх цаг 14:03» (+ «+1 өдөр»); snap notice row (info icon + «Хамгийн ойрын зам сонгосон цэгээс 1,4 км зайтай») when > 500 m (AC 6). **«Эхлэх»**: M3 filled button, full width, **56 dp**, play/navigation icon + «Эхлэх» (`label`, 16 sp), pinned at the sheet bottom; disabled (`ui.disabled-content`, still focusable, content description unchanged) in every state without a route or without precise location (AC 7, 10). |
@@ -250,7 +281,7 @@ Every `mn` value is a glossary term (existing rows, NAV-002 G-rows, NAV-003 T-ro
 ### UI
 | Key | mn | en | Glossary source |
 |---|---|---|---|
-| `app_name` | Газрын зураг | Map | Map (launcher label per story Open question 8) |
+| `app_name` | Газрын зураг | Map | Map (launcher label, PO decision D64; final application ID and product name before any Play upload) |
 | `attribution_osm` | © OpenStreetMap contributors | © OpenStreetMap contributors | OSM attribution (not translated) |
 | `attribution_esa` | (ESA credit, as the web) | (same) | ESA WorldCover credit (not translated) |
 | `search_placeholder` | Газар, хаяг хайх | Search for a place or address | Search |
@@ -313,7 +344,7 @@ Keys `maneuver_*` = the NAV-004 keys with `_` (e.g. `maneuver_turn_left`, `maneu
 ### Voice texts (AC 32; navigation-ux §4.1)
 | Key | mn | en | Glossary source |
 |---|---|---|---|
-| `voice_prefix_m` (plural: `one` / `other`) | {n} метрт (both forms) | `one`: In {n} meter · `other`: In {n} meters | A8 |
+| `voice_prefix_m` (plural: `one` / `other`) | {n} метрт (both forms) | `one`: In {n} meter · `other`: In {n} meters | A8. `{n}` is never `1000`: a metre value that rounds to 1000 uses `voice_prefix_km` with `{n}` = `1` (D67) |
 | `voice_prefix_km` (plural: `one` / `other`) | {n} километрт (both forms) | `one`: In {n} kilometer · `other`: In {n} kilometers | A9 |
 | `voice_roundabout_exit` | Тойрогт ороод {ordinal} гарцаар гарна уу | Enter the roundabout and take the {ordinal} exit | A10 |
 | `voice_ordinal_1` … `voice_ordinal_10` | нэгдүгээр, хоёрдугаар, гуравдугаар, дөрөвдүгээр, тавдугаар, зургаадугаар, долоодугаар, наймдугаар, есдүгээр, аравдугаар | first, second, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth | C4 (quoted forms requested from the BA for the AC 61 exact-match check) |
@@ -324,7 +355,9 @@ Keys `maneuver_*` = the NAV-004 keys with `_` (e.g. `maneuver_turn_left`, `maneu
 | (reused) `nav_gps_lost`, `nav_gps_restored`, `maneuver_*` incl. `depart_*` and `arrive*` | | | |
 Joining a prefix and an instruction is code formatting: `mn` = prefix + " " + instruction (lower-case first letter), `en` = prefix + ", " + instruction (lower-case first letter). English decimal point, Mongolian comma.
 
-**Plural forms (NAV-005-D4, AC 32 `en`; navigation-ux §4.1 "English singular / plural").** The four distance templates above are Android `<plurals>` resources under their existing names, with the quantities `one` and `other`, in both `values/` (`mn`) and `values-en/` (`en`). `mn`: both items carry the current text unchanged (Mongolian does not inflect the unit after a number). `en`: `one` = singular unit, `other` = plural unit, exactly as in the table. **Quantity selection:** `one` if and only if the formatted number `{n}` (after the §4.1 rounding, before substitution) is exactly `1`; otherwise `other`. Do not derive the quantity from an `int` cast of the distance in km (1.5 km would cast to `1` and give "In 1.5 kilometer"): decide `one` / `other` from the formatted string, then substitute `{n}`. The `{n}` placeholder stays the substitution point (no `%d`), as today. If the Context-free voice generator (AC 40, JVM) cannot read `<plurals>`, the equivalent flat keys are `<key>_one` / `<key>_other` (the `route_next_day_one` / `_other` precedent); the forms and the rule are the same either way. Examples (`en`): 1,040 m → "In 1 kilometer, turn slightly left"; 1,500 m → "In 1.5 kilometers, keep left"; 2,000 m → "Continue for 2 kilometers"; 300 m → "In 300 meters, turn right". Examples (`mn`, unchanged): «1 километрт бага зэрэг зүүн тийш эргэнэ үү», «1,5 километрт зүүн талаа барина уу». Banner, notification, progress and preview distances use `unit_m` / `unit_km` ("m" / "km"), which do not inflect, so they get no plural forms.
+**Plural forms (NAV-005-D4, AC 32 `en`; navigation-ux §4.1 "English singular / plural").** The four distance templates above are Android `<plurals>` resources under their existing names, with the quantities `one` and `other`, in both `values/` (`mn`) and `values-en/` (`en`). `mn`: both items carry the current text unchanged (Mongolian does not inflect the unit after a number). `en`: `one` = singular unit, `other` = plural unit, exactly as in the table. **Quantity selection:** `one` if and only if the formatted number `{n}` (after the §4.1 rounding, before substitution) is exactly `1`; otherwise `other`. Do not derive the quantity from an `int` cast of the distance in km (1.5 km would cast to `1` and give "In 1.5 kilometer"): decide `one` / `other` from the formatted string, then substitute `{n}`. The `{n}` placeholder stays the substitution point (no `%d`), as today. If the Context-free voice generator (AC 40, JVM) cannot read `<plurals>`, the equivalent flat keys are `<key>_one` / `<key>_other` (the `route_next_day_one` / `_other` precedent); the forms and the rule are the same either way. Examples (`en`): 1,040 m → "In 1 kilometer, turn slightly left"; 980 m → "In 1 kilometer, turn right" (D67, never "In 1000 meters"); 1,500 m → "In 1.5 kilometers, keep left"; 2,000 m → "Continue for 2 kilometers"; 300 m → "In 300 meters, turn right". Examples (`mn`, unchanged): «1 километрт бага зэрэг зүүн тийш эргэнэ үү», «1,5 километрт зүүн талаа барина уу».
+
+**Rounded 1000 m (D67, AC 32; navigation-ux §4.1).** When the metre rule (95 ≤ *d* < 995 m, nearest 50 m) gives 1000 (975 ≤ *d* < 995 m), the generator uses the kilometre template with `{n}` = `1`: 960 m → «950 метрт баруун тийш эргэнэ үү»; 980 m and 1,000 m → «1 километрт баруун тийш эргэнэ үү» / "In 1 kilometer, turn right". No voice text contains «1000 метрт» or "1000 meters". No new key or glossary term. Banner, notification, progress and preview distances use `unit_m` / `unit_km` ("m" / "km"), which do not inflect, so they get no plural forms.
 
 ### Length notes (Mongolian first)
 Longest banner instructions: «Баруун талын гарах замаар гарна уу» (34), «Таны очих газар баруун талд байна» (33), «Бага зэрэг баруун тийш эргэнэ үү» (32), «Маршрутыг дахин тооцоолж байна» (30); longest banner secondary line «Маршрутын үйлчилгээ түр ажиллахгүй байна» (40); longest status message A1 (82); longest preview state «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна» (62); longest button «Байршил руу буцах» (17) and «Үргэлжлүүлэх» (12). All wrap; only names ellipsise. Some English strings are longer (search placeholder "Search for a place or address" 29 vs 16, "Back to my location" 19 vs 17); every rule applies to both languages and the layout checker runs both.
@@ -356,26 +389,26 @@ Longest banner instructions: «Баруун талын гарах замаар �
 12. **Recenter auto-resume 15 s** (story default) confirmed: long enough to look at a junction ahead, short enough that a driver who panned by accident gets the follow camera back without a tap.
 
 ## Known limitations (design, within the AC)
-1. **No typing lock on S1/S3 while the phone moves.** The principle says no typing while moving; S5 has no input, but S1's search can be used in a moving car (a passenger may be typing). A lock with a passenger override needs glossary strings; recommended for NAV-011 (Open question in the handoff).
+1. **No typing lock on S1/S3 while the phone moves** (**PO-accepted**, D65; story limitation L1). The principle says no typing while moving; S5 has no input, but S1's search can be used in a moving car (a passenger may be typing). The lock with a passenger override goes to **NAV-011**; its glossary strings come when NAV-011 is refined.
 2. **No travelled-route trimming** (the route behind the puck stays drawn); polish for NAV-012.
 3. **No turn list in the Android preview** (NAV-011); the banner shows one manoeuvre at a time.
 4. **English UI without an English TTS voice** gets the chime but no notice until the BA provides a language-neutral notice (request in the handoff).
 5. **Puck does not move in tunnels** (no dead reckoning, story edge case).
 6. **Settings theme heading** waits for a BA glossary term; until then the theme radio group has no visible heading (the options are still readable, «Автомат» is the weakest).
-7. **320 dp-wide phones above 100 % font scale** are outside the design target: the banner region scrolls and the floating controls can overlap the status message (the checker reports these as INFO). At 100 % on 320×568 every rule holds except the 150 dp map band (74 dp measured).
+7. **320 dp-wide phones above 100 % font scale** (**PO-accepted**, D66; story limitation L2; the attribution rule is not relaxed) are outside the design target: the banner region scrolls and the floating controls can overlap the status message (the checker reports these as INFO). At 100 % on 320×568 every rule holds except the 150 dp map band (74 dp measured).
 8. **Landscape with large fonts:** the left column (banner, Then strip, status) scrolls when it does not fit; the instruction is always at the top. With a much wider font than Roboto (DejaVu Sans stress run) «Маршрутыг дахин тооцоолж байна» needs 4 lines in the 320 dp landscape column.
 
 ## AC traceability
 | AC | Where |
 |---|---|
 | 1, 2 | S1, Layout rule 1, R5 attribution strip; flow F1 |
-| 3, 4 | S2 components and states; flow F2a, F2b |
+| 3, 4 | S2 components and states; S1/S2 browse overlay on short and wide windows (D5); flow F2a, F2b |
 | 5–7 | S3 components and states; flow F4 |
 | 8–14 | S4 rationale and message; S3/S1 placement (Layout rule 7); flow F3 |
 | 13, 15–20 | S5 states (notification dialog), S8 notification, Interactions (end, Back, swipe-away); flow F4, F5 |
 | 21–25 | NavBanner, TripProgressPanel, control pair (RC), recenter; navigation-ux §2, §8; Layout rule 2 |
 | 26–31 | Copy › Manoeuvre texts; navigation-ux §2–3; NavBanner variants |
-| 32–40 | Copy › Voice texts (incl. English plural forms, D4); navigation-ux §4; flow F9 |
+| 32–40 | Copy › Voice texts (incl. English plural forms, D4; rounded 1000 m → «1 километрт», D67); navigation-ux §4 (AC 34 `arrive` exemption, D68: §4.2 rule 6, §4.4); flow F9 |
 | 41–50 | S5 states (off-route rows); navigation-ux §5; flow F6 |
 | 51–53 | S5 states (GPS rows); navigation-ux §6; flow F7 |
 | 54 | S5 states (offline on route); flow F8 |

@@ -40,6 +40,38 @@ class VoiceTextTest {
         assertEquals("12 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 12_400.0)))
     }
 
+    /** D67 (NAV-005 AC 32 examples, navigation-ux §4.1): a metre value that rounds to 1000 is spoken in kilometres. */
+    @Test
+    fun d67RoundedThousandMetresIsOneKilometre() {
+        val turn = k("turn", "right")
+        assertEquals("950 метрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 950.0)))
+        assertEquals("950 метрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 960.0)))
+        assertEquals("950 метрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 974.9)))
+        assertEquals("1 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 975.0)))
+        assertEquals("1 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 980.0)))
+        assertEquals("1 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 994.9)))
+        assertEquals("1 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 995.0)))
+        assertEquals("1 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 1_000.0)))
+        assertEquals("In 950 meters, turn right", e(VoiceContent.Maneuver(turn, 960.0)))
+        assertEquals("In 1 kilometer, turn right", e(VoiceContent.Maneuver(turn, 980.0)))
+        assertEquals("In 1 kilometer, turn right", e(VoiceContent.Maneuver(turn, 995.0)))
+        assertEquals("In 1 kilometer, turn right", e(VoiceContent.Maneuver(turn, 1_000.0)))
+        // chained main prompt uses the same prefix
+        assertEquals(
+            "1 километрт баруун тийш эргэнэ үү, дараа нь зүүн тийш эргэнэ үү",
+            m(VoiceContent.Maneuver(turn, 985.0, k("turn", "left"))),
+        )
+        // no manoeuvre prompt anywhere in the prefix range says «1000 метрт» / "1000 meters"
+        var d = 30.0
+        while (d < 3_000.0) {
+            val mnText = m(VoiceContent.Maneuver(turn, d))
+            val enText = e(VoiceContent.Maneuver(turn, d))
+            assertTrue("$d m: «$mnText»", !mnText.contains("1000 метрт"))
+            assertTrue("$d m: «$enText»", !enText.contains("1000 meter"))
+            d += 0.5
+        }
+    }
+
     @Test
     fun roundaboutOrdinalsAndFallback() {
         assertEquals("Тойрогт ороод нэгдүгээр гарцаар гарна уу", m(VoiceContent.Maneuver(k("roundabout", null, 1.0), 10.0)))

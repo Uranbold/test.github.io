@@ -16,6 +16,9 @@ import mn.navmn.app.support.HostFerrostar
 import mn.navmn.app.support.TestStrings
 import mn.navmn.app.support.distanceToLine
 import mn.navmn.app.voiceplan.PromptClass
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -34,6 +37,12 @@ class QaGpxReplayTest {
 
     /** Tracks that start on the P1 → P3 car route (destination P3). Exact, so that G10 is not taken for a G1 variant. */
     private val P1_P3_TRACK = Regex("G[1234567][a-z]?")
+
+    /** D68: an `arrive` whose final step is shorter than this (m, along the route) is exempt from AC 34's 20–250 m check. */
+    private val D68_FINAL_STEP_M = 30.0
+
+    /** D67 (AC 32): no generated voice text contains these. "1000 meter" also catches "1000 meters". */
+    private val D67_BANNED = Regex("1000 метрт|1000 meter")
 
     private fun car(id: String, lang: Lang = Lang.MN, routeKey: String = "route", responses: MutableList<Resp> = ArrayList(), muted: Boolean = false) =
         QaRun(QaGpx.routeBytes(id, routeKey), TravelMode.CAR, lang, P3.takeIf { P1_P3_TRACK.matches(id) }, responses, muted = muted)
@@ -73,6 +82,8 @@ class QaGpxReplayTest {
      * AC 34 against the oracle (generation [gen] only): start ≤ 1 s after the trigger; nothing for a passed manoeuvre;
      * stated distance within max(30 m, 20 %) of the true remaining distance at speaking time; ≥ 1 prompt covering each
      * car manoeuvre except depart while it is 20–250 m ahead; no two prompts for one manoeuvre within 8 s.
+     * D68 (PO 2026-10-01): a final `arrive` < 30 m after the previous manoeuvre is exempt from the 20–250 m check only,
+     * provided it is not chained and its arrival prompt is produced exactly once ([d68ArriveProblems]).
      */
     private fun ac34Problems(r: QaRun, fixes: List<Fix>, gen: Int = 0, checkCoverage: Boolean = true, coverUntilAlong: Double = Double.MAX_VALUE): List<String> {
         val oracle = RouteOracle(r.initial.plan)
@@ -105,11 +116,41 @@ class QaGpxReplayTest {
             }
         }
         if (checkCoverage) {
-            for (m in 1 until r.initial.plan.steps.size) {
+            val steps = r.initial.plan.steps
+            for (m in 1 until steps.size) {
                 if (oracle.maneuverAlong[m] > coverUntilAlong) continue
-                if (m !in covered) p += "manoeuvre $m (${r.initial.plan.steps[m].maneuver}) had no prompt while 20–250 m ahead"
+                if (d68ExemptArrive(r, oracle, m)) {
+                    // Checked even if a (forbidden) chained prompt "covered" it: D68 / §4.4 never chain `arrive`.
+                    p += d68ArriveProblems(r, oracle, gen, m)
+                    continue
+                }
+                if (m !in covered) p += "manoeuvre $m (${steps[m].maneuver}) had no prompt while 20–250 m ahead"
             }
         }
+        return p
+    }
+
+    /**
+     * NAV-005 AC 34 exemption (PO decision D68, navigation-ux §4.2 rule 6 / §4.4): ONLY the last manoeuvre, ONLY if it is
+     * `arrive`, and ONLY if its final step (previous manoeuvre → route end) is < 30 m along the route. The length comes
+     * from the recorded route geometry (oracle), never from the app's state. Every other manoeuvre keeps the 20–250 m check.
+     */
+    private fun d68ExemptArrive(r: QaRun, oracle: RouteOracle, m: Int): Boolean {
+        val steps = r.initial.plan.steps
+        if (m != steps.lastIndex || m < 1 || steps[m].maneuver.type != "arrive") return false
+        return oracle.maneuverAlong[m] - oracle.maneuverAlong[m - 1] < D68_FINAL_STEP_M
+    }
+
+    /** D68 conditions for an exempt `arrive`: not chained with the previous manoeuvre; the arrival prompt exactly once. */
+    private fun d68ArriveProblems(r: QaRun, oracle: RouteOracle, gen: Int, m: Int): List<String> {
+        val p = ArrayList<String>()
+        val finalStep = "%.1f".format(oracle.maneuverAlong[m] - oracle.maneuverAlong[m - 1])
+        val arrivalPrompts = r.spoken.filter { it.second.cls == PromptClass.ARRIVAL && it.second.maneuver == (gen to m) }
+        if (arrivalPrompts.size != 1) {
+            p += "D68: manoeuvre $m (arrive, final step $finalStep m) is exempt from the 20–250 m check only if its arrival prompt is produced exactly once; produced ${arrivalPrompts.size} times: ${arrivalPrompts.map { "${it.first / 1000.0}s «${it.second.text}»" }}"
+        }
+        r.spoken.filter { it.second.maneuver == (gen to m - 1) && (it.second.text.contains(", дараа нь ") || it.second.text.contains(", then ")) }
+            .forEach { p += "D68 / navigation-ux §4.4: `arrive` must never be chained, but manoeuvre ${m - 1} was announced chained: «${it.second.text}»" }
         return p
     }
 
@@ -404,6 +445,13 @@ class QaGpxReplayTest {
         p += ac34Problems(r, fixes).map { "AC 34: $it" }
         p += bannerAdvanceProblems(r, fixes).map { "AC 31: $it" }
         if (r.events.count { it.second == GuidanceEvent.Arrived } != 1) p += "arrivals ${r.events.count { it.second == GuidanceEvent.Arrived }}"
+        // D68 (NAV-005-D3 closed): G8's final `arrive` is the exempt case; prove the fixture still exercises it, so the
+        // exemption cannot hide a different gap, and that the arrival prompt (AC 55) is produced exactly once.
+        val oracle = RouteOracle(r.initial.plan)
+        val last = r.initial.plan.steps.lastIndex
+        if (!d68ExemptArrive(r, oracle, last)) p += "D68: G8 fixture no longer has a final `arrive` < 30 m after the previous manoeuvre (final step ${oracle.maneuverAlong[last] - oracle.maneuverAlong[last - 1]} m); revisit tcR10"
+        val arrivalTexts = r.spoken.filter { it.second.cls == PromptClass.ARRIVAL }.map { it.second.text }
+        if (arrivalTexts != listOf("Таны очих газар зүүн талд байна")) p += "AC 55 / D68: arrival prompts $arrivalTexts, expected exactly once «Таны очих газар зүүн талд байна»"
         println("G8 spoken: " + r.spoken.map { "${it.first / 1000}s ${it.second.text}" })
         println("G8 banners: " + r.bannerChanges().map { "${it.first / 1000}s ${it.second}" })
         assertTrue(p.joinToString("\n"), p.isEmpty())
@@ -469,6 +517,9 @@ class QaGpxReplayTest {
             r.run(QaGpx.fixes(id), tailMs = if (id == "G9") 0 else 10_000)
             for ((t, s) in r.spoken) sb.append("$id\t${lang.name.lowercase()}\t${t / 1000}\t${s.maneuver?.second ?: "-"}\t${s.text}\n")
         }
+        // AC 32 (D67): checked on the generated set, so a regeneration can never bake «1000 метрт» / "1000 meters" in.
+        val thousand = sb.lines().filter { !it.startsWith("#") && D67_BANNED.containsMatchIn(it) }
+        assertTrue("AC 32 (D67): golden set contains «1000 метрт» / \"1000 meters\":\n" + thousand.joinToString("\n"), thousand.isEmpty())
         val golden = repoFile("tests/gpx/nav005/golden/voice-golden.tsv")
         if (System.getenv("QA_UPDATE_GOLDEN") == "1" || !golden.exists()) {
             golden.parentFile.mkdirs()
@@ -817,6 +868,39 @@ class QaGpxReplayTest {
         )
         for ((actual, expected) in cases) if (actual != expected) p += "renderer: «$actual», expected «$expected»"
         assertTrue(p.joinToString("\n"), p.isEmpty())
+    }
+
+    // ------------------------------------------------------------------------------------------------ D67 (PO 2026-10-01)
+
+    /**
+     * TC-R23 (AC 32 as changed by D67): no generated voice text contains «1000 метрт» / "1000 meters", over EVERY track
+     * in the manifest (reroutes served as recorded, so the §4.3 route-active and GPS-restored catch-up prompts are
+     * included), in Mongolian and in English. The golden set (TC-R13) covers G1, G5, G8, G9 only.
+     */
+    @Test
+    fun tcR23_d67NoThousandMetresInAnyReplay() {
+        val p = ArrayList<String>()
+        val ids = QaGpx.manifest["tracks"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content }
+        var texts = 0
+        var g1Km = false
+        for (id in ids) {
+            val meta = QaGpx.meta(id)
+            val walk = meta["mode"]!!.jsonPrimitive.content == "walk"
+            for (lang in listOf(Lang.MN, Lang.EN)) {
+                val key = if (lang == Lang.EN && meta.containsKey("also_en")) "also_en" else "route"
+                val responses = QaGpx.reroutes(id).map { Resp(200, it, latencyMs = 300) }.toMutableList()
+                val r = if (walk) QaRun(QaGpx.routeBytes(id, key), TravelMode.WALK, lang, responses = responses) else car(id, lang, key, responses)
+                r.run(QaGpx.fixes(id), tailMs = if (id == "G9") 0 else 10_000)
+                texts += r.spoken.size
+                r.spokenTexts().filter { D67_BANNED.containsMatchIn(it) }.forEach { p += "$id $lang: «$it»" }
+                if (id == "G1") g1Km = g1Km || r.spokenTexts().any { it.startsWith("1 километрт ") || it.startsWith("In 1 kilometer, ") }
+            }
+        }
+        // The early prompt that triggered at 975–994 m on G1 (t = 176 s) must now be the kilometre form (not vacuous).
+        if (!g1Km) p += "G1: no «1 километрт …» / \"In 1 kilometer, …\" prompt (the D67 case is no longer exercised)"
+        if (texts == 0) p += "nothing spoken (scan would be vacuous)"
+        println("TC-R23: ${ids.size} tracks × 2 languages, $texts prompts scanned")
+        assertTrue("AC 32 (D67):\n" + p.joinToString("\n"), p.isEmpty())
     }
 
     @Suppress("unused")

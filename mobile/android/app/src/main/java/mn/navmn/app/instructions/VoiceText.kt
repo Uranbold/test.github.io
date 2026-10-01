@@ -42,7 +42,12 @@ object VoiceText {
     fun prefixDistance(d: Double, lang: Lang): Distance? {
         if (!d.isFinite() || d < 30.0) return null
         if (d < 95.0) return Distance((Math.round(d / 10.0) * 10).toString(), false)
-        if (d < 995.0) return Distance((Math.round(d / 50.0) * 50).toString(), false)
+        if (d < 995.0) {
+            val m = Math.round(d / 50.0) * 50
+            // D67 (NAV-005 AC 32): a metre value that rounds to 1000 is spoken «1 километрт» / "In 1 kilometer",
+            // never «1000 метрт» / "1000 meters" (975 ≤ d < 995 m).
+            return if (m >= 1000L) Distance("1", true) else Distance(m.toString(), false)
+        }
         return Distance(kilometres(d, lang), true)
     }
 

@@ -41,7 +41,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        // Placeholder application ID (story Open question 8): fixed before any store upload.
+        // Placeholder application ID (D64): the final ID is fixed before any Play upload.
         applicationId = "mn.navmn.app"
         minSdk = 26
         targetSdk = 36
