@@ -27,9 +27,9 @@ export default defineConfig({
   reporter: [['list'], ['json', { outputFile: `../test-results/nav017-results-${webkit && !chromium ? 'webkit' : chromium && !webkit ? 'chromium' : 'all'}.json` }]],
   outputDir: '../test-results/nav017/out',
   globalSetup: './global-setup.mjs',
-  use: { trace: 'retain-on-failure', serviceWorkers: 'allow' },
+  use: { trace: 'retain-on-failure', serviceWorkers: 'allow', timezoneId: 'Asia/Ulaanbaatar', locale: 'mn-MN' },
   projects: [
-    ...(chromium ? [{ name: 'chromium-iphone', use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 } }] : []),
+    ...(chromium ? [{ name: 'chromium-iphone', use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 1 } }] : []),
     ...(webkit ? [{ name: 'webkit-iphone', use: { ...devices['iPhone 13'] } }] : []),
   ],
 });

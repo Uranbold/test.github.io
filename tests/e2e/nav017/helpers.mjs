@@ -7,9 +7,10 @@
 // Oracles come from the repo fixtures (recorded routes, GPX tracks, the NAV-005 voice golden set) and from the story
 // text (NAV-004 AC 23–27 transcriptions in ../nav004/helpers.mjs), never from web/src.
 import { expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { AC27, allowedTexts, ac28Problems, fmtDistance, fmtDuration, nb } from '../nav004/helpers.mjs';
-import { ROOT, state } from './site.mjs';
+import { OUT, ROOT, state } from './site.mjs';
+const RUNS = OUT + 'runs/';
 
 export { AC27, allowedTexts, ac28Problems, fmtDistance, fmtDuration, nb, ROOT };
 export const WEB = ROOT + 'web/';
@@ -89,13 +90,15 @@ export class RouteOracle {
     for (let i = 1; i < this.line.length; i++) this.cum.push(this.cum[i - 1] + haversine(this.line[i - 1], this.line[i]));
     this.length = this.cum.at(-1);
     // manoeuvre k starts after the steps before it: project its location, searching forward from the previous one
+    // (search around the cumulative step distance, never before the previous manoeuvre)
     this.maneuverAlong = [];
-    let from = 0;
+    let from = 0, guess = 0;
     for (const s of this.steps) {
       const [lon, lat] = s.maneuver.location;
-      const a = this.project({ lat, lon }, from, from + Math.max(400, s.distance + 400)).along;
+      const a = this.project({ lat, lon }, Math.max(from, guess - 300), guess + 300).along;
       this.maneuverAlong.push(a);
       from = a;
+      guess = a + s.distance;
     }
   }
   /** Nearest point on the line between along positions [lo, hi]: {along, off}. */
@@ -298,6 +301,12 @@ export function qaInit(cfg) {
     if (live) new MutationObserver(() => log.live.push({ t: now() - t0, text: live.textContent })).observe(live, { childList: true, characterData: true, subtree: true });
     const txt = q('demo-nav-text');
     if (txt) new MutationObserver(() => log.banners.push({ t: now() - t0, text: txt.textContent })).observe(txt, { childList: true, characterData: true, subtree: true });
+    const ban = q('demo-nav-banner');
+    log.variants = [{ t: 0, v: ban?.getAttribute('data-variant') }];
+    if (ban) new MutationObserver(() => { const v = ban.getAttribute('data-variant'); if (log.variants.at(-1).v !== v) log.variants.push({ t: now() - t0, v }); }).observe(ban, { attributes: true, attributeFilter: ['data-variant'] });
+    const dist = q('demo-nav-distance');
+    log.dists = [];
+    if (dist) new MutationObserver(() => log.dists.push({ t: now() - t0, text: dist.textContent })).observe(dist, { childList: true, characterData: true, subtree: true });
   };
 }
 
@@ -319,7 +328,13 @@ export function netLog(page) {
  */
 export async function openDemo(page, cfg = {}, folder = 'a') {
   await page.addInitScript(qaInit, { voices: [], ...cfg });
-  if (cfg.clock !== false) await page.clock.install({ time: cfg.time ?? new Date('2026-10-01T13:50:00+08:00') });
+  // install() alone lets time keep flowing in real time; pauseAt() makes page time advance ONLY through tick()/runFor(),
+  // so "nothing happened in N ms" assertions are exact.
+  if (cfg.clock !== false) {
+    const t = cfg.time ?? new Date('2026-10-01T13:50:00+08:00');
+    await page.clock.install({ time: t });
+    await page.clock.pauseAt(new Date(t.getTime() + 1));
+  }
   await page.goto(demoUrl(folder));
   await waitPicker(page);
 }
@@ -390,3 +405,105 @@ export function bannerProblems(rec, lang) {
 }
 
 export { expect };
+
+// ---------------------------------------------------------------- AC 27 key of a recorded step (QA transcription of NAV-004 AC 27)
+const LEFT = new Set(['left', 'slight left', 'sharp left']);
+const RIGHT = new Set(['right', 'slight right', 'sharp right']);
+const TURN = { left: 'turn.left', right: 'turn.right', 'slight left': 'turn.slightLeft', 'slight right': 'turn.slightRight', 'sharp left': 'turn.sharpLeft', 'sharp right': 'turn.sharpRight' };
+/** Expected banner text of a step's manoeuvre in `lang` (NAV-004 AC 27 incl. D56). */
+export function ac27Text(m, lang) {
+  const i = lang === 'mn' ? 0 : 1;
+  const mod = m.modifier ?? null;
+  const side = (base) => AC27[LEFT.has(mod) ? `${base}.left` : RIGHT.has(mod) ? `${base}.right` : base][i];
+  switch (m.type) {
+    case 'depart': {
+      const s = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'][Math.floor((((m.bearing_after ?? 0) + 22.5) % 360) / 45)];
+      return AC27[`depart.${s}`][i];
+    }
+    case 'arrive': return side('arrive');
+    case 'roundabout': case 'rotary':
+      return m.exit ? (lang === 'mn' ? `Тойрог: ${m.exit}-р гарц` : `Roundabout: exit ${m.exit}`) : AC27['roundabout.enter'][i];
+    case 'exit roundabout': case 'exit rotary': return AC27['roundabout.leave'][i];
+    case 'fork': return LEFT.has(mod) ? AC27['keep.left'][i] : RIGHT.has(mod) ? AC27['keep.right'][i] : AC27.continue[i];
+    case 'merge': return side('merge');
+    case 'on ramp': return side('onRamp');
+    case 'off ramp': return side('offRamp');
+    default:
+      if (mod === 'uturn') return AC27.uturn[i];
+      if (TURN[mod]) return AC27[TURN[mod]][i];
+      return AC27.continue[i];
+  }
+}
+
+/** Sentinel copy of a recorded response (AC 18): every Valhalla text field replaced. */
+export const SENTINEL = 'VALHALLA_TEXT_SENTINEL';
+export function sentinelCopy(resp) {
+  const r = structuredClone(resp);
+  for (const route of r.routes) for (const leg of route.legs) for (const s of leg.steps) {
+    if (s.maneuver) s.maneuver.instruction = SENTINEL;
+    for (const b of s.bannerInstructions ?? []) for (const part of ['primary', 'secondary', 'sub']) {
+      if (!b[part]) continue;
+      b[part].text = SENTINEL;
+      for (const c of b[part].components ?? []) if ('text' in c) c.text = SENTINEL;
+    }
+    for (const v of s.voiceInstructions ?? []) { v.announcement = SENTINEL; if (v.ssmlAnnouncement) v.ssmlAnnouncement = `<speak>${SENTINEL}</speak>`; }
+  }
+  return r;
+}
+
+/**
+ * Builds a demo-routes/<id>.json body (the build's format, read from the served file) with another track or response.
+ * Used for the test-only G4 track (AC 34) and the sentinel copies (AC 18).
+ */
+export async function routeBody(id, { route, track } = {}) {
+  const s = site();
+  const base = await (await fetch(`${s.origin}${s.folders.a}demo-routes/${id}.json`)).json();
+  if (route) base.route = route;
+  if (track) base.track = { t_ms: track.map((p) => p.tMs), lonlat: track.map((p) => [p.lon, p.lat]) };
+  return base;
+}
+
+/**
+ * One full replay in a fresh context. opts: { label, lang, voices, body (override for the route data file), seconds,
+ * reducedMotion, viewport, before(page), during(page, sec) called every 10 s of replay time }.
+ * Returns everything the assertions need.
+ */
+export async function fullReplay(browser, project, opts) {
+  // NAV017_REUSE_RUNS=1: re-evaluate the assertions on the recorded run of a previous execution (same name and engine),
+  // without replaying again. The QA report always cites fresh runs.
+  const file = `${RUNS}${opts.name.replace(/[^A-Za-z0-9]+/g, '_')}-${project.name}.json`;
+  if (process.env.NAV017_REUSE_RUNS === '1' && existsSync(file)) {
+    const saved = JSON.parse(readFileSync(file, 'utf8'));
+    return { ...saved, page: { content: async () => saved.html }, ctx: { close: async () => {} } };
+  }
+  const res = await fullReplayLive(browser, project, opts);
+  mkdirSync(RUNS, { recursive: true });
+  writeFileSync(file, JSON.stringify({ log: res.log, reqs: res.reqs, errors: res.errors, storage: res.storage, html: await res.page.content() }));
+  return res;
+}
+
+async function fullReplayLive(browser, project, opts) {
+  const { defaultBrowserType, ...use } = project.use;
+  const ctx = await browser.newContext({ ...use, reducedMotion: opts.reducedMotion ?? 'reduce', ...(opts.viewport ? { viewport: opts.viewport } : {}) });
+  const page = await ctx.newPage();
+  const reqs = netLog(page);
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  if (opts.body) await page.route(`**/demo-routes/${ROUTES[opts.label].id}.json`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.body) }));
+  if (opts.before) await opts.before(page);
+  await openDemo(page, { voices: opts.voices ?? [], lang: opts.lang ?? 'mn', ...(opts.cfg ?? {}) });
+  // Logic replays: the map canvas is not painted (visibility only; tiles still load, layout unchanged). Software WebGL
+  // painting dominates the wall time on this machine (measured 0.6 s vs 0.2 s per replay second).
+  if (opts.hideCanvas !== false) await page.addStyleTag({ content: '.maplibregl-canvas{visibility:hidden !important}' });
+  await selectRoute(page, opts.label);
+  await startReplay(page, opts.period ?? 1000);
+  const total = opts.seconds ?? ROUTES[opts.label].length + 15;
+  for (let s = 0; s < total; s += 10) {
+    await page.clock.runFor(10_000);
+    if (opts.during) await opts.during(page, s + 10);
+  }
+  const log = await qa(page);
+  const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage }, cookie: document.cookie, url: location.href, sw: !!navigator.serviceWorker?.controller }));
+  const out = { log, reqs, errors, storage, page, ctx };
+  return out;
+}
