@@ -31,3 +31,15 @@ describe("NAV-017 AC 26 golden parity", () => {
     });
   }
 });
+
+describe("NAV-017 AC 26 G5 en (no golden rows yet, ADR-0011 W8)", () => {
+  test("G5 en has the same manoeuvres and times as the G5 mn golden rows, in English", async () => {
+    const tr = track("G5");
+    const r = await runReplay({ routeJson: JSON.parse(readRepo(tr.route)), track: parseGpx(readRepo(tr.file)), mode: "walk", lang: "en" });
+    const want = goldenRows().filter((g) => g.track === "G5" && g.lang === "mn");
+    expect(r.spoken.map((s) => String(s.prompt.maneuver?.step))).toEqual(want.map((w) => w.maneuver));
+    r.spoken.forEach((s, i) => expect(Math.abs(s.atMs / 1000 - want[i]!.tS)).toBeLessThanOrEqual(2));
+    for (const s of r.spoken) expect(s.prompt.text).not.toMatch(/[Ѐ-ӿ]/);
+    expect(r.spoken[0]!.prompt.text).toBe("Head south");
+  });
+});

@@ -50,11 +50,14 @@ export function followPadding(mapHeight: number, c: Covered): PaddingOptions {
   const top = c.top + UI_MARGIN;
   const bottomEdge = mapHeight - c.bottom - UI_MARGIN;
   const h = Math.max(1, bottomEdge - top);
-  return { top: top + (2 * PUCK_AT - 1) * h, bottom: mapHeight - bottomEdge, left: c.left + UI_MARGIN, right: c.right + UI_MARGIN };
+  const nn = (v: number) => (Number.isFinite(v) ? Math.max(0, v) : 0);
+  return { top: nn(top + (2 * PUCK_AT - 1) * h), bottom: nn(mapHeight - bottomEdge), left: nn(c.left + UI_MARGIN), right: nn(c.right + UI_MARGIN) };
 }
 
 export function follow(map: MapLibreMap, target: LatLon, bearing: number, zoom: number, padding: PaddingOptions, ms: number, reduced: boolean): void {
   const opts = { center: [target.lon, target.lat] as [number, number], bearing, pitch: FOLLOW_PITCH, zoom, padding };
   if (reduced || ms <= 0) map.jumpTo(opts);
-  else map.easeTo({ ...opts, duration: ms, easing: (t: number) => t, essential: true });
+  // Linear, clamped: MapLibre may evaluate the first frame with k slightly below 0 (frame time before the call), and an
+  // unclamped linear easing would then interpolate a negative padding, which MapLibre rejects.
+  else map.easeTo({ ...opts, duration: ms, easing: (t: number) => Math.min(1, Math.max(0, t)), essential: true });
 }

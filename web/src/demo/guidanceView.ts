@@ -110,6 +110,12 @@ export class GuidanceView {
     this.root = h("div", { class: "demo-nav", id: "demo-nav", "data-testid": "demo-nav", hidden: "" }, this.top, band, this.bottom, this.live);
   }
 
+  /** Rect of the visible progress or arrival panel (the covered bottom edge in the column arrangement). */
+  panelRect(): DOMRect | null {
+    const el = !this.progress.hidden ? this.progress : !this.arrival.hidden ? this.arrival : null;
+    return el ? el.getBoundingClientRect() : null;
+  }
+
   /** Slot in the demo row for the NAV-002 language and theme buttons (moved there during the replay). */
   get rowButtons(): HTMLElement {
     return this.row.querySelector(".dn-row-buttons") as HTMLElement;

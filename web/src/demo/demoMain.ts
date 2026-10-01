@@ -409,7 +409,9 @@ export class DemoController {
     const top = this.view.top.getBoundingClientRect();
     const bottom = this.view.bottom.getBoundingClientRect();
     if (window.matchMedia(COLUMNS_QUERY).matches) {
-      return { top: 0, bottom: Math.max(0, box.bottom - bottom.top), left: Math.max(0, top.right - box.left), right: 0 };
+      // The bottom region is `display: contents` here: measure the progress or arrival panel in the map column.
+      const panel = this.view.panelRect();
+      return { top: 0, bottom: panel ? Math.max(0, box.bottom - panel.top) : 0, left: Math.max(0, top.right - box.left), right: 0 };
     }
     return { top: Math.max(0, top.bottom - box.top), bottom: Math.max(0, box.bottom - bottom.top), left: 0, right: 0 };
   }
