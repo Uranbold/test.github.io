@@ -141,7 +141,7 @@ The voice found is never stored or sent (AC 28). Pending (not in the AC yet, D78
 ```mermaid
 flowchart TD
     A["Approaching prompt «{n} метрт очих газартаа хүрнэ» at the main trigger,<br/>if the schedule has one (not for an arrive < 30 m after the last manoeuvre, D68)"] --> B{"Snapped position ≤ 30 m from the route end, or past it"}
-    B --> C["Banner «Та очих газартаа ирлээ» or «Таны очих газар баруун/зүүн талд байна»<br/>spoken once or one chime (waits ≤ 3 s for a current utterance)"]
+    B --> C["Banner «Та очих газартаа ирлээ» or «Таны очих газар баруун талд байна» / «Таны очих газар зүүн талд байна»<br/>spoken once or one chime (waits ≤ 3 s for a current utterance)"]
     C --> D["Progress panel → D3 arrival panel: destination name (manifest) + «Хаах»<br/>replay clock stopped; 0 prompts after this; wake lock released ≤ 1 s"]
     D -- "«Хаах»" --> E(["D1 picker, no entry selected, no route drawn — AC 33"])
 ```

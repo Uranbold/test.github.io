@@ -1,0 +1,218 @@
+key	used_by	value	unit	display_mn	spoken_mn	status
+dist.lt10	C3	10	m	10 метрээс бага	арван метрээс бага	needs native review
+dist.m.30	A8, A11	30	m	30 метрт	гучин метрт	needs native review
+dist.m.40	A8, A11	40	m	40 метрт	дөчин метрт	needs native review
+dist.m.50	A8, A11	50	m	50 метрт	тавин метрт	needs native review
+dist.m.60	A8, A11	60	m	60 метрт	жаран метрт	needs native review
+dist.m.70	A8, A11	70	m	70 метрт	далан метрт	needs native review
+dist.m.80	A8, A11	80	m	80 метрт	наян метрт	needs native review
+dist.m.90	A8, A11	90	m	90 метрт	ерэн метрт	needs native review
+dist.m.100	A8, A11	100	m	100 метрт	зуун метрт	needs native review
+dist.m.150	A8, A11	150	m	150 метрт	зуун тавин метрт	needs native review
+dist.m.200	A8, A11	200	m	200 метрт	хоёр зуун метрт	needs native review
+dist.m.250	A8, A11	250	m	250 метрт	хоёр зуун тавин метрт	needs native review
+dist.m.300	A8, A11	300	m	300 метрт	гурван зуун метрт	needs native review
+dist.m.350	A8, A11	350	m	350 метрт	гурван зуун тавин метрт	needs native review
+dist.m.400	A8, A11	400	m	400 метрт	дөрвөн зуун метрт	needs native review
+dist.m.450	A8, A11	450	m	450 метрт	дөрвөн зуун тавин метрт	needs native review
+dist.m.500	A8, A11	500	m	500 метрт	таван зуун метрт	needs native review
+dist.m.550	A8	550	m	550 метрт	таван зуун тавин метрт	needs native review
+dist.m.600	A8	600	m	600 метрт	зургаан зуун метрт	needs native review
+dist.m.650	A8	650	m	650 метрт	зургаан зуун тавин метрт	needs native review
+dist.m.700	A8	700	m	700 метрт	долоон зуун метрт	needs native review
+dist.m.750	A8	750	m	750 метрт	долоон зуун тавин метрт	needs native review
+dist.m.800	A8	800	m	800 метрт	найман зуун метрт	needs native review
+dist.m.850	A8	850	m	850 метрт	найман зуун тавин метрт	needs native review
+dist.m.900	A8	900	m	900 метрт	есөн зуун метрт	needs native review
+dist.m.950	A8	950	m	950 метрт	есөн зуун тавин метрт	needs native review
+dist.km.1	A9	1	km	1 километрт	нэг километрт	needs native review
+dist.km.1_5	A9	1.5	km	1,5 километрт	нэг хагас километрт	needs native review
+dist.km.2	A9	2	km	2 километрт	хоёр километрт	needs native review
+cont.km.2	A12	2	km	2 километр	хоёр километр	needs native review
+cont.km.3	A12	3	km	3 километр	гурван километр	needs native review
+cont.km.4	A12	4	km	4 километр	дөрвөн километр	needs native review
+cont.km.5	A12	5	km	5 километр	таван километр	needs native review
+cont.km.6	A12	6	km	6 километр	зургаан километр	needs native review
+cont.km.7	A12	7	km	7 километр	долоон километр	needs native review
+cont.km.8	A12	8	km	8 километр	найман километр	needs native review
+cont.km.9	A12	9	km	9 километр	есөн километр	needs native review
+cont.km.10	A12	10	km	10 километр	арван километр	needs native review
+cont.km.11	A12	11	km	11 километр	арван нэг километр	needs native review
+cont.km.12	A12	12	km	12 километр	арван хоёр километр	needs native review
+cont.km.13	A12	13	km	13 километр	арван гурван километр	needs native review
+cont.km.14	A12	14	km	14 километр	арван дөрвөн километр	needs native review
+cont.km.15	A12	15	km	15 километр	арван таван километр	needs native review
+cont.km.16	A12	16	km	16 километр	арван зургаан километр	needs native review
+cont.km.17	A12	17	km	17 километр	арван долоон километр	needs native review
+cont.km.18	A12	18	km	18 километр	арван найман километр	needs native review
+cont.km.19	A12	19	km	19 километр	арван есөн километр	needs native review
+cont.km.20	A12	20	km	20 километр	хорин километр	needs native review
+cont.km.21	A12	21	km	21 километр	хорин нэг километр	needs native review
+cont.km.22	A12	22	km	22 километр	хорин хоёр километр	needs native review
+cont.km.23	A12	23	km	23 километр	хорин гурван километр	needs native review
+cont.km.24	A12	24	km	24 километр	хорин дөрвөн километр	needs native review
+cont.km.25	A12	25	km	25 километр	хорин таван километр	needs native review
+cont.km.26	A12	26	km	26 километр	хорин зургаан километр	needs native review
+cont.km.27	A12	27	km	27 километр	хорин долоон километр	needs native review
+cont.km.28	A12	28	km	28 километр	хорин найман километр	needs native review
+cont.km.29	A12	29	km	29 километр	хорин есөн километр	needs native review
+cont.km.30	A12	30	km	30 километр	гучин километр	needs native review
+cont.km.31	A12	31	km	31 километр	гучин нэг километр	needs native review
+cont.km.32	A12	32	km	32 километр	гучин хоёр километр	needs native review
+cont.km.33	A12	33	km	33 километр	гучин гурван километр	needs native review
+cont.km.34	A12	34	km	34 километр	гучин дөрвөн километр	needs native review
+cont.km.35	A12	35	km	35 километр	гучин таван километр	needs native review
+cont.km.36	A12	36	km	36 километр	гучин зургаан километр	needs native review
+cont.km.37	A12	37	km	37 километр	гучин долоон километр	needs native review
+cont.km.38	A12	38	km	38 километр	гучин найман километр	needs native review
+cont.km.39	A12	39	km	39 километр	гучин есөн километр	needs native review
+cont.km.40	A12	40	km	40 километр	дөчин километр	needs native review
+cont.km.41	A12	41	km	41 километр	дөчин нэг километр	needs native review
+cont.km.42	A12	42	km	42 километр	дөчин хоёр километр	needs native review
+cont.km.43	A12	43	km	43 километр	дөчин гурван километр	needs native review
+cont.km.44	A12	44	km	44 километр	дөчин дөрвөн километр	needs native review
+cont.km.45	A12	45	km	45 километр	дөчин таван километр	needs native review
+cont.km.46	A12	46	km	46 километр	дөчин зургаан километр	needs native review
+cont.km.47	A12	47	km	47 километр	дөчин долоон километр	needs native review
+cont.km.48	A12	48	km	48 километр	дөчин найман километр	needs native review
+cont.km.49	A12	49	km	49 километр	дөчин есөн километр	needs native review
+cont.km.50	A12	50	km	50 километр	тавин километр	needs native review
+cont.km.51	A12	51	km	51 километр	тавин нэг километр	needs native review
+cont.km.52	A12	52	km	52 километр	тавин хоёр километр	needs native review
+cont.km.53	A12	53	km	53 километр	тавин гурван километр	needs native review
+cont.km.54	A12	54	km	54 километр	тавин дөрвөн километр	needs native review
+cont.km.55	A12	55	km	55 километр	тавин таван километр	needs native review
+cont.km.56	A12	56	km	56 километр	тавин зургаан километр	needs native review
+cont.km.57	A12	57	km	57 километр	тавин долоон километр	needs native review
+cont.km.58	A12	58	km	58 километр	тавин найман километр	needs native review
+cont.km.59	A12	59	km	59 километр	тавин есөн километр	needs native review
+cont.km.60	A12	60	km	60 километр	жаран километр	needs native review
+cont.km.61	A12	61	km	61 километр	жаран нэг километр	needs native review
+cont.km.62	A12	62	km	62 километр	жаран хоёр километр	needs native review
+cont.km.63	A12	63	km	63 километр	жаран гурван километр	needs native review
+cont.km.64	A12	64	km	64 километр	жаран дөрвөн километр	needs native review
+cont.km.65	A12	65	km	65 километр	жаран таван километр	needs native review
+cont.km.66	A12	66	km	66 километр	жаран зургаан километр	needs native review
+cont.km.67	A12	67	km	67 километр	жаран долоон километр	needs native review
+cont.km.68	A12	68	km	68 километр	жаран найман километр	needs native review
+cont.km.69	A12	69	km	69 километр	жаран есөн километр	needs native review
+cont.km.70	A12	70	km	70 километр	далан километр	needs native review
+cont.km.71	A12	71	km	71 километр	далан нэг километр	needs native review
+cont.km.72	A12	72	km	72 километр	далан хоёр километр	needs native review
+cont.km.73	A12	73	km	73 километр	далан гурван километр	needs native review
+cont.km.74	A12	74	km	74 километр	далан дөрвөн километр	needs native review
+cont.km.75	A12	75	km	75 километр	далан таван километр	needs native review
+cont.km.76	A12	76	km	76 километр	далан зургаан километр	needs native review
+cont.km.77	A12	77	km	77 километр	далан долоон километр	needs native review
+cont.km.78	A12	78	km	78 километр	далан найман километр	needs native review
+cont.km.79	A12	79	km	79 километр	далан есөн километр	needs native review
+cont.km.80	A12	80	km	80 километр	наян километр	needs native review
+cont.km.81	A12	81	km	81 километр	наян нэг километр	needs native review
+cont.km.82	A12	82	km	82 километр	наян хоёр километр	needs native review
+cont.km.83	A12	83	km	83 километр	наян гурван километр	needs native review
+cont.km.84	A12	84	km	84 километр	наян дөрвөн километр	needs native review
+cont.km.85	A12	85	km	85 километр	наян таван километр	needs native review
+cont.km.86	A12	86	km	86 километр	наян зургаан километр	needs native review
+cont.km.87	A12	87	km	87 километр	наян долоон километр	needs native review
+cont.km.88	A12	88	km	88 километр	наян найман километр	needs native review
+cont.km.89	A12	89	km	89 километр	наян есөн километр	needs native review
+cont.km.90	A12	90	km	90 километр	ерэн километр	needs native review
+cont.km.91	A12	91	km	91 километр	ерэн нэг километр	needs native review
+cont.km.92	A12	92	km	92 километр	ерэн хоёр километр	needs native review
+cont.km.93	A12	93	km	93 километр	ерэн гурван километр	needs native review
+cont.km.94	A12	94	km	94 километр	ерэн дөрвөн километр	needs native review
+cont.km.95	A12	95	km	95 километр	ерэн таван километр	needs native review
+cont.km.96	A12	96	km	96 километр	ерэн зургаан километр	needs native review
+cont.km.97	A12	97	km	97 километр	ерэн долоон километр	needs native review
+cont.km.98	A12	98	km	98 километр	ерэн найман километр	needs native review
+cont.km.99	A12	99	km	99 километр	ерэн есөн километр	needs native review
+cont.km.100	A12	100	km	100 километр	зуун километр	needs native review
+cont.km.110	A12	110	km	110 километр	зуун арван километр	needs native review
+cont.km.120	A12	120	km	120 километр	зуун хорин километр	needs native review
+cont.km.130	A12	130	km	130 километр	зуун гучин километр	needs native review
+cont.km.140	A12	140	km	140 километр	зуун дөчин километр	needs native review
+cont.km.150	A12	150	km	150 километр	зуун тавин километр	needs native review
+cont.km.160	A12	160	km	160 километр	зуун жаран километр	needs native review
+cont.km.170	A12	170	km	170 километр	зуун далан километр	needs native review
+cont.km.180	A12	180	km	180 километр	зуун наян километр	needs native review
+cont.km.190	A12	190	km	190 километр	зуун ерэн километр	needs native review
+cont.km.200	A12	200	km	200 километр	хоёр зуун километр	needs native review
+cont.km.210	A12	210	km	210 километр	хоёр зуун арван километр	needs native review
+cont.km.220	A12	220	km	220 километр	хоёр зуун хорин километр	needs native review
+cont.km.230	A12	230	km	230 километр	хоёр зуун гучин километр	needs native review
+cont.km.240	A12	240	km	240 километр	хоёр зуун дөчин километр	needs native review
+cont.km.250	A12	250	km	250 километр	хоёр зуун тавин километр	needs native review
+cont.km.260	A12	260	km	260 километр	хоёр зуун жаран километр	needs native review
+cont.km.270	A12	270	km	270 километр	хоёр зуун далан километр	needs native review
+cont.km.280	A12	280	km	280 километр	хоёр зуун наян километр	needs native review
+cont.km.290	A12	290	km	290 километр	хоёр зуун ерэн километр	needs native review
+cont.km.300	A12	300	km	300 километр	гурван зуун километр	needs native review
+cont.km.310	A12	310	km	310 километр	гурван зуун арван километр	needs native review
+cont.km.320	A12	320	km	320 километр	гурван зуун хорин километр	needs native review
+cont.km.330	A12	330	km	330 километр	гурван зуун гучин километр	needs native review
+cont.km.340	A12	340	km	340 километр	гурван зуун дөчин километр	needs native review
+cont.km.350	A12	350	km	350 километр	гурван зуун тавин километр	needs native review
+cont.km.360	A12	360	km	360 километр	гурван зуун жаран километр	needs native review
+cont.km.370	A12	370	km	370 километр	гурван зуун далан километр	needs native review
+cont.km.380	A12	380	km	380 километр	гурван зуун наян километр	needs native review
+cont.km.390	A12	390	km	390 километр	гурван зуун ерэн километр	needs native review
+cont.km.400	A12	400	km	400 километр	дөрвөн зуун километр	needs native review
+cont.km.410	A12	410	km	410 километр	дөрвөн зуун арван километр	needs native review
+cont.km.420	A12	420	km	420 километр	дөрвөн зуун хорин километр	needs native review
+cont.km.430	A12	430	km	430 километр	дөрвөн зуун гучин километр	needs native review
+cont.km.440	A12	440	km	440 километр	дөрвөн зуун дөчин километр	needs native review
+cont.km.450	A12	450	km	450 километр	дөрвөн зуун тавин километр	needs native review
+cont.km.460	A12	460	km	460 километр	дөрвөн зуун жаран километр	needs native review
+cont.km.470	A12	470	km	470 километр	дөрвөн зуун далан километр	needs native review
+cont.km.480	A12	480	km	480 километр	дөрвөн зуун наян километр	needs native review
+cont.km.490	A12	490	km	490 километр	дөрвөн зуун ерэн километр	needs native review
+cont.km.500	A12	500	km	500 километр	таван зуун километр	needs native review
+cont.km.510	A12	510	km	510 километр	таван зуун арван километр	needs native review
+cont.km.520	A12	520	km	520 километр	таван зуун хорин километр	needs native review
+cont.km.530	A12	530	km	530 километр	таван зуун гучин километр	needs native review
+cont.km.540	A12	540	km	540 километр	таван зуун дөчин километр	needs native review
+cont.km.550	A12	550	km	550 километр	таван зуун тавин километр	needs native review
+cont.km.560	A12	560	km	560 километр	таван зуун жаран километр	needs native review
+cont.km.570	A12	570	km	570 километр	таван зуун далан километр	needs native review
+cont.km.580	A12	580	km	580 километр	таван зуун наян километр	needs native review
+cont.km.590	A12	590	km	590 километр	таван зуун ерэн километр	needs native review
+cont.km.600	A12	600	km	600 километр	зургаан зуун километр	needs native review
+cont.km.610	A12	610	km	610 километр	зургаан зуун арван километр	needs native review
+cont.km.620	A12	620	km	620 километр	зургаан зуун хорин километр	needs native review
+cont.km.630	A12	630	km	630 километр	зургаан зуун гучин километр	needs native review
+cont.km.640	A12	640	km	640 километр	зургаан зуун дөчин километр	needs native review
+cont.km.650	A12	650	km	650 километр	зургаан зуун тавин километр	needs native review
+cont.km.660	A12	660	km	660 километр	зургаан зуун жаран километр	needs native review
+cont.km.670	A12	670	km	670 километр	зургаан зуун далан километр	needs native review
+cont.km.680	A12	680	km	680 километр	зургаан зуун наян километр	needs native review
+cont.km.690	A12	690	km	690 километр	зургаан зуун ерэн километр	needs native review
+cont.km.700	A12	700	km	700 километр	долоон зуун километр	needs native review
+cont.km.710	A12	710	km	710 километр	долоон зуун арван километр	needs native review
+cont.km.720	A12	720	km	720 километр	долоон зуун хорин километр	needs native review
+cont.km.730	A12	730	km	730 километр	долоон зуун гучин километр	needs native review
+cont.km.740	A12	740	km	740 километр	долоон зуун дөчин километр	needs native review
+cont.km.750	A12	750	km	750 километр	долоон зуун тавин километр	needs native review
+cont.km.760	A12	760	km	760 километр	долоон зуун жаран километр	needs native review
+cont.km.770	A12	770	km	770 километр	долоон зуун далан километр	needs native review
+cont.km.780	A12	780	km	780 километр	долоон зуун наян километр	needs native review
+cont.km.790	A12	790	km	790 километр	долоон зуун ерэн километр	needs native review
+cont.km.800	A12	800	km	800 километр	найман зуун километр	needs native review
+cont.km.810	A12	810	km	810 километр	найман зуун арван километр	needs native review
+cont.km.820	A12	820	km	820 километр	найман зуун хорин километр	needs native review
+cont.km.830	A12	830	km	830 километр	найман зуун гучин километр	needs native review
+cont.km.840	A12	840	km	840 километр	найман зуун дөчин километр	needs native review
+cont.km.850	A12	850	km	850 километр	найман зуун тавин километр	needs native review
+cont.km.860	A12	860	km	860 километр	найман зуун жаран километр	needs native review
+cont.km.870	A12	870	km	870 километр	найман зуун далан километр	needs native review
+cont.km.880	A12	880	km	880 километр	найман зуун наян километр	needs native review
+cont.km.890	A12	890	km	890 километр	найман зуун ерэн километр	needs native review
+cont.km.900	A12	900	km	900 километр	есөн зуун километр	needs native review
+cont.km.910	A12	910	km	910 километр	есөн зуун арван километр	needs native review
+cont.km.920	A12	920	km	920 километр	есөн зуун хорин километр	needs native review
+cont.km.930	A12	930	km	930 километр	есөн зуун гучин километр	needs native review
+cont.km.940	A12	940	km	940 километр	есөн зуун дөчин километр	needs native review
+cont.km.950	A12	950	km	950 километр	есөн зуун тавин километр	needs native review
+cont.km.960	A12	960	km	960 километр	есөн зуун жаран километр	needs native review
+cont.km.970	A12	970	km	970 километр	есөн зуун далан километр	needs native review
+cont.km.980	A12	980	km	980 километр	есөн зуун наян километр	needs native review
+cont.km.990	A12	990	km	990 километр	есөн зуун ерэн километр	needs native review

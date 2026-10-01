@@ -1,7 +1,8 @@
 /// <reference types="vitest/config" />
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig, runnerImport, type Plugin } from "vite";
+import { defineConfig, loadEnv, runnerImport, type Plugin } from "vite";
+import { demoHtml, demoModeGuard, demoRoutes, demoRoutesStub, parseDemoMode } from "./buildtools/demoMode";
 import { bootLoading, type BootConfig } from "./src/boot/bootLoading";
 import { parseStaticDemo } from "./src/config";
 import en from "./src/i18n/en.json";
@@ -13,6 +14,8 @@ import { LOADING_DELAY_MS, LOADING_REVEAL_MS } from "./src/state/status";
 // docs/design/tokens.json is the single source of truth for colours (owner: ux-designer).
 // It is imported read-only through the @design alias; web/ never copies the values by hand.
 const designDir = fileURLToPath(new URL("../docs/design", import.meta.url));
+const webRoot = fileURLToPath(new URL(".", import.meta.url));
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const alias = { "@design": designDir };
 
 const escapeHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -85,32 +88,53 @@ function staticDemoGuard(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [bootIndicator(), staticDemoGuard()],
-  resolve: { alias },
-  server: {
-    host: "localhost",
-    port: 5173,
-    strictPort: true,
-    fs: { allow: [".", designDir] },
-  },
-  preview: {
-    host: "localhost",
-    port: 4173,
-    strictPort: true,
-  },
-  build: {
-    target: "es2022",
-    chunkSizeWarningLimit: 1600,
-    rollupOptions: {
-      input: {
-        main: fileURLToPath(new URL("./index.html", import.meta.url)),
-        labelRule: fileURLToPath(new URL("./fixtures/label-rule.html", import.meta.url)),
+export default defineConfig(({ mode }) => {
+  // NAV-017 (ADR-0011 §2): demo mode is decided at build time. The guard plugin rejects invalid values; here an invalid
+  // value counts as off, so the switch below can never turn demo code on by accident.
+  const env = loadEnv(mode, webRoot, "VITE_");
+  const demo = parseDemoMode(env.VITE_DEMO_MODE ?? process.env.VITE_DEMO_MODE) === true;
+  return {
+    plugins: [
+      bootIndicator(),
+      staticDemoGuard(),
+      demoModeGuard((raw) => parseStaticDemo(raw)),
+      ...(demo ? [demoHtml(), demoRoutes(webRoot, repoRoot)] : [demoRoutesStub()]),
+    ],
+    // The only branch into the demo code (src/main.ts) is on this compile-time constant, so every other build contains
+    // no demo chunk, no WASM and no route data (NAV-017 AC 4).
+    define: { __NAVMN_DEMO_MODE__: JSON.stringify(demo) },
+    // Demo-mode build only: relative URLs, so the output works from any sub-folder without a rebuild (AC 2). Public
+    // builds keep "/" (ADR-0004 §4).
+    base: demo ? "./" : "/",
+    resolve: { alias },
+    server: {
+      host: "localhost",
+      port: 5173,
+      strictPort: true,
+      fs: { allow: [".", designDir, ...(demo ? [repoRoot] : [])] },
+    },
+    preview: {
+      host: "localhost",
+      port: 4173,
+      strictPort: true,
+    },
+    build: {
+      target: "es2022",
+      chunkSizeWarningLimit: 1600,
+      // Demo mode: no runtime-created <link crossorigin> (preloads, split CSS), ADR-0011 §2 / W5, W7.
+      ...(demo ? { modulePreload: false as const, cssCodeSplit: false } : {}),
+      rollupOptions: {
+        input: demo
+          ? { main: fileURLToPath(new URL("./index.html", import.meta.url)) }
+          : {
+              main: fileURLToPath(new URL("./index.html", import.meta.url)),
+              labelRule: fileURLToPath(new URL("./fixtures/label-rule.html", import.meta.url)),
+            },
       },
     },
-  },
-  test: {
-    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
-    environment: "node",
-  },
+    test: {
+      include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
+      environment: "node",
+    },
+  };
 });

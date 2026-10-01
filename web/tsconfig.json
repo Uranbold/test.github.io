@@ -19,5 +19,5 @@
       "@design/*": ["../docs/design/*"]
     }
   },
-  "include": ["src", "fixtures", "vite.config.ts"]
+  "include": ["src", "fixtures", "buildtools", "vite.config.ts"]
 }
