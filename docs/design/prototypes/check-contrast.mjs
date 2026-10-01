@@ -67,9 +67,9 @@ const row = /^\|\s*`([a-z_.-]+)`\s*\|\s*(#[0-9A-Fa-f]{6})\s*\|\s*(#[0-9A-Fa-f]{6
 let checked = 0;
 for (const m of md.matchAll(row)) {
   const [, key, day, night] = m;
-  // `custom.*` → color.<mode>.map.custom; `route.*`, `pin.*`, `location.*` (NAV-003/004 own layers and markers) →
-  // color.<mode>.<key>; anything else is a Protomaps flavor key.
-  const base = key.startsWith("custom.") ? "map." : /^(route|pin|location)\./.test(key) ? "" : "map.flavor.";
+  // `custom.*` → color.<mode>.map.custom; `route.*`, `pin.*`, `location.*`, `nav.*` (NAV-003/004/005 own layers and
+  // markers) → color.<mode>.<key>; anything else is a Protomaps flavor key.
+  const base = key.startsWith("custom.") ? "map." : /^(route|pin|location|nav)\./.test(key) ? "" : "map.flavor.";
   for (const [mode, val] of [["light", day], ["night", night]]) {
     const want = lookup(`${mode}.${base}${key}`);
     checked++;

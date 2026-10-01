@@ -1,0 +1,136 @@
+{
+ "description": "NAV-005 GPX replay set (story G1-G9) and QA variants. Paths are relative to the repo root. route = the previewed route the replay starts with; reroutes = recorded responses served in order to reroute requests.",
+ "generator": "tests/gpx/nav005/make_gpx.py",
+ "tracks": [
+  {
+   "id": "G1",
+   "file": "tests/gpx/nav005/G1.gpx",
+   "description": "P1 -> P3 by car on the route, <= 60 km/h, slowing to ~22 km/h at turns",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 309,
+   "duration_s": 308,
+   "also_en": "mobile/android/app/src/test/resources/routes/p1-p3-car-en.json"
+  },
+  {
+   "id": "G2",
+   "file": "tests/gpx/nav005/G2.gpx",
+   "description": "P1 -> P3 by car; at the first turn (left onto Dunjingarav st.) goes straight on Zaisan st.; the reroute route follows Zaisan st. for 541 m (>= 300 m on another road) and then reaches P3",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [
+    "mobile/android/app/src/test/resources/routes/g2-reroute-car-mn.json"
+   ],
+   "points": 372,
+   "duration_s": 371,
+   "wrong_turn_at": [
+    47.887561,
+    106.910704
+   ],
+   "wrong_turn_bearing": 164.8141737103739
+  },
+  {
+   "id": "G3",
+   "file": "tests/gpx/nav005/G3.gpx",
+   "description": "P1 -> P3 by car at 48 km/h; no fixes for 30 s mid-route (tunnel/underpass); fixes resume 400 m further along",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 290,
+   "duration_s": 319,
+   "gap_start_s": 100,
+   "gap_s": 30,
+   "gap_m": 400
+  },
+  {
+   "id": "G3b",
+   "file": "tests/gpx/nav005/G3b.gpx",
+   "description": "QA variant of G3: the 30 s gap covers the left turn (manoeuvre passed while GPS is lost, AC 52)",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 290,
+   "duration_s": 319,
+   "gap_start_s": 250,
+   "gap_s": 30,
+   "gap_m": 400
+  },
+  {
+   "id": "G4",
+   "file": "tests/gpx/nav005/G4.gpx",
+   "description": "Last 500 m to P3 at 29 km/h, then stationary 10 m before the route end for 30 s (+-2 m jitter)",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 92,
+   "duration_s": 91
+  },
+  {
+   "id": "G5",
+   "file": "tests/gpx/nav005/G5.gpx",
+   "description": "P1 -> P2 on foot at 1.4 m/s",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p2-walk-mn.json",
+   "mode": "walk",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 933,
+   "duration_s": 932,
+   "also_en": "mobile/android/app/src/test/resources/routes/p1-p2-walk-en.json"
+  },
+  {
+   "id": "G6",
+   "file": "tests/gpx/nav005/G6.gpx",
+   "description": "G1 with one outlier fix 80 m off the route (true speed/course kept)",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 309,
+   "duration_s": 308,
+   "outlier_index": 60
+  },
+  {
+   "id": "G7",
+   "file": "tests/gpx/nav005/G7.gpx",
+   "description": "G1 with 20 s of fixes with accuracy 60 m drifting up to 80 m off the route",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p3-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 309,
+   "duration_s": 308,
+   "poor_from_index": 60,
+   "poor_count": 20
+  },
+  {
+   "id": "G8",
+   "file": "tests/gpx/nav005/G8.gpx",
+   "description": "UB car route over Ikh Toiruu with two rotary steps (exit 2) at <= 50 km/h",
+   "route": "mobile/android/app/src/test/resources/routes/g8-roundabout-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 788,
+   "duration_s": 787,
+   "also_en": "tests/gpx/nav005/routes/g8-roundabout-car-en.json"
+  },
+  {
+   "id": "G9",
+   "file": "tests/gpx/nav005/G9.gpx",
+   "description": "First 20 km of P1 -> X1 (Peace Ave west, roundabout exit 2 onto the Darkhan road) at 80 km/h",
+   "route": "tests/gpx/nav005/routes/g9-p1-x1-car-mn.json",
+   "mode": "car",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 916,
+   "duration_s": 915,
+   "partial": true
+  }
+ ]
+}

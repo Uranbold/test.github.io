@@ -1,0 +1,180 @@
+package mn.navmn.app.voiceplan
+
+import mn.navmn.app.i18n.Lang
+import mn.navmn.app.instructions.VoiceContent
+import mn.navmn.app.instructions.VoiceText
+import mn.navmn.app.route.GuidancePlan
+import mn.navmn.app.support.Plans
+import mn.navmn.app.support.TestStrings
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** navigation-ux §4.2–§4.4 schedule (NAV-005 AC 32 chaining, AC 34, 35, 40). Fake clock, 1 Hz snapshots. */
+class VoiceSchedulerTest {
+    private val mn = TestStrings.of(Lang.MN)
+
+    data class Heard(val t: Long, val d: Double, val text: String, val kind: PromptKind?)
+
+    /** Drives step [step] (k) at constant [speed] from its full length down to 0, then into the next step. */
+    private fun approach(s: VoiceScheduler, plan: GuidancePlan, step: Int, speed: Double, t0: Long = 0, sampleMs: Long = 1_000): List<Heard> {
+        val out = ArrayList<Heard>()
+        var d = plan.steps[step].distance
+        var t = t0
+        while (d >= 0) {
+            s.evaluate(VoiceScheduler.Input(t, plan, step, d, speed))?.let {
+                out += Heard(t, d, VoiceText.render(it.content, Lang.MN, mn), it.kind)
+            }
+            d -= speed * sampleMs / 1000.0
+            t += sampleMs
+        }
+        return out
+    }
+
+    @Test
+    fun citySpeedGivesEarlyMainNowEachOnce() {
+        val plan = Plans.plan(Plans.depart to 1_500.0, Plans.right to 500.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        val heard = approach(s, plan, 0, 14.0, t0 = 10_000)
+        assertEquals(listOf(PromptKind.EARLY, PromptKind.MAIN, PromptKind.NOW), heard.map { it.kind })
+        assertEquals("1 километрт баруун тийш эргэнэ үү", heard[0].text)
+        assertTrue(heard[1].d in 155.0..168.0)
+        assertTrue(heard[2].d in 28.0..42.0)
+    }
+
+    @Test
+    fun atLeastOnePromptTwentyToTwoHundredFiftyMetresAheadAtEverySpeed() {
+        for (kmh in listOf(3, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 130)) {
+            for (gap in listOf(60.0, 160.0, 400.0, 900.0, 3_000.0)) {
+                val plan = Plans.plan(Plans.depart to gap, Plans.left to 800.0, Plans.arrive to 0.0)
+                val s = VoiceScheduler(walk = false)
+                val depart = s.start(plan, 0)
+                // A chained depart prompt names the first manoeuvre while it is `gap` ahead (§4.3, §4.4).
+                val chained = (depart.content as VoiceContent.Depart).then != null
+                val heard = approach(s, plan, 0, kmh / 3.6, t0 = 20_000) +
+                    if (chained) listOf(Heard(0, gap, "depart+then", PromptKind.DEPART)) else emptyList()
+                assertTrue("$kmh km/h gap $gap: $heard", heard.any { it.d in 20.0..250.0 })
+            }
+        }
+    }
+
+    @Test
+    fun eachKindAtMostOnceAndNothingForPassedManeuvers() {
+        val plan = Plans.plan(Plans.depart to 1_500.0, Plans.right to 500.0, Plans.left to 700.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        val first = approach(s, plan, 0, 12.0, t0 = 10_000)
+        // repeated snapshots at the same distance do not repeat
+        assertNull(s.evaluate(VoiceScheduler.Input(500_000, plan, 0, 1.0, 12.0)))
+        val second = approach(s, plan, 1, 12.0, t0 = 600_000)
+        assertTrue(second.none { it.text.contains("баруун тийш") })
+        assertEquals(first.size, first.map { it.kind }.toSet().size)
+    }
+
+    @Test
+    fun sameManeuverEightSecondRule() {
+        val plan = Plans.plan(Plans.depart to 300.0, Plans.right to 500.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        assertEquals(PromptKind.MAIN, s.evaluate(VoiceScheduler.Input(20_000, plan, 0, 110.0, 10.0))!!.kind)
+        // the "now" threshold is reached 5 s later: skipped (another prompt for it < 8 s earlier)
+        assertNull(s.evaluate(VoiceScheduler.Input(25_000, plan, 0, 25.0, 10.0)))
+        assertNull(s.evaluate(VoiceScheduler.Input(30_000, plan, 0, 10.0, 10.0)))
+    }
+
+    @Test
+    fun chainingWithinOneHundredFiftyMetresByCar() {
+        val plan = Plans.plan(Plans.depart to 600.0, Plans.right to 100.0, Plans.left to 900.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        val heard = approach(s, plan, 0, 12.0, t0 = 10_000)
+        val main = heard.first { it.kind == PromptKind.MAIN }
+        assertTrue(main.text, main.text.endsWith("баруун тийш эргэнэ үү, дараа нь зүүн тийш эргэнэ үү"))
+        assertTrue(s.thenVisible(plan, 0) != null)
+        // the chained second manoeuvre only gets its "now" prompt
+        val second = approach(s, plan, 1, 12.0, t0 = 100_000)
+        assertEquals(listOf(PromptKind.NOW), second.map { it.kind })
+    }
+
+    @Test
+    fun noChainBeforeArriveAndWalkChainsWithinFortyMetres() {
+        val car = Plans.plan(Plans.depart to 600.0, Plans.right to 100.0, Plans.arrive to 0.0)
+        assertNull(VoiceScheduler(walk = false).chainTarget(car, 1))
+        val walk = Plans.plan(Plans.depart to 200.0, Plans.right to 35.0, Plans.left to 300.0, Plans.arrive to 0.0)
+        assertTrue(VoiceScheduler(walk = true).chainTarget(walk, 1) != null)
+        val walkFar = Plans.plan(Plans.depart to 200.0, Plans.right to 45.0, Plans.left to 300.0, Plans.arrive to 0.0)
+        assertNull(VoiceScheduler(walk = true).chainTarget(walkFar, 1))
+    }
+
+    @Test
+    fun departAtStartIsChainedWhenTheFirstManeuverIsClose() {
+        val plan = Plans.plan(Plans.depart to 120.0, Plans.left to 900.0, Plans.arrive to 0.0)
+        val p = VoiceScheduler(walk = false).start(plan, 0)
+        assertEquals("Хойд зүг рүү явна уу, дараа нь зүүн тийш эргэнэ үү", VoiceText.render(p.content, Lang.MN, mn))
+        assertEquals(PromptKind.DEPART, p.kind)
+    }
+
+    @Test
+    fun arriveGetsApproachingInsteadOfMainAndNoNow() {
+        val plan = Plans.plan(Plans.depart to 900.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        val heard = approach(s, plan, 0, 12.0, t0 = 10_000)
+        assertEquals(1, heard.size)
+        assertTrue(heard[0].text, heard[0].text.endsWith("метрт очих газартаа ирнэ"))
+    }
+
+    @Test
+    fun exitRoundaboutOnlyNow() {
+        val plan = Plans.plan(Plans.depart to 400.0, Plans.exitRb to 300.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        assertEquals(listOf(PromptKind.NOW), approach(s, plan, 0, 10.0, t0 = 10_000).map { it.kind })
+    }
+
+    @Test
+    fun walkMainFiftyNowFifteen() {
+        val plan = Plans.plan(Plans.depart to 300.0, Plans.right to 300.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = true)
+        s.start(plan, 0)
+        val heard = approach(s, plan, 0, 1.4, t0 = 10_000)
+        assertEquals(listOf(PromptKind.MAIN, PromptKind.NOW), heard.map { it.kind })
+        assertTrue(heard[0].d in 48.6..50.0)
+        assertTrue(heard[1].d in 13.6..15.0)
+    }
+
+    @Test
+    fun continueOnAfterAManeuverWhenTheNextIsFar() {
+        val plan = Plans.plan(Plans.depart to 300.0, Plans.right to 12_000.0, Plans.left to 500.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        approach(s, plan, 0, 20.0, t0 = 10_000)
+        val p = s.evaluate(VoiceScheduler.Input(100_000, plan, 1, 11_990.0, 20.0))!!
+        assertEquals(PromptKind.CONTINUE_ON, p.kind)
+        assertEquals("12 километр үргэлжлүүлэн явна уу", VoiceText.render(p.content, Lang.MN, mn))
+    }
+
+    @Test
+    fun catchUpAfterRerouteNoDepart() {
+        val plan = Plans.plan(Plans.depart to 400.0, Plans.left to 600.0, Plans.arrive to 0.0, generation = 1)
+        val s = VoiceScheduler(walk = false)
+        s.onRouteActive()
+        val p = s.evaluate(VoiceScheduler.Input(1_000, plan, 0, 380.0, 12.0))!!
+        assertEquals(PromptKind.CATCH_UP, p.kind)
+        assertTrue(p.content is VoiceContent.Maneuver)
+        assertEquals("400 метрт зүүн тийш эргэнэ үү", VoiceText.render(p.content, Lang.MN, mn))
+        assertNull(s.evaluate(VoiceScheduler.Input(2_000, plan, 0, 370.0, 12.0)))
+    }
+
+    @Test
+    fun catchUpAfterGpsRestoreOnlyIfNotYetAnnounced() {
+        val plan = Plans.plan(Plans.depart to 400.0, Plans.left to 600.0, Plans.arrive to 0.0)
+        val s = VoiceScheduler(walk = false)
+        s.start(plan, 0)
+        assertEquals(PromptKind.MAIN, s.evaluate(VoiceScheduler.Input(10_000, plan, 0, 160.0, 14.0))!!.kind)
+        s.onGpsRestored()
+        assertNull(s.evaluate(VoiceScheduler.Input(40_000, plan, 0, 120.0, 14.0)))
+    }
+}

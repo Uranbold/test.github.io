@@ -1,6 +1,16 @@
 # System overview (owner: architect)
 
-Current scope: **Phase 0**: NAV-001 local dev stack and NAV-002 web demo map. Decisions: ADR-0001 (stack), ADR-0002 (gateway, paths, data build, tile zoom range), ADR-0003 (Photon index source), ADR-0004 (web demo client). Staging hosting is ADR-0005 (accepted for staging on 2026-09-30; production path still proposed, NAV-008/NAV-009), deployed as in `deployment-staging.md`. NAV-003 web search (in design) is ADR-0006. HTTP contract: `api/openapi.yaml` 0.4.1.
+Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo) and the first **Phase 1** client, NAV-005 Android guidance (in design). Decisions:
+- ADR-0001: stack
+- ADR-0002: gateway, paths, data build, tile zoom range
+- ADR-0003: Photon index source
+- ADR-0004: web demo client
+- ADR-0005: staging hosting (accepted for staging on 2026-09-30; production path still proposed, NAV-008/NAV-009), deployed as in `deployment-staging.md`
+- ADR-0006: web search
+- ADR-0008: client-side instruction text
+- ADR-0009: Android guidance client
+
+HTTP contract: `api/openapi.yaml` 0.5.1.
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 
@@ -113,6 +123,59 @@ sequenceDiagram
   Note over W,G: 429 → drop, cooldown Retry-After (5 s if unreadable), nothing sent automatically afterwards<br/>5xx / network / 8 s timeout → «Хайлт түр ажиллахгүй байна» · offline → no request, resume once on `online`
 ```
 
+## 1c. Android guidance client (NAV-005, ADR-0009)
+
+The Android app adds **no host and no endpoint**. At runtime it talks only to the configured gateway (NAV-005 AC 65): `pmtiles://` Range reads of the basemap, `GET /v1/search`, and `POST /v1/route` for the preview and for reroutes. Style JSON, glyphs and sprites are bundled in the APK; the glyphs and sprites are synced at build time from the vendored copy under `web/public/`. Ferrostar's Rust core navigates on the device. The app owns the route client, the text and the reroute policy.
+
+```mermaid
+flowchart LR
+  subgraph Phone["Android app (one process)"]
+    UI["Compose UI (Activity)<br/>map · search · preview · guidance"]
+    ENG["GuidanceEngine (app-scoped, 1 thread)<br/>Ferrostar NavigationSession 0.57.0"]
+    POL["ReroutePolicy · GpsState · Arrival<br/>(pure, fake-clock tested)"]
+    RC["RouteClient (OkHttp, 12 s)"]
+    TXT["GuidancePlan + VoiceScheduler → banner / notification / voice text<br/>(ADR-0008 table + navigation-ux §4, glossary resources)"]
+    VO["TextToSpeech or generated chime<br/>(D23 fallback)"]
+    FGS["Foreground service, type location<br/>notification «Замчлал»"]
+    ML["MapLibre Native 13.6.1<br/>bundled style + fonts + sprites"]
+  end
+  GW["gateway (dev: 127.0.0.1:8080 via adb reverse; phone test: NAV-008 staging HTTPS)"]
+  UI --> ENG --> POL --> RC
+  ENG --> TXT --> VO
+  FGS --- ENG
+  RC -->|"POST /v1/route (preview, reroute)"| GW
+  UI -->|"GET /v1/search"| GW
+  ML -->|"GET /tiles/basemap.pmtiles (Range)"| GW
+```
+
+```mermaid
+sequenceDiagram
+  participant U as Driver
+  participant A as App (GuidanceEngine)
+  participant F as Ferrostar NavigationSession
+  participant G as Gateway → Valhalla
+  U->>A: destination (search / long-press), preview
+  A->>G: POST /v1/route {alternates:0, voice+banner, language mn-MN}
+  G-->>A: 200 OSRM
+  Note over A: build GuidancePlan, replace Valhalla text with tokens, parse with Ferrostar's OSRM parser
+  U->>A: «Эхлэх» (0 extra requests), foreground service starts
+  loop every fix (1 Hz, GPS_PROVIDER)
+    A->>F: updateUserLocation
+    F-->>A: TripState (step, distances, deviation, spoken trigger)
+    Note over A: banner from plan · voice schedule (navigation-ux §4) · GPS-loss and arrival checks
+  end
+  Note over A: 3 good fixes > 50 m off route → off-route episode<br/>banner «Маршрутыг дахин тооцоолж байна», «Та маршрутаас гарлаа»
+  A->>G: POST /v1/route {locations[0]=current (+heading), same costing/options/language}
+  alt 200
+    G-->>A: new route → new session (generation + 1)
+  else 429 Retry-After n
+    G-->>A: 429 → wait n s (5 if unreadable), then exactly 1 retry
+  else 5xx / network / 12 s timeout
+    Note over A: back-off 5, 10, 20, 30 s; ≤ 1 in flight, ≥ 5 s apart, ≤ 6 per 60 s
+  end
+  Note over A: arrival (≤ 30 m) → once, service and location stop
+```
+
 ## 2. Path map (symbolic names from NAV-001)
 
 | Symbol | Gateway | Upstream | Notes |
@@ -168,7 +231,7 @@ sequenceDiagram
   G->>V: POST /route (body unchanged)
   V-->>G: 200 OSRM JSON (polyline6, voiceInstructions, bannerInstructions)
   G-->>C: 200 (upstream CORS headers stripped, gateway CORS added)
-  Note over C: Off-route detection and reroute are decided on the client.<br/>Reroute = the same POST with the current position (+ heading).
+  Note over C: Off-route detection and reroute are decided on the client.<br/>Reroute = the same POST with the current position (+ heading). Pacing: ADR-0009 §4 (see §1c).
   C->>G: POST /v1/route (outside coverage)
   G->>V: POST /route
   V-->>G: 400 {code:"NoSegment"}
@@ -190,7 +253,10 @@ sequenceDiagram
 | NFR-R1 | Resources | steady-state memory ≤ 6 GB total; build peak ≤ 12 GB; `data/` ≤ 10 GB; PMTiles max zoom exactly 14 on the default build and ≤ 200 MB, with a ≤ 400 MB fallback for the Mongolia dev extract (PO decision D1). Measured z14: 117,536,866 bytes, so the primary limit holds | NAV-001 AC 12, 39 | QA |
 | NFR-P1 | **No PII in logs.** Coordinates, search text and route bodies are location data | Gateway logs path without query string. No request bodies are logged by gateway, Valhalla or Photon | Project NFR | Architect review |
 | NFR-P2 | GPS traces anonymised | N/A in NAV-001 (the backend stores no traces). Applies from the traffic phase | Project NFR | - |
-| NFR-N1 | Reroute on client | the backend is stateless per request. Ferrostar decides off-route and calls `/v1/route` again | Project NFR, ADR-0001 | Architect review (NAV-005) |
+| NFR-N1 | Reroute on client | the backend is stateless per request. The client decides off-route (Ferrostar deviation + app debounce) and calls `/v1/route` again. Per device: ≤ 1 in flight, starts ≥ 5 s apart, ≤ 6 per 60 s, `Retry-After` honoured, back-off after failures | Project NFR, ADR-0001, ADR-0009 §4 | Architect review; NAV-005 AC 44 fake-clock test |
+| NFR-N2 | Guidance without network | banners, voice, progress and arrival keep working on the downloaded route; 0 route requests while on the route | NAV-005 AC 54 | QA replay (network off) |
+| NFR-M1 | Android client hosts | at runtime the app contacts only the configured gateway base URL. No analytics, crash reporting, map telemetry, style, font or sprite CDN | NAV-005 AC 65, ADR-0009 §6, §11 | QA interceptor + dependency review |
+| NFR-P4 | On-device privacy | no coordinates, route bodies or search text in Logcat, files or preferences; no Ferrostar recorder or cache; after guidance only the settings remain; `allowBackup=false` | NAV-005 AC 67, ADR-0009 §11 | Robolectric log/storage scan |
 | NFR-S1 | Exposure | gateway binds `127.0.0.1` by default (`GATEWAY_BIND`). No auth (local dev only). Upstream ports not published | NAV-001 decision | Backend README |
 | NFR-C1 | Licensing | all runtime components MIT/BSD/Apache. No GPL service in NAV-001 (Nominatim deferred, ADR-0003). OpenJDK is GPLv2+CE (runtime only) | ADR-0001 | Architect review |
 | NFR-C2 | OSM attribution | PMTiles metadata contains "OpenStreetMap". Clients show "© OpenStreetMap contributors" from resources on every map screen | CLAUDE.md rule 8 | NAV-002 review |

@@ -1,0 +1,19 @@
+{
+ "locations": [
+  {
+   "lat": 47.9189,
+   "lon": 106.9176
+  },
+  {
+   "lat": 49.027,
+   "lon": 104.044
+  }
+ ],
+ "costing": "auto",
+ "alternates": 0,
+ "format": "osrm",
+ "banner_instructions": true,
+ "voice_instructions": true,
+ "units": "kilometers",
+ "language": "mn-MN"
+}
