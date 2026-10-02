@@ -28,6 +28,7 @@ export function bannerText(b: Banner, i18n: I18n): string {
 export class GuidanceView {
   readonly root: HTMLElement;
   readonly top: HTMLElement;
+  readonly band: HTMLElement;
   readonly bottom: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly bannerIcon: HTMLElement;
@@ -105,9 +106,31 @@ export class GuidanceView {
 
     this.bottom = h("div", { class: "dn-bottom" }, this.messages, this.progress, this.arrival);
     this.live = h("div", { class: "sr-only", "aria-live": "polite", "data-testid": "demo-nav-live" });
-    const band = h("div", { class: "dn-band" }, this.recenterBtn);
+    this.band = h("div", { class: "dn-band" }, this.recenterBtn);
     // DOM order = Tab order (screen spec › Accessibility): banner, badge, language, theme, recenter, messages, panel.
-    this.root = h("div", { class: "demo-nav", id: "demo-nav", "data-testid": "demo-nav", hidden: "" }, this.top, band, this.bottom, this.live);
+    this.root = h("div", { class: "demo-nav", id: "demo-nav", "data-testid": "demo-nav", hidden: "" }, this.top, this.band, this.bottom, this.live);
+  }
+
+  /**
+   * Where the RN message stack lives (screen spec › Layout; NAV-017-D4):
+   *  - portrait: directly above RP in the bottom area (layout rule 5);
+   *  - column arrangement: below RD in the left column's top area, as in the UX prototype (`#top.appendChild`), which
+   *    scrolls as one when the column is short, so the notice is never clipped inside its own card;
+   *  - column arrangement at text zoom ≥ 115 % (stacked banner): above RP in the map column, after the recenter button.
+   *    On a 390 px tall phone the left column cannot hold RB (181 px), RD (48 px) and RN (≥ 128 px) at that size, and
+   *    the top area is capped at 50 % of the viewport height there (RB rule), so RN takes the portrait position within
+   *    the map column; the camera treats it as covered (`bandMessagesRect`).
+   */
+  placeMessages(columns: boolean, stacked: boolean): void {
+    const host = !columns ? this.bottom : stacked ? this.band : this.top;
+    if (this.messages.parentElement === host) return;
+    if (host === this.bottom) this.bottom.insertBefore(this.messages, this.progress);
+    else host.append(this.messages);
+  }
+
+  /** Rect of the message card while it covers the map column (stacked column arrangement, card shown), else null. */
+  bandMessagesRect(): DOMRect | null {
+    return this.messages.parentElement === this.band && !this.messages.hidden ? this.messages.getBoundingClientRect() : null;
   }
 
   /** Rect of the visible progress or arrival panel (the covered bottom edge in the column arrangement). */

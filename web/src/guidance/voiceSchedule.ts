@@ -119,15 +119,20 @@ export class VoiceScheduler {
     for (const k of ["early", "main", "continueOn", "catchUp"] as const) this.fired.add(firedKey(gen, m + 1, k));
   }
 
-  /** §4.3 start: the depart text, chained with the first manoeuvre when it is within the chaining distance. */
-  start(plan: GuidancePlan, nowMs: number): ScheduledPrompt {
+  /**
+   * §4.3 start: the depart text, chained with the first manoeuvre ahead when it is within the chaining distance.
+   * `stepIndex` is the step the first fix is on (0 unless the track starts past a manoeuvre, NAV-017-D3): the chain
+   * and the step reference follow it, so a manoeuvre already behind the first fix is never announced.
+   */
+  start(plan: GuidancePlan, nowMs: number, stepIndex = 0): ScheduledPrompt {
     const gen = plan.generation;
-    this.lastStep = ref(gen, 0);
-    const then = plan.steps.length > 1 ? this.chainTarget(plan, 0) : null;
-    this.spoken.add(ref(gen, 0));
-    this.lastPromptAt.set(ref(gen, 0), nowMs);
-    if (then) this.markChained(gen, 0);
-    return { content: { kind: "depart", key: plan.steps[0]!.key, then }, maneuver: { gen, step: 0 }, kind: "depart", triggerAtMs: nowMs };
+    const k = Math.max(0, Math.min(stepIndex, plan.steps.length - 1));
+    this.lastStep = ref(gen, k);
+    const then = k + 1 < plan.steps.length ? this.chainTarget(plan, k) : null;
+    this.spoken.add(ref(gen, k));
+    this.lastPromptAt.set(ref(gen, k), nowMs);
+    if (then) this.markChained(gen, k);
+    return { content: { kind: "depart", key: plan.steps[0]!.key, then }, maneuver: { gen, step: k }, kind: "depart", triggerAtMs: nowMs };
   }
 
   /** The playback queue started a prompt for `maneuver` at `atMs` (navigation-ux §4.2 rule 2). */

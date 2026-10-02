@@ -87,7 +87,7 @@ Every new item is triaged first. The lane depends on the type (full design: `int
 | Step | Agent(s) | Gate to continue |
 |---|---|---|
 | 1. Requirements | business-analyst | Story has testable AC; blocking open questions answered by the user |
-| 2. Design | ux-designer ∥ architect | Screen specs cover all states; `openapi.yaml` updated; backend/mobile task list exists |
+| 2. Design | ux-designer ∥ architect | Screen specs cover all states, carry a **Design rationale** (UX laws + Nielsen heuristics, see `.claude/agents/ux-designer.md`) and measured **Evidence** (prototype layout checker, contrast); `openapi.yaml` updated; backend/mobile task list exists |
 | 3. Build | backend-engineer ∥ mobile-engineer | Builds and tests run green; handoff lists verification |
 | 4. Verify | qa-engineer ∥ architect (review) | All AC pass; no `blocker`/`major` issues |
 | 5. Fix loop | owners of each issue | Re-verify; max 2 automatic rounds, then escalate to the user |

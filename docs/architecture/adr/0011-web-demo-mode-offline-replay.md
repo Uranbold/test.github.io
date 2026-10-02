@@ -219,6 +219,11 @@ Platform behaviour below comes from public documentation and reports. It was **n
 Requested by the mobile engineer in the NAV-017 handoff. Verified against `web/` at the working tree on 2026-10-01
 (including the uncommitted `vite.config.ts` / `buildtools/demoMode.ts` / `voiceText.ts` changes) with `npm test`,
 `npm run lint`, `npm run typecheck`, `npm run check:glossary` and the three builds. No contract change.
+Re-verified on the committed tree `7b72cea` (second review pass, 2026-10-01): `npm test` 30 files / 602 tests pass,
+lint and the i18n scan pass (163 keys), typecheck 0 errors, `check:glossary` 163/163, `openapi.yaml` 0.5.2 valid; the
+demo-mode build has 0 `crossorigin`, the `noindex` meta, relative `./assets/` URLs, `demo-routes/r1..r3.json`, one
+`.wasm` and no server files; `dist/` and `dist-static-demo/` have 0 `demo-` test ids, 0 `.wasm`, 0 `demo-routes/`
+files and 0 `NavigationController` matches.
 
 **§2 Build, config shape (accepted).** `web/vite.config.ts` stays a **plain object**, because
 `tests/e2e/nav002/vite.alt.config.mjs` spreads it. The demo-mode settings are applied per Vite mode inside plugins
@@ -261,9 +266,115 @@ this is accepted.
 
 **§10 Licence text (required).** BSD-3-Clause requires the copyright notice, the conditions and the disclaimer to be
 reproduced with binary redistributions, and the demo-mode build redistributes the Ferrostar WASM binary. The npm
-package ships no licence file, so `web/THIRD_PARTY_NOTICES.md` must carry the **full upstream `LICENSE` text** of
+package ships no licence file, so `web/THIRD_PARTY_NOTICES.md` must carry the **full upstream licence text** of
 `stadiamaps/ferrostar` at the 0.57.0 tag (copyright line included), like the other entries there. A separate
 `web/licenses/` copy is not required. This is fixed in the NAV-017 fix loop, before the PO uploads the build.
+Located on 2026-10-01 (second review pass): the file in the upstream repository is named **`LICENSE.txt`** (not
+`LICENSE`, which is why the first fetch failed), at
+`https://raw.githubusercontent.com/stadiamaps/ferrostar/0.57.0/LICENSE.txt` (HTTP 200; 31 lines; first line
+`Copyright (c) 2023, Stadia Maps, Inc.`; standard BSD-3-Clause conditions and disclaimer). Still open in
+`THIRD_PARTY_NOTICES.md` at the time of this pass.
+
+**§7 Pending-decision priming (status).** The priming described above is **not yet implemented**: `unlockForStart()`
+resumes the context, plays the silent buffer and calls `speechSynthesis.cancel()`, and `ensureUnlocked()` primes
+speech only once the decision says the language speaks. With the decision still pending at «Эхлэх», the depart prompt
+is chimed and no `speak()` happens inside the gesture. Rated minor (the picker opens after the map's first `idle`, so
+the 3 s decision is normally over before «Эхлэх»), fixed in the NAV-017 fix loop; the AC 48 real-iPhone check "speech
+starts without an extra tap" covers it.
 
 **Consequences, open data items (updated).** Two golden-set items are now open with the BA: G5 `en` has no rows, and
 the G8 `en` rows come from a recording that differs from the one the demo plays.
+
+**Second-pass finding, AC 9 camera fit on phone viewports (defect, mobile-engineer).** Running QA's
+`tests/e2e/nav017/picker.test.mjs` AC 9 on Chromium against `dist-demo-mode/`: at 375×667 and 390×844 a route end lands
+under the picker sheet (375×667: R1 destination at y 334 with the sheet top at 223; R2 and R3 likewise; 390×844: R1
+destination at y 422, sheet top 400); 1366×768 passes. Cause in `web/src/demo/demoMain.ts` › `pickerPadding()`: the
+bottom padding is clamped to half the map height (`clamp(40 + bottom, box.height / 2)`), while the sheet is about 444 px
+tall on these phones, so the fitted bounds end exactly at the clamp edge (334 and 422 px), not above the sheet. The
+clamp should keep a minimum map band instead (for example `top + bottom ≤ map height − 120 px`, then let `maxZoom` and
+MapLibre's own fit limits apply). Not an architecture change.
+
+### Amendment 2 (2026-10-01): integration review after QA run 1 (third pass)
+Verified on the committed tree `ee3832a` (no `web/` change since `7b72cea`): `npm test` 30 files / 602 tests, lint
+and the i18n scan (163 keys), typecheck, `check:glossary` 163/163, the three builds, and the AC 3/4 scans all pass.
+QA's `tests/e2e/nav017/build.test.mjs` (16 tests, Node) passes against a fresh demo build; QA's `picker.test.mjs` on
+Chromium reproduces the AC 9 camera-fit defect at 375×667 and 390×844; the 7 other picker tests that ran before the
+runner was killed (exit 137, cause not found; the Caddy site was stopped by hand) passed, and QA's run 1 covers the
+remaining ones. Read with QA's run-1 report
+(`docs/qa/reports/NAV-017-run1.md`). No contract change: `openapi.yaml` stays 0.5.2.
+
+**§1, §4 Tiles and Basic auth: partial evidence now exists.** QA's local stand-in (Caddy, `/locked-demo/` with Basic
+auth, `/tiles/basemap.pmtiles` unprotected at the origin root) answers 401 without and 200 with credentials, every
+asset, the WASM and the route data load, and the tiles are 206, in Chromium and in Playwright WebKit (`iPhone 13`
+descriptor). §9 "partial evidence only" is therefore met; Safari's credential caching (W7) and the PO's host stay
+real-iPhone checks (AC 48/49).
+
+**§9 WebKit availability (fact).** The container has no WebKit system libraries, but the official Playwright image
+(`mcr.microsoft.com/playwright:v1.56.1-noble`, `--network host`) runs the WebKit project against the same local site.
+WebKit cannot emulate safe-area insets, so the AC 37 inset checks are Chromium (CDP) plus the real iPhone.
+
+**§6 Lockstep rule, QA defect D3 (shared behaviour, not web-only).** A track that starts just past a manoeuvre (G4,
+test-only) shows that manoeuvre's banner for about 2 s and speaks its "now" prompt at 1.4 s, before the two-fix
+catch-up gate (≤ 3 s) confirms the step. The web port and the Kotlin original behave the same, which is what §6 asks
+for, so the port is correct and the **rule** is at fault: the scheduler trusts Ferrostar's step 0 before the catch-up has
+decided. Any fix must change `StepCatchUp`/`VoiceScheduler` on **both** platforms in the same change, with a golden-set
+regeneration through the BA and a `QaGpxReplayTest` assertion. G4 is not in the picker, so NAV-017 does not need it;
+the Android side goes through triage as a NAV-005 item.
+
+**§2 Layout defects D1, D2, D4 (web-only, no architecture change).** D1 (`pickerPadding()` half-height clamp, already
+described in Amendment 1), D2 (picker sheet, R1/R4 control cluster and the R5 attribution strip lack
+`env(safe-area-inset-left/right)` in landscape) and D4 (WebKit wraps the A1 notice one line longer at 200 % in
+landscape, so the message card clips it). D2 touches the OSM attribution (rule 8): in landscape on an iPhone the first
+characters of «© OpenStreetMap contributors» sit under the sensor housing on one rotation. All three are fixed in the
+NAV-017 fix loop before the PO uploads the build.
+
+**§10 Licence text (still open).** `web/THIRD_PARTY_NOTICES.md` still carries only the licence name and the repository
+URL for `@stadiamaps/ferrostar` 0.57.0. The requirement of Amendment 1 stands: the full upstream `LICENSE.txt`
+(`Copyright (c) 2023, Stadia Maps, Inc.`, BSD-3-Clause conditions and disclaimer) is reproduced in the notices file
+before the first upload. The generator `scripts/gen-third-party-notices.mjs` needs an override source for packages that
+ship no licence file, so a regeneration does not drop the text again.
+
+**§7 Pending-decision priming (still open, minor).** Not implemented yet (see Amendment 1). Unchanged rating.
+
+**§10 Shared resource files (clarification, accepted).** The public builds carry the new `demo.*`, `nav.*` and
+`voice.*` values of `mn.json`/`en.json` as resource text. They are not shown anywhere in those builds and are not code,
+WASM or route data, so AC 4 is met. If the BA or PO wants the unreviewed guidance wording kept out of the public bundle
+before NAV-007, the resource file is split into a demo-only part; that is a product choice, not required by any AC.
+
+**README data note (mobile-engineer).** `web/README.md` › Demo mode › Build describes R2 as "→ near Улсын их дэлгүүр"
+while the manifest and the picker name the destination «Хаан банк» (the State Department Store is about 377 m away).
+The README should name what the picker shows.
+
+### Amendment 3 (2026-10-01): integration review verdict after QA run 1 (fourth pass)
+Verified on the committed tree `18cb22a`. **`web/` is unchanged since `7b72cea`** (only `docs/` and `tests/e2e/nav017/`
+changed), so every QA run-1 finding and every open item of Amendments 1–2 still stands in the code under review.
+Re-run here: `npm run typecheck` 0 errors; `npm run lint` 0 problems and the i18n scan OK (163 keys, mn/en identical);
+`npm run check:glossary` 163/163; `npm test` 30 files / 602 tests passed (36 s, includes the golden parity on the real
+WASM core); repository scan for `.htpasswd`, `AuthUserFile`/`AuthName`, host names and IPv4 literals: only test code,
+the README and documentation mention the terms, no real value anywhere. No contract change: `openapi.yaml` stays 0.5.2;
+the demo build still reads `<origin>/tiles/basemap.pmtiles` through `VITE_GATEWAY_BASE_URL=same-origin`, sends 0
+backend requests, calls Geolocation 0 times, writes no coordinates to storage, console or URL, and stays within the
+§10 size budget (about 1.0 MB over the static-demo build).
+
+**Verdict: not passed; the NAV-017 fix loop runs before the PO uploads the build.** Architect severities (they differ
+from QA's S3 ratings where a hard rule or the PO's device class is hit):
+
+| Item | Severity | Why | Owner / where |
+|---|---|---|---|
+| §10 Ferrostar licence text | **major** | `web/THIRD_PARTY_NOTICES.md` (lines 847–852) still says "ships no licence file". BSD-3-Clause requires the copyright line, conditions and disclaimer with the redistributed WASM binary. Required since Amendment 1; QA's reproducing test exists (`tests/e2e/nav017/adr.test.mjs`). The generator `scripts/gen-third-party-notices.mjs` needs an override source (as for `pmtiles` and `@protomaps/basemaps` in `web/licenses/`) so a regeneration keeps the text | mobile-engineer |
+| D1 AC 9 camera fit | **major** | `web/src/demo/demoMain.ts:282` clamps the bottom padding to `box.height / 2`; on 375×667 and 390×844 (the PO's device class) a route end lands under the picker sheet. Replace the half-height clamp with a minimum-map-band rule (for example `top + bottom ≤ map height − 120 px`) and let `maxZoom` and MapLibre's fit limits apply | mobile-engineer |
+| D2 landscape horizontal insets | **major** | Only `.demo-nav` pads `env(safe-area-inset-left/right)` (`demo.css:249`); the picker sheet, the R1/R4 control cluster and the R5 attribution strip (`styles.css:619` pads the bottom only) do not, so in landscape «© OpenStreetMap contributors» starts under the sensor housing (CLAUDE.md rule 8) and controls sit in the inset (AC 37, 844×390). **Fix in `demo.css` only** (the demo chunk is not in the public builds); changing the shared `styles.css` would alter NAV-002 behaviour and must go through triage | mobile-engineer |
+| D4 A1 notice clipped (WebKit, 844×390, 200 %) | minor | message-card `max-height`/overflow in the landscape column; UX may decide the 200 % landscape layout of the message stack | mobile-engineer, ux-designer |
+| §7 pending-decision priming | minor | unchanged from Amendments 1–2; QA's reproducing test exists (`adr.test.mjs`, soft assertions) | mobile-engineer |
+| README R2 destination name | minor | README says "near Улсын их дэлгүүр", the picker shows «Хаан банк»; QA's test exists | mobile-engineer |
+| D3 passed-manoeuvre prompt (G4) | minor for NAV-017 | shared rule, same on Android (§6 lockstep); not reachable from the picker; Android side through triage as a NAV-005 item, fix on both platforms in one change with a golden regeneration through the BA | triage, both clients |
+
+Everything else reviewed passes: contract conformance (0.5.2, static-host tile rules, recorded responses unchanged),
+AC 10 error handling in `routeData.ts` (non-200, non-JSON, shape, plan and WASM failures all reach the error state
+with retry; offline waits and reloads), localisation (0 hard-coded user strings in `src/demo` and `src/guidance`; every
+`mn` value a glossary term), OSM attribution in every portrait state, privacy (§8 as built), and the timing targets
+(fix application ± 100 ms, golden prompts ± 2 s, WASM init in milliseconds).
+
+Carried open questions (unchanged): silent-switch override (PO, after AC 48 evidence); G5 `en` golden rows and the G8
+`en` fixture difference (BA); U1 «Сонгосон цэг» fallback (BA); manifest end names (QA verified the OSM ids in run 1
+§7); whether the unreviewed guidance strings may stay in the public bundle before NAV-007 (PO).

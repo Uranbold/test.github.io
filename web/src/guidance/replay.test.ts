@@ -200,6 +200,32 @@ describe("NAV-017 AC 32–34 arrival", () => {
   }
 });
 
+describe("NAV-017-D3: a track that starts past a manoeuvre (AC 17/20/26)", () => {
+  test("G4 (first fix ~190 m past R1's left turn): the first banner is the manoeuvre ahead, the passed turn is never spoken; R1 from its start stays on step 0", async () => {
+    const m = JSON.parse(readRepo("tests/gpx/nav005/manifest.json")) as { tracks: { id: string; file: string; route: string }[] };
+    const g4 = m.tracks.find((t) => t.id === "G4")!;
+    const r = await runReplay({ routeJson: JSON.parse(readRepo(g4.route)), track: parseGpx(readRepo(g4.file)), mode: "car", lang: "mn", tailMs: 30_000 });
+    const first = r.states[0]!;
+    expect(first.stepIndex).toBe(1);
+    expect(first.banner.variant).toBe("maneuver");
+    expect(first.banner.step).toBe(2);
+    expect(first.banner.key.key).toBe("turn.right");
+    if (first.banner.variant === "maneuver") expect(first.banner.distanceM).toBeGreaterThan(300);
+    expect(r.navigator.stepCatchUps).toBeGreaterThanOrEqual(1);
+    // never the passed left turn, on screen or spoken
+    expect(r.states.filter((s) => s.banner.step <= 1)).toEqual([]);
+    expect(r.spoken.filter((s) => /зүүн тийш/iu.test(s.prompt.text)).map((s) => s.prompt.text)).toEqual([]);
+    // the manoeuvre ahead is still announced normally, and the arrival once
+    expect(r.spoken.some((s) => /баруун тийш эргэнэ үү/iu.test(s.prompt.text))).toBe(true);
+    expect(r.spoken.filter((s) => s.prompt.cls === "arrival").length).toBe(1);
+    // parity: a track from the route start is untouched (the first-fix catch-up has nothing to do)
+    const g1 = m.tracks.find((t) => t.id === "G1")!;
+    const r1 = await runReplay({ routeJson: JSON.parse(readRepo(g1.route)), track: { points: parseGpx(readRepo(g1.file)).points.slice(0, 5), timesMs: [0, 1000, 2000, 3000, 4000] }, mode: "car", lang: "mn", tailMs: 0 });
+    expect(r1.states[0]!.stepIndex).toBe(0);
+    expect(r1.navigator.stepCatchUps).toBe(0);
+  });
+});
+
 describe("NAV-017 AC 18 sentinel", () => {
   test("Valhalla text fields replaced by a sentinel never reach banners or speech (R1, R3)", async () => {
     const SENT = "VALHALLA_TEXT_SENTINEL";

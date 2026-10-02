@@ -33,10 +33,24 @@ const deps = [...new Map(dirs.map((d) => [d, JSON.parse(readFileSync(join(d, "pa
   .filter((d, i, a) => a.findIndex((x) => x.name === d.name && x.version === d.version) === i)
   .sort((a, b) => a.name.localeCompare(b.name));
 
+/**
+ * Override sources for runtime packages whose npm tarball contains no licence file: the upstream licence text is kept
+ * verbatim in web/licenses/ and reproduced here (BSD-3-Clause requires the copyright line, the conditions and the
+ * disclaimer with a binary redistribution; the demo-mode build ships the Ferrostar WASM, ADR-0011 §10 Amendment 1).
+ * `version` pins the copy to the upstream tag; the script fails when the installed version differs, so an upgrade
+ * refreshes the copy instead of silently keeping an old text.
+ */
 const external = {
-  pmtiles: "licenses/pmtiles-LICENSE.txt",
-  "@protomaps/basemaps": "licenses/protomaps-basemaps-LICENSE.md",
+  pmtiles: { file: "licenses/pmtiles-LICENSE.txt", source: "https://github.com/protomaps/PMTiles/blob/main/LICENSE" },
+  "@protomaps/basemaps": { file: "licenses/protomaps-basemaps-LICENSE.md", source: "https://github.com/protomaps/basemaps/blob/42ffaaa4/LICENSE.md" },
+  "@stadiamaps/ferrostar": { file: "licenses/stadiamaps-ferrostar-LICENSE.txt", source: "https://github.com/stadiamaps/ferrostar/blob/0.57.0/LICENSE.txt", version: "0.57.0" },
 };
+for (const [name, o] of Object.entries(external)) {
+  const d = deps.find((x) => x.name === name);
+  if (d && o.version && d.version !== o.version) {
+    throw new Error(`${name} ${d.version} is installed but ${o.file} is the ${o.version} licence text: refresh the copy from the upstream tag and update the version here`);
+  }
+}
 
 let out = `# Third-party notices (web/)
 
@@ -87,7 +101,7 @@ ${read("licenses/tangrams-icons-LICENSE.md")}
 Source: https://github.com/protomaps/basemaps/blob/42ffaaa4/LICENSE.md
 
 \`\`\`text
-${read(external["@protomaps/basemaps"])}
+${read(external["@protomaps/basemaps"].file)}
 \`\`\`
 
 ### 3.4 Runtime library licences
@@ -100,9 +114,9 @@ for (const d of deps) {
   if (d.file) {
     text = readFileSync(join(d.dir, d.file), "utf8").trim();
     from = `node_modules/${d.name}/${d.file}`;
-  } else if (external[d.name] && existsSync(join(WEB, external[d.name]))) {
-    text = read(external[d.name]);
-    from = `${d.url}/blob/main/LICENSE (the npm package ships no licence file)`;
+  } else if (external[d.name] && existsSync(join(WEB, external[d.name].file))) {
+    text = read(external[d.name].file);
+    from = `${external[d.name].source} (upstream licence text, copied verbatim to web/${external[d.name].file}; the npm tarball contains no licence file)`;
   } else {
     text = `${d.license}. The npm package ships no licence file; see ${d.url}.`;
     from = "package.json";

@@ -54,6 +54,48 @@ export function followPadding(mapHeight: number, c: Covered): PaddingOptions {
   return { top: nn(top + (2 * PUCK_AT - 1) * h), bottom: nn(mapHeight - bottomEdge), left: nn(c.left + UI_MARGIN), right: nn(c.right + UI_MARGIN) };
 }
 
+export const FIT_MIN_BAND_PX = 120;
+
+export interface Margins {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+/**
+ * AC 9 picker fit (screen spec › Camera rules): padding = the UI covering each edge + a margin inside the uncovered
+ * band, while the band left for the route stays ≥ FIT_MIN_BAND_PX on each axis. When the band is smaller, the margins
+ * shrink first (both edges in proportion); only when the UI itself leaves less than the minimum are the covered edges
+ * scaled down. So a route end never lands under the picker sheet as long as the sheet leaves room for it (NAV-017-D1:
+ * the earlier half-height clamp cut the bottom padding below the sheet on 375×667 and 390×844).
+ */
+export function fitPadding(mapWidth: number, mapHeight: number, c: Covered, m: Margins): PaddingOptions {
+  const nn = (v: number) => (Number.isFinite(v) ? Math.max(0, v) : 0);
+  const axis = (size: number, a: number, b: number, ma: number, mb: number): [number, number] => {
+    const room = Math.max(0, size - FIT_MIN_BAND_PX);
+    let ta = nn(a) + nn(ma);
+    let tb = nn(b) + nn(mb);
+    if (ta + tb > room) {
+      const margins = nn(ma) + nn(mb);
+      const cut = Math.min(ta + tb - room, margins);
+      if (margins > 0) {
+        ta -= (cut * nn(ma)) / margins;
+        tb -= (cut * nn(mb)) / margins;
+      }
+      if (ta + tb > room) {
+        const scale = ta + tb > 0 ? room / (ta + tb) : 0;
+        ta *= scale;
+        tb *= scale;
+      }
+    }
+    return [nn(ta), nn(tb)];
+  };
+  const [top, bottom] = axis(mapHeight, c.top, c.bottom, m.top, m.bottom);
+  const [left, right] = axis(mapWidth, c.left, c.right, m.left, m.right);
+  return { top, bottom, left, right };
+}
+
 export function follow(map: MapLibreMap, target: LatLon, bearing: number, zoom: number, padding: PaddingOptions, ms: number, reduced: boolean): void {
   const opts = { center: [target.lon, target.lat] as [number, number], bearing, pitch: FOLLOW_PITCH, zoom, padding };
   if (reduced || ms <= 0) map.jumpTo(opts);

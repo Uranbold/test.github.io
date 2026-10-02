@@ -127,10 +127,15 @@ export class FerrostarNavigator implements Navigator {
     this.controller = new core.NavigationController(route, ferrostarControllerConfig(), false);
   }
 
+  /**
+   * First fix of a session. Ferrostar's initial state is always step 0; when the first good fix is clearly on a later
+   * step (StepCatchUp branch (a) or (b)), the catch-up is applied at once, so a manoeuvre already behind the first fix
+   * is never shown or spoken (NAV-017-D3, AC 17/20/26 on G4). The two-fix gate (NAV-005-D10) protects a trusted
+   * position against one outlier; at start there is no earlier position to protect, so the first fix decides alone.
+   */
   initial(fix: Fix): NavSnapshot {
-    const s = this.controller.getInitialState(userLocation(fix)) as FsState;
     this.gate.reset();
-    this.lastFixOffStep = false;
+    const s = this.catchUp(this.controller.getInitialState(userLocation(fix)) as FsState, fix, true);
     this.state = s;
     return this.snapshot(s, fix);
   }
@@ -147,7 +152,8 @@ export class FerrostarNavigator implements Navigator {
     this.controller.free();
   }
 
-  private catchUp(s: FsState, fix: Fix): FsState {
+  /** `atStart`: the first fix of the session; the catch-up applies without the two-fix gate (see `initial`). */
+  private catchUp(s: FsState, fix: Fix, atStart = false): FsState {
     this.lastFixOffStep = false;
     const good = fix.accuracyM <= StepCatchUp.MIN_ACCURACY_M;
     const ts = tripState(s);
@@ -171,7 +177,8 @@ export class FerrostarNavigator implements Navigator {
     const p = latLonOf(fix);
     const n = StepCatchUp.stepsToAdvance(p, fix.accuracyM, remaining);
     const current = this.route.steps.length - steps.length;
-    if (!this.gate.decide(n === 0 ? null : current + n, good, fix.elapsedMs)) {
+    const apply = atStart ? good && n > 0 : this.gate.decide(n === 0 ? null : current + n, good, fix.elapsedMs);
+    if (!apply) {
       this.lastFixOffStep = n > 0 || (remaining.length > 0 && StepCatchUp.offCurrentStep(p, fix.accuracyM, remaining.get(0)));
       return s;
     }

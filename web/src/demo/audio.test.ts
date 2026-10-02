@@ -140,7 +140,7 @@ describe("NAV-017 AC 27–30 speech and the D23 chime", () => {
     const done: number[] = [];
     let fallbacks = 0;
     const sp = a.speaker({ done: (id) => done.push(id), fallback: () => fallbacks++ });
-    a.unlockForStart();
+    a.unlockForStart("mn");
     sp.play(prompt(1, "Өмнө зүг рүү явна уу"));
     x.tm.advance(400);
     sp.play(prompt(2, "300 метрт баруун тийш эргэнэ үү"));
@@ -246,10 +246,51 @@ describe("NAV-017 AC 27–30 speech and the D23 chime", () => {
     expect(() => saveMuted(broken, true)).not.toThrow();
   });
 
+  test("ADR-0011 §7 Amendment 1 (NAV-017-D5): «Эхлэх» while the voice decision is pending → one empty, zero-volume priming utterance with no voice, inside the handler; the depart prompt is a chime; once the late list names a Mongolian voice the next prompt is spoken with it", async () => {
+    let langs: string[] = [];
+    const x = env(() => langs);
+    const a = new AudioOut(x.e);
+    const decided = a.decide();
+    expect(a.voiceFor("mn")).toBeUndefined();
+    const sp = a.speaker({ done: () => undefined, fallback: () => undefined });
+    a.unlockForStart("mn");
+    expect(x.spoken.map((u) => ({ text: u.text, volume: u.volume, voice: u.voice }))).toEqual([{ text: "", volume: 0, voice: null }]);
+    sp.play(prompt(1, "Өмнө зүг рүү явна уу"));
+    expect(a.stats.chimes).toBe(1);
+    expect(x.spoken.filter((u) => CYRILLIC.test(u.text))).toEqual([]);
+    // the list fills within the 3 s window
+    x.tm.advance(400);
+    langs = ["mn-MN"];
+    x.tm.advance(300);
+    await decided;
+    expect(a.speaks("mn")).toBe(true);
+    sp.play(prompt(2, "1 километрт зүүн тийш эргэнэ үү"));
+    x.tm.advance(10);
+    expect(x.spoken.at(-1)?.text).toBe("1 километрт зүүн тийш эргэнэ үү");
+    expect(x.spoken.at(-1)?.voice?.lang).toBe("mn-MN");
+    expect(a.stats.chimes).toBe(1);
+    // primed once per page: a later tap adds no second priming utterance
+    a.ensureUnlocked("mn");
+    expect(x.spoken.filter((u) => u.text === "").length).toBe(1);
+  });
+
+  test("decision done, language speaks: «Эхлэх» adds no priming utterance (the depart prompt's own speak() unlocks); decision done, no voice: none either", async () => {
+    const x = env(["mn-MN"]);
+    const a = new AudioOut(x.e);
+    await a.decide();
+    a.unlockForStart("mn");
+    expect(x.spoken).toEqual([]);
+    const y = env(["en-US"]);
+    const b = new AudioOut(y.e);
+    await b.decide();
+    b.unlockForStart("mn");
+    expect(y.spoken).toEqual([]);
+  });
+
   test("AC 27: the unlock creates/resumes the AudioContext synchronously; no speechSynthesis means chime only", () => {
     const x = env([]);
     const a = new AudioOut({ ...x.e, speechSynthesis: undefined, SpeechSynthesisUtterance: undefined });
-    a.unlockForStart();
+    a.unlockForStart("mn");
     const sp = a.speaker({ done: () => undefined, fallback: () => undefined });
     sp.play(prompt(1, "Өмнө зүг рүү явна уу"));
     expect(a.stats.chimes).toBe(1);

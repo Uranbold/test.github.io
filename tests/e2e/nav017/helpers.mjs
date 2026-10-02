@@ -7,13 +7,17 @@
 // Oracles come from the repo fixtures (recorded routes, GPX tracks, the NAV-005 voice golden set) and from the story
 // text (NAV-004 AC 23–27 transcriptions in ../nav004/helpers.mjs), never from web/src.
 import { expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { AC27, allowedTexts, ac28Problems, fmtDistance, fmtDuration, nb } from '../nav004/helpers.mjs';
-import { ROOT, state } from './site.mjs';
+import { OUT, ROOT, state } from './site.mjs';
+const RUNS = OUT + 'runs/';
 
 export { AC27, allowedTexts, ac28Problems, fmtDistance, fmtDuration, nb, ROOT };
 export const WEB = ROOT + 'web/';
 export const CYRILLIC = /[Ѐ-ӿ]/;
+/** Fake clock installed before navigation; the page reads CLOCK_START + CLOCK_PAUSE_MS when it first paints. */
+export const CLOCK_START = new Date('2026-10-01T13:50:00+08:00');
+export const CLOCK_PAUSE_MS = 5_000;
 
 // ---------------------------------------------------------------- strings quoted in the story (asserted literally)
 export const S = {
@@ -89,13 +93,15 @@ export class RouteOracle {
     for (let i = 1; i < this.line.length; i++) this.cum.push(this.cum[i - 1] + haversine(this.line[i - 1], this.line[i]));
     this.length = this.cum.at(-1);
     // manoeuvre k starts after the steps before it: project its location, searching forward from the previous one
+    // (search around the cumulative step distance, never before the previous manoeuvre)
     this.maneuverAlong = [];
-    let from = 0;
+    let from = 0, guess = 0;
     for (const s of this.steps) {
       const [lon, lat] = s.maneuver.location;
-      const a = this.project({ lat, lon }, from, from + Math.max(400, s.distance + 400)).along;
+      const a = this.project({ lat, lon }, Math.max(from, guess - 300), guess + 300).along;
       this.maneuverAlong.push(a);
       from = a;
+      guess = a + s.distance;
     }
   }
   /** Nearest point on the line between along positions [lo, hi]: {along, off}. */
@@ -115,10 +121,11 @@ export class RouteOracle {
   }
   /** Along positions of a whole track (forward search, so a self-crossing route is not mis-projected). */
   alongTrack(track) {
-    let last = 0;
+    let last = null;
     return track.map((p) => {
-      const r = this.project(p, Math.max(0, last - 30), last + 400);
-      last = Math.max(last, r.along);
+      // first point: global search (G4 starts 3.8 km along R1); then forward search near the previous position
+      const r = last === null ? this.project(p) : this.project(p, Math.max(0, last - 30), last + 400);
+      last = Math.max(last ?? 0, r.along);
       return { ...r, tMs: p.tMs };
     });
   }
@@ -165,13 +172,15 @@ export function voiceScanProblems(text) {
 
 // ---------------------------------------------------------------- browser stubs (addInitScript)
 /**
- * cfg: { voices: ['mn-MN', 'en-US'] | [], lang, theme, muted, speechErrorAt: n (1-based speak call that fails),
- *        wakeLock: 'ok' | 'reject' | 'missing', voicesLate: true (getVoices empty until voiceschanged after 500 ms) }
+ * cfg: { voices: ['mn-MN', 'en-US'] | [], lang, theme, muted, speechErrorAt: n (1-based non-empty speak call that fails),
+ *        wakeLock: 'ok' | 'reject' | 'missing',
+ *        voicesLate: true (getVoices empty until voiceschanged after 500 ms) | <ms> (after that many ms)
+ *                    | 'manual' (empty until the test calls window.__qaListVoices(); ADR-0011 §7 pending-decision case) }
  */
 export function qaInit(cfg) {
   const log = (window.__qa = {
     geo: 0, speak: [], cancel: 0, chimes: [], ctxCreated: [], ctxResume: [], wake: [], wakeRelease: [], inClick: false,
-    startClicks: [], lastClick: null, rec: [], live: [], banners: [], console: [],
+    startClicks: [], lastClick: null, rec: [], live: [], banners: [], console: [], voicesCalls: [],
   });
   const now = () => performance.now();
   try {
@@ -201,16 +210,17 @@ export function qaInit(cfg) {
   class Utt extends EventTarget {
     constructor(text) { super(); this.text = text; this.voice = null; this.lang = ''; this.rate = 1; this.pitch = 1; this.volume = 1; this.onstart = null; this.onend = null; this.onerror = null; }
   }
-  let current = null, endTimer = null, nCalls = 0;
+  let current = null, endTimer = null, nCalls = 0, nPrompts = 0;
   const fire = (u, type, extra) => { const ev = Object.assign(new Event(type), extra || {}); try { u['on' + type] && u['on' + type](ev); } catch {} u.dispatchEvent(ev); };
   const synth = {
-    getVoices: () => (listed ? voices.slice() : []),
+    getVoices: () => { log.voicesCalls.push(now()); return listed ? voices.slice() : []; },
     speak(u) {
       nCalls++;
       log.speak.push({ text: u.text, lang: u.lang, voice: u.voice ? u.voice.lang : null, t: now(), inClick: log.inClick, volume: u.volume });
-      if (!u.text) return;
+      if (!u.text) return; // an empty priming utterance (unlock) is not a prompt
+      nPrompts++;
       current = u;
-      if (cfg.speechErrorAt && nCalls === cfg.speechErrorAt) { setTimeout(() => { if (current === u) { current = null; fire(u, 'error', { error: 'synthesis-failed' }); } }, 20); return; }
+      if (cfg.speechErrorAt && nPrompts === cfg.speechErrorAt) { setTimeout(() => { if (current === u) { current = null; fire(u, 'error', { error: 'synthesis-failed' }); } }, 20); return; }
       setTimeout(() => current === u && fire(u, 'start'), 10);
       const ms = Math.min(5000, 300 + 55 * u.text.length);
       endTimer = setTimeout(() => { if (current === u) { current = null; fire(u, 'end'); } }, ms);
@@ -221,7 +231,9 @@ export function qaInit(cfg) {
     removeEventListener(t, f) { listeners.delete(f); },
     get speaking() { return !!current; }, pending: false, paused: false, onvoiceschanged: null,
   };
-  if (cfg.voicesLate) setTimeout(() => { listed = true; listeners.forEach((f) => f(new Event('voiceschanged'))); }, 500);
+  const listVoices = () => { listed = true; listeners.forEach((f) => f(new Event('voiceschanged'))); if (typeof synth.onvoiceschanged === 'function') synth.onvoiceschanged(new Event('voiceschanged')); };
+  window.__qaListVoices = listVoices;
+  if (cfg.voicesLate === true || typeof cfg.voicesLate === 'number') setTimeout(listVoices, cfg.voicesLate === true ? 500 : cfg.voicesLate);
   Object.defineProperty(window, 'speechSynthesis', { get: () => synth, configurable: true });
   window.SpeechSynthesisUtterance = Utt;
   // Web Audio: counts chimes (one 880 Hz oscillator start per chime, navigation-ux §4.8)
@@ -298,6 +310,12 @@ export function qaInit(cfg) {
     if (live) new MutationObserver(() => log.live.push({ t: now() - t0, text: live.textContent })).observe(live, { childList: true, characterData: true, subtree: true });
     const txt = q('demo-nav-text');
     if (txt) new MutationObserver(() => log.banners.push({ t: now() - t0, text: txt.textContent })).observe(txt, { childList: true, characterData: true, subtree: true });
+    const ban = q('demo-nav-banner');
+    log.variants = [{ t: 0, v: ban?.getAttribute('data-variant') }];
+    if (ban) new MutationObserver(() => { const v = ban.getAttribute('data-variant'); if (log.variants.at(-1).v !== v) log.variants.push({ t: now() - t0, v }); }).observe(ban, { attributes: true, attributeFilter: ['data-variant'] });
+    const dist = q('demo-nav-distance');
+    log.dists = [];
+    if (dist) new MutationObserver(() => log.dists.push({ t: now() - t0, text: dist.textContent })).observe(dist, { childList: true, characterData: true, subtree: true });
   };
 }
 
@@ -319,7 +337,16 @@ export function netLog(page) {
  */
 export async function openDemo(page, cfg = {}, folder = 'a') {
   await page.addInitScript(qaInit, { voices: [], ...cfg });
-  if (cfg.clock !== false) await page.clock.install({ time: cfg.time ?? new Date('2026-10-01T13:50:00+08:00') });
+  // install() alone lets time keep flowing in real time; pauseAt() makes page time advance ONLY through tick()/runFor(),
+  // so "nothing happened in N ms" assertions are exact.
+  if (cfg.clock !== false) {
+    const t = cfg.time ?? CLOCK_START;
+    await page.clock.install({ time: t });
+    // pauseAt() must target a time ahead of the fake clock, which runs in real time between install() and pauseAt().
+    // WebKit needs more than 1 ms for the round trip ("Cannot fast-forward to the past"), so pause CLOCK_PAUSE_MS ahead;
+    // the page's clock then reads CLOCK_START + CLOCK_PAUSE_MS at the first paint (ETA oracle: replay.test START).
+    await page.clock.pauseAt(new Date(t.getTime() + CLOCK_PAUSE_MS));
+  }
   await page.goto(demoUrl(folder));
   await waitPicker(page);
 }
@@ -390,3 +417,126 @@ export function bannerProblems(rec, lang) {
 }
 
 export { expect };
+
+// ---------------------------------------------------------------- AC 27 key of a recorded step (QA transcription of NAV-004 AC 27)
+const LEFT = new Set(['left', 'slight left', 'sharp left']);
+const RIGHT = new Set(['right', 'slight right', 'sharp right']);
+const TURN = { left: 'turn.left', right: 'turn.right', 'slight left': 'turn.slightLeft', 'slight right': 'turn.slightRight', 'sharp left': 'turn.sharpLeft', 'sharp right': 'turn.sharpRight' };
+/** Expected banner text of a step's manoeuvre in `lang` (NAV-004 AC 27 incl. D56). */
+export function ac27Text(m, lang) {
+  const i = lang === 'mn' ? 0 : 1;
+  const mod = m.modifier ?? null;
+  const side = (base) => AC27[LEFT.has(mod) ? `${base}.left` : RIGHT.has(mod) ? `${base}.right` : base][i];
+  switch (m.type) {
+    case 'depart': {
+      const s = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'][Math.floor((((m.bearing_after ?? 0) + 22.5) % 360) / 45)];
+      return AC27[`depart.${s}`][i];
+    }
+    case 'arrive': return side('arrive');
+    case 'roundabout': case 'rotary':
+      return m.exit ? (lang === 'mn' ? `Тойрог: ${m.exit}-р гарц` : `Roundabout: exit ${m.exit}`) : AC27['roundabout.enter'][i];
+    case 'exit roundabout': case 'exit rotary': return AC27['roundabout.leave'][i];
+    case 'fork': return LEFT.has(mod) ? AC27['keep.left'][i] : RIGHT.has(mod) ? AC27['keep.right'][i] : AC27.continue[i];
+    case 'merge': return side('merge');
+    case 'on ramp': return side('onRamp');
+    case 'off ramp': return side('offRamp');
+    default:
+      if (mod === 'uturn') return AC27.uturn[i];
+      if (TURN[mod]) return AC27[TURN[mod]][i];
+      return AC27.continue[i];
+  }
+}
+
+/** Sentinel copy of a recorded response (AC 18): every Valhalla text field replaced. */
+export const SENTINEL = 'VALHALLA_TEXT_SENTINEL';
+export function sentinelCopy(resp) {
+  const r = structuredClone(resp);
+  for (const route of r.routes) for (const leg of route.legs) for (const s of leg.steps) {
+    if (s.maneuver) s.maneuver.instruction = SENTINEL;
+    for (const b of s.bannerInstructions ?? []) for (const part of ['primary', 'secondary', 'sub']) {
+      if (!b[part]) continue;
+      b[part].text = SENTINEL;
+      for (const c of b[part].components ?? []) if ('text' in c) c.text = SENTINEL;
+    }
+    for (const v of s.voiceInstructions ?? []) { v.announcement = SENTINEL; if (v.ssmlAnnouncement) v.ssmlAnnouncement = `<speak>${SENTINEL}</speak>`; }
+  }
+  return r;
+}
+
+/**
+ * Builds a demo-routes/<id>.json body (the build's format, read from the served file) with another track or response.
+ * Used for the test-only G4 track (AC 34) and the sentinel copies (AC 18).
+ */
+export async function routeBody(id, { route, track } = {}) {
+  const s = site();
+  const base = await (await fetch(`${s.origin}${s.folders.a}demo-routes/${id}.json`)).json();
+  if (route) base.route = route;
+  if (track) base.track = { t_ms: track.map((p) => p.tMs), lonlat: track.map((p) => [p.lon, p.lat]) };
+  return base;
+}
+
+/**
+ * One full replay in a fresh context. opts: { label, lang, voices, body (override for the route data file), seconds,
+ * reducedMotion, viewport, before(page), during(page, sec) called every 10 s of replay time }.
+ * Returns everything the assertions need.
+ */
+export async function fullReplay(browser, project, opts) {
+  // NAV017_REUSE_RUNS=1: re-evaluate the assertions on the recorded run of a previous execution (same name and engine),
+  // without replaying again. The QA report always cites fresh runs.
+  const file = `${RUNS}${opts.name.replace(/[^A-Za-z0-9]+/g, '_')}-${project.name}.json`;
+  if (process.env.NAV017_REUSE_RUNS === '1' && existsSync(file)) {
+    const saved = JSON.parse(readFileSync(file, 'utf8'));
+    return { ...saved, page: { content: async () => saved.html }, ctx: { close: async () => {} } };
+  }
+  const res = await fullReplayLive(browser, project, opts);
+  mkdirSync(RUNS, { recursive: true });
+  writeFileSync(file, JSON.stringify({ log: res.log, reqs: res.reqs, errors: res.errors, storage: res.storage, html: await res.page.content() }));
+  return res;
+}
+
+async function fullReplayLive(browser, project, opts) {
+  const { defaultBrowserType, ...use } = project.use;
+  const ctx = await browser.newContext({ ...use, reducedMotion: opts.reducedMotion ?? 'reduce', ...(opts.viewport ? { viewport: opts.viewport } : {}) });
+  const page = await ctx.newPage();
+  const reqs = netLog(page);
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  if (opts.body) await page.route(`**/demo-routes/${ROUTES[opts.label].id}.json`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.body) }));
+  if (opts.before) await opts.before(page);
+  await openDemo(page, { voices: opts.voices ?? [], lang: opts.lang ?? 'mn', ...(opts.cfg ?? {}) });
+  // Logic replays: the map canvas is not painted (visibility only; tiles still load, layout unchanged). Software WebGL
+  // painting dominates the wall time on this machine (measured 0.6 s vs 0.2 s per replay second).
+  if (opts.hideCanvas !== false) await page.addStyleTag({ content: '.maplibregl-canvas{visibility:hidden !important}' });
+  await selectRoute(page, opts.label);
+  await startReplay(page, opts.period ?? 1000);
+  const total = opts.seconds ?? ROUTES[opts.label].length + 15;
+  for (let s = 0; s < total; s += 10) {
+    await page.clock.runFor(10_000);
+    if (opts.during) await opts.during(page, s + 10);
+  }
+  const log = await qa(page);
+  const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage }, cookie: document.cookie, url: location.href, sw: !!navigator.serviceWorker?.controller }));
+  const out = { log, reqs, errors, storage, page, ctx };
+  return out;
+}
+
+// ---------------------------------------------------------------- one browser per test
+// Software WebGL in a long-lived browser grows the GPU process (3.7 GB after a few replays) and slowed one replay
+// second from ~0.4 s to ~3 s of wall time. Every NAV-017 browser test therefore gets its own browser: `context`/`page`
+// come from a browser launched for that test (project options kept), and `freshBrowser` is the same for tests that
+// create several contexts.
+import { test as base } from '@playwright/test';
+export const projectContextOptions = (ti, extra = {}) => { const { defaultBrowserType, ...use } = ti.project.use; delete use.trace; delete use.serviceWorkers; return { ...use, serviceWorkers: 'allow', ...extra }; };
+export const test = base.extend({
+  reducedMotion: [null, { option: true }],
+  freshBrowser: async ({ playwright, browserName }, use) => {
+    const b = await playwright[browserName].launch();
+    await use(b);
+    await b.close();
+  },
+  context: async ({ freshBrowser, reducedMotion }, use, ti) => {
+    const ctx = await freshBrowser.newContext(projectContextOptions(ti, reducedMotion ? { reducedMotion } : {}));
+    await use(ctx);
+    await ctx.close();
+  },
+});

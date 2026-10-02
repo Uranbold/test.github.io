@@ -134,7 +134,8 @@ export class GuidanceCore {
     this.snapshot = snap;
     this.positionTrusted = true;
     this.updateProgress(snap);
-    const depart = this.scheduler.start(this.plan, now);
+    // NAV-017-D3: the schedule starts on the step the first fix is on (the navigator's catch-up may have advanced it).
+    const depart = this.scheduler.start(this.plan, now, snap.stepIndex);
     this.speak(depart, "maneuver", now);
     this.emit();
   }
