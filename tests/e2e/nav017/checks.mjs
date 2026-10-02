@@ -195,7 +195,18 @@ export function bannerProblems(log, label, lang, oracle = oracleFor(label)) {
     const entry = alongs.find((a) => a.along >= o.maneuverAlong[k] - 30);
     const pass = alongs.find((a) => a.along >= o.maneuverAlong[k] + STEP_EXIT_M);
     if (!entry || !pass) continue;
-    const e = sw.find((x) => x.t >= entry.tMs - 50 && x.t > last);
+    let e;
+    if (pass === alongs[0]) {
+      // Manoeuvre k was already passed when the track started (G4 starts 189 m past manoeuvre 1 of R1). The banner for
+      // manoeuvre k + 1 is then rendered inside the «Эхлэх» handler, before the recorder's observer attaches, so no
+      // mutation is logged: the first record counts as the switch when it already shows manoeuvre k + 1 (run 3). A
+      // first record still showing manoeuvre k (the D3 behaviour) is judged by its later mutation, as before.
+      const first = log.rec.find((r) => r.t >= 0);
+      const accepted = new Set([expected[k + 1]]);
+      if (k + 2 < steps.length && steps[k + 1].distance < 40) accepted.add(expected[k + 2]);
+      if (first && accepted.has(first.text)) e = { t: first.t, kind: 'first' };
+    }
+    e ??= sw.find((x) => x.t >= entry.tMs - 50 && x.t > last);
     if (!e) { p.push(`no banner switch after manoeuvre ${k}`); continue; }
     last = e.t;
     if (steps[k].distance < 40 && k + 1 < steps.length - 1) continue; // a very short step: timing not judged

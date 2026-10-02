@@ -64,10 +64,17 @@ test.describe('Build duties from the ADR-0011 review (no browser)', () => {
     expect(i, 'Ferrostar entry present').toBeGreaterThan(0);
     const next = notices.indexOf('\n#### ', i + 10);
     const sec = notices.slice(i, next > 0 ? next : undefined);
-    // Upstream LICENSE.txt at tag 0.57.0 (fetched 2026-10-01: 31 lines): the three BSD-3-Clause parts
+    // Upstream LICENSE.txt at tag 0.57.0 (fetched 2026-10-01: 31 lines): the three BSD-3-Clause parts. The upstream file
+    // wraps "modification,\nare permitted" and "CONTRIBUTORS\n\"AS IS\"" (not the canonical BSD wrapping), and the
+    // notices file pastes it verbatim, so every inter-word gap is matched with \s+ (run 3). The words themselves are
+    // still required in full.
     expect(sec).toContain('Copyright (c) 2023, Stadia Maps, Inc.');
-    expect(sec).toMatch(/Redistribution and use in source and binary forms, with or without\s+modification, are permitted provided that the following conditions are met/);
-    expect(sec).toMatch(/THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"/);
+    expect(sec).toMatch(/Redistribution\s+and\s+use\s+in\s+source\s+and\s+binary\s+forms,\s+with\s+or\s+without\s+modification,\s+are\s+permitted\s+provided\s+that\s+the\s+following\s+conditions\s+are\s+met/);
+    expect(sec).toMatch(/\*\s+Redistributions\s+of\s+source\s+code\s+must\s+retain\s+the\s+above\s+copyright\s+notice/);
+    expect(sec).toMatch(/\*\s+Redistributions\s+in\s+binary\s+form\s+must\s+reproduce\s+the\s+above\s+copyright\s+notice/);
+    expect(sec).toMatch(/\*\s+Neither\s+the\s+name\s+of\s+the\s+copyright\s+holder\s+nor\s+the\s+names\s+of\s+its\s+contributors/);
+    expect(sec).toMatch(/THIS\s+SOFTWARE\s+IS\s+PROVIDED\s+BY\s+THE\s+COPYRIGHT\s+HOLDERS\s+AND\s+CONTRIBUTORS\s+"AS\s+IS"\s+AND\s+ANY\s+EXPRESS\s+OR\s+IMPLIED\s+WARRANTIES/);
+    expect(sec).toMatch(/EVEN\s+IF\s+ADVISED\s+OF\s+THE\s+POSSIBILITY\s+OF\s+SUCH\s+DAMAGE/);
     expect(sec).not.toMatch(/ships no licen[cs]e file/i);
   });
 
