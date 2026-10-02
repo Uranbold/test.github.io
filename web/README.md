@@ -141,10 +141,11 @@ and routing are off (NAV-017)". The output:
   1 Hz or does not start and end within 30 m of the route;
 - adds the Ferrostar 0.57.0 core as `assets/ferrostar_bg-*.wasm` (about 0.9 MB).
 
-Routes: R1 Сүхбаатарын талбай → Зайсан (car, G1, 308 s), R2 Сүхбаатарын талбай → near Улсын их дэлгүүр (walk, G5,
-932 s), R3 over Их тойруу with two roundabouts (car, G8, 787 s). The routes are a **recorded snapshot** (Valhalla 3.9.0,
-OSM at recording time) and the tracks are synthetic, so the replay is smoother than real driving and durations are not
-live ETAs. Replays run at 1× only.
+Routes, named as the picker shows them (`src/demo/routes.manifest.json`): R1 «Сүхбаатарын талбай → Зайсан Голден Вилл»
+(car, G1, 308 s), R2 «Сүхбаатарын талбай → Хаан банк» (walk, G5, 932 s), R3 «Сонгосон цэг → Золтамир» over Их тойруу
+with two roundabouts (car, G8, 787 s). The routes are a **recorded snapshot** (Valhalla 3.9.0, OSM at recording time)
+and the tracks are synthetic, so the replay is smoother than real driving and durations are not live ETAs. Replays run
+at 1× only.
 
 ### Upload and password (hPanel)
 

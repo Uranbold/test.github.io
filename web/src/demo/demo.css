@@ -33,6 +33,44 @@ body {
   visibility: hidden;
   pointer-events: none;
 }
+/* Measures env(safe-area-inset-*) for the picker camera fit (AC 9): its box is the safe area. */
+.demo-inset-probe {
+  position: fixed;
+  top: env(safe-area-inset-top);
+  right: env(safe-area-inset-right);
+  bottom: env(safe-area-inset-bottom);
+  left: env(safe-area-inset-left);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* AC 37, CLAUDE.md rule 8 (NAV-017-D2): in landscape the notch insets are on the left and right. The shared shell CSS
+   pads only the top (R1) and the bottom (R5); here, in the demo chunk only (public builds unchanged), every shell
+   region that holds a control or the attribution adds the horizontal insets of the edges it touches: R1 cluster, R2
+   messages, R4 scale bar and zoom group, the route slot with the picker sheet, and the R5 attribution strip. */
+.ui.demo-build > .r1,
+.ui.demo-build > .r2,
+.ui.demo-build > .r4,
+#ui.demo-build > #route,
+.ui.demo-build > .attr {
+  padding-left: calc(var(--spacing-gutter) + env(safe-area-inset-left));
+  padding-right: calc(var(--spacing-gutter) + env(safe-area-inset-right));
+}
+@media (min-width: 840px) {
+  /* Side-panel arrangement (NAV-004 › Regions): the panel column is 432 px + the left inset; the other rows start in
+     column 2, after the panel, so only the right inset applies to them. */
+  .ui.demo-build.route-open {
+    grid-template-columns: calc(var(--size-side-panel) + env(safe-area-inset-left)) minmax(0, 1fr);
+  }
+  .ui.demo-build.route-open > .r1,
+  .ui.demo-build.route-open > .r2,
+  .ui.demo-build.route-open > .r4 {
+    padding-left: var(--spacing-gutter);
+  }
+  #ui.demo-build.route-open > #route {
+    padding-right: var(--spacing-gutter);
+  }
+}
 
 /* ---------------------------------------------------------------- D1 picker (NAV-004 route slot) */
 .demo-picker {
@@ -260,11 +298,22 @@ body {
   flex-direction: column;
   gap: 8px;
 }
+/* RB and RD keep their size; when the top area is short it scrolls (above), the banner never shrinks and spills. */
+.dn-top > * {
+  flex: none;
+}
+/* Map band: the recenter button at the bottom left; in the stacked column arrangement RN sits below it (full width). */
 .dn-band {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+.dn-band > .dn-messages {
+  align-self: stretch;
+  margin-top: 8px; /* recenter 4 px + 8 px = 12 px above RN (Recenter row of the Regions table) */
 }
 .dn-bottom {
   flex: none;
@@ -606,8 +655,10 @@ body {
   cursor: pointer;
 }
 
-/* Column arrangement (≥ 840 px, or any phone in landscape): left column = banner, demo row, message stack; the map,
-   recenter and the progress/arrival panel in the map column. */
+/* Column arrangement (≥ 840 px, or any phone in landscape). Left column = the top area (RB, RD and, moved there by
+   GuidanceView.placeMessages, RN) spanning the whole height next to the map column; it scrolls as one when the column
+   is short (as in the UX prototype), so RN is never clipped inside its own card (NAV-017-D4). Map column = band
+   (recenter, and RN at stacked text) above the progress or arrival panel. */
 @media (min-width: 840px), (orientation: landscape) and (max-height: 499px) {
   .demo-nav {
     display: grid;
@@ -617,18 +668,19 @@ body {
   }
   .dn-top {
     grid-column: 1;
-    grid-row: 1;
-    max-height: none;
+    grid-row: 1 / 4;
+    align-self: start;
+    min-height: 0;
+    max-height: 100%;
+  }
+  /* Text zoom ≥ 115 % (stacked banner): the RB rule "the top area is at most 50 % of the viewport height and scrolls
+     inside beyond that" applies in landscape too; RN is then placed above RP in the map column (GuidanceView). */
+  .demo-nav[data-stacked="true"] .dn-top {
+    max-height: 50vh;
+    max-height: min(100%, 50dvh);
   }
   .dn-bottom {
     display: contents;
-  }
-  .dn-messages {
-    grid-column: 1;
-    grid-row: 2 / 4;
-    align-self: start;
-    max-height: 100%;
-    overflow-y: auto;
   }
   .dn-band {
     grid-column: 2;

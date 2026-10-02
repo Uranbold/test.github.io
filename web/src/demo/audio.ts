@@ -157,9 +157,13 @@ export class AudioOut {
 
   /**
    * «Эхлэх» handler, synchronously before any await (AC 27, ADR-0011 §7 step 1): create or resume the AudioContext and
-   * start a one-sample silent buffer. Speech is unlocked by the depart prompt's own speak() in the same handler.
+   * start a one-sample silent buffer. When the voice decision for `lang` is done and the language speaks, the depart
+   * prompt's own speak() in the same handler unlocks speech. When the decision is still pending (a voice list that
+   * loads late), the depart prompt is a chime, which unlocks nothing; speech is then primed here, inside the gesture,
+   * with one empty, zero-volume utterance and no voice set (no Mongolian text), so that iOS allows the later prompts
+   * once the list names a usable voice (ADR-0011 §7 Amendment 1, NAV-017-D5).
    */
-  unlockForStart(): void {
+  unlockForStart(lang: Lang): void {
     const ctx = this.context();
     if (ctx) {
       try {
@@ -174,21 +178,27 @@ export class AudioOut {
       }
     }
     if (this.env.speechSynthesis) this.env.speechSynthesis.cancel();
+    if (this.voiceFor(lang) === undefined) this.primeSpeech();
   }
 
   /**
    * Any later user activation (language, «Дууг нээх», «Байршил руу буцах», a tap anywhere): resume a suspended
-   * context, and prime speech once for a language that speaks (an empty utterance carries no Mongolian text).
+   * context, and prime speech once for a language that speaks or whose decision is still pending (an empty utterance
+   * carries no Mongolian text).
    */
   ensureUnlocked(lang: Lang): void {
     const ctx = this.ctx;
     if (ctx && ctx.state !== "running") void ctx.resume?.().catch(() => undefined);
-    if (!this.speechPrimed && this.speaks(lang) && this.env.SpeechSynthesisUtterance && this.env.speechSynthesis && !this.current) {
-      const u = new this.env.SpeechSynthesisUtterance("");
-      u.volume = 0;
-      this.env.speechSynthesis.speak(u);
-      this.speechPrimed = true;
-    }
+    if (this.speaks(lang) || this.voiceFor(lang) === undefined) this.primeSpeech();
+  }
+
+  /** One empty, zero-volume utterance with no voice set, once per page, never while a prompt plays. */
+  private primeSpeech(): void {
+    if (this.speechPrimed || !this.env.SpeechSynthesisUtterance || !this.env.speechSynthesis || this.current) return;
+    const u = new this.env.SpeechSynthesisUtterance("");
+    u.volume = 0;
+    this.env.speechSynthesis.speak(u);
+    this.speechPrimed = true;
   }
 
   /** Page hidden (AC 15): stop and suspend. */

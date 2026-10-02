@@ -4,7 +4,7 @@
 // Specs: docs/design/screens/NAV-017-web-demo-mode.md, flows/NAV-017-web-demo-mode.md, navigation-ux.md §11,
 // map-style.md §7.5. 0 backend requests and no Geolocation call anywhere in this build (AC 14, 42).
 import "./demo.css";
-import type { Map as MapLibreMap } from "maplibre-gl";
+import type { Map as MapLibreMap, PaddingOptions } from "maplibre-gl";
 import routeSummaries from "virtual:navmn-demo-routes";
 import wasmUrl from "@stadiamaps/ferrostar/ferrostar_bg.wasm?url";
 import { FerrostarNavigator } from "../guidance/ferrostarCore";
@@ -17,7 +17,7 @@ import { LocationController } from "../location/locationController";
 import { colourGroup, type Theme } from "../style/tokens";
 import { App, type AppDeps } from "../ui/app";
 import { AudioOut, loadMuted, saveMuted } from "./audio";
-import { follow, followPadding, RESET_MS, START_MS, ZoomBySpeed, type Covered } from "./camera";
+import { fitPadding, follow, followPadding, RESET_MS, START_MS, ZoomBySpeed, type Covered } from "./camera";
 import { el } from "./dom";
 import { GuidanceView } from "./guidanceView";
 import { DemoMapLayers } from "./mapLayers";
@@ -101,6 +101,7 @@ export class DemoController {
   private readonly onVisibility = () => this.visibilityChanged();
   private readonly onAnyTap = () => this.audio.ensureUnlocked(this.i18n.lang);
   private readonly onResize = () => this.layoutChanged();
+  private readonly columns = window.matchMedia(COLUMNS_QUERY);
 
   constructor(
     private readonly app: App,
@@ -146,6 +147,8 @@ export class DemoController {
     check();
     this.i18n.onChange((lang) => this.langChanged(lang));
     this.observeTextZoom();
+    this.placeMessages();
+    this.columns.addEventListener?.("change", () => this.placeMessages());
     window.addEventListener("resize", this.onResize);
     this.bindGestures();
   }
@@ -267,19 +270,27 @@ export class DemoController {
     );
   }
 
-  private pickerPadding(): { top: number; bottom: number; left: number; right: number } {
+  /**
+   * Screen spec › Camera rules: padding = 40 px + the UI on each edge (top: R1 and R2; bottom: the sheet + 20 px below
+   * 840 px, R5 from 840 px; left: the side panel from 840 px; right: 64 px for the zoom group), plus the safe-area
+   * insets of the edges no region covers. The band kept for the route is never below 120 px (`fitPadding`).
+   */
+  private pickerPadding(): PaddingOptions {
     const m = this.map!;
     const box = m.getContainer().getBoundingClientRect();
     const r1 = (document.querySelector(".r1") as HTMLElement).getBoundingClientRect();
     const r2 = el("messages").getBoundingClientRect();
     const sheet = this.picker.section.getBoundingClientRect();
     const wide = window.matchMedia("(min-width: 840px)").matches;
-    const top = Math.max(r1.bottom, r2.height > 0 ? r2.bottom : 0) - box.top;
+    const inset = safeAreaInsets();
     const attr = el("attribution").getBoundingClientRect();
-    const bottom = wide ? box.bottom - attr.top : box.bottom - sheet.top + 20;
-    const left = wide ? sheet.right - box.left : 0;
-    const clamp = (v: number, max: number) => Math.max(0, Math.min(v, max));
-    return { top: clamp(40 + top, box.height / 2), bottom: clamp(40 + bottom, box.height / 2), left: clamp(40 + left, box.width / 2), right: 64 };
+    const covered: Covered = {
+      top: Math.max(r1.bottom, r2.height > 0 ? r2.bottom : 0) - box.top,
+      bottom: wide ? box.bottom - attr.top : box.bottom - sheet.top + 20,
+      left: wide ? sheet.right - box.left : inset.left,
+      right: inset.right,
+    };
+    return fitPadding(box.width, box.height, covered, { top: 40, bottom: 40, left: 40, right: 64 });
   }
 
   private onlineChanged(online: boolean): void {
@@ -300,7 +311,7 @@ export class DemoController {
     this.picker.setStartEnabled(false); // a second tap starts nothing
     const lang = this.i18n.lang;
     this.audio.resetReplay();
-    this.audio.unlockForStart();
+    this.audio.unlockForStart(lang);
     const navigator_ = new FerrostarNavigator(p.core, p.ferrostarRoute);
     const clock = new ReplayClock({ now: () => performance.now() });
     const ref: { core?: GuidanceCore } = {};
@@ -408,10 +419,13 @@ export class DemoController {
     const box = m.getContainer().getBoundingClientRect();
     const top = this.view.top.getBoundingClientRect();
     const bottom = this.view.bottom.getBoundingClientRect();
-    if (window.matchMedia(COLUMNS_QUERY).matches) {
-      // The bottom region is `display: contents` here: measure the progress or arrival panel in the map column.
+    if (this.columns.matches) {
+      // The bottom region is `display: contents` here: measure the progress or arrival panel in the map column, and
+      // the message card when it sits above the panel there (stacked text).
       const panel = this.view.panelRect();
-      return { top: 0, bottom: panel ? Math.max(0, box.bottom - panel.top) : 0, left: Math.max(0, top.right - box.left), right: 0 };
+      const msgs = this.view.bandMessagesRect();
+      const coverTop = Math.min(panel?.top ?? Number.POSITIVE_INFINITY, msgs?.top ?? Number.POSITIVE_INFINITY);
+      return { top: 0, bottom: Number.isFinite(coverTop) ? Math.max(0, box.bottom - coverTop) : 0, left: Math.max(0, top.right - box.left), right: 0 };
     }
     return { top: Math.max(0, top.bottom - box.top), bottom: Math.max(0, box.bottom - bottom.top), left: 0, right: 0 };
   }
@@ -542,6 +556,11 @@ export class DemoController {
     if (r?.following) this.resumeFollowing(0);
   }
 
+  /** RN placement for the current arrangement and text zoom (GuidanceView.placeMessages). */
+  private placeMessages(): void {
+    this.view.placeMessages(this.columns.matches, this.view.root.dataset.stacked === "true");
+  }
+
   /** Banner stacked layout from 115 % text zoom (navigation-ux §11.3): measured with a 1rem probe. */
   private observeTextZoom(): void {
     const probe = document.createElement("div");
@@ -550,11 +569,24 @@ export class DemoController {
     document.body.append(probe);
     const apply = () => {
       this.view.root.dataset.stacked = String(probe.getBoundingClientRect().height >= STACK_REM_PX);
+      this.placeMessages();
       if (this.replay?.following) this.resumeFollowing(0);
     };
     apply();
     if (typeof ResizeObserver === "function") new ResizeObserver(apply).observe(probe);
   }
+}
+
+/** env(safe-area-inset-*) in CSS px, measured with a fixed probe (the demo CSS gives it the insets as its inset). */
+function safeAreaInsets(): { top: number; right: number; bottom: number; left: number } {
+  const probe = document.createElement("div");
+  probe.className = "demo-inset-probe";
+  probe.setAttribute("aria-hidden", "true");
+  document.body.append(probe);
+  const r = probe.getBoundingClientRect();
+  probe.remove();
+  const nn = (v: number) => (Number.isFinite(v) ? Math.max(0, v) : 0);
+  return { top: nn(r.top), right: nn(window.innerWidth - r.right), bottom: nn(window.innerHeight - r.bottom), left: nn(r.left) };
 }
 
 function safeStorage(): Storage | undefined {
