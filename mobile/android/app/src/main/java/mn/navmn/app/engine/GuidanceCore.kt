@@ -114,6 +114,12 @@ class GuidanceCore(
     private var restoring = false
     private var resumedUntil = Long.MIN_VALUE
 
+    /**
+     * ADR-0013 Amendment 2 step 4: the start step was chosen without a usable bearing; until this time (elapsed ms) the
+     * first good fix with a usable bearing checks the direction once. [Long.MIN_VALUE] = no re-check pending.
+     */
+    private var bearingRecheckUntil = Long.MIN_VALUE
+
     /** NAV-012 AC 35–38 (ADR-0013 §6.2): prompts are skipped during a call, one catch-up after it. */
     val callGate = CallGate()
 
@@ -170,13 +176,15 @@ class GuidanceCore(
         previousFixGood = true
         previousFixElapsed = fix.elapsedMs
         val geometries = navigator.stepGeometries()
-        val start = if (geometries.isEmpty()) 0 else RestoreStartStep.choose(fix.latLon, RestoreStartStep.usableBearing(fix), geometries)
+        val bearing = RestoreStartStep.usableBearing(fix)
+        val start = if (geometries.isEmpty()) 0 else RestoreStartStep.choose(fix.latLon, bearing, fix.accuracyM, geometries)
         if (start != null) {
             val snap = navigator.initialAt(fix, start)
             snapshot = snap
             positionTrusted = true
             updateProgress(snap)
             scheduler.onResumed()
+            if (bearing == null && geometries.isNotEmpty()) bearingRecheckUntil = now + BEARING_RECHECK_MS
             log.d("restore start step $start")
             evaluateVoice(now)
         } else {
@@ -188,6 +196,52 @@ class GuidanceCore(
             log.d("restore off the stored route")
             maybeReroute(now)
         }
+    }
+
+    /**
+     * ADR-0013 Amendment 2 step 4: the one direction re-check of a restore whose start step was chosen without a usable
+     * bearing. The first good fix with a usable bearing within [BEARING_RECHECK_MS] of the start-step decision runs the
+     * start-step rule again with that bearing. If the current step is no longer one of the best candidates, the session
+     * re-anchors to the earliest of them, with 0 route requests:
+     *  - forward: the navigator's initial state for this fix, advanced with Ferrostar's public `advanceToNextStep`
+     *    ([Navigator.initialAt]);
+     *  - backward: a new navigator built from the same stored route ([route], parsed from `route.bin`) through the same
+     *    pipeline as the restore itself, then [Navigator.initialAt].
+     * The resume-mode catch-up then plays once for the new next manoeuvre (only if it is ≥ 30 m ahead). The check runs
+     * once; it is dropped when the window passes, an off-route episode starts or a new route becomes active.
+     * @return the re-anchored snapshot for this fix, or null (the caller updates the navigator as usual).
+     */
+    private fun recheckRestoreDirection(fix: Fix, good: Boolean, now: Long): NavSnapshot? {
+        if (bearingRecheckUntil == Long.MIN_VALUE) return null
+        if (now > bearingRecheckUntil || phase != GuidancePhase.NAVIGATING) {
+            bearingRecheckUntil = Long.MIN_VALUE
+            log.d("restore bearing re-check dropped")
+            return null
+        }
+        if (!good || gps.lost) return null
+        val bearing = RestoreStartStep.usableBearing(fix) ?: return null
+        bearingRecheckUntil = Long.MIN_VALUE // runs once
+        val current = snapshot?.stepIndex ?: return null
+        val best = RestoreStartStep.candidates(fix.latLon, bearing, fix.accuracyM, navigator.stepGeometries())
+        if (best.isEmpty() || current in best) {
+            log.d("restore bearing re-check: step $current kept")
+            return null
+        }
+        val target = best.first()
+        val forward = target > current
+        if (!forward) {
+            runCatching { navigator.close() }
+            navigator = navigators.create(route)
+        }
+        val snap = navigator.initialAt(fix, target)
+        snapshot = snap
+        positionTrusted = true
+        updateProgress(snap)
+        // The playing or waiting prompt was for the wrong manoeuvre (as after a new route, §4.5 rule 2).
+        if (queue.current?.cls == PromptClass.MANEUVER) queue.clear()
+        scheduler.onResumed()
+        log.d("restore bearing re-check: step $current -> $target (${if (forward) "forward" else "backward"}, 0 requests)")
+        return snap
     }
 
     fun onFix(fix: Fix) {
@@ -204,7 +258,7 @@ class GuidanceCore(
         }
         lastFix = fix
         val good = fix.isGood(now)
-        val snap = navigator.update(fix)
+        val snap = recheckRestoreDirection(fix, good, now) ?: navigator.update(fix)
         positionTrusted = snap.fixOnCurrentStep
         if (good) {
             lastGoodFix = fix
@@ -403,6 +457,7 @@ class GuidanceCore(
     }
 
     private fun applyRoute(newRoute: ParsedRoute, now: Long) {
+        bearingRecheckUntil = Long.MIN_VALUE // ADR-0013 Amendment 2: the re-check is for the stored route only
         runCatching { navigator.close() }
         route = newRoute
         navigator = navigators.create(newRoute)
@@ -549,6 +604,9 @@ class GuidanceCore(
 
         /** NAV-012 B3 «Замчлал сэргэлээ», tokens.json `motion.nav-resumed-notice` (3 s). */
         const val RESUMED_NOTICE_MS = 3_000L
+
+        /** ADR-0013 Amendment 2 step 4: the bearing re-check window after a start step chosen without a bearing. */
+        const val BEARING_RECHECK_MS = 30_000L
         const val VOICE_NOTICE_MS = 8_000L
     }
 }

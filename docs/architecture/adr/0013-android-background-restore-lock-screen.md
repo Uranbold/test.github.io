@@ -285,3 +285,58 @@ Real-device only (AC 52): keyguard behaviour, OEM killers, the actual sticky res
   - the Android 16 progress-style notification once a device exists;
   - NAV-015 (iOS) mirrors §3 (record and start step) and §6.2 (`CallGate`) with platform equivalents;
   - travelled-route trimming and manoeuvre arrows stay outside NAV-012 (story Open question 7).
+
+## Amendments
+
+### Amendment 1 (2026-10-03, NAV-012 integration review): as-built deviations accepted, arrival over the lock screen clarified
+The integration review compared the built Android client (`mobile/android`, NAV-012 packages) with this ADR. The deviations the mobile engineer reported are **accepted**. One mechanism is added, because the build does not meet AC 10 and AC 11 yet.
+
+**Accepted deviations**
+| # | ADR text | As built | Decision |
+|---|---|---|---|
+| D1 | §8: the hint state goes into the existing settings DataStore | Separate DataStore file `navmn_hints` (`battery_hint_dismissed_at`, `battery_hint_after_restore`) | Accepted. It is UI state, not trip data. It lives under `files/datastore`, which `allowBackup="false"` and the data-extraction rules (domain `file`) already exclude from backup and transfer. `Settings.kt` stays untouched (NAV-005/NAV-011 shared file) |
+| D2 | §6.4: `ACTION_AUDIO_BECOMING_NOISY` receiver, export state not specified | Dynamic receiver registered with `ContextCompat.RECEIVER_EXPORTED` | Accepted. `android.media.AUDIO_BECOMING_NOISY` is a protected broadcast that only the system can send. On API < 33, androidx's not-exported path adds a sender permission that blocked delivery under Robolectric. The receiver only stops the current prompt and reads nothing from the intent |
+| D3 | §6.1: API 26–30 poll every 1 s, 250 ms only while a prompt plays | Listener on API 31+; on API 26–30 `AudioManager.mode` polled every 250 ms for the whole guidance session | Accepted. One cheap binder read four times a second, only while guidance runs. The AC 52 battery-per-hour measurement re-checks it. If it shows up there, go back to the §6.1 split |
+| D4 | §3.5: decided within 1 s at app start | The decision and the route parse run off the main thread on every `onResume`. The map screen can show for about 0.2 s before the restored guidance screen | Accepted. AC 18's 3 s budget holds. The real-device list measures the time from opening the app to the restored screen |
+| D5 | §4: title = instruction, text = distance · street | Title = distance, text = instruction, BigText adds the street, sub-text = «Хүрэх цаг» (NAV-012 screen spec N1) | Accepted. §4 allowed UX to reorder lines inside the standard template. No custom views are used |
+
+**Clarification: arrival over the lock screen (AC 10, AC 11; B-A7).** §5 says the flag stays set "while guidance is active or the arrival panel is shown". AC 10 limits the arrival case: the panel stays over the lock screen **until «Хаах» or until the screen turns off**, and the phone's lock screen follows. Mechanism:
+- `LockScreenGate` gets one more input: "arrival seen with the screen off". When `onStop` runs (the screen turned off or the app was left) while the phase is `ARRIVED` and the keyguard is locked or the display is not interactive, the gate calls `setShowWhenLocked(false)` and does not set it again for this session.
+- The engine and the arrival panel stay as they are. After unlocking, the user still sees the arrival panel and «Хаах» ends the session as before. Nothing is ended automatically, there are 0 route requests, and the screen is never turned on.
+- `LockScreenPolicy` stays pure: `showWhenLocked(state, arrivalScreenOffSeen)`. Robolectric test: ARRIVED, then `onStop` with the keyguard locked, means the flag is false. The rest goes to the real-device list (AC 52).
+
+**Clarification: the stored route contains its start point (AC 16, story Open question 2).** `route.bin` is the route response as received (§3.1). Its geometry and its first waypoint begin at the position where the route was requested: the origin at «Эхлэх», or the reroute position after a reroute. This ADR does not strip it, because the geometry is needed for the offline restore (B-A1), and removing only `waypoints[0]` would not hide the start. AC 16's "no origin" is read as **no separate origin field**. The BA confirms or rewords AC 16 (non-blocking). The deletion rules (§3.2, §3.5) and the privacy scan (§3.6) are unchanged.
+
+### Amendment 2 (2026-10-03, NAV-012 integration review, QA D1 / TC-D07): start step without a usable bearing
+**Problem.** §3.4 step 3 picks the **earliest** candidate within 50 m when the first good fix has no usable bearing. On a route that passes close to itself (divided avenue with a U-turn, the normal way to turn around in Ulaanbaatar), a driver who reopens the app while standing still on the return side gets the outbound step. The restore then repeats the U-turn already made, and the session never reaches arrival: Ferrostar stays snapped to the outbound step about 22 m away, and `StepCatchUp` only moves forward from a step it already accepts. QA's TC-D07 (`QaNav012Test.tcD07_g10RestoreStandingOnTheReturnCarriageway`) reproduces this. AC 19 needs the decision within 3 s of the first good fix, so it cannot wait until the car moves.
+
+**Decision.** §3.4 step 3 becomes:
+1. Candidates: steps whose geometry is within **50 m** of the fix, excluding `arrive` (unchanged).
+2. If the fix has a usable bearing (ADR-0009 §2 gate), keep only candidates with a segment within 50 m whose direction is within **60°** of it (unchanged).
+3. **New: nearest with a tie margin.** Let *d<sub>min</sub>* be the smallest distance from the fix to any remaining candidate's geometry, and *m* = max(**10 m**, fix horizontal accuracy). Keep only the candidates with distance ≤ *d<sub>min</sub>* + *m*. The **earliest** of these wins. At a step boundary, consecutive steps tie, so the earlier one wins and no manoeuvre is skipped. Opposite carriageways or parallel streets further apart than the margin go to the nearer geometry.
+4. **New: one bearing re-check.** If the start step was chosen **without** a usable bearing, the first fix with a usable bearing within **30 s** of the restore start runs `choose` again with that bearing. If the result differs from the current step, the session re-anchors to that step: forward by `advanceToNextStep`, backward by rebuilding the navigator from the stored `route.bin` through the same pipeline as step 1 (0 route requests). If the next manoeuvre changes, the resume-mode catch-up prompt plays once for the new one (only if *d* ≥ 30 m; it does not count against the AC 19 "one prompt within 3 s" window, which has passed by then). The check runs once and then stops. After that only `StepCatchUp` and the NAV-005 off-route rules apply.
+
+The change stays inside `RestoreStartStep` (pure; signature becomes `choose(position, bearingDeg, accuracyM, steps)`) and the restore path in `GuidanceCore`/`GuidanceSession` (the re-check). No new string, no new permission, no API change. The record still stores no step index or position (AC 16).
+
+**Accepted residual risk.** If GPS error is larger than the margin and points at a later parallel step, a manoeuvre can be skipped until step 4 corrects it. With a usable bearing, step 2 already handles opposite directions. Same-direction parallel streets within 50 m that the route uses at two different times are rare, and are left to `StepCatchUp` and the off-route rules.
+
+**Tests (mobile-engineer; QA re-runs).**
+- `QaNav012Test.tcD07_g10RestoreStandingOnTheReturnCarriageway` must pass **unchanged** (start step 1, one prompt within 3 s, no U-turn prompt, 0 requests, one arrival). `tcD08` and `Nav012ReplayTest` must stay green.
+- `RestoreStartStepTest`: adapt `usableBearingSelectsTheDirectionOnOutAndBackRoutes` (no bearing on the return line → return step; no bearing at the exact midpoint between the two lines → earliest). Add: a step-boundary tie → the earlier step; accuracy 20 m widens the margin → earliest among the widened set; the bearing re-check moves forward and, in a constructed case, backward with 0 requests and at most one extra prompt.
+
+### Amendment 3 (2026-10-03, NAV-012 integration review, round 2): Amendment 2 as built; arrival while the screen is already off (QA D3)
+**Amendment 2 step 4 as built: accepted.** Two readings in `GuidanceCore.recheckRestoreDirection` replace the Amendment 2 wording:
+1. The 30 s window starts at the **start-step decision** (the first good fix), not at the restore start. A slow first fix must not shorten the window.
+2. The session re-anchors only when the current step is **not among the tied best candidates** (`RestoreStartStep.candidates`), not whenever `choose` returns a different index. Otherwise normal progress across a step boundary inside the window would send guidance back one step.
+
+Everything else in Amendment 2 is unchanged (once only; dropped on window end, an off-route episode or a new route; 0 route requests; at most one catch-up prompt, only if *d* ≥ 30 m).
+
+**Arrival while the screen is already off (AC 11, QA D3 / TC-L02).** Amendment 1 sets the latch only in `onStop` while the phase is `ARRIVED`. When the driver lets the screen turn off during guidance (the normal case, AC 13), `onStop` has already run during `NAVIGATING`, so the later `ARRIVED` never sets the latch. The arrival panel, with the destination text, then shows over the lock screen on every wake until «Хаах», and `ARRIVED` never ends by itself. AC 11 lists "arrived" as a state in which the app must never show over the lock screen. AC 10 allows it only while the panel is being shown with the screen on.
+
+Mechanism (an addition to Amendment 1):
+- `LockScreenGate.onGuidanceState`: when the state is `ARRIVED` and the arrival panel **cannot currently be seen** (the activity is not at least `STARTED`, or the display is not interactive), set the same `arrivalScreenOffSeen` latch at once and clear the show-over-lock flag. Do **not** move the task to the back: after unlocking, the user still sees the arrival panel and «Хаах» ends the session as before.
+- When the activity is started and the display is interactive (locked or not), nothing changes: AC 10 keeps the panel over the lock screen until «Хаах» or the screen turns off (the `onStop` path from Amendment 1).
+- `LockScreenPolicy` stays pure. Add `arrivalUnseen(state, activityStarted, interactive)` = `ARRIVED && (!activityStarted || !interactive)`. The gate reads `activityStarted` from the activity's lifecycle (`Lifecycle.State.STARTED`). No new permission, no string, nothing ended automatically, the screen is never turned on, 0 route requests.
+- The latch resets as before, when the session ends or a new session starts guiding.
+
+**Tests.** `QaNav012LockScreenTest.tcL02_arrivalWhileScreenOffIsNotShownOverLockScreenOnWake` must pass **unchanged**. `tcL01`, `Nav012AndroidTest.arrivalStopsShowingOverLockScreenAfterScreenOff`, `.arrivalScreenOffWithoutKeyguardClearsFlag` and `.lockScreenPolicyArrivalLatch` stay green. Add a pure `LockScreenPolicy.arrivalUnseen` table test. Real device (AC 52): drive with the screen off until arrival, then wake: expect the phone's own lock screen, and the arrival panel after unlocking.

@@ -182,7 +182,7 @@ Pure packages have no Android or Ferrostar types; all time is injected.
 | `lockscreen` | `LockScreenGate`: `setShowWhenLocked` while guiding or on the arrival panel, unlock prompt before leaving the guidance screen, volume keys → prompt stream |
 | `theme/sun` | `SunCalc` (NOAA algorithm, UTC), `AutoThemeHold` (≤ 1 change / 10 min), `SunTheme` (position: session fix → last known ≤ 24 h → P1) |
 
-Tuning values (change only after a real-device check, AC 52): Bluetooth lead-in **300 ms** (`AudioOutputRules.BLUETOOTH_LEAD_IN_MS`, ≤ 500 ms by AC 33; not yet tuned on a car or headset); restore start step: earliest step within **50 m**, bearing within **60°** when the fix has a usable bearing (`RestoreStartStep`; not yet tuned on a device).
+Tuning values (change only after a real-device check, AC 52): Bluetooth lead-in **300 ms** (`AudioOutputRules.BLUETOOTH_LEAD_IN_MS`, ≤ 500 ms by AC 33; not yet tuned on a car or headset); restore start step (ADR-0013 Amendment 2): steps within **50 m**, bearing within **60°** when the fix has a usable bearing, then the nearest step wins with a tie margin of max(**10 m**, fix accuracy) and the earliest inside the margin; without a usable bearing, one re-check on the first fix with a usable bearing within **30 s** of the start-step decision (`RestoreStartStep`, `GuidanceCore.BEARING_RECHECK_MS`; not yet tuned on a device).
 
 ### 6.2 Keeping navigation alive under OEM battery savers (AC 29)
 Android itself keeps the location foreground service running with the screen off. Many manufacturers add their own

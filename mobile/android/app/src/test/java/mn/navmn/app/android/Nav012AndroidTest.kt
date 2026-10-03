@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Looper
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -32,6 +33,7 @@ import mn.navmn.app.engine.Trip
 import mn.navmn.app.geo.LatLon
 import mn.navmn.app.location.Fix
 import mn.navmn.app.lockscreen.LockScreenGate
+import mn.navmn.app.lockscreen.LockScreenPolicy
 import mn.navmn.app.route.RouteOutcome
 import mn.navmn.app.route.RouteProcessor
 import mn.navmn.app.route.TravelMode
@@ -321,5 +323,67 @@ class Nav012AndroidTest {
         assertFalse(shadowOf(activity).showWhenLocked)
         assertEquals(AudioManager.USE_DEFAULT_STREAM_TYPE, activity.volumeControlStream)
         assertTrue(shadowOf(activity).isTaskMovedToBack)
+    }
+
+    /**
+     * AC 10–11 (ADR-0013 Amendment 1): the arrival panel stays over the lock screen until the screen turns off. onStop on
+     * ARRIVED with the keyguard locked clears the flag for the rest of the session; the panel is not ended, the task is
+     * not moved to the back, and later arrival updates do not set the flag again. A new session starts cleared.
+     */
+    @Test
+    fun arrivalStopsShowingOverLockScreenAfterScreenOff() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val gate = LockScreenGate(activity)
+        val keyguard = shadowOf(activity.getSystemService(KeyguardManager::class.java))
+        gate.onGuidanceState(state(GuidancePhase.NAVIGATING))
+        // Navigating: onStop while locked keeps the guidance screen over the lock screen (AC 8).
+        keyguard.setKeyguardLocked(true)
+        gate.onStop()
+        assertTrue(shadowOf(activity).showWhenLocked)
+        gate.onGuidanceState(state(GuidancePhase.ARRIVED))
+        assertTrue("arrival panel over the lock screen until the screen turns off (AC 10)", shadowOf(activity).showWhenLocked)
+        gate.onStop()
+        assertFalse("ARRIVED + onStop while locked clears the flag (AC 10, 11)", shadowOf(activity).showWhenLocked)
+        assertTrue(gate.arrivalScreenOffSeen)
+        assertFalse("the panel stays for after the unlock", shadowOf(activity).isTaskMovedToBack)
+        assertFalse(shadowOf(activity).turnScreenOn)
+        // Later arrival updates in the same session never set it again.
+        gate.onGuidanceState(state(GuidancePhase.ARRIVED))
+        assertFalse(shadowOf(activity).showWhenLocked)
+        // «Хаах» ends the session; the next session shows over the lock screen again.
+        gate.onGuidanceState(null)
+        assertFalse(shadowOf(activity).showWhenLocked)
+        assertEquals(AudioManager.USE_DEFAULT_STREAM_TYPE, activity.volumeControlStream)
+        gate.onGuidanceState(state(GuidancePhase.NAVIGATING))
+        assertTrue(shadowOf(activity).showWhenLocked)
+        assertFalse(gate.arrivalScreenOffSeen)
+    }
+
+    /** AC 10 (ADR-0013 Amendment 1): the display turning off before the keyguard locks (lock delay) also counts. */
+    @Test
+    fun arrivalScreenOffWithoutKeyguardClearsFlag() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val gate = LockScreenGate(activity)
+        gate.onGuidanceState(state(GuidancePhase.ARRIVED))
+        // Unlocked and interactive (the user switched apps): the flag stays.
+        gate.onStop()
+        assertTrue(shadowOf(activity).showWhenLocked)
+        shadowOf(activity.getSystemService(PowerManager::class.java)).setIsInteractive(false)
+        gate.onStop()
+        assertFalse(shadowOf(activity).showWhenLocked)
+    }
+
+    /** Pure policy (ADR-0013 Amendment 1). */
+    @Test
+    fun lockScreenPolicyArrivalLatch() {
+        assertFalse(LockScreenPolicy.showWhenLocked(null))
+        assertFalse(LockScreenPolicy.showWhenLocked(state(GuidancePhase.ENDED)))
+        assertTrue(LockScreenPolicy.showWhenLocked(state(GuidancePhase.NAVIGATING), arrivalScreenOffSeen = true))
+        assertTrue(LockScreenPolicy.showWhenLocked(state(GuidancePhase.ARRIVED), arrivalScreenOffSeen = false))
+        assertFalse(LockScreenPolicy.showWhenLocked(state(GuidancePhase.ARRIVED), arrivalScreenOffSeen = true))
+        assertTrue(LockScreenPolicy.arrivalLeftWhileLocked(state(GuidancePhase.ARRIVED), keyguardLocked = true, interactive = true))
+        assertTrue(LockScreenPolicy.arrivalLeftWhileLocked(state(GuidancePhase.ARRIVED), keyguardLocked = false, interactive = false))
+        assertFalse(LockScreenPolicy.arrivalLeftWhileLocked(state(GuidancePhase.ARRIVED), keyguardLocked = false, interactive = true))
+        assertFalse(LockScreenPolicy.arrivalLeftWhileLocked(state(GuidancePhase.NAVIGATING), keyguardLocked = true, interactive = false))
     }
 }

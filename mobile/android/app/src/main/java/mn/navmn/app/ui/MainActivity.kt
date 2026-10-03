@@ -112,6 +112,13 @@ class MainActivity : AppCompatActivity() {
         if (lockGate.locked && vm.guiding) vm.openSettings(false)
     }
 
+    override fun onStop() {
+        super.onStop()
+        // NAV-012 AC 10–11 (ADR-0013 Amendment 1): the arrival panel left while locked / screen off stops showing over
+        // the lock screen for the rest of the session.
+        lockGate.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         vm.onResume() // AC 11–12: continue the pending action after the user returns from settings

@@ -1,0 +1,237 @@
+{
+  "story": "NAV-012",
+  "ac": 40,
+  "source": "NOAA GML Solar Calculator, https://gml.noaa.gov/grad/solcalc/ (main.js calculation functions, vendored in tests/android/nav012/noaa/noaa_solcalc_calc.cjs)",
+  "sourceSha256": "3832956f24724eafacf9e18173b9299b1554d6252bed0784d9c9aca6d9f54856",
+  "recorded": "2026-10-03",
+  "method": "jday = getJD(local date); calcSunriseSet(1|0, jday, lat, lon east-positive, utcOffsetHours); sun centre at -0.833 deg (zenith 90.833)",
+  "toleranceMinutes": 2,
+  "points": [
+    {
+      "id": "P1",
+      "name": "Sukhbaatar Square",
+      "lat": 47.9189,
+      "lon": 106.9176,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8
+    },
+    {
+      "id": "X1",
+      "name": "Erdenet",
+      "lat": 49.027,
+      "lon": 104.044,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8
+    },
+    {
+      "id": "K1",
+      "name": "Khovd",
+      "lat": 48.0056,
+      "lon": 91.6419,
+      "zone": "Asia/Hovd",
+      "utcOffsetHours": 7
+    },
+    {
+      "id": "Z1",
+      "name": "Zamyn-Uud",
+      "lat": 43.7167,
+      "lon": 111.9,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8
+    }
+  ],
+  "rows": [
+    {
+      "point": "P1",
+      "lat": 47.9189,
+      "lon": 106.9176,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-03-20",
+      "sunriseUtc": "2026-03-19T22:56:06Z",
+      "sunsetUtc": "2026-03-20T11:04:29Z",
+      "sunriseLocal": "06:56:06",
+      "sunsetLocal": "19:04:29"
+    },
+    {
+      "point": "P1",
+      "lat": 47.9189,
+      "lon": 106.9176,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-06-21",
+      "sunriseUtc": "2026-06-20T20:53:02Z",
+      "sunsetUtc": "2026-06-21T12:55:09Z",
+      "sunriseLocal": "04:53:02",
+      "sunsetLocal": "20:55:09"
+    },
+    {
+      "point": "P1",
+      "lat": 47.9189,
+      "lon": 106.9176,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-09-23",
+      "sunriseUtc": "2026-09-22T22:39:50Z",
+      "sunsetUtc": "2026-09-23T10:48:56Z",
+      "sunriseLocal": "06:39:50",
+      "sunsetLocal": "18:48:56"
+    },
+    {
+      "point": "P1",
+      "lat": 47.9189,
+      "lon": 106.9176,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-12-21",
+      "sunriseUtc": "2026-12-21T00:38:48Z",
+      "sunsetUtc": "2026-12-21T09:01:43Z",
+      "sunriseLocal": "08:38:48",
+      "sunsetLocal": "17:01:43"
+    },
+    {
+      "point": "X1",
+      "lat": 49.027,
+      "lon": 104.044,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-03-20",
+      "sunriseUtc": "2026-03-19T23:07:31Z",
+      "sunsetUtc": "2026-03-20T11:16:06Z",
+      "sunriseLocal": "07:07:31",
+      "sunsetLocal": "19:16:06"
+    },
+    {
+      "point": "X1",
+      "lat": 49.027,
+      "lon": 104.044,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-06-21",
+      "sunriseUtc": "2026-06-20T20:59:17Z",
+      "sunsetUtc": "2026-06-21T13:11:53Z",
+      "sunriseLocal": "04:59:17",
+      "sunsetLocal": "21:11:53"
+    },
+    {
+      "point": "X1",
+      "lat": 49.027,
+      "lon": 104.044,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-09-23",
+      "sunriseUtc": "2026-09-22T22:51:13Z",
+      "sunsetUtc": "2026-09-23T11:00:30Z",
+      "sunriseLocal": "06:51:13",
+      "sunsetLocal": "19:00:30"
+    },
+    {
+      "point": "X1",
+      "lat": 49.027,
+      "lon": 104.044,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-12-21",
+      "sunriseUtc": "2026-12-21T00:55:06Z",
+      "sunsetUtc": "2026-12-21T09:08:24Z",
+      "sunriseLocal": "08:55:06",
+      "sunsetLocal": "17:08:24"
+    },
+    {
+      "point": "K1",
+      "lat": 48.0056,
+      "lon": 91.6419,
+      "zone": "Asia/Hovd",
+      "utcOffsetHours": 7,
+      "localDate": "2026-03-20",
+      "sunriseUtc": "2026-03-19T23:57:06Z",
+      "sunsetUtc": "2026-03-20T12:05:39Z",
+      "sunriseLocal": "06:57:06",
+      "sunsetLocal": "19:05:39"
+    },
+    {
+      "point": "K1",
+      "lat": 48.0056,
+      "lon": 91.6419,
+      "zone": "Asia/Hovd",
+      "utcOffsetHours": 7,
+      "localDate": "2026-06-21",
+      "sunriseUtc": "2026-06-20T21:53:44Z",
+      "sunsetUtc": "2026-06-21T13:56:40Z",
+      "sunriseLocal": "04:53:44",
+      "sunsetLocal": "20:56:40"
+    },
+    {
+      "point": "K1",
+      "lat": 48.0056,
+      "lon": 91.6419,
+      "zone": "Asia/Hovd",
+      "utcOffsetHours": 7,
+      "localDate": "2026-09-23",
+      "sunriseUtc": "2026-09-22T23:40:59Z",
+      "sunsetUtc": "2026-09-23T11:49:58Z",
+      "sunriseLocal": "06:40:59",
+      "sunsetLocal": "18:49:58"
+    },
+    {
+      "point": "K1",
+      "lat": 48.0056,
+      "lon": 91.6419,
+      "zone": "Asia/Hovd",
+      "utcOffsetHours": 7,
+      "localDate": "2026-12-21",
+      "sunriseUtc": "2026-12-21T01:40:17Z",
+      "sunsetUtc": "2026-12-21T10:02:28Z",
+      "sunriseLocal": "08:40:17",
+      "sunsetLocal": "17:02:28"
+    },
+    {
+      "point": "Z1",
+      "lat": 43.7167,
+      "lon": 111.9,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-03-20",
+      "sunriseUtc": "2026-03-19T22:36:24Z",
+      "sunsetUtc": "2026-03-20T10:44:13Z",
+      "sunriseLocal": "06:36:24",
+      "sunsetLocal": "18:44:13"
+    },
+    {
+      "point": "Z1",
+      "lat": 43.7167,
+      "lon": 111.9,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-06-21",
+      "sunriseUtc": "2026-06-20T20:50:35Z",
+      "sunsetUtc": "2026-06-21T12:17:44Z",
+      "sunriseLocal": "04:50:35",
+      "sunsetLocal": "20:17:44"
+    },
+    {
+      "point": "Z1",
+      "lat": 43.7167,
+      "lon": 111.9,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-09-23",
+      "sunriseUtc": "2026-09-22T22:20:16Z",
+      "sunsetUtc": "2026-09-23T10:28:47Z",
+      "sunriseLocal": "06:20:16",
+      "sunsetLocal": "18:28:47"
+    },
+    {
+      "point": "Z1",
+      "lat": 43.7167,
+      "lon": 111.9,
+      "zone": "Asia/Ulaanbaatar",
+      "utcOffsetHours": 8,
+      "localDate": "2026-12-21",
+      "sunriseUtc": "2026-12-21T00:02:41Z",
+      "sunsetUtc": "2026-12-21T08:57:57Z",
+      "sunriseLocal": "08:02:41",
+      "sunsetLocal": "16:57:57"
+    }
+  ]
+}

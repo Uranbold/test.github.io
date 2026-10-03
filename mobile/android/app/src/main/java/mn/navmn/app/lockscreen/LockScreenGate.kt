@@ -4,16 +4,27 @@ import android.app.Activity
 import android.app.KeyguardManager
 import android.media.AudioManager
 import android.os.Build
+import android.os.PowerManager
 import android.view.WindowManager
 import mn.navmn.app.engine.GuidancePhase
 import mn.navmn.app.engine.GuidanceState
 
 /**
  * NAV-012 AC 8–12 (pure part): the window shows over the lock screen only while guidance runs or its arrival panel is
- * open. Off as soon as guidance ends or «Хаах» closes the arrival panel (AC 11).
+ * open. Off as soon as guidance ends or «Хаах» closes the arrival panel (AC 11). AC 10 / ADR-0013 Amendment 1: once the
+ * arrival panel has been left with the phone locked or the display off ([arrivalScreenOffSeen]), it never shows over
+ * the lock screen again in that session; the phone's own lock screen follows.
  */
 object LockScreenPolicy {
-    fun showWhenLocked(state: GuidanceState?): Boolean = state != null && state.phase != GuidancePhase.ENDED
+    fun showWhenLocked(state: GuidanceState?, arrivalScreenOffSeen: Boolean = false): Boolean = when {
+        state == null || state.phase == GuidancePhase.ENDED -> false
+        state.phase == GuidancePhase.ARRIVED && arrivalScreenOffSeen -> false
+        else -> true
+    }
+
+    /** ADR-0013 Amendment 1: `onStop` on the arrival panel while locked or with the display off latches the latch. */
+    fun arrivalLeftWhileLocked(state: GuidanceState?, keyguardLocked: Boolean, interactive: Boolean): Boolean =
+        state?.phase == GuidancePhase.ARRIVED && (keyguardLocked || !interactive)
 }
 
 /**
@@ -24,21 +35,50 @@ object LockScreenPolicy {
  *    OS unlock prompt first; on cancel the guidance screen stays (AC 9);
  *  - when guidance ends while the phone is locked the flag is cleared and the task goes to the back, so the phone's
  *    lock screen shows again and never the map screen (AC 9, 10; ADR-0013 fallback);
+ *  - [onStop] on the arrival panel with the keyguard locked or the display off clears the flag for the rest of the
+ *    session (AC 10, 11; ADR-0013 Amendment 1). The engine and the panel stay; «Хаах» still ends the session, nothing
+ *    is ended automatically and the screen is never turned on;
  *  - volume keys control the music stream that `USAGE_ASSISTANCE_NAVIGATION_GUIDANCE` uses while guiding (AC 34).
  */
 class LockScreenGate(private val activity: Activity) {
     private val keyguard: KeyguardManager? = activity.getSystemService(KeyguardManager::class.java)
+    private val power: PowerManager? = activity.getSystemService(PowerManager::class.java)
+    private var lastState: GuidanceState? = null
+
     var showing: Boolean = false
         private set
 
+    /** ADR-0013 Amendment 1: the arrival panel was left while locked / display off; reset only when the session ends. */
+    var arrivalScreenOffSeen: Boolean = false
+        private set
+
     val locked: Boolean get() = keyguard?.isKeyguardLocked == true
+    private val interactive: Boolean get() = power?.isInteractive != false
 
     fun onGuidanceState(state: GuidanceState?) {
-        val show = LockScreenPolicy.showWhenLocked(state)
+        lastState = state
+        // A new session starts with a cleared latch: the session ended (null / ENDED) or a new one is guiding.
+        if (state == null || state.phase != GuidancePhase.ARRIVED) arrivalScreenOffSeen = false
+        apply(state)
+    }
+
+    /** Called from `Activity.onStop` (screen turned off or the app was left). */
+    fun onStop() {
+        if (!arrivalScreenOffSeen && LockScreenPolicy.arrivalLeftWhileLocked(lastState, locked, interactive)) {
+            arrivalScreenOffSeen = true
+            // Only the flag: the task stays on top, so after unlocking the user still sees the arrival panel.
+            if (showing) setShowWhenLocked(false)
+        }
+    }
+
+    private fun apply(state: GuidanceState?) {
+        // AC 34: the volume keys follow the session (the arrival panel included), not the lock-screen flag.
+        val active = LockScreenPolicy.showWhenLocked(state)
+        activity.volumeControlStream = if (active) AudioManager.STREAM_MUSIC else AudioManager.USE_DEFAULT_STREAM_TYPE
+        val show = LockScreenPolicy.showWhenLocked(state, arrivalScreenOffSeen)
         if (show == showing) return
         val wasShowing = showing
         setShowWhenLocked(show)
-        activity.volumeControlStream = if (show) AudioManager.STREAM_MUSIC else AudioManager.USE_DEFAULT_STREAM_TYPE
         if (wasShowing && !show && locked) activity.moveTaskToBack(true)
     }
 

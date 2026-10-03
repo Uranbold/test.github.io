@@ -11,7 +11,7 @@ import mn.navmn.app.instructions.VoiceContent
 import mn.navmn.app.instructions.VoiceText
 import mn.navmn.app.location.Fix
 import mn.navmn.app.route.TravelMode
-import mn.navmn.app.service.GuidanceNotificationText
+import mn.navmn.app.service.notification.RichNotification
 import mn.navmn.app.support.HostFerrostar
 import mn.navmn.app.support.TestStrings
 import mn.navmn.app.support.distanceToLine
@@ -71,8 +71,9 @@ class QaGpxReplayTest {
         r.log.filter { coordinate.containsMatchIn(it) }.forEach { out += "log: $it" }
         val strings = TestStrings.of(r.lang)
         for ((_, s) in r.states) {
-            val n = GuidanceNotificationText.of(s, r.lang, strings)
-            val all = n.title + " " + (n.text ?: "")
+            // NAV-012 (AC 1, 12, 47): the N1 rich notification replaced the NAV-005 S8 text; every visible field is scanned.
+            val n = RichNotification.of(s, r.lang, strings)
+            val all = listOfNotNull(n.title, n.text, n.bigText, n.subText, n.voiceAction, n.endAction).joinToString(" ")
             if (coordinate.containsMatchIn(all)) out += "notification: $all"
         }
         return out.distinct()
@@ -243,8 +244,8 @@ class QaGpxReplayTest {
             r.run(QaGpx.fixes(id), tailMs = 10_000)
             val strings = TestStrings.of(Lang.MN)
             val screen = r.states.flatMap { (_, s) ->
-                val n = GuidanceNotificationText.of(s, Lang.MN, strings)
-                listOf(r.bannerText(s.banner), (s.banner as? Banner.Maneuver)?.street.orEmpty(), (s.banner as? Banner.Arrival)?.street.orEmpty(), n.title, n.text.orEmpty())
+                val n = RichNotification.of(s, Lang.MN, strings) // NAV-012 N1 (replaces the NAV-005 S8 text)
+                listOf(r.bannerText(s.banner), (s.banner as? Banner.Maneuver)?.street.orEmpty(), (s.banner as? Banner.Arrival)?.street.orEmpty(), n.title.orEmpty(), n.text.orEmpty(), n.bigText.orEmpty())
             }
             val hits = (screen + r.spokenTexts()).count { it.contains("SENTINEL") }
             if (hits != 0) problems += "$id AC 27: sentinel appears $hits times"
