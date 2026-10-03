@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAV-011 preview wireframe</title>
+<!--
+  Static wireframe of the NAV-011 Android screens (owner: ux-designer). Checks the DESIGN, not the app.
+  1 CSS px = 1 dp. Hash parameters: state, theme (day|night), lang (mn|en), scale (1|1.3|2 = Android font scale),
+  font (narrow|wide), toolbar (0|1). Example: #state=preview-expanded&theme=night&lang=mn&scale=2
+  Screen spec: docs/design/screens/NAV-011-android-route-preview-search-parity.md (delta on the NAV-005 spec).
+  Colours are copied from docs/design/tokens.json v0.5.0 for this wireframe only (tokens.json wins).
+  Window classes as NAV-005 D5: wide = width >= 600, or landscape with width >= 480.
+-->
+<style>
+  :root { --fs: 1; --font: "Liberation Sans", Roboto, sans-serif; }
+  :root[data-theme="day"] {
+    --surface: #FFFFFF; --surface-container: #F1F3F4; --on-surface: #1F1F1F; --on-surface-variant: #444746;
+    --outline: #747775; --outline-variant: #C4C7C5; --primary: #0B57D0; --on-primary: #FFFFFF;
+    --primary-container: #D3E3FD; --on-primary-container: #041E49; --error: #B3261E;
+    --message-surface: #303030; --on-message-surface: #F2F2F2; --message-outline: #303030; --message-action: #A8C7FA;
+    --earth: #F3F0EA; --water: #A8CDEE; --major: #FFFFFF; --major-casing: #C9C2B5;
+    --route: #1967D2; --route-casing: #0B3D91; --alt: #8FA7CC; --alt-casing: #5F7CAB;
+    --pin: #C5221F; --disabled: rgba(31,31,31,.38); --handle: #747775;
+  }
+  :root[data-theme="night"] {
+    --surface: #1F2733; --surface-container: #27303D; --on-surface: #E3E6EA; --on-surface-variant: #B9C0CA;
+    --outline: #8B94A1; --outline-variant: #3F4957; --primary: #A8C7FA; --on-primary: #062E6F;
+    --primary-container: #0B3D8C; --on-primary-container: #D3E3FD; --error: #F2B8B5;
+    --message-surface: #2E3846; --on-message-surface: #E3E6EA; --message-outline: #6E7A8C; --message-action: #A8C7FA;
+    --earth: #18202B; --water: #0B2238; --major: #4A5566; --major-casing: #10151C;
+    --route: #8AB4F8; --route-casing: #10151C; --alt: #5A7396; --alt-casing: #10151C;
+    --pin: #F28B82; --disabled: rgba(227,230,234,.38); --handle: #8B94A1;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: var(--font); background: var(--earth); color: var(--on-surface); font-size: calc(14px * var(--fs)); line-height: 1.43; }
+  #toolbar { position: fixed; z-index: 99; top: 0; left: 0; right: 0; font: 12px sans-serif; background: #fffd; padding: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+  #toolbar[hidden], [hidden] { display: none !important; }
+  /* words never break inside: a too-long word shows as horizontal overflow (checker) */
+  .wrap { overflow-wrap: normal; word-break: normal; hyphens: none; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+  /* status bar 24, 3-button navigation bar 48 (portrait) / 24 (landscape), as NAV-005 */
+  #screen { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: 24px minmax(0,1fr) 48px; }
+  :root[data-wide="1"][data-orient="land"] #screen { grid-template-rows: 24px minmax(0,1fr) 24px; }
+  #app { position: relative; min-height: 0; display: flex; flex-direction: column; }
+  #map { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+  #map svg { width: 100%; height: 100%; display: block; }
+  #layer { position: relative; z-index: 2; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #attr { position: relative; z-index: 3; flex: none; background: var(--surface-container); color: var(--on-surface-variant); font-size: calc(12px * var(--fs)); line-height: 1.333; padding: 4px 16px; min-height: 24px; }
+
+  .elev { box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  :root[data-theme="night"] .elev { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  .iconbtn { width: 48px; height: 48px; flex: none; border-radius: 12px; background: var(--surface); color: var(--on-surface); border: 0; display: grid; place-items: center; padding: 0; }
+  .iconbtn.flat { background: transparent; box-shadow: none; outline: 0; }
+  .iconbtn svg, .ico svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .btn { min-height: 48px; min-width: 48px; border-radius: 9999px; font: inherit; font-size: calc(14px * var(--fs)); font-weight: 500; padding: 8px 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; text-align: center; }
+  .btn svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.5; }
+  .btn.filled { background: var(--primary); color: var(--on-primary); }
+  .btn.filled:disabled { background: var(--disabled); color: var(--surface); }
+  .btn.text { background: transparent; color: var(--primary); padding: 8px 12px; }
+  .btn.text:disabled { color: var(--disabled); }
+  .btn.msgtext { background: transparent; color: var(--message-action); padding: 8px 12px; }
+  .btn.tonal { background: var(--primary-container); color: var(--on-primary-container); }
+
+  /* ---------- S1/S2 browse overlay (NAV-005 D5) ---------- */
+  #browse { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 8px 0 0; }
+  #searchrow { flex: none; display: flex; gap: 8px; align-items: center; padding: 0 16px; }
+  #searchbar { flex: 1; min-width: 0; min-height: 56px; border-radius: 28px; background: var(--surface); display: flex; align-items: center; gap: 12px; padding: 0 4px 0 16px; font-size: calc(16px * var(--fs)); color: var(--on-surface-variant); }
+  #searchbar.typed { color: var(--on-surface); }
+  #searchbar > svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+  .ico { width: 24px; height: 24px; display: block; }
+  #below { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #topgroup { flex: 0 1 auto; min-height: 0; overflow: auto; padding: 8px 16px 0; display: flex; flex-direction: column; gap: 8px; }
+  #spacer { flex: 1 1 0; min-height: 0; }
+  #controls { flex: none; display: flex; flex-direction: column; gap: 8px; align-self: flex-end; padding: 0 16px 16px; }
+  #controls .iconbtn { border-radius: 16px; }
+  #cardwrap { flex: 0 1 auto; min-height: 0; display: flex; padding: 0 8px 8px; }
+  :root[data-wide="1"] #below { flex-direction: row; }
+  :root[data-wide="1"] #leftcol { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  :root[data-wide="0"] #leftcol { display: contents; }
+  :root[data-wide="0"] #topgroup { order: 1; } :root[data-wide="0"] #spacer { order: 2; }
+  :root[data-wide="0"] #controls { order: 3; } :root[data-wide="0"] #cardwrap { order: 4; }
+  :root[data-wide="1"] #controls { align-self: flex-end; padding: 0 16px 16px 8px; }
+
+  /* lock card (K1, K3, K2): NAV-002 message look */
+  .lock { background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 12px; padding: 12px 8px 4px 16px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 12px; flex: none; }
+  .lock .ico { color: var(--on-message-surface); }
+  .lock .t { font-size: calc(16px * var(--fs)); line-height: 1.5; font-weight: 500; padding-right: 8px; }
+  .lock .h { grid-column: 2; font-size: calc(14px * var(--fs)); opacity: .87; padding-right: 8px; }
+  .lock .acts { grid-column: 1 / 3; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  .results { background: var(--surface); border-radius: 12px; flex: none; }
+  .results .r { min-height: 56px; padding: 8px 16px; border-bottom: 1px solid var(--outline-variant); }
+  .results .r .n { font-size: calc(16px * var(--fs)); }
+  .results .r .m { color: var(--on-surface-variant); }
+
+  /* coordinate card */
+  #cardwrap > .card { flex: 1 1 auto; min-width: 0; }
+  .card { background: var(--surface); border-radius: 16px; width: 100%; display: flex; flex-direction: column; min-height: 0; }
+  .card .scroll { overflow: auto; min-height: 0; padding: 4px 0 0; }
+  .card .head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0 16px; font-size: calc(16px * var(--fs)); font-weight: 600; }
+  .card .coord { padding: 0 16px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+  .near { margin: 8px 16px 0; min-height: calc(64px * var(--fs)); padding-top: 8px; border-top: 1px solid var(--outline-variant); }
+  .near .lbl { font-size: calc(12px * var(--fs)); line-height: 1.333; color: var(--on-surface-variant); font-weight: 500; letter-spacing: .02em; }
+  .near .pn { font-size: calc(16px * var(--fs)); }
+  .near .pm { color: var(--on-surface-variant); }
+  .near .st { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 0 12px; align-items: start; }
+  .near .st .acts { grid-column: 2; display: flex; justify-content: flex-end; }
+  .card .go { flex: none; padding: 8px 16px 16px; }
+  .card .go .btn { width: 100%; }
+
+  /* ---------- S3 route preview sheet ---------- */
+  #previewwrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; }
+  #routeband { flex: 1 1 0; min-height: 0; }
+  #sheet { flex: none; margin: 0 8px 8px; background: var(--surface); border-radius: 16px 16px 16px 16px; display: flex; flex-direction: column; min-height: 0; }
+  #sheet.expanded { max-height: 80%; flex: 0 1 auto; }
+  .handle { flex: none; height: 24px; display: grid; place-items: center; }
+  .handle i { display: block; width: 32px; height: 4px; border-radius: 2px; background: var(--handle); }
+  #topscroll, #body { flex: 0 1 auto; min-height: 0; overflow: auto; }
+  #sheet > .sum, #sheet > .pstate, #sheet > .start { flex: none; }
+  #sheet .start { border-top: 1px solid transparent; }
+  #sheet.expanded .start { border-top-color: var(--outline-variant); }
+  #more { border-top: 1px solid var(--outline-variant); margin-top: 8px; }
+  #sheet .head { display: flex; align-items: center; gap: 8px; padding: 0 4px 0 16px; }
+  #sheet .head .tt { flex: 1; min-width: 0; }
+  #sheet .head .title { font-size: calc(16px * var(--fs)); font-weight: 600; line-height: 1.5; }
+  #sheet .head .dest { color: var(--on-surface-variant); display: block; }
+  .tabs { display: flex; border-bottom: 1px solid var(--outline-variant); }
+  .tab { flex: 1 1 0; min-width: 0; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 4px 4px; font: inherit; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); border: 0; background: none; }
+  .tab svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+  .tab.sel { color: var(--primary); box-shadow: inset 0 -3px 0 var(--primary); }
+  :root[data-stackedtabs="1"] .tab { flex-direction: column; gap: 2px; min-height: 64px; }
+  .sum { padding: 8px 16px 0; }
+  .sum .rn { font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--primary); }
+  .sum .dur { font-size: calc(22px * var(--fs)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .sum .dist { font-size: calc(16px * var(--fs)); color: var(--on-surface-variant); }
+  .sum .eta { font-variant-numeric: tabular-nums; }
+  .sum .snap { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; padding-top: 4px; color: var(--on-surface-variant); }
+  .pstate { padding: 8px 16px 0; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 12px; }
+  .pstate .acts { grid-column: 2; display: flex; justify-content: flex-end; }
+  .start { padding: 8px 16px 12px; }
+  .start .btn { width: 100%; min-height: 56px; font-size: calc(16px * var(--fs)); }
+  .grp { padding: 8px 0 0; }
+  .grp .gh { padding: 0 16px 4px; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); }
+  .opt { min-height: 56px; display: grid; grid-template-columns: 20px 24px minmax(0,1fr); align-items: center; gap: 16px; padding: 4px 16px; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+  .opt .radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--on-surface-variant); }
+  .opt.sel .radio { border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 10px var(--primary); }
+  .opt .sw { width: 24px; height: 6px; border-radius: 3px; background: var(--alt); outline: 1px solid var(--alt-casing); }
+  .opt.sel .sw { background: var(--route); outline-color: var(--route-casing); }
+  .opt .ol { font-size: calc(16px * var(--fs)); font-weight: 500; }
+  .opt .om { color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+  .switchrow { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; width: 100%; border: 0; background: none; color: inherit; font: inherit; font-size: calc(14px * var(--fs)); text-align: left; }
+  .track { width: 52px; height: 32px; flex: none; border-radius: 16px; border: 2px solid var(--outline); }
+  .prow { min-height: 48px; display: flex; align-items: center; gap: 16px; padding: 4px 16px; font-size: calc(16px * var(--fs)); }
+  .prow .pinico { width: 20px; height: 20px; flex: none; margin: 0 2px; border-radius: 50% 50% 50% 0; background: var(--pin); transform: rotate(-45deg); }
+
+  /* wide window: side sheet at the start edge, full height, «Эхлэх» pinned at the bottom */
+  :root[data-wide="1"] #previewwrap { flex-direction: row; justify-content: flex-start; align-items: stretch; }
+  :root[data-wide="1"] #sheet { width: clamp(320px, 40%, 400px); margin: 8px; max-height: none; flex: none; }
+  :root[data-wide="1"] #sheet .handle { display: none; }
+  :root[data-wide="1"] #sideScroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  :root[data-wide="0"] #sideScroll { display: contents; }
+  :root[data-wide="1"] #routeband { display: none; }
+</style>
+</head>
+<body>
+<div id="toolbar"></div>
+<div id="screen">
+  <div></div>
+  <div id="app">
+    <div id="map"></div>
+    <div id="layer"></div>
+    <div id="attr" data-box="attribution">© OpenStreetMap contributors</div>
+  </div>
+  <div></div>
+</div>
+<script>
+const T = {
+  mn: {
+    search: "Газар, хаяг хайх", typed: "Sukhbaatar", clear: "Хайлтыг арилгах", settings: "Тохиргоо", results: "Хайлтын илэрц",
+    zoomIn: "Томруулах", zoomOut: "Жижигрүүлэх", myLoc: "Миний байршил",
+    r: [["Сүхбаатарын талбай", "Талбай · Сүхбаатар дүүрэг, Улаанбаатар"], ["Сүхбаатар дүүрэг", "Дүүрэг · Улаанбаатар"], ["Д. Сүхбаатарын хөшөө", "Дурсгалт газар · Сүхбаатар дүүрэг, 1-р хороо"]],
+    k1: "Хөдөлж байх үед бичих боломжгүй", k3: "Жолооч бол зогсоод хайна уу", k2: "Би зорчигч", close: "Хаах",
+    point: "Сонгосон цэг", coord: "47.88580, 106.91730", near: "Ойролцоох газар",
+    place: "Зайсангийн дурсгалт цогцолбор", placeMeta: "Дурсгалт газар · Хан-Уул дүүрэг, 11-р хороо, Улаанбаатар",
+    loading: "Ачаалж байна…", noRes: "Илэрц олдсонгүй", offline: "Интернэт холболт алга", unavailable: "Хайлт түр ажиллахгүй байна",
+    rate: "Түр хүлээгээд дахин оролдоно уу", error: "Алдаа гарлаа", retry: "Дахин оролдох", go: "Маршрут гаргах",
+    title: "Маршрут харах", dest: "Зайсан толгой", car: "Машин", walk: "Явган", bike: "Дугуй", modes: "Зорчих хэлбэр",
+    opt: (n) => `Маршрут ${n}`, options: "Маршрут сонгох", alt: "Өөр маршрут", avoid: "Шороон замаас зайлсхийх",
+    routes: [["13 мин", "4,6 км"], ["15 мин", "5,2 км"], ["17 мин", "4,9 км"]], bikeRoutes: [["24 мин", "4,3 км"], ["27 мин", "4,8 км"]],
+    eta: "Хүрэх цаг 14:03", etaB: "Хүрэх цаг 14:14", snap: "Хамгийн ойрын зам сонгосон цэгээс 1,4 км зайтай", start: "Эхлэх",
+    tooFar: "Энэ зай явганаар эсвэл дугуйгаар хэт хол байна", routeUnav: "Маршрутын үйлчилгээ түр ажиллахгүй байна",
+    noRoute: "Маршрут олдсонгүй", noRouteHint: "Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу",
+  },
+  en: {
+    search: "Search for a place or address", typed: "Sukhbaatar", clear: "Clear search", settings: "Settings", results: "Search results",
+    zoomIn: "Zoom in", zoomOut: "Zoom out", myLoc: "My location",
+    r: [["Sukhbaatar Square", "Square · Sukhbaatar District, Ulaanbaatar"], ["Sukhbaatar District", "District · Ulaanbaatar"], ["Д. Сүхбаатарын хөшөө", "Monument or historic site · Sukhbaatar District, 1st khoroo"]],
+    k1: "You can't type while moving", k3: "If you are driving, stop before you search", k2: "I'm a passenger", close: "Close",
+    point: "Selected point", coord: "47.88580, 106.91730", near: "Nearest place",
+    place: "Zaisan Memorial", placeMeta: "Monument or historic site · Khan-Uul District, 11th khoroo, Ulaanbaatar",
+    loading: "Loading…", noRes: "No results found", offline: "No internet connection", unavailable: "Search is temporarily unavailable",
+    rate: "Too many searches. Wait a moment and try again", error: "Something went wrong", retry: "Try again", go: "Directions",
+    title: "Route preview", dest: "Zaisan Hill", car: "Car", walk: "Walk", bike: "Bike", modes: "Travel mode",
+    opt: (n) => `Route ${n}`, options: "Choose a route", alt: "Alternative route", avoid: "Avoid unpaved roads",
+    routes: [["13 min", "4.6 km"], ["15 min", "5.2 km"], ["17 min", "4.9 km"]], bikeRoutes: [["24 min", "4.3 km"], ["27 min", "4.8 km"]],
+    eta: "Arrive at 14:03", etaB: "Arrive at 14:14", snap: "The nearest road is 1.4 km from the chosen point", start: "Start",
+    tooFar: "This distance is too far on foot or by bike", routeUnav: "Routing is temporarily unavailable",
+    noRoute: "No route found", noRouteHint: "Turn off “Avoid unpaved roads” and try again",
+  },
+};
+const CARD_STATES = ["card-loading", "card-place", "card-empty", "card-offline", "card-unavailable", "card-ratelimited", "card-error"];
+const STATES = [...CARD_STATES, "lock-tap", "lock-results",
+  "preview-3", "preview-1", "preview-expanded", "preview-bike", "preview-snap", "preview-toofar", "preview-unavailable", "preview-noroute-avoid"];
+const I = {
+  search: '<svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M15 15l6 6"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  minus: '<svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>',
+  loc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg>',
+  wifi: '<svg viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5 13a10 10 0 0 1 14 0M8.5 16.5a5 5 0 0 1 7 0M3 3l18 18"/></svg>',
+  dir: '<svg viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9z"/><path d="M9 14v-2h5"/><path d="M12 9l3 3-3 3"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>',
+  car: '<svg viewBox="0 0 24 24"><path d="M4 16V12l2-5h12l2 5v4z"/><circle cx="7.5" cy="16.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/></svg>',
+  walk: '<svg viewBox="0 0 24 24"><circle cx="13" cy="4" r="2"/><path d="M10 21l2-7 3 3v5M9 11l3-4 3 3 3 1"/></svg>',
+  bike: '<svg viewBox="0 0 24 24"><circle cx="6" cy="16" r="4"/><circle cx="18" cy="16" r="4"/><path d="M6 16l4-7h5l3 7M10 9l2 7"/></svg>',
+};
+function params() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  return { state: STATES.includes(p.get("state")) ? p.get("state") : "preview-3", theme: p.get("theme") === "night" ? "night" : "day",
+    lang: p.get("lang") === "en" ? "en" : "mn", scale: Number(p.get("scale")) || 1, font: p.get("font") || "narrow", toolbar: p.get("toolbar") !== "0" };
+}
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s;
+
+function browse(t, st) {
+  const lockShown = st.startsWith("lock");
+  const typed = st === "lock-results";
+  const results = typed ? `<div class="results elev" data-box="results" role="list" aria-label="${t.results}">${t.r.map(([n, m]) =>
+    `<div class="r" role="listitem" data-control><div class="n name">${n}</div><div class="m wrap">${m}</div></div>`).join("")}</div>` : "";
+  const lock = lockShown ? `<div class="lock elev" data-box="lock" role="status"><span class="ico" aria-hidden="true">${I.lock}</span>
+    <div class="t wrap">${t.k1}</div><div class="h wrap">${t.k3}</div>
+    <div class="acts"><button class="btn msgtext" data-control data-lockact>${t.close}</button><button class="btn tonal" data-control data-lockact>${t.k2}</button></div></div>` : "";
+  let card = "";
+  if (st.startsWith("card")) {
+    let near;
+    const stateRow = (ico, text, act) => `<div class="st"><span class="ico" aria-hidden="true">${ico}</span><div class="wrap">${text}</div>${act ? `<div class="acts">${act}</div>` : ""}</div>`;
+    if (st === "card-loading") near = stateRow("", t.loading);
+    if (st === "card-place") near = `<div class="lbl wrap">${t.near}</div><div class="pn name">${t.place}</div><div class="pm wrap">${t.placeMeta}</div>`;
+    if (st === "card-empty") near = `<div class="lbl wrap">${t.near}</div><div class="wrap">${t.noRes}</div>`;
+    if (st === "card-offline") near = stateRow(I.wifi, t.offline);
+    if (st === "card-unavailable") near = stateRow(I.info, t.unavailable, `<button class="btn text" data-control>${t.retry}</button>`);
+    if (st === "card-ratelimited") near = stateRow(I.info, t.rate, `<button class="btn text" data-control disabled>${t.retry}</button>`);
+    if (st === "card-error") near = stateRow(I.info, t.error);
+    card = `<div id="cardwrap"><div class="card elev" data-box="card"><div class="scroll">
+      <div class="head"><span class="wrap">${t.point}</span><button class="iconbtn flat" data-control aria-label="${t.close}">${I.x}</button></div>
+      <div class="coord">${t.coord}</div>
+      <div class="near" data-box-near aria-live="polite">${near}</div></div>
+      <div class="go"><button class="btn filled" data-control data-go>${I.dir}<span>${t.go}</span></button></div></div></div>`;
+  }
+  const controls = `<div id="controls">${[["plus", t.zoomIn], ["minus", t.zoomOut], ["loc", t.myLoc]].map(([i, n]) =>
+    `<button class="iconbtn elev" data-control aria-label="${n}">${I[i]}</button>`).join("")}</div>`;
+  return `<div id="browse"><div id="searchrow">
+      <div id="searchbar" class="elev ${typed ? "typed" : ""}" data-box="search" data-control>${I.search}<span class="name" style="flex:1">${typed ? t.typed : t.search}</span>${typed ? `<button class="iconbtn flat" data-control aria-label="${t.clear}">${I.x}</button>` : ""}</div>
+      <button class="iconbtn elev" data-control aria-label="${t.settings}" style="background:var(--primary-container);color:var(--on-primary-container)">${I.gear}</button></div>
+    <div id="below"><div id="leftcol"><div id="topgroup">${lock}${results}</div><div id="spacer"></div>${card}</div>${controls}</div></div>`;
+}
+
+function preview(t, st, wide) {
+  const bike = st === "preview-bike" || st === "preview-toofar";
+  const k = st === "preview-1" || st === "preview-snap" ? 1 : bike ? 2 : st === "preview-3" || st === "preview-expanded" ? 3 : 0;
+  const sel = st === "preview-expanded" ? 1 : 0;
+  const expanded = wide || st === "preview-expanded" || st === "preview-bike" || st === "preview-noroute-avoid";
+  const routes = bike ? t.bikeRoutes : t.routes;
+  let region;
+  if (k) region = `<div class="sum" data-box-sum>${k >= 2 ? `<div class="rn">${t.opt(sel + 1)}</div>` : ""}
+      <div class="wrap"><span class="dur">${routes[sel][0]}</span> <span class="dist">· ${routes[sel][1]}</span></div>
+      <div class="eta wrap">${bike ? t.etaB : t.eta}</div>
+      ${st === "preview-snap" ? `<div class="snap"><span class="ico" aria-hidden="true">${I.info}</span><span class="wrap">${t.snap}</span></div>` : ""}</div>`;
+  if (st === "preview-toofar") region = `<div class="pstate" data-box-sum><span class="ico" aria-hidden="true">${I.info}</span><div class="wrap">${t.tooFar}</div></div>`;
+  if (st === "preview-unavailable") region = `<div class="pstate" data-box-sum><span class="ico" aria-hidden="true">${I.info}</span><div class="wrap">${t.routeUnav}</div><div class="acts"><button class="btn text" data-control>${t.retry}</button></div></div>`;
+  if (st === "preview-noroute-avoid") region = `<div class="pstate" data-box-sum><span class="ico" aria-hidden="true">${I.info}</span><div><div class="wrap">${t.noRoute}</div><div class="wrap" style="color:var(--on-surface-variant)">${t.noRouteHint}</div></div></div>`;
+  const tabs = `<div class="tabs" role="tablist" aria-label="${t.modes}">${[["car", t.car], ["walk", t.walk], ["bike", t.bike]].map(([i, n]) =>
+    `<button class="tab ${(bike ? i === "bike" : i === "car") ? "sel" : ""}" role="tab" data-control>${I[i]}<span class="wrap">${n}</span></button>`).join("")}</div>`;
+  const opts = k >= 2 ? `<div class="grp" role="radiogroup" aria-label="${t.options}"><div class="gh wrap">${t.options}</div>${routes.slice(0, k).map((r, i) =>
+    `<button class="opt ${i === sel ? "sel" : ""}" role="radio" aria-checked="${i === sel}" data-control><span class="radio"></span><span class="sw"></span><span><span class="ol wrap">${t.opt(i + 1)}</span><br><span class="om wrap">${r[0]} · ${r[1]}</span></span></button>`).join("")}</div>` : "";
+  const avoid = bike ? "" : `<button class="switchrow" data-control><span class="wrap">${t.avoid}</span><span class="track"></span></button>`;
+  const points = `<div class="prow">${I.loc.replace("<svg", '<svg width="24" height="24" style="flex:none" fill="none" stroke="currentColor" stroke-width="2"')}<span class="name">${t.myLoc}</span></div>
+    <div class="prow"><span class="pinico"></span><span class="name">${t.dest}</span></div>`;
+  const enabled = k > 0;
+  const startBtn = `<div class="start" data-box-start><button class="btn filled" data-control data-start ${enabled ? "" : "disabled"}>${I.play}<span>${t.start}</span></button></div>`;
+  const head = `<div class="head"><div class="tt"><div class="title wrap">${t.title}</div><span class="dest name">${t.dest}</span></div><button class="iconbtn flat" data-control aria-label="${t.close}">${I.x}</button></div>`;
+  const more = `${opts}${avoid}${points}`;
+  // Portrait: «Эхлэх» is pinned at the bottom of the sheet in both states (never moves).
+  // Collapsed: header + tabs give way first (scroll) so the summary never scrolls. Expanded: one body scroll above «Эхлэх».
+  const body = wide
+    ? `<div id="sideScroll">${head}${tabs}${region}${more}</div>${startBtn}`
+    : expanded
+      ? `<div class="handle" aria-hidden="true"><i></i></div><div id="body">${head}${tabs}${region}<div id="more">${more}</div></div>${startBtn}`
+      : `<div class="handle" aria-hidden="true"><i></i></div><div id="topscroll">${head}${tabs}</div>${region}${startBtn}`;
+  return `<div id="previewwrap"><div id="routeband" data-routeband></div><div id="sheet" class="elev ${expanded ? "expanded" : ""}" data-box="sheet" data-expanded="${expanded ? 1 : 0}">${body}</div>${wide ? '<div id="routeband2" data-routeband style="flex:1"></div>' : ""}</div>`;
+}
+
+function render() {
+  const P = params(), t = T[P.lang], root = document.documentElement;
+  root.lang = P.lang; root.dataset.theme = P.theme;
+  const land = innerWidth > innerHeight;
+  root.dataset.orient = land ? "land" : "port";
+  root.dataset.wide = innerWidth >= 600 || (land && innerWidth >= 480) ? "1" : "0";
+  root.style.setProperty("--fs", P.scale);
+  root.dataset.stackedtabs = P.scale >= 1.5 ? "1" : "0";
+  root.style.setProperty("--font", P.font === "narrow" ? '"Liberation Sans", Roboto, sans-serif' : '"DejaVu Sans", Roboto, sans-serif');
+  const st = P.state, isPreview = st.startsWith("preview");
+  const k = isPreview ? (st === "preview-1" || st === "preview-snap" ? 1 : st === "preview-bike" ? 2 : st === "preview-3" || st === "preview-expanded" ? 3 : 0) : 0;
+  const sel = st === "preview-expanded" ? 1 : 0;
+  const lines = [["M30 100 V45 H75 V20", "M30 100 V70 H85 V20", "M30 100 V30 H60 V20"]][0].slice(0, k);
+  $("map").innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><rect width="100" height="100" fill="var(--earth)"/>
+    <path d="M0 62 C30 58 60 70 100 66" stroke="var(--water)" stroke-width="3" fill="none"/>
+    <path d="M30 100 V0 M0 45 H100 M75 0 V100" stroke="var(--major-casing)" stroke-width="3"/><path d="M30 100 V0 M0 45 H100 M75 0 V100" stroke="var(--major)" stroke-width="2.2"/>
+    ${lines.map((d, i) => i === sel ? "" : `<path d="${d}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--alt-casing)" style="stroke-width:8px"/><path d="${d}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--alt)" style="stroke-width:6px"/>`).join("")}
+    ${lines[sel] ? `<path d="${lines[sel]}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--route-casing)" style="stroke-width:12px"/><path d="${lines[sel]}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--route)" style="stroke-width:8px"/>` : ""}</svg>`;
+  $("layer").innerHTML = isPreview ? preview(t, st, root.dataset.wide === "1") : browse(t, st);
+  // Collapsed sheet cap (Layout rule P3): header + tabs get what is left of 60 % of the area after the summary and
+  // «Эхлэх»; they scroll (and may scroll out entirely) before the summary or «Эхлэх» would.
+  const ts = $("topscroll");
+  if (ts) {
+    const sheet = $("sheet"), wrap = $("previewwrap");
+    const fixedH = [...sheet.children].filter((c) => c !== ts).reduce((a, c) => a + c.getBoundingClientRect().height, 0);
+    ts.style.maxHeight = Math.max(0, Math.floor(wrap.clientHeight * 0.6 - fixedH)) + "px";
+  }
+  renderToolbar(P);
+}
+function renderToolbar(P) {
+  const tb = $("toolbar"); tb.hidden = !P.toolbar; if (!P.toolbar) return;
+  const sel = (k, vals) => `<select data-k="${k}">${vals.map((v) => `<option ${String(P[k]) === String(v) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+  tb.innerHTML = sel("state", STATES) + sel("theme", ["day", "night"]) + sel("lang", ["mn", "en"]) + sel("scale", [1, 1.3, 2]) + sel("font", ["narrow", "wide"]);
+  tb.querySelectorAll("select").forEach((s) => s.onchange = () => {
+    const p = params(); p[s.dataset.k] = s.value;
+    location.hash = Object.entries(p).map(([k, v]) => `${k}=${k === "toolbar" ? (v ? 1 : 0) : v}`).join("&");
+  });
+}
+addEventListener("hashchange", render);
+addEventListener("resize", render);
+render();
+</script>
+</body>
+</html>

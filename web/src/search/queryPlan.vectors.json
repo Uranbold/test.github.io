@@ -1,0 +1,858 @@
+{
+  "version": 1,
+  "source": "ADR-0006 §6",
+  "$comment": "NAV-011 AC 5 / ADR-0012 §2: shared ADR-0006 query-assistance vectors, read by web/src/search/queryPlan.vectors.test.ts and by the Android JVM test (copied by Gradle). Generated from the web functions; any change keeps both suites green in the same commit. Not UI text.",
+  "settle": [
+    {
+      "raw": "  Сүхбаатар \n талбай  ",
+      "settled": "Сүхбаатар талбай"
+    },
+    {
+      "raw": "Их дэлгүүр",
+      "settled": "Их дэлгүүр"
+    },
+    {
+      "raw": "Сүхбаатар  талбай",
+      "settled": "Сүхбаатар талбай"
+    },
+    {
+      "raw": "\tЗайсан\t\tтолгой\r\n",
+      "settled": "Зайсан толгой"
+    },
+    {
+      "raw": "Зайсан 　толгой﻿",
+      "settled": "Зайсан толгой"
+    },
+    {
+      "raw": "Sükhbaatar",
+      "settled": "Sükhbaatar"
+    },
+    {
+      "raw": "Зайсан",
+      "settled": "Зайсан"
+    },
+    {
+      "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "settled": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+      "settled": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀b",
+      "settled": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀"
+    },
+    {
+      "raw": "     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  ",
+      "settled": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "raw": "",
+      "settled": ""
+    },
+    {
+      "raw": "   ",
+      "settled": ""
+    },
+    {
+      "raw": "С",
+      "settled": "С"
+    }
+  ],
+  "plan": [
+    {
+      "input": "С",
+      "kind": "skip",
+      "primary": null,
+      "secondary": null,
+      "mode": null
+    },
+    {
+      "input": "  ",
+      "kind": "skip",
+      "primary": null,
+      "secondary": null,
+      "mode": null
+    },
+    {
+      "input": "  Сүхбаатар  ",
+      "kind": "text",
+      "primary": "Сүхбаатар",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "Сухбаатар",
+      "kind": "text",
+      "primary": "Сухбаатар",
+      "secondary": "Сүхбаатар",
+      "mode": "ifEmpty",
+      "rule": "C"
+    },
+    {
+      "input": "Сухбаатар дуурэг",
+      "kind": "text",
+      "primary": "Сухбаатар дуурэг",
+      "secondary": "Сүхбаатар дүүрэг",
+      "mode": "ifEmpty",
+      "rule": "C"
+    },
+    {
+      "input": "Sukhbaatar",
+      "kind": "text",
+      "primary": "Sukhbaatar",
+      "secondary": "сухбаатар",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "suhbaatar",
+      "kind": "text",
+      "primary": "suhbaatar",
+      "secondary": "сухбаатар",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Sükhbaatar",
+      "kind": "text",
+      "primary": "Sükhbaatar",
+      "secondary": "сүхбаатар",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Ikh delguur",
+      "kind": "text",
+      "primary": "Ikh delguur",
+      "secondary": "их дэлгүүр",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Zaisan",
+      "kind": "text",
+      "primary": "Zaisan",
+      "secondary": "зайсан",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Zaysan",
+      "kind": "text",
+      "primary": "Zaysan",
+      "secondary": "зайсан",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Gandan",
+      "kind": "text",
+      "primary": "Gandan",
+      "secondary": "гандан",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Erdenet",
+      "kind": "text",
+      "primary": "Erdenet",
+      "secondary": "эрдэнэт",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Chingeltei",
+      "kind": "text",
+      "primary": "Chingeltei",
+      "secondary": "чингэлтэй",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Enkhtaivan",
+      "kind": "text",
+      "primary": "Enkhtaivan",
+      "secondary": "энхтайван",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Khan-Uul",
+      "kind": "text",
+      "primary": "Khan-Uul",
+      "secondary": "хан-уул",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Bayanzurkh",
+      "kind": "text",
+      "primary": "Bayanzurkh",
+      "secondary": "баянзурх",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "БЗД",
+      "kind": "text",
+      "primary": "Баянзүрх дүүрэг",
+      "secondary": "БЗД",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "худ",
+      "kind": "text",
+      "primary": "Хан-Уул дүүрэг",
+      "secondary": "худ",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "БЗД 4-р хороо",
+      "kind": "text",
+      "primary": "Баянзүрх дүүрэг 4-р хороо",
+      "secondary": "БЗД 4-р хороо",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "БЗД-ийн 4-р хороо",
+      "kind": "text",
+      "primary": "БЗД-ийн 4-р хороо",
+      "secondary": "БЗД-ийн 4-р хөрөө",
+      "mode": "ifEmpty",
+      "rule": "C"
+    },
+    {
+      "input": "Улаанбаатар Sukhbaatar",
+      "kind": "text",
+      "primary": "Улаанбаатар Sukhbaatar",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "47.9189, 106.9176",
+      "kind": "coordinate",
+      "primary": null,
+      "secondary": null,
+      "mode": null,
+      "lat": 47.9189,
+      "lon": 106.9176
+    },
+    {
+      "input": "47.9189 106.9176",
+      "kind": "coordinate",
+      "primary": null,
+      "secondary": null,
+      "mode": null,
+      "lat": 47.9189,
+      "lon": 106.9176
+    },
+    {
+      "input": "106.9176, 47.9189",
+      "kind": "text",
+      "primary": "106.9176, 47.9189",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "47,9189, 106,9176",
+      "kind": "text",
+      "primary": "47,9189, 106,9176",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "Сүхбаатар",
+      "kind": "text",
+      "primary": "Сүхбаатар",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "Сүхб",
+      "kind": "text",
+      "primary": "Сүхб",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "бзд",
+      "kind": "text",
+      "primary": "Баянзүрх дүүрэг",
+      "secondary": "бзд",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "СБД ЧД",
+      "kind": "text",
+      "primary": "Сүхбаатар дүүрэг Чингэлтэй дүүрэг",
+      "secondary": "СБД ЧД",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "БГД 1-р хороо",
+      "kind": "text",
+      "primary": "Баянгол дүүрэг 1-р хороо",
+      "secondary": "БГД 1-р хороо",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "СХД",
+      "kind": "text",
+      "primary": "Сонгинохайрхан дүүрэг",
+      "secondary": "СХД",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "БЗДД",
+      "kind": "text",
+      "primary": "БЗДД",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "a1",
+      "kind": "text",
+      "primary": "a1",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "12",
+      "kind": "text",
+      "primary": "12",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "  Их \t  дэлгүүр ",
+      "kind": "text",
+      "primary": "Их дэлгүүр",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "Зайсан",
+      "kind": "text",
+      "primary": "Зайсан",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "47.9189,106.9176",
+      "kind": "coordinate",
+      "primary": null,
+      "secondary": null,
+      "mode": null,
+      "lat": 47.9189,
+      "lon": 106.9176
+    },
+    {
+      "input": "-45.5 -170",
+      "kind": "coordinate",
+      "primary": null,
+      "secondary": null,
+      "mode": null,
+      "lat": -45.5,
+      "lon": -170
+    },
+    {
+      "input": "Улаанбаатар",
+      "kind": "text",
+      "primary": "Улаанбаатар",
+      "secondary": "Үлаанбаатар",
+      "mode": "ifEmpty",
+      "rule": "C"
+    },
+    {
+      "input": "Их дэлгүүр",
+      "kind": "text",
+      "primary": "Их дэлгүүр",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "аааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааа СХД",
+      "kind": "text",
+      "primary": "аааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааа Сонгино",
+      "secondary": "аааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааааа СХД",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "СБД бббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббб",
+      "kind": "text",
+      "primary": "Сүхбаатар дүүрэг ббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббб",
+      "secondary": "СБД бббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббббб",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar ",
+      "kind": "text",
+      "primary": "Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Sukhbaatar Su",
+      "secondary": "сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар сухбаатар су",
+      "mode": "parallel",
+      "rule": "B"
+    },
+    {
+      "input": "Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар ",
+      "kind": "text",
+      "primary": "Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар Сухбаатар",
+      "secondary": "Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар",
+      "mode": "ifEmpty",
+      "rule": "C"
+    },
+    {
+      "input": "БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД ",
+      "kind": "text",
+      "primary": "Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх дүүрэг Баянзүрх",
+      "secondary": "БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД БЗД",
+      "mode": "parallel",
+      "rule": "A"
+    },
+    {
+      "input": "Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар ",
+      "kind": "text",
+      "primary": "Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар Сүхбаатар",
+      "secondary": null,
+      "mode": "none",
+      "rule": "D"
+    },
+    {
+      "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀",
+      "kind": "text",
+      "primary": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "secondary": "ххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххххх",
+      "mode": "parallel",
+      "rule": "B"
+    }
+  ],
+  "latinToCyrillic": [
+    {
+      "latin": "shchuka",
+      "cyrillic": "щука"
+    },
+    {
+      "latin": "Tsagaan",
+      "cyrillic": "цагаан"
+    },
+    {
+      "latin": "Zhargal",
+      "cyrillic": "жаргал"
+    },
+    {
+      "latin": "yurt",
+      "cyrillic": "юрт"
+    },
+    {
+      "latin": "Yolo",
+      "cyrillic": "ёло"
+    },
+    {
+      "latin": "yesun",
+      "cyrillic": "есүн"
+    },
+    {
+      "latin": "Darkhan",
+      "cyrillic": "дархан"
+    },
+    {
+      "latin": "Tov",
+      "cyrillic": "тов"
+    },
+    {
+      "latin": "Öndörkhaan",
+      "cyrillic": "өндөрхаан"
+    },
+    {
+      "latin": "Tuul gol",
+      "cyrillic": "туул гол"
+    },
+    {
+      "latin": "Ulgii",
+      "cyrillic": "улгий"
+    },
+    {
+      "latin": "12-r khoroo",
+      "cyrillic": "12-р хороо"
+    },
+    {
+      "latin": "jack",
+      "cyrillic": "жацк"
+    },
+    {
+      "latin": "Château",
+      "cyrillic": "чатэау"
+    },
+    {
+      "latin": "delguur",
+      "cyrillic": "дэлгүүр"
+    },
+    {
+      "latin": "Selenge",
+      "cyrillic": "сэлэнгэ"
+    },
+    {
+      "latin": "Khovd",
+      "cyrillic": "ховд"
+    },
+    {
+      "latin": "Ger",
+      "cyrillic": "гэр"
+    },
+    {
+      "latin": "Sukhbaatar",
+      "cyrillic": "сухбаатар"
+    },
+    {
+      "latin": "Zaysan",
+      "cyrillic": "зайсан"
+    },
+    {
+      "latin": "Bayanzurkh",
+      "cyrillic": "баянзурх"
+    },
+    {
+      "latin": "Khan-Uul",
+      "cyrillic": "хан-уул"
+    },
+    {
+      "latin": "Chingeltei",
+      "cyrillic": "чингэлтэй"
+    },
+    {
+      "latin": "Ikh delguur",
+      "cyrillic": "их дэлгүүр"
+    },
+    {
+      "latin": "Űlgii",
+      "cyrillic": "үлгий"
+    },
+    {
+      "latin": "Ő",
+      "cyrillic": "ө"
+    },
+    {
+      "latin": "Zaisan",
+      "cyrillic": "зайсан"
+    },
+    {
+      "latin": "Enkhtaivan",
+      "cyrillic": "энхтайван"
+    }
+  ],
+  "merge": [
+    {
+      "name": "parallel interleave with a duplicate",
+      "mode": "parallel",
+      "primary": [
+        {
+          "osm_type": "N",
+          "osm_id": 1,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "W",
+          "osm_id": 2,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 3,
+          "countrycode": "MN"
+        }
+      ],
+      "secondary": [
+        {
+          "osm_type": "W",
+          "osm_id": 2,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "R",
+          "osm_id": 4,
+          "countrycode": "MN"
+        }
+      ],
+      "expected": [
+        "N1",
+        "W2",
+        "R4",
+        "N3"
+      ]
+    },
+    {
+      "name": "MN first, stable (lower-case mn counts)",
+      "mode": "none",
+      "primary": [
+        {
+          "osm_type": "N",
+          "osm_id": 1,
+          "countrycode": "RU"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 2,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 3
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 4,
+          "countrycode": "mn"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 5,
+          "countrycode": "CN"
+        }
+      ],
+      "secondary": null,
+      "expected": [
+        "N2",
+        "N4",
+        "N1",
+        "N3",
+        "N5"
+      ]
+    },
+    {
+      "name": "parallel MN first across both lists",
+      "mode": "parallel",
+      "primary": [
+        {
+          "osm_type": "N",
+          "osm_id": 1,
+          "countrycode": "RU"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 2,
+          "countrycode": "MN"
+        }
+      ],
+      "secondary": [
+        {
+          "osm_type": "N",
+          "osm_id": 3,
+          "countrycode": "CN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 4,
+          "countrycode": "MN"
+        }
+      ],
+      "expected": [
+        "N2",
+        "N4",
+        "N1",
+        "N3"
+      ]
+    },
+    {
+      "name": "cut at 10",
+      "mode": "parallel",
+      "primary": [
+        {
+          "osm_type": "N",
+          "osm_id": 1,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 2,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 3,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 4,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 5,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 6,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 7,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 8,
+          "countrycode": "MN"
+        }
+      ],
+      "secondary": [
+        {
+          "osm_type": "W",
+          "osm_id": 1,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "W",
+          "osm_id": 2,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "W",
+          "osm_id": 3,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "W",
+          "osm_id": 4,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "W",
+          "osm_id": 5,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "W",
+          "osm_id": 6,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "W",
+          "osm_id": 7,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "W",
+          "osm_id": 8,
+          "countrycode": "MN"
+        }
+      ],
+      "expected": [
+        "N1",
+        "W1",
+        "N2",
+        "W2",
+        "N3",
+        "W3",
+        "N4",
+        "W4",
+        "N5",
+        "W5"
+      ]
+    },
+    {
+      "name": "ifEmpty: empty primary, secondary shown",
+      "mode": "ifEmpty",
+      "primary": [],
+      "secondary": [
+        {
+          "osm_type": "N",
+          "osm_id": 7,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 8,
+          "countrycode": "RU"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 9,
+          "countrycode": "MN"
+        }
+      ],
+      "expected": [
+        "N7",
+        "N9",
+        "N8"
+      ]
+    },
+    {
+      "name": "ifEmpty: primary has results, secondary not used",
+      "mode": "ifEmpty",
+      "primary": [
+        {
+          "osm_type": "N",
+          "osm_id": 1,
+          "countrycode": "RU"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 2,
+          "countrycode": "MN"
+        }
+      ],
+      "secondary": [
+        {
+          "osm_type": "N",
+          "osm_id": 7,
+          "countrycode": "MN"
+        }
+      ],
+      "expected": [
+        "N2",
+        "N1"
+      ]
+    },
+    {
+      "name": "single response duplicates removed",
+      "mode": "none",
+      "primary": [
+        {
+          "osm_type": "N",
+          "osm_id": 1,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "N",
+          "osm_id": 1,
+          "countrycode": "MN"
+        },
+        {
+          "osm_type": "W",
+          "osm_id": 1,
+          "countrycode": "MN"
+        }
+      ],
+      "secondary": null,
+      "expected": [
+        "N1",
+        "W1"
+      ]
+    }
+  ]
+}
