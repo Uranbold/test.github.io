@@ -36,6 +36,8 @@ export class GuidanceView {
   readonly instruction: HTMLElement;
   private readonly street: HTMLElement;
   readonly row: HTMLElement;
+  /** «Туршилтын горим» badge (also an opener of the hidden voice diagnostics, demoMain.ts). */
+  readonly badge: HTMLElement;
   private readonly badgeText: HTMLElement;
   readonly recenterBtn: HTMLButtonElement;
   private readonly recenterLabel: HTMLElement;
@@ -73,7 +75,8 @@ export class GuidanceView {
     this.banner = h("section", { class: "dn-banner", "data-testid": "demo-nav-banner", "data-variant": "maneuver" }, this.bannerIcon, h("div", { class: "dn-text" }, this.distance, this.instruction, this.street));
 
     this.badgeText = h("span", {});
-    this.row = h("div", { class: "dn-row" }, h("span", { class: "dn-badge", "data-testid": "demo-badge" }, icon(DEMO_ICONS.flask, "dn-badge-icon"), this.badgeText), h("span", { class: "dn-row-buttons" }));
+    this.badge = h("span", { class: "dn-badge", "data-testid": "demo-badge" }, icon(DEMO_ICONS.flask, "dn-badge-icon"), this.badgeText);
+    this.row = h("div", { class: "dn-row" }, this.badge, h("span", { class: "dn-row-buttons" }));
     this.top = h("div", { class: "dn-top" }, this.banner, this.row);
 
     this.recenterLabel = h("span", {});

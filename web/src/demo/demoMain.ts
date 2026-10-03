@@ -17,6 +17,7 @@ import { LocationController } from "../location/locationController";
 import { colourGroup, type Theme } from "../style/tokens";
 import { App, type AppDeps } from "../ui/app";
 import { AudioOut, loadMuted, saveMuted } from "./audio";
+import { VoiceDiagnostics } from "./diagnostics";
 import { fitPadding, follow, followPadding, RESET_MS, START_MS, ZoomBySpeed, type Covered } from "./camera";
 import { el } from "./dom";
 import { GuidanceView } from "./guidanceView";
@@ -84,6 +85,7 @@ export class DemoController {
   private readonly view: GuidanceView;
   private readonly loader: RouteDataLoader;
   private readonly audio: AudioOut;
+  private readonly diagnostics: VoiceDiagnostics;
   private readonly wakeLock: ScreenWakeLock;
   private readonly ui = el("ui");
   private readonly slot = el("route");
@@ -126,6 +128,21 @@ export class DemoController {
       timers: { setTimeout: (f, ms) => window.setTimeout(f, ms), clearTimeout: (h) => window.clearTimeout(h as number) },
       storage: safeStorage(),
     });
+    // Triage item F1: hidden voice diagnostics (5 quick taps on the heading or badge, or a 1.5 s press on the badge).
+    const audioCtor = window.AudioContext ? "AudioContext" : (window as unknown as { webkitAudioContext?: unknown }).webkitAudioContext ? "webkitAudioContext" : null;
+    this.diagnostics = new VoiceDiagnostics(
+      {
+        userAgent: navigator.userAgent,
+        speechSynthesis: "speechSynthesis" in window ? window.speechSynthesis : undefined,
+        SpeechSynthesisUtterance: typeof SpeechSynthesisUtterance === "function" ? SpeechSynthesisUtterance : undefined,
+        audioContextName: audioCtor,
+        timers: { setTimeout: (f, ms) => window.setTimeout(f, ms), clearTimeout: (h) => window.clearTimeout(h as number) },
+        now: () => performance.now(),
+        clipboard: (navigator as { clipboard?: Clipboard }).clipboard, // missing outside secure contexts
+      },
+      this.audio,
+      () => ({ lang: this.i18n.lang, muted: this.muted, replayRunning: this.replay !== null }),
+    );
     this.wakeLock = new ScreenWakeLock((navigator as unknown as { wakeLock?: ConstructorParameters<typeof ScreenWakeLock>[0] }).wakeLock);
     this.muted = loadMuted(safeStorage());
   }
@@ -151,6 +168,7 @@ export class DemoController {
     this.columns.addEventListener?.("change", () => this.placeMessages());
     window.addEventListener("resize", this.onResize);
     this.bindGestures();
+    this.diagnostics.attach([this.picker.heading, this.view.badge], this.view.badge);
   }
 
   // ---------------------------------------------------------------- picker (D1)
@@ -538,6 +556,7 @@ export class DemoController {
   }
 
   private langChanged(lang: Lang): void {
+    this.diagnostics.langChanged();
     this.picker.render();
     this.view.renderStatic();
     const p = this.prepared;

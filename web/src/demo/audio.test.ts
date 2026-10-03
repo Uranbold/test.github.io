@@ -1,7 +1,7 @@
 // NAV-017 AC 27–31: voice decision, speech output and the D23 chime fallback with stubbed speechSynthesis and Web Audio.
 import { describe, expect, test } from "vitest";
 import type { SpokenPrompt } from "../guidance/playbackQueue";
-import { AudioOut, chooseVoice, isUsableVoice, loadMuted, MUTE_KEY, saveMuted, waitForVoices, type AudioEnv } from "./audio";
+import { AudioOut, chooseVoice, describeVoiceDecision, isUsableVoice, loadMuted, MUTE_KEY, saveMuted, waitForVoices, type AudioEnv } from "./audio";
 
 function timers() {
   let now = 0;
@@ -41,13 +41,16 @@ class Utt {
   constructor(public text: string) {}
 }
 
-function env(voiceLangs: string[] | (() => string[]), opts: { fireStart?: boolean } = {}) {
+function env(voiceLangs: string[] | (() => string[]), opts: { fireStart?: boolean; online?: string[] } = {}) {
   const tm = timers();
   const spoken: Utt[] = [];
   let cancels = 0;
   const listeners: (() => void)[] = [];
   let oscillators = 0;
-  const list = () => (typeof voiceLangs === "function" ? voiceLangs() : voiceLangs).map((lang) => ({ lang, name: lang, localService: true }));
+  const list = () => [
+    ...(typeof voiceLangs === "function" ? voiceLangs() : voiceLangs).map((lang) => ({ lang, name: lang, localService: true })),
+    ...(opts.online ?? []).map((lang) => ({ lang, name: `${lang} Online`, localService: false })),
+  ];
   const synth = {
     getVoices: list,
     speak: (u: Utt) => {
@@ -106,14 +109,15 @@ const CYRILLIC = /[Ѐ-ӿ]/;
 
 describe("NAV-017 AC 28 voice decision", () => {
   test("usable voice regex and en-US preference", () => {
-    expect(isUsableVoice({ lang: "mn-MN" }, "mn")).toBe(true);
-    expect(isUsableVoice({ lang: "mn" }, "mn")).toBe(true);
-    expect(isUsableVoice({ lang: "MN_mn" }, "mn")).toBe(true);
-    expect(isUsableVoice({ lang: "mni-IN" }, "mn")).toBe(false);
-    expect(isUsableVoice({ lang: "ru-RU" }, "mn")).toBe(false);
-    expect(chooseVoice([{ lang: "en-GB" }, { lang: "en-US" }], "en")?.lang).toBe("en-US");
-    expect(chooseVoice([{ lang: "en-GB" }], "en")?.lang).toBe("en-GB");
-    expect(chooseVoice([{ lang: "en-US" }, { lang: "ru-RU" }], "mn")).toBeNull();
+    const L = (lang: string) => ({ lang, localService: true });
+    expect(isUsableVoice(L("mn-MN"), "mn")).toBe(true);
+    expect(isUsableVoice(L("mn"), "mn")).toBe(true);
+    expect(isUsableVoice(L("MN_mn"), "mn")).toBe(true);
+    expect(isUsableVoice(L("mni-IN"), "mn")).toBe(false);
+    expect(isUsableVoice(L("ru-RU"), "mn")).toBe(false);
+    expect(chooseVoice([L("en-GB"), L("en-US")], "en")?.lang).toBe("en-US");
+    expect(chooseVoice([L("en-GB")], "en")?.lang).toBe("en-GB");
+    expect(chooseVoice([L("en-US"), L("ru-RU")], "mn")).toBeNull();
   });
 
   test("an empty list waits for voiceschanged or the 250 ms poll, at most 3 s", async () => {
@@ -295,5 +299,101 @@ describe("NAV-017 AC 27–30 speech and the D23 chime", () => {
     sp.play(prompt(1, "Өмнө зүг рүү явна уу"));
     expect(a.stats.chimes).toBe(1);
     expect(x.oscillators).toBe(2);
+  });
+});
+
+describe("NAV-017 AC 28 with D78: only local voices count (triage item F1)", () => {
+  test("an online voice is never usable, in both UI languages", () => {
+    expect(isUsableVoice({ lang: "mn-MN", localService: false }, "mn")).toBe(false);
+    expect(isUsableVoice({ lang: "en-US", localService: false }, "en")).toBe(false);
+    expect(isUsableVoice({ lang: "mn-MN", localService: true }, "mn")).toBe(true);
+    // a missing flag is not "local"
+    expect(isUsableVoice({ lang: "mn-MN" } as SpeechSynthesisVoice, "mn")).toBe(false);
+  });
+
+  test("chooseVoice skips online voices: a local en-GB wins over an online en-US; online mn gives null", () => {
+    const voices = [
+      { lang: "mn-MN", name: "Microsoft Yesui Online (Natural)", localService: false },
+      { lang: "en-US", name: "Google US English", localService: false },
+      { lang: "en-GB", name: "Daniel", localService: true },
+    ];
+    expect(chooseVoice(voices, "mn")).toBeNull();
+    expect(chooseVoice(voices, "en")?.name).toBe("Daniel");
+  });
+
+  test("Edge desktop case: only online mn voices → Mongolian prompts chime, 0 Mongolian speak calls", async () => {
+    const x = env(["en-US"], { online: ["mn-MN"] });
+    const a = new AudioOut(x.e);
+    await a.decide();
+    expect(a.voiceFor("mn")).toBeNull();
+    expect(a.speaks("mn")).toBe(false);
+    expect(a.speaks("en")).toBe(true);
+    a.speaker({ done: () => undefined, fallback: () => undefined }).play(prompt(1, "300 метрт баруун тийш эргэнэ үү"));
+    expect(x.spoken.filter((u) => CYRILLIC.test(u.text))).toEqual([]);
+    expect(a.stats.chimes).toBe(1);
+    const list = x.e.speechSynthesis!.getVoices();
+    expect(a.decision("mn", list)).toEqual({ state: "chime", reason: "no local voice with lang ^mn([-_]|$); 1 online voice(s) ignored (D78: local voices only)" });
+    expect(a.decision("en", list)).toMatchObject({ state: "voice", lang: "en", voiceName: "en-US" });
+  });
+
+  test("describeVoiceDecision: pending, missing API, speech error, empty list", () => {
+    const base = { lang: "mn" as const, hasSynth: true, hasUtterance: true, voice: null, failed: false, failCode: null, voices: [] };
+    expect(describeVoiceDecision({ ...base, voice: undefined }).state).toBe("pending");
+    expect(describeVoiceDecision({ ...base, hasSynth: false })).toEqual({ state: "chime", reason: "speechSynthesis is missing in this browser" });
+    expect(describeVoiceDecision({ ...base, voices: [] }).reason).toBe("the voice list was empty when the decision ended");
+    const v = { lang: "mn-MN", name: "Local MN", localService: true };
+    expect(describeVoiceDecision({ ...base, voice: v, voices: [v], failed: true, failCode: "synthesis-failed" })).toMatchObject({ state: "chime", reason: expect.stringContaining("synthesis-failed") });
+    expect(describeVoiceDecision({ ...base, voice: v, voices: [v] })).toMatchObject({ state: "voice", lang: "mn", voiceName: "Local MN" });
+  });
+});
+
+describe("Triage item F1: AudioOut feeds the diagnostics event log (memory only)", () => {
+  test("speak, onstart, onend, an error and the chime fallback are logged; the unlock is reported", async () => {
+    const x = env(["mn-MN"]);
+    const a = new AudioOut({ ...x.e, now: () => 1234 });
+    await a.decide();
+    expect(a.diagnostics()).toMatchObject({ context: "not created", unlockRan: false, failed: false });
+    a.unlockForStart("mn");
+    expect(a.diagnostics()).toMatchObject({ context: "running", unlockRan: true });
+    const sp = a.speaker({ done: () => undefined, fallback: () => undefined });
+    const long = "300 метрт баруун тийш эргэнэ үү, дараа нь шууд явна уу";
+    sp.play(prompt(1, long));
+    x.tm.advance(10); // onstart after 5 ms
+    x.spoken[0]!.onend?.({});
+    sp.play(prompt(2, "Тойрог"));
+    x.spoken[1]!.onerror?.({ error: "synthesis-failed" });
+    const log = a.log.list();
+    expect(log.map((e) => e.kind)).toEqual(["speak", "start", "end", "speak", "error", "chime"]);
+    expect(log[0]).toMatchObject({ atMs: 1234, text: long.slice(0, 30), lang: "mn-MN", voice: "mn-MN" });
+    expect(log[0]!.text).toHaveLength(30);
+    expect(log[4]).toMatchObject({ kind: "error", code: "synthesis-failed" });
+    expect(a.diagnostics()).toMatchObject({ failed: true, failCode: "synthesis-failed" });
+    a.resetReplay();
+    expect(a.diagnostics()).toMatchObject({ failed: false, failCode: null });
+  });
+
+  test("the unlock utterance and a prompt with no onstart within 3 s are logged", async () => {
+    const x = env(["mn-MN"], { fireStart: false });
+    const a = new AudioOut(x.e);
+    a.unlockForStart("mn"); // decision pending → priming utterance
+    expect(a.log.list()).toEqual([expect.objectContaining({ kind: "speak", prime: true, text: "", voice: null })]);
+    await a.decide();
+    a.speaker({ done: () => undefined, fallback: () => undefined }).play(prompt(1, "Тойрог"));
+    x.tm.advance(3_000);
+    expect(a.log.list().map((e) => e.kind)).toEqual(["speak", "speak", "no-start"]);
+  });
+
+  test("testChime creates the context and plays one chime outside the replay counters", async () => {
+    const x = env([]);
+    const a = new AudioOut(x.e);
+    const r = a.testChime();
+    await r.resumed;
+    expect(r.played).toBe(true);
+    expect(x.oscillators).toBe(2);
+    expect(a.stats.chimes).toBe(0);
+    expect(a.log.list()).toEqual([]);
+    const none = new AudioOut({ ...x.e, AudioContext: undefined });
+    expect(none.testChime().played).toBe(false);
+    expect(none.diagnostics().context).toBe("unavailable");
   });
 });

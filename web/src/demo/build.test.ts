@@ -78,6 +78,9 @@ function files(dir: string, base = dir): string[] {
   });
 }
 
+/** Strings that only the voice diagnostics panel has (triage item F1). */
+const DIAG_MARKERS = ["Voice diagnostics", "Test default speech (no voice set)", "silent-buffer unlock"];
+
 describe("NAV-017 AC 1, 3, 4 build outputs", () => {
   const out = mkdtempSync(join(tmpdir(), "nav017-build-"));
   const build = (mode: string | null, dir: string): string =>
@@ -124,12 +127,15 @@ describe("NAV-017 AC 1, 3, 4 build outputs", () => {
         expect(text.includes("demo-"), `${dir}/${f} has the demo- test-id prefix`).toBe(false);
         expect(text.includes(r1Geometry), `${dir}/${f} has R1 geometry`).toBe(false);
         expect(text.includes("NavigationController"), `${dir}/${f} has the Ferrostar core`).toBe(false);
+        // triage item F1: the hidden voice diagnostics exist only in the demo-mode build
+        for (const marker of DIAG_MARKERS) expect(text.includes(marker), `${dir}/${f} has voice diagnostics code (${marker})`).toBe(false);
       }
     }
     // and the demo build does have them
     const demoText = files(join(out, "demo")).filter((f) => f.endsWith(".js") || f.endsWith(".json")).map((f) => readFileSync(join(out, "demo", f), "utf8")).join("\n");
     expect(demoText).toContain("demo-");
     expect(demoText).toContain(r1Geometry);
+    for (const marker of DIAG_MARKERS) expect(demoText).toContain(marker);
   });
 
   test("ADR-0011 §10: the demo adds at most 1.5 MB over the static-demo build", () => {
