@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
@@ -71,6 +72,7 @@ fun NavMap(
     val idle = rememberUpdatedState(onCameraIdle)
     val failed = rememberUpdatedState(onFailed)
     val tap = rememberUpdatedState(onTap)
+    val density = LocalDensity.current.density
     val controller = remember {
         MapLibre.getInstance(context)
         val options = MapLibreMapOptions.createFromAttributes(context).attributionEnabled(false).logoEnabled(false).compassEnabled(false)
@@ -109,7 +111,7 @@ fun NavMap(
             map.addOnMapClickListener { p ->
                 val cb = tap.value ?: return@addOnMapClickListener false
                 val px = map.projection.toScreenLocation(p)
-                val box = TAP_BOX_DP * context.resources.displayMetrics.density
+                val box = TAP_BOX_DP * density
                 cb(LatLon(p.latitude, p.longitude), controller.routeIndicesAt(px.x, px.y, box))
                 false
             }

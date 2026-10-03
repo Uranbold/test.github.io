@@ -117,3 +117,10 @@ Documentation only: the NAV-011 Android client profile under `search`, `reverse`
 - **NAV-005 tests:** only those asserting AC 3, 4, 5 and 6 first-slice behaviour change (query as typed, 0 reverse, `alternates: 0` in preview, one line, two tabs). The reroute `alternates: 0` assertion stays.
 - **NAV-012:** no shared runtime component. The lock uses its own foreground-only location subscription. Guidance gets a one-route response, as before.
 - **Not verified in this design:** live alternates with `voice_instructions: true` on the Android body (stack down, §5.3), and Photon synonym capability (spike deferred).
+
+## Amendment 2026-10-03 (integration review): implementation deviations accepted
+The NAV-011 integration review accepted these mobile deviations. None of them changes the contract or the NAV-005 guidance pipeline:
+- **§5.2, parse up front.** Each route's single-route slice is processed when the preview response arrives, not on selection. The processor is stateless, so slices that share a generation do not interfere, and selection stays a pure state change (AC 17). If route 1 fails to parse the outcome is `BadResponse`. If an alternative fails, it is dropped and the options are renumbered in display order (`Маршрут {n}` = position in the shown list, not the Valhalla index).
+- **§5.4, two sources.** Unselected routes are drawn from a second GeoJSON source `nav-route-alt` below the selected line's source, not from one source with a `selected` property. The hit test queries both line layers in a 48 × 48 dp box (±24 dp), which keeps the AC 17 guarantee.
+- **Camera fit (§5.4).** The fit runs once per response (keyed on the routes list), after the sheet has re-measured. It also runs again when the composition is recreated (rotation). This sends 0 requests and still meets AC 20.
+- **The handle zone is 48 dp** (UX spec said 24 dp) to keep every touch target ≥ 48 dp (AC 44).

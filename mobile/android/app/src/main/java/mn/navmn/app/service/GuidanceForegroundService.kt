@@ -161,7 +161,9 @@ class GuidanceForegroundService : LifecycleService() {
         foreground = true
         InterruptedNotification.cancel(this)
         if (!noisyRegistered) {
-            ContextCompat.registerReceiver(this, noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED)
+            // A protected system broadcast (no other app can send it). EXPORTED avoids the API < 33 compat permission,
+            // which would otherwise have to be granted for the system's broadcast to arrive.
+            ContextCompat.registerReceiver(this, noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_EXPORTED)
             noisyRegistered = true
         }
         observe()
@@ -207,7 +209,11 @@ class GuidanceForegroundService : LifecycleService() {
         val content = RichNotification.of(state, lang, ResourceStrings.of(this, lang))
         if (!policy.decide(content, SystemClock.elapsedRealtime())) return
         // AC 7: with POST_NOTIFICATIONS denied (Android 13+) guidance runs on; only the notification is hidden.
-        if (!GuidanceChannel.allowed(this)) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
         builder.night = ThemeResolver.night(settings.theme.value, sunTheme.night.value)
         runCatching { NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, builder.build(content, lang)) }
     }

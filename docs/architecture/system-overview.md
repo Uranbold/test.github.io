@@ -205,7 +205,7 @@ flowchart LR
 
 ## 1d. Web demo mode (NAV-017, ADR-0011)
 
-A **separate build** of the web client (`npm run build:demo-mode` → `dist-demo-mode/`) that the PO uploads by hand into a **password-protected sub-folder** of the shared web hosting (hPanel "Password protect directories"; folder and host names are never in the repo, D35). It replays three recorded UB routes (R1–R3) with simulated turn-by-turn guidance. It sends **0** requests to `search`, `reverse` or `route` and has no backend. The public static site (D44) and its build are unchanged.
+A **separate build** of the web client (`npm run build:demo-mode` → `dist-demo-mode/`) that the PO uploads by hand into a **public sub-folder** of the shared web hosting, with no password (D107, 2026-10-03, supersedes the password part of D74; the page keeps `noindex`; folder and host names are never in the repo, D35). It replays three recorded UB routes (R1–R3) with simulated turn-by-turn guidance. It sends **0** requests to `search`, `reverse` or `route` and has no backend. The public static site (D44) and its build are unchanged.
 
 ```mermaid
 flowchart LR

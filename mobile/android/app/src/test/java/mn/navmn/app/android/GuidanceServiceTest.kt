@@ -39,8 +39,10 @@ import javax.inject.Inject
 
 /**
  * Robolectric + Hilt: foreground service of type location with channel «Замчлал», notification text from our
- * resources that follows the engine without any Activity, «Дуусгах» from the notification and swipe-away end
- * everything within 2 s with 0 route requests (AC 13, 15, 17, 19, 20).
+ * resources that follows the engine without any Activity, «Дуусгах» from the notification ends everything within 2 s
+ * with 0 route requests (AC 13, 15, 17, 19). NAV-012 adaptations (story Context table, AC 49): the notification content
+ * is the N1 rich layout (title = distance, text = instruction, voice action; NAV-012 AC 1), and swipe-away no longer
+ * ends guidance (`swipeAwayEndsGuidance` replaced by `swipeAwayKeepsGuidance`, NAV-012 AC 13).
  */
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
@@ -89,14 +91,17 @@ class GuidanceServiceTest {
         assertEquals("Замчлал", channel.name)
         assertEquals(NotificationManager.IMPORTANCE_LOW, channel.importance)
         assertNotNull(shadowOf(service).lastForegroundNotification)
+        // NAV-012 AC 1 (N1): title = distance, text = instruction, expanded adds the street, actions voice then end.
         waitUntil {
             val n = shadowOf(nm).getNotification(GuidanceForegroundService.NOTIFICATION_ID)
-            n?.extras?.getCharSequence(NotificationCompat.EXTRA_TITLE)?.toString() == "Зүүн тийш эргэнэ үү"
+            n?.extras?.getCharSequence(NotificationCompat.EXTRA_TEXT)?.toString() == "Зүүн тийш эргэнэ үү"
         }
         val n = shadowOf(nm).getNotification(GuidanceForegroundService.NOTIFICATION_ID)
-        assertEquals("300 м · Дүнжингаравын гудамж", n.extras.getCharSequence(NotificationCompat.EXTRA_TEXT).toString())
+        assertEquals("300\u00A0м", n.extras.getCharSequence(NotificationCompat.EXTRA_TITLE).toString())
+        assertEquals("Зүүн тийш эргэнэ үү\nДүнжингаравын гудамж", n.extras.getCharSequence(NotificationCompat.EXTRA_BIG_TEXT).toString())
+        assertTrue(n.extras.getCharSequence(NotificationCompat.EXTRA_SUB_TEXT).toString().startsWith("Хүрэх цаг "))
         assertTrue(n.flags and android.app.Notification.FLAG_ONGOING_EVENT != 0)
-        assertEquals("Дуусгах", n.actions.single().title.toString())
+        assertEquals(listOf("Дууг хаах", "Дуусгах"), n.actions.map { it.title.toString() })
         assertEquals(GuidancePhase.NAVIGATING, session.engine.value!!.state.value!!.phase)
 
         // «Дуусгах» in the notification → everything stops within 2 s, 0 route requests.
@@ -127,15 +132,22 @@ class GuidanceServiceTest {
         controller.destroy()
     }
 
+    /** NAV-012 AC 13 (replaces NAV-005 `swipeAwayEndsGuidance`): removing the app from Recents keeps guidance. */
     @Test
-    fun swipeAwayEndsGuidance() {
+    fun swipeAwayKeepsGuidance() {
         session.start(route, trip, fix())
         val started = shadowOf(context as Application).nextStartedService
         waitUntil { session.engine.value?.state?.value != null }
         val controller = Robolectric.buildService(GuidanceForegroundService::class.java, started).create().startCommand(0, 1)
         controller.get().onTaskRemoved(Intent())
-        val ms = waitUntil(5_000) { session.engine.value == null }
-        assertTrue(ms <= 5_000)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        Thread.sleep(200)
+        assertNotNull("guidance continues after the swipe-away", session.engine.value)
+        assertEquals(GuidancePhase.NAVIGATING, session.engine.value!!.state.value!!.phase)
+        assertTrue(!shadowOf(controller.get()).isStoppedBySelf)
         assertEquals(0, RecordingRequester.requests.size)
+        session.end()
+        waitUntil { session.engine.value == null }
+        controller.destroy()
     }
 }

@@ -1,12 +1,16 @@
 package mn.navmn.app.background.restore
 
+import android.Manifest
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -31,7 +35,12 @@ object InterruptedNotification {
     const val ACTION_END = "mn.navmn.app.action.END_INTERRUPTED"
 
     fun post(context: Context, meta: RestoreMeta, lang: Lang, nowWallMs: Long): Boolean {
-        if (!GuidanceChannel.allowed(context)) return false
+        // AC 7: not shown without POST_NOTIFICATIONS (Android 13+); the restore then happens when the app is opened.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
         val left = RestoreRules.windowEnd(meta) - nowWallMs
         if (left <= 0) return false
         GuidanceChannel.ensure(context, lang)
