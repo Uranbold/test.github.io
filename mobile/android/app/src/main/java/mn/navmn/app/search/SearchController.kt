@@ -74,6 +74,8 @@ class SearchController(
         val q = settle(raw)
         if (q.length < MIN_LENGTH) {
             job?.cancel()
+            // Supersedes a query whose request is in flight, so nothing it started can still show a state.
+            generation++
             lastSettled = null
             _view.value = SearchView.Closed
             return
@@ -112,29 +114,19 @@ class SearchController(
             return
         }
         val g = ++generation
-        val loading = scope.launch {
-            delay(LOADING_DELAY_MS)
-            if (g == generation) _view.value = SearchView.Loading
-        }
-        val plan = requestsFor(q)
-        val l = lang()
-        val b = bias()
+        // The loading row timer is a child of this run: cancelling the run (new query, cleared field, close) cancels it,
+        // so «Ачаалж байна…» never outlives its query (NAV-011 minor).
         val outcome = coroutineScope {
-            when {
-                plan.secondary != null && plan.mode == PlanMode.PARALLEL -> {
-                    val first = async { search(plan.primary, l, b) }
-                    val second = async { search(plan.secondary, l, b) }
-                    CombineOutcomes.parallel(first.await(), second.await())
-                }
-                plan.secondary != null && plan.mode == PlanMode.IF_EMPTY -> {
-                    val first = search(plan.primary, l, b)
-                    if (g != generation) return@coroutineScope null
-                    CombineOutcomes.single(if (first is SearchOutcome.Ok && first.features.isEmpty()) search(plan.secondary, l, b) else first)
-                }
-                else -> CombineOutcomes.single(search(plan.primary, l, b))
+            val loading = launch {
+                delay(LOADING_DELAY_MS)
+                if (g == generation) _view.value = SearchView.Loading
+            }
+            try {
+                fetch(q, g)
+            } finally {
+                loading.cancel()
             }
         }
-        loading.cancel()
         if (outcome == null || g != generation || lastSettled != q) return
         _view.value = when (outcome) {
             is SearchOutcome.Ok -> {
@@ -151,6 +143,28 @@ class SearchController(
                     if (_view.value is SearchView.RateLimited) _view.value = SearchView.RateLimited(retryEnabled = true)
                 }
                 SearchView.RateLimited(retryEnabled = false)
+            }
+        }
+    }
+
+    /** Sends the planned request(s) for [q]; `null` when superseded between the two `ifEmpty` requests. */
+    private suspend fun fetch(q: String, g: Int): SearchOutcome? {
+        val plan = requestsFor(q)
+        val l = lang()
+        val b = bias()
+        return coroutineScope {
+            when {
+                plan.secondary != null && plan.mode == PlanMode.PARALLEL -> {
+                    val first = async { search(plan.primary, l, b) }
+                    val second = async { search(plan.secondary, l, b) }
+                    CombineOutcomes.parallel(first.await(), second.await())
+                }
+                plan.secondary != null && plan.mode == PlanMode.IF_EMPTY -> {
+                    val first = search(plan.primary, l, b)
+                    if (g != generation) return@coroutineScope null
+                    CombineOutcomes.single(if (first is SearchOutcome.Ok && first.features.isEmpty()) search(plan.secondary, l, b) else first)
+                }
+                else -> CombineOutcomes.single(search(plan.primary, l, b))
             }
         }
     }

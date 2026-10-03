@@ -38,7 +38,11 @@ data class MapContent(
     /** S1 location dot (§7), not during guidance. */
     val myLocation: LatLon? = null,
     val myLocationStale: Boolean = false,
-    /** NAV-011 preview (map-style §7.6): Valhalla index of [route] (the selected line) and the unselected routes. */
+    /**
+     * NAV-011 preview (map-style §7.6): position of [route] (the selected line) in the parsed routes list
+     * (`PreviewResult.Route.routes`), and the unselected routes as (position in that list, geometry). Not the Valhalla
+     * response index: the parser may drop routes, so the two can differ.
+     */
     val routeIndex: Int = 0,
     val alternatives: List<Pair<Int, List<LatLon>>> = emptyList(),
 )
@@ -157,7 +161,8 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
     )
 
     /**
-     * NAV-011 AC 17 / map-style §7.6: the Valhalla indices of the routes drawn inside a [boxPx] × [boxPx] box centred on
+     * NAV-011 AC 17 / map-style §7.6: the [PROP_INDEX] values (positions in the parsed routes list, not Valhalla
+     * indices) of the routes drawn inside a [boxPx] × [boxPx] box centred on
      * the screen point ([x], [y]) (alternative and selected preview layers). Empty when nothing is hit.
      */
     fun routeIndicesAt(x: Float, y: Float, boxPx: Float): List<Int> {
@@ -282,10 +287,11 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
 
     companion object {
         const val SRC_ROUTE = "nav-route"
-        /** NAV-011 §7.6: unselected preview routes (property [PROP_INDEX] = Valhalla index). */
+        /** NAV-011 §7.6: unselected preview routes (property [PROP_INDEX] = position in the parsed routes list). */
         const val SRC_ALT = "nav-route-alt"
         const val L_ALT_CASING = "nav-route-alt-casing"
         const val L_ALT = "nav-route-alt"
+        /** Route feature property: the route's position in the parsed routes list (`PreviewResult.Route.routes`), not the Valhalla index. */
         const val PROP_INDEX = "index"
         const val MAX_FIT_ZOOM = 17.0
         const val SRC_PIN = "nav-pin"

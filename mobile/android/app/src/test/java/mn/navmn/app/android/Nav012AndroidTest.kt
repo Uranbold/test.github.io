@@ -386,4 +386,64 @@ class Nav012AndroidTest {
         assertFalse(LockScreenPolicy.arrivalLeftWhileLocked(state(GuidancePhase.ARRIVED), keyguardLocked = false, interactive = true))
         assertFalse(LockScreenPolicy.arrivalLeftWhileLocked(state(GuidancePhase.NAVIGATING), keyguardLocked = true, interactive = false))
     }
+
+    /** Pure policy (ADR-0013 Amendment 3, QA D3): arrival while the panel cannot be seen latches at once. Table test. */
+    @Test
+    fun lockScreenPolicyArrivalUnseenTable() {
+        data class Row(val phase: GuidancePhase?, val started: Boolean, val interactive: Boolean, val expected: Boolean)
+        val table = listOf(
+            // ARRIVED: unseen when the activity is stopped or the display is off.
+            Row(GuidancePhase.ARRIVED, started = true, interactive = true, expected = false),
+            Row(GuidancePhase.ARRIVED, started = true, interactive = false, expected = true),
+            Row(GuidancePhase.ARRIVED, started = false, interactive = true, expected = true),
+            Row(GuidancePhase.ARRIVED, started = false, interactive = false, expected = true),
+            // Any other phase, or no session: never.
+            Row(GuidancePhase.NAVIGATING, started = false, interactive = false, expected = false),
+            Row(GuidancePhase.NAVIGATING, started = true, interactive = true, expected = false),
+            Row(GuidancePhase.ENDED, started = false, interactive = false, expected = false),
+            Row(null, started = false, interactive = false, expected = false),
+        )
+        for (r in table) {
+            val st = r.phase?.let { state(it) }
+            assertEquals("phase=${r.phase} started=${r.started} interactive=${r.interactive}", r.expected, LockScreenPolicy.arrivalUnseen(st, r.started, r.interactive))
+        }
+        // Every phase is covered for the "seen" case (started + interactive → never unseen).
+        for (phase in GuidancePhase.entries) {
+            assertFalse("$phase started+interactive", LockScreenPolicy.arrivalUnseen(state(phase), activityStarted = true, interactive = true))
+        }
+    }
+
+    /**
+     * ADR-0013 Amendment 3 (gate): guidance over the lock screen, the display turns off, the trip arrives → the flag is
+     * cleared at once and latched; the task is not moved to the back, the screen is never turned on, volume keys stay
+     * on the prompt stream; later arrival updates keep it off; a new session starts cleared.
+     */
+    @Test
+    fun arrivalWhileDisplayOffLatchesAtOnce() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val gate = LockScreenGate(activity)
+        val keyguard = shadowOf(activity.getSystemService(KeyguardManager::class.java))
+        val power = shadowOf(activity.getSystemService(PowerManager::class.java))
+        keyguard.setKeyguardLocked(true)
+        gate.onGuidanceState(state(GuidancePhase.NAVIGATING))
+        power.setIsInteractive(false)
+        gate.onStop()
+        assertTrue("AC 8: still over the lock screen while guiding", shadowOf(activity).showWhenLocked)
+        gate.onGuidanceState(state(GuidancePhase.ARRIVED))
+        assertFalse("AC 11: arrived while the display is off → not over the lock screen on wake", shadowOf(activity).showWhenLocked)
+        assertTrue(gate.arrivalScreenOffSeen)
+        assertFalse("the arrival panel stays for after the unlock", shadowOf(activity).isTaskMovedToBack)
+        assertFalse("AC 12", shadowOf(activity).turnScreenOn)
+        assertEquals(AudioManager.STREAM_MUSIC, activity.volumeControlStream)
+        // Wake: later ARRIVED emissions keep the flag off.
+        power.setIsInteractive(true)
+        gate.onGuidanceState(state(GuidancePhase.ARRIVED))
+        assertFalse(shadowOf(activity).showWhenLocked)
+        assertFalse(shadowOf(activity).isTaskMovedToBack)
+        // «Хаах» ends the session; the next one shows over the lock screen again.
+        gate.onGuidanceState(null)
+        gate.onGuidanceState(state(GuidancePhase.NAVIGATING))
+        assertTrue(shadowOf(activity).showWhenLocked)
+        assertFalse(gate.arrivalScreenOffSeen)
+    }
 }
