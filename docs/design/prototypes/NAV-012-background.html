@@ -436,10 +436,10 @@ function renderNotif(st, t, P) {
   if (st === "notif-collapsed") html = card({ collapsed: true, colorized: true, title: t.dist300, text: instr, icon: ICON.ramp, check: "collapsed" });
   if (st === "notif-expanded") html = card({ colorized: true, title: t.dist300, text: `${instr}<br>${t.street}`, sub: t.eta, icon: ICON.ramp, acts: [t.mute, t.end] });
   if (st === "notif-muted") html = card({ colorized: true, title: t.dist300, text: `${instr}<br>${t.street}`, sub: t.eta, icon: ICON.ramp, acts: [t.unmute, t.end] });
-  // States without a distance have no title: their sentence goes in the text line (14 sp), which fits where a 16 sp
-  // bold title would be shortened (spec › Notification content per state). The bold title is only ever a distance.
-  if (st === "notif-reroute") html = card({ collapsed: true, colorized: true, reroute: true, text: t.rerouting, check: "collapsed" });
-  if (st === "notif-gps-lost") html = card({ colorized: true, text: `${t.gpsLost}<br>${instr}`, acts: [t.mute, t.end] });
+  // Title = distance or a short status (NAV-012 AC 2 names the recalculating title); the arrival sentence goes in the
+  // text line, which wraps in the expanded card (spec › Notification content per state).
+  if (st === "notif-reroute") html = card({ collapsed: true, colorized: true, reroute: true, title: t.rerouting, check: "collapsed-title" });
+  if (st === "notif-gps-lost") html = card({ colorized: true, title: t.gpsLost, text: instr, acts: [t.mute, t.end] });
   if (st === "notif-arrival") html = card({ collapsed: true, colorized: true, text: t.arriveR, icon: ICON.flag, check: "collapsed" });
   if (st === "notif-interrupted") html = card({ title: t.interrupted, text: t.tapToContinue, acts: [t.cont, t.end] });
   if (st === "notif-public") html = card({ title: t.nav });

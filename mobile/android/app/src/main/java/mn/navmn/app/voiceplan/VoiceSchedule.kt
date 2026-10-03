@@ -4,6 +4,7 @@ import mn.navmn.app.instructions.KeyResult
 import mn.navmn.app.instructions.ManeuverKey
 import mn.navmn.app.instructions.VoiceContent
 import mn.navmn.app.route.GuidancePlan
+import mn.navmn.app.route.TravelMode
 
 /**
  * navigation-ux §4.2–§4.4 as named constants (ADR-0009 §3.3). Change only through UX and the BA.
@@ -32,10 +33,34 @@ object VoiceConstants {
     const val ARRIVE_CATCH_UP_MAX_M = 500.0
     const val CHAIN_CAR_M = 150.0
     const val CHAIN_WALK_M = 40.0
+    /** NAV-011 AC 26, navigation-ux §4.2 rule 8 «Дугуй» column: main clamp(v × 15 s, 60, 150) m, now clamp(v × 3 s, 15, 30) m. */
+    const val BIKE_MAIN_SECONDS = 15.0
+    const val BIKE_MAIN_MIN_M = 60.0
+    const val BIKE_MAIN_MAX_M = 150.0
+    const val BIKE_NOW_MIN_M = 15.0
+    const val BIKE_NOW_MAX_M = 30.0
+    /** navigation-ux §4.4 «Дугуй»: chaining when the next manoeuvre is ≤ 60 m after this one. */
+    const val CHAIN_BIKE_M = 60.0
     const val RESTORE_MIN_AHEAD_M = 20.0
     const val SPEED_WINDOW_MS = 5_000L
     /** §4.5: a waiting prompt that cannot start within 3 s of its trigger is dropped. */
     const val MAX_WAIT_MS = 3_000L
+}
+
+/** The navigation-ux §4.2 column, chosen by the route's costing: `auto` → car, `pedestrian` → walk, `bicycle` → bike. */
+enum class VoiceProfile {
+    CAR,
+    WALK,
+    BIKE,
+    ;
+
+    companion object {
+        fun of(mode: TravelMode): VoiceProfile = when (mode) {
+            TravelMode.CAR -> CAR
+            TravelMode.WALK -> WALK
+            TravelMode.BICYCLE -> BIKE
+        }
+    }
 }
 
 enum class PromptKind { CONTINUE_ON, EARLY, MAIN, NOW, DEPART, CATCH_UP }
@@ -68,7 +93,13 @@ class SpeedTracker(private val windowMs: Long = VoiceConstants.SPEED_WINDOW_MS) 
  * live distance to the upcoming manoeuvre. Each kind fires once when d first falls to or below its distance; only the
  * most urgent unfired kind fires and the less urgent ones are then marked as handled.
  */
-class VoiceScheduler(private val walk: Boolean) {
+class VoiceScheduler(private val profile: VoiceProfile) {
+    /** NAV-005 constructor (car or walk column). */
+    constructor(walk: Boolean) : this(if (walk) VoiceProfile.WALK else VoiceProfile.CAR)
+
+    private val walk = profile == VoiceProfile.WALK
+    private val bike = profile == VoiceProfile.BIKE
+
     private val fired = HashSet<Triple<Int, Int, PromptKind>>()
     /**
      * Rule 2 reference per manoeuvre: the playback start of its latest prompt (NAV-005-D2). Until the playback queue
@@ -85,9 +116,13 @@ class VoiceScheduler(private val walk: Boolean) {
     private enum class CatchUp { REROUTE, RESTORE }
     private var pendingCatchUp: CatchUp? = null
 
-    private val chainM get() = if (walk) VoiceConstants.CHAIN_WALK_M else VoiceConstants.CHAIN_CAR_M
+    private val chainM get() = when (profile) {
+        VoiceProfile.WALK -> VoiceConstants.CHAIN_WALK_M
+        VoiceProfile.BIKE -> VoiceConstants.CHAIN_BIKE_M
+        VoiceProfile.CAR -> VoiceConstants.CHAIN_CAR_M
+    }
 
-    /** Manoeuvre m+1 is chained to m: ≤ 150 m (car) / ≤ 40 m (walk) after it, and not `arrive` (§4.4). */
+    /** Manoeuvre m+1 is chained to m: ≤ 150 m (car) / ≤ 40 m (walk) / ≤ 60 m (bike) after it, and not `arrive` (§4.4). */
     fun chainTarget(plan: GuidancePlan, m: Int): KeyResult? {
         val next = plan.steps.getOrNull(m + 1) ?: return null
         if (next.key.key.isArrive) return null
@@ -154,7 +189,7 @@ class VoiceScheduler(private val walk: Boolean) {
     )
 
     private fun earlyThreshold(fast: Boolean, gap: Double, key: ManeuverKey): Double? = when {
-        walk || key.isArrive || key == ManeuverKey.ROUNDABOUT_LEAVE -> null
+        walk || bike || key.isArrive || key == ManeuverKey.ROUNDABOUT_LEAVE -> null
         fast && gap >= VoiceConstants.EARLY_FAST_MIN_GAP_M -> VoiceConstants.EARLY_FAST_M
         !fast && gap >= VoiceConstants.EARLY_SLOW_MIN_GAP_M -> VoiceConstants.EARLY_SLOW_M
         else -> null
@@ -163,6 +198,7 @@ class VoiceScheduler(private val walk: Boolean) {
     private fun mainThreshold(fast: Boolean, gap: Double, v: Double, key: ManeuverKey): Double? = when {
         key == ManeuverKey.ROUNDABOUT_LEAVE -> null
         walk -> VoiceConstants.WALK_MAIN_M
+        bike -> (v * VoiceConstants.BIKE_MAIN_SECONDS).coerceIn(VoiceConstants.BIKE_MAIN_MIN_M, VoiceConstants.BIKE_MAIN_MAX_M)
         fast && gap >= VoiceConstants.MAIN_FAST_MIN_GAP_M -> VoiceConstants.MAIN_FAST_M
         else -> (v * VoiceConstants.MAIN_SECONDS).coerceIn(VoiceConstants.MAIN_MIN_M, VoiceConstants.MAIN_MAX_M)
     }
@@ -170,6 +206,7 @@ class VoiceScheduler(private val walk: Boolean) {
     private fun nowThreshold(v: Double, key: ManeuverKey): Double? = when {
         key.isArrive -> null // the arrival prompt comes from the arrival detector (§7)
         walk -> VoiceConstants.WALK_NOW_M
+        bike -> (v * VoiceConstants.NOW_SECONDS).coerceIn(VoiceConstants.BIKE_NOW_MIN_M, VoiceConstants.BIKE_NOW_MAX_M)
         else -> (v * VoiceConstants.NOW_SECONDS).coerceIn(VoiceConstants.NOW_MIN_M, VoiceConstants.NOW_MAX_M)
     }
 
@@ -233,7 +270,7 @@ class VoiceScheduler(private val walk: Boolean) {
             }
         }
 
-        // Continue on (A12): right after passing a manoeuvre, if the next one is ≥ 2 km away (car only).
+        // Continue on (A12): right after passing a manoeuvre, if the next one is ≥ 2 km away (car and bike, not walk).
         if (stepChanged && !firstObservation && !walk && d >= VoiceConstants.CONTINUE_ON_MIN_M &&
             Triple(gen, m, PromptKind.CONTINUE_ON) !in fired
         ) {

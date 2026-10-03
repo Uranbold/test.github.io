@@ -42,8 +42,12 @@ import mn.navmn.app.route.TravelMode
 import mn.navmn.app.search.PlaceDisplay
 import mn.navmn.app.search.SearchClient
 import mn.navmn.app.search.SearchController
+import mn.navmn.app.search.reverse.ReverseClient
+import mn.navmn.app.search.reverse.ReverseController
 import mn.navmn.app.settings.SettingsRepository
 import mn.navmn.app.settings.ThemeChoice
+import mn.navmn.app.typinglock.LockFixSource
+import mn.navmn.app.typinglock.TypingLockController
 import mn.navmn.app.voice.GuidanceVoice
 import javax.inject.Inject
 
@@ -71,6 +75,10 @@ data class UiState(
     val lastGestureAt: Long = 0,
     /** Ask the Activity to request POST_NOTIFICATIONS once at the first «Эхлэх» (AC 13). */
     val requestNotificationPermission: Boolean = false,
+    /** NAV-011 D55: route preview sheet expanded (kept across rotation, theme, language and new responses, P4). */
+    val sheetExpanded: Boolean = false,
+    /** NAV-011 AC 34: bumped by «Би зорчигч» so the search field takes focus and opens the keyboard. */
+    val focusSearch: Int = 0,
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -83,6 +91,8 @@ class AppViewModel @Inject constructor(
     private val searchClient: SearchClient,
     private val session: GuidanceSession,
     private val voice: GuidanceVoice,
+    private val reverseClient: ReverseClient,
+    lockFixes: LockFixSource,
 ) : ViewModel() {
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
@@ -119,6 +129,18 @@ class AppViewModel @Inject constructor(
         wallNow = { System.currentTimeMillis() },
     )
 
+    /** NAV-011 AC 8–13: nearest place on the coordinate card (one `reverse` per card). */
+    val reverse = ReverseController(
+        scope = viewModelScope,
+        reverse = { p, l -> reverseClient.reverse(p, l) },
+        lang = { settings.lang.value },
+        isOnline = { network.isOnline() },
+        now = { SystemClock.elapsedRealtime() },
+    )
+
+    /** NAV-011 section E: typing lock while moving, with the passenger override (process memory only). */
+    val typingLock = TypingLockController(lockFixes) { SystemClock.elapsedRealtime() }
+
     val guidance: StateFlow<GuidanceState?> = session.engine
         .flatMapLatest { it?.state ?: flowOf(null) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -145,7 +167,14 @@ class AppViewModel @Inject constructor(
     private var askedNotifications = false
 
     init {
-        viewModelScope.launch { network.validated.drop(1).collect { if (it) preview.onNetworkRestored() } }
+        viewModelScope.launch {
+            network.validated.drop(1).collect {
+                if (it) {
+                    preview.onNetworkRestored()
+                    reverse.onNetworkRestored() // NAV-011 AC 11: one request ≤ 2 s after the network returns
+                }
+            }
+        }
         viewModelScope.launch { settings.lang.drop(1).collect { voice.onLanguageChanged() } }
     }
 
@@ -170,35 +199,75 @@ class AppViewModel @Inject constructor(
 
     fun onResult(info: PlaceDisplay.Info, name: String) {
         _ui.update { it.copy(searchActive = false, card = null) }
+        reverse.close()
         openPreview(Destination(info.point, name))
     }
 
-    fun onLongPress(p: LatLon) = _ui.update { it.copy(card = p, searchActive = false) }
-    fun closeCard() = _ui.update { it.copy(card = null) }
+    fun onLongPress(p: LatLon) {
+        _ui.update { it.copy(card = p, searchActive = false) }
+        reverse.open(p) // NAV-011 AC 8: exactly one `reverse` per card
+    }
+
+    fun closeCard() {
+        _ui.update { it.copy(card = null) }
+        reverse.close()
+    }
 
     fun onCardDirections() {
         val p = _ui.value.card ?: return
         _ui.update { it.copy(card = null) }
+        reverse.close()
+        // AC 9: the destination text stays «Сонгосон цэг» (the nearest place is not the point's address).
         openPreview(Destination(p, null))
+    }
+
+    // ------------------------------------------------------------------------------------------- typing lock (NAV-011)
+
+    /** Called inside `repeatOnLifecycle(STARTED)` while S1/S3 are shown (not during guidance); returns when cancelled. */
+    suspend fun collectTypingLock() = typingLock.collect()
+
+    /** A tap on the search field: true → focus and keyboard; false → the lock card is shown instead (AC 31). */
+    fun onSearchFieldTap(): Boolean = typingLock.onTextFieldTap()
+
+    /** The lock engaged while the keyboard was open: the UI hid it; show the card (AC 31). */
+    fun onLockedWhileTyping() {
+        typingLock.onTextFieldTap()
+    }
+
+    fun dismissTypingLock() = typingLock.dismissCard()
+
+    /** «Би зорчигч» (AC 34): override for the app session; the field takes focus and the keyboard opens. */
+    fun onPassenger() {
+        typingLock.passenger()
+        _ui.update { it.copy(focusSearch = it.focusSearch + 1) }
     }
 
     // ------------------------------------------------------------------------------------------- preview
 
     private var currentStatus: () -> Pair<PermissionStatus, Boolean> = { PermissionStatus.NOT_ASKED to true }
 
+    /** NAV-011 P4: the Activity reports whether TalkBack touch exploration is on (the sheet then opens expanded). */
+    var touchExploration: () -> Boolean = { false }
+
     /** The Activity provides the platform permission state (precise/approximate/denied, services on). */
     fun bindPermissionState(provider: () -> Pair<PermissionStatus, Boolean>) {
         currentStatus = provider
     }
 
-    private fun openPreview(d: Destination) {
+    private fun openPreview(d: Destination, expanded: Boolean = false) {
         voice.prepare() // navigation-ux §4.6: TTS initialises when the preview opens
+        _ui.update { it.copy(sheetExpanded = expanded || touchExploration()) } // P4: collapsed, TalkBack → expanded
         preview.open(d)
         requireLocation(LocationAction.PREVIEW_ORIGIN)
     }
 
     fun closePreview() = preview.close()
     fun setMode(m: TravelMode) = preview.setMode(m)
+
+    /** NAV-011 AC 17: a line tap or a «Маршрут сонгох» row; 0 requests, no camera move. */
+    fun selectRoute(index: Int) = preview.select(index)
+
+    fun setSheetExpanded(expanded: Boolean) = _ui.update { it.copy(sheetExpanded = expanded) }
     fun setAvoid(v: Boolean) = preview.setAvoidUnpaved(v)
     fun retryPreview() {
         val r = preview.state.value?.result

@@ -16,7 +16,6 @@ import mn.navmn.app.route.RouteBody
 import mn.navmn.app.route.RouteOutcome
 import mn.navmn.app.route.RouteRequest
 import mn.navmn.app.route.RouteRequester
-import mn.navmn.app.route.TravelMode
 import mn.navmn.app.voiceplan.PlaybackListener
 import mn.navmn.app.voiceplan.PlaybackQueue
 import mn.navmn.app.voiceplan.PromptClass
@@ -24,6 +23,7 @@ import mn.navmn.app.voiceplan.ScheduledPrompt
 import mn.navmn.app.voiceplan.Speaker
 import mn.navmn.app.voiceplan.SpeedTracker
 import mn.navmn.app.voiceplan.SpokenPrompt
+import mn.navmn.app.voiceplan.VoiceProfile
 import mn.navmn.app.voiceplan.VoiceScheduler
 
 /**
@@ -76,7 +76,7 @@ class GuidanceCore(
     private val offRoute = OffRouteDetector()
     val policy = ReroutePolicy()
     private val arrival = ArrivalDetector()
-    private val scheduler = VoiceScheduler(walk = trip.mode == TravelMode.WALK)
+    private val scheduler = VoiceScheduler(VoiceProfile.of(trip.mode))
     private val speed = SpeedTracker()
     /** navigation-ux §4.2 rule 2 is measured from the playback start (NAV-005-D2): the queue reports it back. */
     val queue = PlaybackQueue(

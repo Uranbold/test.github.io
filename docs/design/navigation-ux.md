@@ -1,10 +1,10 @@
 # Active navigation UX rules (banner, voice, camera, states)
 
 - **Owner:** ux-designer
-- **Status:** v0.7, 2026-10-03: **«Дугуй» (bicycle) column** for NAV-011 AC 26 in §4.2 (prompt schedule and the outcome band 15–150 m), §4.4 (chaining ≤ 60 m) and §8 (zoom 17.5); car and walk unchanged. v0.6, 2026-10-01: §4.1 only (spike follow-up F3, [D92–D96](../requirements/decisions.md)): display/golden text keeps digits, spoken text per glossary C3a; pending Mongolian km and continue-on rounding (applies with NAV-016, not implemented); English unchanged. v0.5, 2026-10-01: **§11 web demo-mode replay (NAV-017)** added (what applies to a simulated replay in the browser, simulated position and puck glide, web banner caps and stacked variant, browser speech and Web Audio chime, pause on hide); §1–§10 unchanged. v0.4, 2026-10-01. First version written for [NAV-005](../requirements/stories/NAV-005-active-navigation-android.md) (Android first slice, D24). v0.2 applies the PO decisions [D67](../requirements/decisions.md) (§4.1: a metre value that rounds to 1000 is spoken «1 километрт») and [D68](../requirements/decisions.md) (§4.2 rule 6, §4.4: AC 34 exempts a final `arrive` < 30 m after the previous manoeuvre). v0.3 (NAV-005-D12, D67): the catch-up path gives no approaching prompt for an `arrive` more than 500 m ahead (§4.3), and §4.1 no longer claims the approaching prompt is always ≤ 500 m without that rule. v0.4 (glossary [D69/D70](../requirements/decisions.md)): copy only, the approaching prompt A11 now says «{n} метрт очих газартаа хүрнэ» (§4.1, §4.3) and the ramp wording is «… гарах зам руу эргэнэ үү» / «… орох зам руу эргэнэ үү»; the §2.5 line-count measurement was re-run with «Баруун талын гарах зам руу эргэнэ үү» and is unchanged. iOS (NAV-015) reuses these rules unchanged except for platform controls.
-- **Stories:** NAV-005 (AC 21–25, 31–39, 41–57, 62–64), NAV-011 (AC 25–26: the «Дугуй» column in §4.2, §4.4, §8), NAV-017 (§11; AC 12–35, 37–41), NAV-007 (AC 11: prompt-duration limits confirmed in §4.7; AC 12–13: the generators in §3–§4 feed the golden announcement set).
+- **Status:** v0.8, 2026-10-03: **§12 background, lock screen and interruptions (NAV-012)** added (notification content and cadence, lock-screen view, swipe-away, restore after process death, audio output changes, phone calls with one catch-up prompt, automatic theme); §9 «Автомат» now means sunrise/sunset (NAV-012 Open question 4 (a), working assumption); §4.5 rules 5 and 7 point to §12. v0.7, 2026-10-03: **«Дугуй» (bicycle) column** for NAV-011 AC 26 in §4.2 (prompt schedule and the outcome band 15–150 m), §4.4 (chaining ≤ 60 m) and §8 (zoom 17.5); car and walk unchanged. v0.6, 2026-10-01: §4.1 only (spike follow-up F3, [D92–D96](../requirements/decisions.md)): display/golden text keeps digits, spoken text per glossary C3a; pending Mongolian km and continue-on rounding (applies with NAV-016, not implemented); English unchanged. v0.5, 2026-10-01: **§11 web demo-mode replay (NAV-017)** added (what applies to a simulated replay in the browser, simulated position and puck glide, web banner caps and stacked variant, browser speech and Web Audio chime, pause on hide); §1–§10 unchanged. v0.4, 2026-10-01. First version written for [NAV-005](../requirements/stories/NAV-005-active-navigation-android.md) (Android first slice, D24). v0.2 applies the PO decisions [D67](../requirements/decisions.md) (§4.1: a metre value that rounds to 1000 is spoken «1 километрт») and [D68](../requirements/decisions.md) (§4.2 rule 6, §4.4: AC 34 exempts a final `arrive` < 30 m after the previous manoeuvre). v0.3 (NAV-005-D12, D67): the catch-up path gives no approaching prompt for an `arrive` more than 500 m ahead (§4.3), and §4.1 no longer claims the approaching prompt is always ≤ 500 m without that rule. v0.4 (glossary [D69/D70](../requirements/decisions.md)): copy only, the approaching prompt A11 now says «{n} метрт очих газартаа хүрнэ» (§4.1, §4.3) and the ramp wording is «… гарах зам руу эргэнэ үү» / «… орох зам руу эргэнэ үү»; the §2.5 line-count measurement was re-run with «Баруун талын гарах зам руу эргэнэ үү» and is unchanged. iOS (NAV-015) reuses these rules unchanged except for platform controls.
+- **Stories:** NAV-005 (AC 21–25, 31–39, 41–57, 62–64), NAV-011 (AC 25–26: the «Дугуй» column in §4.2, §4.4, §8), NAV-012 (§9, §12; AC 1–6, 8–10, 13–14, 18–22, 31–44), NAV-017 (§11; AC 12–35, 37–41), NAV-007 (AC 11: prompt-duration limits confirmed in §4.7; AC 12–13: the generators in §3–§4 feed the golden announcement set).
 - **Related:** screen spec [`screens/NAV-005-android-navigation.md`](screens/NAV-005-android-navigation.md) (layout, components, copy keys), flow [`flows/NAV-005-android-navigation.md`](flows/NAV-005-android-navigation.md) (state machines), map style [`map-style.md` §7.4](map-style.md) (puck, guidance route line, camera tokens), tokens [`tokens.json`](tokens.json) v0.4.0 (`color.*.nav.*`, `typography.scale.nav-*`, `size.nav-*`, `motion.nav-*`). Instruction wording: [ADR-0008](../architecture/adr/0008-route-instruction-text-client-side.md) and the [glossary](../requirements/glossary.md) (binding).
-- **Reserved for later stories (layout slots exist now, so nothing moves later):** lane guidance (NAV-013, §2.6), speed limit sign (NAV-014, §2.7), rich and lock-screen notification (NAV-012).
+- **Reserved for later stories (layout slots exist now, so nothing moves later):** lane guidance (NAV-013, §2.6), speed limit sign (NAV-014, §2.7). The rich and lock-screen notification is now §12 (NAV-012).
 
 This file is the product-level rule set. It says **what** the driver sees and hears and **when**. The architect decides **how** it is delivered: [ADR-0009](../architecture/adr/0009-android-guidance-client.md) (written in parallel, accepted 2026-10-01) implements the banner, notification and voice schedule of this file in the app, on top of Ferrostar's `core`. Rules are written as outcomes that QA can check in a GPX replay.
 
@@ -155,9 +155,9 @@ Rules:
 2. **Off-route** stops the current manoeuvre utterance (it belongs to the old route), clears the queue and speaks «Та маршрутаас гарлаа» (AC 42).
 3. **Arrival** waits for the current utterance to finish (max 3 s), then plays; nothing plays after it (AC 55).
 4. **Mute** («Дууг хаах») stops the current utterance or chime within 1 s and suppresses all prompts and chimes until «Дууг нээх» (AC 37). Voice on by default; the choice is remembered. Banners are unaffected.
-5. **Audio:** `USAGE_ASSISTANCE_NAVIGATION_GUIDANCE`, transient focus with ducking (`AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`), released within 1 s after the utterance. Focus denied (phone call) → prompt skipped, not queued (AC 36). Speech rate 1.0, pitch 1.0 (no user setting in this slice).
+5. **Audio:** `USAGE_ASSISTANCE_NAVIGATION_GUIDANCE`, transient focus with ducking (`AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`), released within 1 s after the utterance. Focus denied (phone call) → prompt skipped, not queued (AC 36). Speech rate 1.0, pitch 1.0 (no user setting in this slice). **NAV-012:** a call also stops a prompt that is playing, and one catch-up prompt follows the call (§12.6); output changes follow §12.5.
 6. **Language switch** (AC 60): the current utterance stops; the next prompt uses the new language and voice (§4.6 re-evaluated).
-7. **«Дуусгах», swipe-away, arrival end:** any utterance or chime stops within 2 s (AC 19).
+7. **«Дуусгах», swipe-away, arrival end:** any utterance or chime stops within 2 s (AC 19). **NAV-012 (Android):** swipe-away no longer ends guidance; voice continues (§12.3).
 
 ### 4.6 Voice selection and the fallback (AC 38–39, D23)
 - `TextToSpeech` is initialised **when the route preview opens** (not at «Эхлэх»), so the decision is ready before the depart prompt. If it is still pending at «Эхлэх», the depart prompt waits up to 2 s; if still pending, that prompt is a chime and the decision continues to its 3 s limit.
@@ -225,7 +225,7 @@ The secondary line always shows the **latest** failure reason and clears when a 
 "Uncovered map area" = the map minus the banner (with Then strip) and the status messages at the top, and the voice notice, progress panel and the bottom control row (recenter left, voice and orientation right) at the bottom; in landscape also the left column. QA checks the puck centre lies inside it (AC 23).
 
 ## 9. Theme, language, configuration changes
-- Theme options «Өдрийн горим», «Шөнийн горим», «Автомат» (default; follows the Android dark-theme setting, AC 58). Automatic sunrise/sunset switching is NAV-012; when it comes, «Автомат» changes meaning, no new option.
+- Theme options «Өдрийн горим», «Шөнийн горим», «Автомат» (default). **Since NAV-012** (Open question 4 (a), working assumption): «Автомат» = day from sunrise to sunset at the current position, night otherwise, computed on the device; the Android system dark-theme setting no longer applies (it did under NAV-005 AC 58, D63). No new option and no new string. Rules: §12.7.
 - Night uses the `night` tokens: dark banner (`nav.banner` night #123D2C), no large light areas, the white puck fill is the only bright element and is 40 dp.
 - Theme, language, rotation and other configuration changes keep the route, the step, the puck, the banner and the queue state; **0** requests and **0** repeated prompts (AC 59, 60, 64). A prompt playing during a language switch stops (§4.5 rule 6).
 
@@ -281,3 +281,58 @@ Applies to the **web demo-mode build only** ([NAV-017](../requirements/stories/N
 - Visible again: the replay resumes within 1 s from the same position and replay time. Nothing was passed while paused, so nothing is announced late and nothing is repeated; a prompt that was cut off by the pause is not replayed. The screen wake lock is requested again (silently skipped if refused, NAV-017 AC 39). The 15 s recenter timer restarts if the camera was not following.
 - No message is shown for the pause: the page was not visible.
 
+## 12. Background, lock screen and interruptions (NAV-012)
+
+Story [NAV-012](../requirements/stories/NAV-012-android-background-lock-screen.md) (Android). Screen spec: [`screens/NAV-012-android-background-lock-screen.md`](screens/NAV-012-android-background-lock-screen.md); flow: [`flows/NAV-012-android-background-lock-screen.md`](flows/NAV-012-android-background-lock-screen.md). This section owns the timing and voice rules; the spec owns layout and copy. Everything in §1–§10 still applies unless a rule below changes it.
+
+### 12.1 Notification (AC 1–7)
+- **Same state as the banner, always.** Banner change (new manoeuvre, reroute start, new route, GPS lost or restored, arrival) → notification within **1 s**. While the distance changes: an update at least every **2 s**. Never more than **1 post per second** (the 1 s and 2 s rules both hold: post on a banner change at once, otherwise on a 2 s tick when the distance text changed).
+- **Silent:** importance LOW, alert once, no sound, no vibration, no heads-up (AC 4). The voice prompt is the only sound.
+- **Content per state:** screen spec › Notification content per state. The title holds the distance or a short status (AC 2); the arrival sentence goes in the text line.
+- **Voice action:** the same toggle as the on-screen button; mute stops a playing utterance or chime within 1 s (§4.5 rule 4). The action label follows within 1 s. The app does not open.
+- **Android 14+ swipe:** guidance unchanged; re-post at the **next banner instruction change** only (not on a distance tick), once.
+- **Language switch:** texts, action labels and the channel name follow within **2 s** (§9).
+- **Removed:** ≤ 2 s after «Дуусгах», ≤ 10 s after arrival (§7).
+
+### 12.2 Lock screen (AC 8–12)
+- Screen turned on during guidance → S5 over the lock screen within **1 s**. Keep-screen-on (NAV-005 AC 18) applies while it is visible.
+- The app **never turns the screen on** (no wake-up before manoeuvres; that is out of scope). Prompts play with the screen off as usual.
+- «Дуусгах» or arrival «Хаах» over the lock screen → phone lock screen within **2 s**; the lock-screen permission of the window is cleared within **2 s** after guidance ends.
+
+### 12.3 Swipe-away (AC 13–15)
+- Removing the app from Recents changes nothing: 1 Hz fixes with no gap > 2 s, voice schedule (§4.2), off-route (§5), GPS loss (§6), notification (§12.1).
+- Reopening shows S5 within **2 s**: **0** route requests, **0** repeated prompts, no depart prompt.
+
+### 12.4 Restore after process death (AC 16–24)
+- **Restoring** (app opened within the 30 min window): S5 within **3 s** with the `restoring` banner «Ачаалж байна…», the progress skeleton, the camera on the stored route (no puck) and «Замчлал сэргэлээ» for **3 s** (`motion.nav-resumed-notice`). **No depart prompt.**
+- **First good fix:** ≤ 50 m from the stored route → guidance on it, **0** route requests, follow camera; **exactly one** prompt for the next manoeuvre within **3 s** if it is ≥ **30 m** ahead: the §4.3 catch-up form (main form with the current *d* prefix, or "continue on" ≥ 2 km, the `arrive` rule of §4.3 included), or the chime. > 50 m → §5 off-route («Та маршрутаас гарлаа» once), reroute with the stored costing, options and language, then the §4.3 reroute catch-up.
+- **No good fix within 10 s** → §6 GPS lost («GPS дохио тасарлаа» spoken once); the banner stays «Ачаалж байна…» (there is no last manoeuvre); **0** reroute requests. On the first good fix: «GPS дохио сэргэлээ» (§6), then continue as above with exactly **one** manoeuvre prompt (the §6 catch-up and the restore prompt are the same prompt, never two).
+- **Offline:** on the stored route guidance works fully offline (§5 offline row unchanged off the route).
+- **Silent restart by the system** (AC 22, where location is allowed): the same rules, without the screen; no notice is shown.
+- **Restore prompt and calls:** if a call is in progress at the first good fix, the restore prompt is skipped and becomes the §12.6 catch-up after the call.
+
+### 12.5 Audio output (AC 31–34)
+- Prompts and the chime use `USAGE_ASSISTANCE_NAVIGATION_GUIDANCE`; the platform routes them (Bluetooth media A2DP if connected, else the phone speaker). The app never picks an output, never opens Bluetooth call audio (SCO/HFP).
+- **Output connects or disconnects** (incl. `AUDIO_BECOMING_NOISY`): guidance continues; mute state unchanged; a prompt in progress finishes or stops within **1 s** and is not replayed; the next prompt plays on the current output; **0** requests.
+- **Bluetooth lead-in:** the app may prepend up to **500 ms** of silence so the car stereo does not clip the first word; the audio still starts within **1 s** of the trigger (§4.5 rule 1, AC 34 of NAV-005 unchanged).
+- **Volume keys** while S5 is visible (also over the lock screen) change the prompt stream, not the ringer.
+
+### 12.6 Phone calls (AC 35–39)
+- **Call in progress** = audio mode `MODE_IN_CALL`, `MODE_IN_COMMUNICATION` (VoIP), `MODE_CALL_SCREENING` or `MODE_RINGTONE`, or transient loss of the app's audio focus. No phone-state permission.
+- **Call starts while a prompt plays:** the prompt stops within **500 ms**; focus released within **1 s**.
+- **During the call:** **0** utterances and **0** chimes; prompts are skipped, not queued. Banner, notification, off-route, reroute and GPS-loss logic continue. The app remembers whether a prompt for the **current next manoeuvre** was skipped (a new next manoeuvre clears the memory).
+- **Call ends** (the last of back-to-back calls; a ringing call that is not answered also ends): if a prompt for the current next manoeuvre was skipped, guidance is active, there is a good fix and the manoeuvre is ≥ **30 m** ahead → **one catch-up prompt within 2 s** (the §4.3 catch-up form with the current distance, or the chime). No catch-up for off-route, GPS lost or restored, or arrival messages, and none when nothing was skipped.
+- **Double-prompt guard:** a regular trigger for the same manoeuvre within **5 s** after the catch-up is skipped; then the normal schedule continues.
+- **Music and spoken audio:** transient focus with ducking for every prompt; music returns to its level within **1 s** after the prompt; podcasts that pause resume (platform behaviour).
+
+### 12.7 Automatic theme «Автомат» (AC 40–44)
+- **Day** from sunrise to sunset at the current position, **night** otherwise. Sun centre at **−0.833°** (refraction and solar radius, as the NOAA Solar Calculator). Computed on the device in **UTC** (Mongolia: UTC+8 and UTC+7, no DST), **0** network requests.
+- **Position:** the latest fix of this app session → else the platform's last known location if ≤ **24 h** old (read, never stored) → else P1.
+- **Switch timing:** within **60 s** after the computed sunrise or sunset; re-evaluated within **1 s** when the app starts or returns to the foreground. At most **one** automatic change per **10 min** (`motion.theme-auto-hold`).
+- **During guidance:** §9 (route, puck, banner, progress kept; **0** requests; **0** repeated prompts). The map flavor and the Compose colours switch together in the same frame; the UI chrome cross-fades in 300 ms (`motion.duration-medium`; reduced motion: instant).
+- **Polar days** (not in Mongolia, but the function must not fail): no sunrise or sunset → day if the sun is above −0.833° at that moment, night otherwise.
+- «Өдрийн горим» / «Шөнийн горим» are fixed and ignore the sun and the system theme.
+
+### 12.8 Verification
+- Prototype [`prototypes/NAV-012-background.html`](prototypes/NAV-012-background.html) and `prototypes/check-layout-nav012.mjs`: 864 combinations (4 viewports × 18 states × day/night × mn/en × 3 font scales), 0 problems in the design target (2026-10-03; details in the screen spec › Evidence).
+- Timing rules above are checked by QA with fake clocks and fake audio-mode sources (NAV-012 AC 51) and on a real phone (AC 52).

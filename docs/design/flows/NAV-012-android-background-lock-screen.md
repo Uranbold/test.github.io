@@ -113,7 +113,7 @@ flowchart TD
     P -- no --> LOC["S1 map + NAV-005 S4 location message<br/>(«Байршлын зөвшөөрөл олгоогүй байна» / «Байршил тогтоох үйлчилгээ унтарсан байна»<br/>/ «Нарийвчилсан байршлыг зөвшөөрнө үү») + «Тохиргоо нээх», «Хаах»<br/>record kept — AC 23"]
     LOC -- "access granted inside the window" --> RS
     LOC -- "window ends" --> M2["Record deleted; map screen stays"]
-    P -- yes --> RS["S5 «Restoring» ≤ 3 s, no «Эхлэх» tap — AC 18<br/>banner «Ачаалж байна…» (neutral), progress skeleton,<br/>camera shows the stored route, no puck yet<br/>«Замчлал сэргэлээ» for 3 s in the status area<br/>service + notification running; no depart prompt"]
+    P -- yes --> RS["S5 restoring ≤ 3 s, no «Эхлэх» tap — AC 18<br/>banner «Ачаалж байна…» (neutral), progress skeleton,<br/>camera shows the stored route, no puck yet<br/>«Замчлал сэргэлээ» for 3 s in the status area<br/>service + notification running; no depart prompt"]
     RS --> FX{"First good fix within 10 s?"}
     FX -- no --> GL["NAV-005 GPS-lost state: «GPS дохио тасарлаа»<br/>banner stays «Ачаалж байна…», 0 reroutes — AC 19"]
     GL -- "good fix" --> FX2
@@ -147,10 +147,14 @@ flowchart TD
     R -- no --> NONE["No hint"]
     R -- yes --> SN{"Dismissed in the last 30 days<br/>and no restore since?"}
     SN -- yes --> NONE
-    SN -- no --> H["Hint row in the sheet after the summary:<br/>«Батарей хэмнэх тохиргоо замчлалыг зогсоож болзошгүй. Утасны тохиргоонд батарейн хязгаарлалтыг унтраана уу.»<br/>«Хаах», «Тохиргоо нээх»; «Эхлэх» still one tap — AC 26"]
-    H -- "«Хаах»" --> SZ["Hidden; not shown again for 30 days<br/>(except once after a restore) — AC 26"]
+    SN -- no --> E["Collapsed sheet: entry row «Батарейн хязгаарлалт» after «Хүрэх цаг»<br/>(NAV-011 caps kept; «Эхлэх» still one tap) — AC 26"]
+    E -- "tap the row, drag the sheet up,<br/>or TalkBack on (opens expanded)" --> H
+    SN -- "no, wide window (side sheet)" --> H
+    H["Full hint first in the expanded part:<br/>«Батарей хэмнэх тохиргоо замчлалыг зогсоож болзошгүй. Утасны тохиргоонд батарейн хязгаарлалтыг унтраана уу.»<br/>«Хаах», «Тохиргоо нээх» — AC 26"]
+    E -- "«Эхлэх»" --> G
+    H -- "«Хаах»" --> SZ["Hint and entry row hidden; not shown again for 30 days<br/>(except once after a restore) — AC 26"]
     H -- "«Тохиргоо нээх»" --> SYS["System battery-optimisation settings<br/>(or the app's system details page) — AC 27"]
-    SYS -- "back, exemption granted" --> GONE["Hint gone ≤ 2 s; not shown while exempt — AC 27"]
+    SYS -- "back, exemption granted" --> GONE["Hint and entry row gone ≤ 2 s; not shown while exempt — AC 27"]
     SYS -- "back, still restricted" --> H
     H -- "«Эхлэх»" --> G["S5 guidance; the hint is never shown in guidance or over the lock screen"]
     ST["S7 «Тохиргоо»"] --> ROW["Row «Батарейн хязгаарлалт» + «Тохиргоо нээх» (always)<br/>B2 text under it only while restricted — AC 28"]

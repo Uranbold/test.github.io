@@ -5,7 +5,7 @@
 - **Delta on:** [`screens/NAV-005-android-navigation.md`](NAV-005-android-navigation.md) (S3, S5, S6, S7, S8) and the NAV-011 collapsed route-preview sheet ([`flows/NAV-011-…`](../flows/NAV-011-android-route-preview-search-parity.md) F3). Everything not named here stays as those specs say. NAV-005 itself is not edited (mid-flight rule); QA adapts the NAV-005 tests listed in the story Context table.
 - **Flow:** [`flows/NAV-012-android-background-lock-screen.md`](../flows/NAV-012-android-background-lock-screen.md) (F1–F10).
 - **Rules:** [`navigation-ux.md` §12](../navigation-ux.md) owns the timing and voice rules of this story (notification cadence, restore prompt, call catch-up, output changes); §9 and [`map-style.md` §8](../map-style.md) own the «Автомат» theme. This spec owns layout, components, states, interactions and copy.
-- **Prototype:** [`prototypes/NAV-012-background.html`](../prototypes/NAV-012-background.html) (1 CSS px = 1 dp): lock-screen guidance, restoring, restored (incl. the worst case), GPS lost while restoring, arrival over the lock screen, route preview with the battery hint, settings with the battery row (restricted / exempt), and 8 notification states. Hash example: `#state=restoring&theme=night&lang=mn&scale=1.3`. Checked by `prototypes/check-layout-nav012.mjs` (Evidence). No Figma file.
+- **Prototype:** [`prototypes/NAV-012-background.html`](../prototypes/NAV-012-background.html) (1 CSS px = 1 dp): lock-screen guidance, restoring, restored (incl. the worst case), GPS lost while restoring, arrival over the lock screen, route preview with the battery entry row (collapsed) and the hint (expanded), settings with the battery row (restricted / exempt), and 8 notification states. Hash example: `#state=restoring&theme=night&lang=mn&scale=1.3`. Checked by `prototypes/check-layout-nav012.mjs` (Evidence). No Figma file.
 - **Tokens:** [`tokens.json`](../tokens.json) v0.6.0 adds two durations: `motion.nav-resumed-notice` (3 s) and `motion.theme-auto-hold` (10 min). No new colours: every surface reuses NAV-005 tokens and contrast pairs.
 - **Architecture:** no API change. Design questions B-A1–B-A8 go to the architect (ADR-0009 amendment or a new ADR). Where this spec depends on an answer it says so (B-A1 restore without a request, B-A2 silent restart, B-A5 notification template, B-A7 lock-screen flags).
 
@@ -28,12 +28,12 @@ Calls, Bluetooth routing, volume keys and swipe-away have **no new UI**: the des
 ### Alternatives considered
 | Decision | Options explored | Chosen and why |
 |---|---|---|
-| **Notification layout** (N1) | (a) Standard template + `BigTextStyle`: title = distance, text = instruction, expanded adds street and «Хүрэх цаг»; manoeuvre as large icon. (b) Custom `RemoteViews` (`DecoratedCustomViewStyle`) copying the banner. (c) NAV-005 S8: title = instruction, text = distance · street | **(a).** Google Maps / Waze pattern (Jakob). The distance is short, so the title never truncates (measured: 0 clipped distance titles in 144 renders); the instruction gets the text line. States without a distance (recalculating, GPS lost, restoring, arrival) have **no title**: their sentence goes in the 14 sp text line, where «Маршрутыг дахин тооцоолж байна» fits completely at 360 dp (as a 16 sp bold title it was shortened, measured). The bold title line only ever holds a number. The system draws it, so OEM skins, the dark shade, font scale and TalkBack work without our code. (b) has a 48 dp collapsed height limit on Android 12+ and renders differently per OEM. (c) puts the longest string in the boldest single line: «Баруун талын гарах зам руу эргэнэ үү» lost its end at 360 dp and pushed the distance to line 2 |
+| **Notification layout** (N1) | (a) Standard template + `BigTextStyle`: title = distance, text = instruction, expanded adds street and «Хүрэх цаг»; manoeuvre as large icon. (b) Custom `RemoteViews` (`DecoratedCustomViewStyle`) copying the banner. (c) NAV-005 S8: title = instruction, text = distance · street | **(a).** Google Maps / Waze pattern (Jakob). The distance is short, so the title never truncates (measured: 0 clipped distance titles in 144 renders); the instruction gets the text line. States without a distance use a short status as the title, as AC 2 asks («Маршрутыг дахин тооцоолж байна», «GPS дохио тасарлаа», «Ачаалж байна…»); only the arrival sentence goes in the text line, because it wraps there in the expanded card. The system draws it, so OEM skins, the dark shade, font scale and TalkBack work without our code. (b) has a 48 dp collapsed height limit on Android 12+ and renders differently per OEM. (c) puts the longest string in the boldest single line: at 360 dp the 16 sp title holds fewer characters than the 14 sp text line (the 30-character recalculating title was already shortened in the wireframe), so long instructions lose more of their end, and the distance moves to the smaller second line |
 | **Restore entry** (R1) | (a) Resume automatically with the «Замчлал сэргэлээ» notice. (b) Ask first with «Үргэлжлүүлэх» / «Дуусгах». (c) Resume silently | **(a)**, story working assumption (Open question 5). No question while the driver may be moving; «Дуусгах» is one tap away. (c) would leave the driver unsure why guidance is on |
 | **Banner before the first fix after a restore** | (a) Neutral banner «Ачаалж байна…» and a progress skeleton, camera on the stored route, no puck. (b) Show the stored route's first manoeuvre. (c) Map screen with a spinner until a fix | **(a).** (b) can show a turn the driver has already passed (dangerous). (c) loses the "guidance is back" context (Zeigarnik) and needs a second screen change. (a) reuses the grey "system working" banner variant, so it reads like recalculating (similarity) |
 | **Restore notice placement** | (a) Status area RS (same component as «GPS дохио сэргэлээ»). (b) Snackbar at the bottom. (c) Second line of the banner | **(a).** (b) covers the progress panel and «Дуусгах». (c) mixes a status with the instruction. RS already holds short timed statuses |
-| **Battery hint placement** (H1) | (a) Row inside the preview sheet after the summary. (b) Floating card at the top of the map. (c) Dialog after «Эхлэх». (d) Message during guidance | **(a).** (b) measured: on 360×640 the map between the card and the sheet fell below 20 dp and the card overlapped the sheet at 200 %. (c) blocks «Эхлэх» (AC 26 forbids). (d) is forbidden (AC 26) and unsafe. In (a) the summary and «Эхлэх» stay visible at every measured scale on 360×640 |
-| **Battery hint shape** | (a) Text full width, icon and actions in one bottom row. (b) Icon column + text + actions row (NAV-005 message card) | **(a)**: 128 dp instead of 164 dp at 360 dp (measured), which gives the route map 36 dp more (111 dp instead of 75 dp above the collapsed sheet) |
+| **Battery hint placement** (H1) | (a) Full hint in the NAV-011 collapsed sheet after the summary. (b) Floating card at the top of the map. (c) Dialog after «Эхлэх». (d) Message during guidance. (e) **One-line entry row** «Батарейн хязгаарлалт» in the collapsed sheet; the full hint first in the expanded part (progressive disclosure) | **(e).** Measured on 360×640 at 100 %: (a) needs about 128 dp more than NAV-011's 60 % cap allows, leaving about 100 dp of map instead of the ≥ 160 dp of NAV-011 P3 (wireframe run 3: 112 dp with the hint already scrolling), on **every** preview until the user dismisses it (many users never will), which also breaks tapping alternative lines (NAV-011 AC 17). (b) costs the same height as (a) above the sheet (a ≈ 130 dp card) and breaks NAV-005 Layout rule 7 (preview messages live in the sheet); with the NAV-005 sheet it left < 20 dp of map in the first wireframe run. (c) blocks «Эхлэх» (AC 26 forbids). (d) forbidden and unsafe. (e) keeps NAV-011 P2/P3 intact (sheet 59 %, 206 dp of map) and the full B2 text is one tap away. Trade-off: B2 is not on screen until the row is tapped or the sheet dragged up, so AC 26 is met in the expanded sheet (open question in the handoff) |
+| **Full hint shape** (expanded) | (a) Text full width, icon and actions in one bottom row. (b) Icon column + text + actions row (NAV-005 message card) | **(a)**: 128 dp instead of 164 dp at 360 dp (measured), so it fits the expanded sheet at 100 % without scrolling |
 | **Lock-screen view** (L1) | (a) The full S5 over the lock screen, unchanged. (b) A reduced lock-screen card (banner only). (c) Notification only | **(a).** AC 8 asks for banner, map, progress and controls; one layout to learn (consistency), Google Maps behaves this way. (b) is a second guidance layout to build and test |
 | **«Тохиргоо» over the lock screen** | (a) Visible; tapping asks to unlock first. (b) Hidden over the lock screen | **(a)**: the layout does not jump when the phone locks; AC 9 names the unlock prompt for it |
 | **S7 battery row** (H2) | (a) M3 list item: icon, headline B1, supporting text B2 (while restricted), text button «Тохиргоо нээх» below. (b) Trailing button on the same line. (c) Whole row tappable without a button | **(a).** In (b) B2 wraps to 8+ lines in the narrow text column at 360 dp. (c) hides the action (recognition over recall) and AC 28 names the button |
@@ -45,7 +45,7 @@ Calls, Bluetooth routing, volume keys and swipe-away have **no new UI**: the des
 | N2 | Interrupted notification «Замчлал тасарлаа» | Standard template, channel «Замчлал» | 22 |
 | L1 | S5 guidance and S6 arrival over the lock screen | NAV-005 S5/S6 layout, shown when locked | 8–12, 34 |
 | R1 | S5 restoring and restored states | NAV-005 S5 regions with new state content | 18–20, 23 |
-| H1 | Battery hint in the route preview sheet | Inline row in the NAV-011 sheet | 26, 27, 30 |
+| H1 | Battery entry row (collapsed) and battery hint (expanded) in the route preview sheet | NAV-011 sheet: list row + inline card | 26, 27, 30 |
 | H2 | «Батарейн хязгаарлалт» row in S7 | M3 list item with action | 27, 28 |
 | T1 | «Автомат» theme option (meaning only) | NAV-005 S7 radio row | 40–44 |
 
@@ -99,35 +99,39 @@ R1 restoring (no fix yet)             R1 restored (on route)               L1 ar
 ```
 L1 guidance is S5 exactly; the only difference is the system lock glyph in the status bar (drawn by the OS, not by us).
 
-### H1 battery hint in the NAV-011 collapsed preview sheet, H2 S7 battery row
+### H1 battery entry row and hint in the NAV-011 preview sheet, H2 S7 battery row
 ```
-H1 (360×640, mn, 100 %)                    H2 S7 «Тохиргоо» (scrolled to the end)
-┌──────────────────────────────────┐       ┌──────────────────────────────────┐
-│  (map, route fitted above sheet) │       │ ...                              │
-│ ┌──────────────────────────────┐ │       │ Дуут заавар                 (●)  │
-│ │            ───               │ │       │──────────────────────────────────│
-│ │ Маршрут харах            [✕] │ │       │ ▯  Батарейн хязгаарлалт          │
-│ │ Зайсан толгой                │ │       │    Батарей хэмнэх тохиргоо        │
-│ │ [Машин] [Явган] [Дугуй]      │ │       │    замчлалыг зогсоож болзошгүй.   │
-│ │ 13 мин · 4,6 км              │ │       │    Утасны тохиргоонд батарейн     │
-│ │ Хүрэх цаг 14:03              │ │       │    хязгаарлалтыг унтраана уу.     │
-│ │┌────────────────────────────┐│ │       │    [Тохиргоо нээх]                │
-│ ││Батарей хэмнэх тохиргоо     ││ │       │                                  │
-│ ││замчлалыг зогсоож болзошгүй.││ │       │ (exempt: no supporting text,     │
-│ ││Утасны тохиргоонд батарейн  ││ │       │  neutral battery icon)           │
-│ ││хязгаарлалтыг унтраана уу.  ││ │       └──────────────────────────────────┘
-│ ││ ▯          Хаах  Тохиргоо нээх│ │
-│ │└────────────────────────────┘│ │
-│ │ [▶          Эхлэх          ] │ │
-│ └──────────────────────────────┘ │
-│ © OpenStreetMap contributors     │
-└──────────────────────────────────┘
+H1 collapsed (360×640, mn, 100 %)        H1 expanded (after a tap on the row)      H2 S7 «Тохиргоо» (scrolled to the end)
+┌──────────────────────────────────┐     ┌──────────────────────────────────┐     ┌──────────────────────────────────┐
+│  (map, routes fitted above the   │     │  (map)                           │     │ ...                              │
+│   collapsed sheet, 206 dp)       │     │┌────────────────────────────────┐│     │ Дуут заавар                 (●)  │
+│                                  │     ││              ───               ││     │──────────────────────────────────│
+│┌────────────────────────────────┐│     ││ Маршрут харах              [✕] ││     │ ▯  Батарейн хязгаарлалт          │
+││              ───               ││     ││ Зайсан толгой                  ││     │    Батарей хэмнэх тохиргоо        │
+││ Маршрут харах              [✕] ││     ││ [Машин] [Явган] [Дугуй]        ││     │    замчлалыг зогсоож болзошгүй.   │
+││ Зайсан толгой                  ││     ││ Маршрут 1                      ││     │    Утасны тохиргоонд батарейн     │
+││ [Машин] [Явган] [Дугуй]        ││     ││ 13 мин · 4,6 км                ││     │    хязгаарлалтыг унтраана уу.     │
+││ Маршрут 1                      ││     ││ Хүрэх цаг 14:03                ││     │    [Тохиргоо нээх]                │
+││ 13 мин · 4,6 км                ││     ││┌──────────────────────────────┐││     │                                  │
+││ Хүрэх цаг 14:03                ││     │││Батарей хэмнэх тохиргоо       │││     │ (exempt: no supporting text,     │
+││┌──────────────────────────────┐││     │││замчлалыг зогсоож болзошгүй.  │││     │  neutral battery icon)           │
+│││ ▯! Батарейн хязгаарлалт    ⌃ │││     │││Утасны тохиргоонд батарейн    │││     └──────────────────────────────────┘
+││└──────────────────────────────┘││     │││хязгаарлалтыг унтраана уу.    │││
+││ [▶          Эхлэх            ] ││     │││ ▯          Хаах  Тохиргоо нээх│││
+│└────────────────────────────────┘│     ││└──────────────────────────────┘││
+├──────────────────────────────────┤     ││ (NAV-011 lower part: routes,   ││
+│ © OpenStreetMap contributors     │     ││  avoid switch, points … scroll)││
+└──────────────────────────────────┘     ││ [▶          Эхлэх            ] ││
+                                         │└────────────────────────────────┘│
+                                         │ © OpenStreetMap contributors     │
+                                         └──────────────────────────────────┘
 ```
+Wide windows (NAV-011 P5 side sheet, always expanded): no entry row; the full hint is the first item after the summary in the side sheet's scroll.
 
 ### Layout rules (new; NAV-005 Layout rules 1–7 apply unchanged)
 8. **Status-area priority** (RS, max 2 messages, NAV-005 Layout rule 4): (1) «GPS дохио тасарлаа» / «GPS дохио сэргэлээ», (2) «Замчлал сэргэлээ», (3) «Интернэт холболт алга». If two messages would leave less than the minimum map band (150 dp at font scale 100 %, 80 dp above), only the higher-priority one shows. Measured: on 360×640 the restored worst case (Then strip + «Замчлал сэргэлээ» + offline + recenter) shows one message (band 204 dp at 100 %); on 412×915 both show.
 9. **Restoring has no puck and no recenter**: there is no position yet. The camera fits the stored route into the uncovered map area (padding = NAV-005 Layout rule 2). On the first good fix the camera switches to the follow camera within 1 s (NAV-005 §8 easing).
-10. **The battery hint sits after the summary and before the pinned «Эхлэх»**, inside the sheet's scroll content, in the collapsed and the expanded sheet. «Эхлэх» is pinned and always fully visible; the summary must be visible without scrolling at font scale 100 % and 130 % on 360×640 and larger; the whole hint at 100 %. Above that the hint scrolls inside the sheet (its first line stays visible). The camera padding includes the taller sheet (NAV-011 camera rule).
+10. **Battery hint in the NAV-011 sheet; NAV-011 P1–P5 stay intact.** Collapsed: a one-line **entry row** (48 dp, inside the summary region, after «Хүрэх цаг», before the pinned «Эхлэх») — it belongs to the part that never scrolls (P2), so at large font scales the top part gives way first, as NAV-011 designs. With the row, the collapsed sheet must still meet P3 (≤ 60 % of the area above R5; map ≥ 160 dp at 100 % and ≥ 96 dp above on ≥ 360×640; header and tabs not scrolling at 100 %). Expanded: the **full hint** is the first item of the lower part (before «Маршрут сонгох», the avoid switch and the points block) and is fully visible at 100 % on 360×640 without scrolling. Wide windows: the full hint follows the summary in the side sheet. Tapping the row expands the sheet (NAV-011 P4 drag animation, 250 ms) with the hint in view; TalkBack users get the expanded sheet anyway (NAV-011 P4).
 11. **Nothing of the app other than S5/S6 is ever drawn over the lock screen.** Sheets (S7) close when the screen turns off. Over the lock screen, any action that would show another app screen goes through the OS unlock prompt first (B-A7).
 12. **The notification is never the only place a state is shown**: every N1 state equals the banner state of the same moment (AC 2), so the screen, the lock screen and the notification never disagree.
 
@@ -144,7 +148,8 @@ Unchanged from NAV-005 ([ADR-0009](../../architecture/adr/0009-android-guidance-
 | **Restoring banner** (R1) | Custom `NavBanner`, new variant `restoring` | Same look as the recalculating variant (grey `nav.banner-reroute`, night outline): icon `location_searching` 56 dp, text «Ачаалж байна…» (`nav-instruction`), no distance, no street, no Then strip. Semantics `variant` = `restoring` (QA hook). TalkBack live region announces it once |
 | **Restoring progress panel** (R1) | `TripProgressPanel` | Left side: two skeleton bars (`ui.surface-container`, night `ui.outline-variant`, 4 dp radius, decorative, static: no shimmer, so reduced-motion needs nothing). «Тохиргоо» and «Дуусгах» are active. TalkBack node: «Ачаалж байна…». Real values replace the skeleton on the first good fix (AC 19) |
 | **Restore notice** (R1) | NAV-005 status message, `kind` = `resumed` | «Замчлал сэргэлээ» (B3), info icon, `motion.nav-resumed-notice` 3 s, polite live region, not tappable, Layout rule 8 priority 2 |
-| **Battery hint** (H1) | Custom inline card in the sheet | `ui.surface-container` card, `radius.md` 12 dp, 16 dp side margins, padding 12/12/4/16. Text B2 (`body` 14/20, `ui.on-surface`, full width, wraps, never truncated). Bottom row: battery-alert icon 24 dp (`ui.on-surface-variant`, decorative) at the start, then text buttons «Хаах» and «Тохиргоо нээх» (48 dp, `ui.primary`) at the end; the buttons wrap under each other if they do not fit. Semantics: a container node with the text, then the two buttons. Test tag `battery-hint` |
+| **Battery entry row** (H1, collapsed) | Custom list row (M3 list-item look), one button | 48 dp min, full sheet width − 32 dp, `ui.surface-container`, `radius.md` 12 dp. Leading `battery_alert` 24 dp in `ui.error`; label «Батарейн хязгаарлалт» (B1, `body` 14/20, `ui.on-surface`, wraps at large scales, never truncated); trailing `expand_less` 24 dp (decorative: the row opens the sheet). Accessible name = the label; role button; TalkBack action label: the system default. Test tag `battery-entry` |
+| **Battery hint** (H1, expanded and wide) | Custom inline card, first item of the lower part | `ui.surface-container` card, `radius.md` 12 dp, 16 dp side margins, padding 12/12/4/16. Text B2 (`body` 14/20, `ui.on-surface`, full width, wraps, never truncated). Bottom row: battery icon 24 dp (`ui.on-surface-variant`, decorative) at the start, then text buttons «Хаах» and «Тохиргоо нээх» (48 dp, `ui.primary`) at the end; the buttons wrap under each other if they do not fit. Semantics: a container node with the text, then the two buttons. Test tag `battery-hint` |
 | **Battery row** (H2) | M3 list item with an action, in S7 after the «Дуут заавар» row | Leading icon 24 dp: `battery_alert` in `ui.error` while restricted, `battery_full` in `ui.on-surface-variant` when exempt (the icon is never the only signal: the supporting text appears only while restricted). Headline «Батарейн хязгаарлалт» (`body-large`). Supporting text B2 (`body`, `ui.on-surface-variant`) while restricted. Text button «Тохиргоо нээх» (48 dp) below, aligned with the text. Divider above. Test tag `settings-battery` |
 | **Theme radio «Автомат»** (T1) | NAV-005 S7 | Unchanged look and copy. Meaning: sunrise/sunset (navigation-ux §9). No supporting line yet (no glossary term; request in the handoff) |
 | **S5 over the lock screen** (L1) | NAV-005 S5 / S6 | Unchanged components. The window shows over the lock screen only while guidance or its arrival panel is active (B-A7). Volume keys control the prompt stream while S5 is visible (AC 34) |
@@ -154,14 +159,14 @@ Unchanged from NAV-005 ([ADR-0009](../../architecture/adr/0009-android-guidance-
 |---|---|---|---|---|---|---|
 | Manoeuvre | manoeuvre | distance | instruction / + street | «Хүрэх цаг 14:35» | «Дууг хаах» or «Дууг нээх», «Дуусгах» | `nav.banner` |
 | Then pair | manoeuvre of *k* | distance | instruction of *k* (no Then line: a notification shows one manoeuvre, Miller) | ETA | same | same |
-| Recalculating | none | none | «Маршрутыг дахин тооцоолж байна» (the banner's secondary failure line is not copied: no tap is possible from it) | none (ETA is stale) | same | `nav.banner-reroute` |
-| GPS lost | none | none | «GPS дохио тасарлаа» / big text + line break + last instruction (still the next manoeuvre; no distance) | none (frozen) | same | `nav.banner` |
+| Recalculating | none | «Маршрутыг дахин тооцоолж байна» (AC 2) | none (the banner's secondary failure line is not copied: no tap is possible from it) | none (ETA is stale) | same | `nav.banner-reroute` |
+| GPS lost | none | «GPS дохио тасарлаа» | last instruction (still the next manoeuvre; no distance) | none (frozen) | same | `nav.banner` |
 | Arrival | flag | none | arrival text exactly as the banner («Таны очих газар баруун талд байна» / «Та очих газартаа ирлээ») | none | none (guidance has ended) | `nav.banner` |
-| Restoring | none | none | «Ачаалж байна…» | none | same | `nav.banner-reroute` |
+| Restoring | none | «Ачаалж байна…» | none | none | same | `nav.banner-reroute` |
 | Muted | as the state | as the state | as the state | as the state | «Дууг нээх» instead of «Дууг хаах» | as the state |
 | Public version (lock screen, content hidden by the user) | none | «Замчлал» | none | none | none | not colourised |
 
-Rule: the bold **title** is used only for a distance (and for the fixed words «Замчлал» / «Замчлал тасарлаа»); every sentence goes in the text line. Text and big text are the same string except where the table adds a second line.
+Rule: the bold **title** holds the distance or a short status; the arrival sentence (up to 33 characters next to the 48 dp flag) goes in the text line, which wraps in the expanded card. Text and big text are the same string except where the table adds a second line.
 
 ## States
 Every surface's default, loading, empty, error, offline, GPS-lost, permission, first-use and slow-network state. The static web demo (NAV-017) is not affected: this story is Android only, so it has no "unavailable in the demo" state.
@@ -170,7 +175,7 @@ Every surface's default, loading, empty, error, offline, GPS-lost, permission, f
 | State | What the user sees | AC |
 |---|---|---|
 | Default | N1 manoeuvre row of the table above | 1 |
-| Loading (restoring, before the first fix) | Text «Ачаалж байна…», grey card | 18 |
+| Loading (restoring, before the first fix) | Title «Ачаалж байна…», grey card | 18 |
 | Offline | Unchanged on the route; off-route offline = recalculating title (the banner's offline line is not copied) | 20 |
 | GPS lost | «GPS дохио тасарлаа» + last instruction | 2 |
 | Error (reroute failing) | Recalculating title, as long as the banner is recalculating | 2 |
@@ -206,11 +211,11 @@ All NAV-005 S5/S6 states apply unchanged (on route, Then, off-route, reroute fai
 ### H1 battery hint and H2 settings row
 | State | H1 (route preview) | H2 (S7 row) | AC |
 |---|---|---|---|
-| Restricted, first time | Hint after the summary | Row + B2 text + `battery_alert` icon | 26, 28 |
-| Restricted, dismissed < 30 days ago | No hint | Row + B2 text | 26, 28 |
-| Restricted, after a restore | Hint once, even if dismissed | Row + B2 text | 26 |
-| Exempt | No hint (disappears ≤ 2 s after returning from settings) | Row without B2, neutral icon | 27, 28 |
-| Preview without a route (loading, error, offline, no route, location problem) | No hint (only with a route) | — | 26 |
+| Restricted, first time | Collapsed: entry row «Батарейн хязгаарлалт»; expanded / wide: full hint first in the lower part | Row + B2 text + `battery_alert` icon | 26, 28 |
+| Restricted, dismissed < 30 days ago | No entry row, no hint | Row + B2 text | 26, 28 |
+| Restricted, after a restore | Entry row and hint once, even if dismissed | Row + B2 text | 26 |
+| Exempt | No entry row, no hint (both disappear ≤ 2 s after returning from settings; the collapsed sheet shrinks back to the NAV-011 height) | Row without B2, neutral icon | 27, 28 |
+| Preview without a route (loading, error, offline, no route, location problem) | No entry row, no hint (only with a route) | — | 26 |
 | During guidance / over the lock screen | Never | S7 reachable from guidance: the row shows as usual | 26 |
 | No battery-optimisation settings screen on the phone | «Тохиргоо нээх» opens the app's system details page | same | 27 |
 | Offline / GPS lost | The hint is local; unaffected | unaffected | — |
@@ -226,7 +231,7 @@ No visible states besides day and night. Position unknown → P1 (no message: th
 - **Swipe-away from Recents:** nothing visible changes; guidance continues (AC 13). Reopening → S5 (AC 14). *Replaces the NAV-005 interaction "guidance ends within 5 s".*
 - **Opening the app after an interruption:** straight into R1 (no S1 flash: the launch route decides before the first frame) (AC 18).
 - **R1 «Дуусгах»:** ends the restored guidance like any guidance (NAV-005 AC 19), record deleted.
-- **H1 «Хаах»:** the hint collapses (150 ms fade, `motion.duration-short`; reduced motion: instant), the sheet shrinks and the camera refits (AC 26). **«Тохиргоо нээх»:** system battery settings (AC 27). **«Эхлэх»:** one tap, unaffected by the hint.
+- **H1 entry row tap:** expands the sheet (NAV-011 P4) with the full hint in view. **Hint «Хаах»:** the hint and the entry row disappear (150 ms fade, `motion.duration-short`; reduced motion: instant); the sheet stays expanded until the user collapses it, and the collapsed sheet returns to the NAV-011 height (AC 26). **«Тохиргоо нээх»:** system battery settings (AC 27). **«Эхлэх»:** one tap from the collapsed or the expanded sheet, unaffected by the hint.
 - **H2 «Тохиргоо нээх»:** same target as H1 (AC 27, 28).
 - **Volume keys while S5 / L1 is visible:** prompt volume (AC 34); the system volume panel shows as usual.
 - **No new gesture and no text input** anywhere in this story.
@@ -263,16 +268,16 @@ Every `mn` value is a glossary term. New keys use rows **B1–B5** (glossary sec
 **Glossary row for `theme_auto`:** its Definition still says "follows the phone's system dark-theme setting". Under Open question 4 (a) the BA updates the definition (no wording change); request in the handoff.
 
 ### Length notes
-B2 is the longest new string (107 characters mn, 89 en): 3 lines in the hint and in the S7 row at 360 dp and 100 % (measured). B4 «Замчлал тасарлаа» and "Navigation was interrupted" ellipsise in the notification title only at font scale 200 % on 360 dp (system template). The longest instruction in the **collapsed** notification shows 28 of 36 characters at 360 dp / 100 % («Баруун талын гарах зам руу…»), all 36 at 412 dp; every instruction of 28 characters or fewer is complete (Known limitations 1). «Маршрутыг дахин тооцоолж байна» (30) is complete in the collapsed card at 360 dp / 100 %; the arrival side variant «Таны очих газар баруун талд байна» shows 28 of 33 next to the flag (complete at 412 dp).
+B2 is the longest new string (107 characters mn, 89 en): 3 lines in the hint and in the S7 row at 360 dp and 100 % (measured). B4 «Замчлал тасарлаа» and "Navigation was interrupted" ellipsise in the notification title only at font scale 200 % on 360 dp (system template). The longest instruction in the **collapsed** notification shows 28 of 36 characters at 360 dp / 100 % («Баруун талын гарах зам руу…»), all 36 at 412 dp; every instruction of 28 characters or fewer is complete (Known limitations 1). The title «Маршрутыг дахин тооцоолж байна» (30) needs 259 dp where the 360 dp card offers 256 dp in the wireframe (Liberation Sans, slightly wider than Roboto): borderline, real-device check; it fits at 412 dp; the arrival side variant «Таны очих газар баруун талд байна» shows 28 of 33 next to the flag (complete at 412 dp).
 
 ## Accessibility
 - **TalkBack, N1:** the system reads title, text and actions; the large icon is decorative (no content description). The distance title is read with the unit («300 м» → "300 метр" by the TTS engine). The public version reads «Замчлал».
 - **TalkBack, R1:** the restoring banner is a polite live region («Ачаалж байна…»), then the manoeuvre announcement replaces it once (NAV-005 AC 62 rule: once per instruction change). The restore notice is a polite live region. Nothing is assertive.
-- **TalkBack, H1:** reading order summary → hint text → «Хаах» → «Тохиргоо нээх» → «Эхлэх». The hint is not a live region (it appears with the route; no extra announcement during planning).
+- **TalkBack, H1:** NAV-011 opens the sheet expanded when TalkBack is on, so TalkBack users meet the full hint directly: reading order summary → hint text → «Хаах» → «Тохиргоо нээх» → lower part → «Эхлэх». The hint is not a live region (it appears with the route; no extra announcement during planning). The collapsed entry row reads «Батарейн хязгаарлалт», button.
 - **TalkBack, L1:** as S5. When the unlock prompt appears, focus moves to the system prompt; on cancel it returns to «Тохиргоо».
 - **Touch targets:** notification actions are system buttons (≥ 48 dp tall on Android 12+); every app control ≥ 48 × 48 dp with ≥ 8 dp between targets (gloves in winter; measured by the checker).
 - **Contrast:** no new colour pairs. Restoring banner = NAV-005 recalculating pairs (≥ 4.5:1 day and night); hint text `ui.on-surface` on `ui.surface-container` and S7 texts reuse checked pairs; `ui.error` icon on `ui.surface` ≥ 3:1. The colourised notification uses `nav.banner` (white text 6.5:1 day; the system picks the text colour) and stays readable where an OEM ignores colourisation (system colours). `check-contrast.mjs`: all pairs pass.
-- **Dynamic type:** S5 overlay caps unchanged (1.3, distance 1.2). The hint and S7 scale uncapped and wrap. Notifications follow the system font scale (system template).
+- **Dynamic type:** S5 overlay caps unchanged (1.3, distance 1.2). The entry row, the hint and S7 scale uncapped and wrap. Notifications follow the system font scale (system template).
 - **Reduced motion:** the hint dismiss and the theme cross-fade are instant; the skeleton never animates.
 - **Colour is never the only signal:** restoring = grey **and** its own icon **and** text; restricted = red icon **and** the B2 text.
 - **No time limits** beyond the informational 3 s notice; the banner and voice carry the guidance.
@@ -280,14 +285,14 @@ B2 is the longest new string (107 characters mn, 89 en): 3 lines in the hint and
 ## Design rationale
 | UX law / heuristic | How this design applies it | Deliberate trade-off |
 |---|---|---|
-| **Fitts's law** | «Дуусгах» and voice keep their NAV-005 places over the lock screen; the hint's buttons are 48 dp and away from «Эхлэх» (separate card, 16 dp+ gap); notification actions use the system's large buttons | The hint costs map height in the preview (111 dp left above the sheet at 360×640) while it shows |
-| **Hick's law** | Restore asks nothing (no choice while driving); the hint offers exactly two actions; the notification two | Resuming automatically removes the "don't resume" choice; «Дуусгах» is the one-tap exit |
+| **Fitts's law** | «Дуусгах» and voice keep their NAV-005 places over the lock screen; the entry row and the hint's buttons are 48 dp and separated from «Эхлэх» (8 dp+ gap, different look); notification actions use the system's large buttons | The entry row costs 48 dp of map in the collapsed preview while the app is restricted (206 dp left at 360×640, NAV-011 P3 still met) |
+| **Hick's law** | Restore asks nothing (no choice while driving); the collapsed sheet gains one row, not three controls (progressive disclosure); the hint offers exactly two actions; the notification two | Resuming automatically removes the "don't resume" choice; «Дуусгах» is the one-tap exit |
 | **Miller's law** | The notification carries one manoeuvre, one distance, one street (no Then line); ETA goes to the header | The notification shows less than the banner on purpose |
 | **Jakob's law** | Google Maps notification pattern (distance as title, manoeuvre icon, coloured card, end action); full guidance over the lock screen; automatic dark map at night | — |
 | **Doherty threshold** | Restore shows a guidance screen ≤ 3 s with a skeleton instead of a blank or spinner; the notification follows the banner ≤ 1 s; voice toggle ≤ 1 s | The skeleton shows no numbers until the first fix (correctness over a fast wrong number) |
-| **Gestalt (similarity, common region)** | Restore notice = status message component; restoring banner = recalculating look ("the system is working"); hint = one card with its own actions | — |
-| **Von Restorff** | Only the manoeuvre stands out; the hint is a quiet `surface-container` card so the route and «Эхлэх» stay the focal point | A quiet hint is easier to ignore; it returns after a restore, when it matters most |
-| **Serial position** | The hint sits last before «Эхлэх» in the reading order; the S7 battery row is the last item | The S7 row needs scrolling on 360×640 |
+| **Gestalt (similarity, common region)** | Restore notice = status message component; restoring banner = recalculating look ("the system is working"); hint = one card with its own actions; entry row and S7 row share the label and the icon | — |
+| **Von Restorff** | Only the manoeuvre stands out; the entry row and the hint are quiet `surface-container` cards (only the small warning icon is red) so the route and «Эхлэх» stay the focal point | A quiet hint is easier to ignore; it returns after a restore, when it matters most |
+| **Serial position** | The entry row sits last before «Эхлэх»; in the expanded sheet the hint is the first item after the summary; the S7 battery row is the last item | The S7 row needs scrolling on 360×640 |
 | **Tesler's law** | The system absorbs the complexity: restore, call catch-up, output switching, sun times, crash-loop limit; the user sets nothing | Automatic «Автомат» replaces the system dark-theme behaviour (Open question 4) |
 | **Peak–end rule** | Arrival over the lock screen ends cleanly on the phone's lock screen; an interrupted trip ends with "guidance is back" instead of a dead end | — |
 | **Goal-gradient** | Optional Android 16 progress style shows distance travelled; ETA in the header | Optional, depends on B-A5 |
@@ -295,7 +300,7 @@ B2 is the longest new string (107 characters mn, 89 en): 3 lines in the hint and
 | **Postel's law** | Accepts any output (A2DP, wired, USB, phone speaker) and any call type (cellular, VoIP) without settings | HFP-only car kits get the phone speaker (out of scope) |
 | **Aesthetic–usability / prägnanz** | No new colours, no new components beyond one card and one banner variant | — |
 
-Nielsen heuristics checked: **visibility of system status** (restore notice, restoring banner, the notification mirrors the banner); **match with the real world** (glossary terms only; no Android jargon in the UI); **user control and freedom** («Дуусгах» everywhere, hint dismissable, unlock-cancel returns to S5); **consistency** (NAV-005 components and tokens); **error prevention** (no restored stale manoeuvre, crash-loop limit, no settings over the lock screen); **recognition over recall** (S7 row always present for the battery fix); **flexibility** (notification actions for experts, automatic defaults for novices); **minimalist design** (one manoeuvre in the notification); **recover from errors** (N2 tells what happened and what to do); **help** (inline hint; README for OEM steps). Design changes the review and the checker forced: the hint moved from a top card into the sheet, the hint icon moved into the action row, status-area priority 2 went to the restore notice, and sentences left the notification title (the recalculating title was shortened at 360 dp; as text it fits).
+Nielsen heuristics checked: **visibility of system status** (restore notice, restoring banner, the notification mirrors the banner); **match with the real world** (glossary terms only; no Android jargon in the UI); **user control and freedom** («Дуусгах» everywhere, hint dismissable, unlock-cancel returns to S5); **consistency** (NAV-005 components and tokens); **error prevention** (no restored stale manoeuvre, crash-loop limit, no settings over the lock screen); **recognition over recall** (S7 row always present for the battery fix); **flexibility** (notification actions for experts, automatic defaults for novices); **minimalist design** (one manoeuvre in the notification); **recover from errors** (N2 tells what happened and what to do); **help** (inline hint; README for OEM steps). Design changes the review and the checker forced: the hint moved from a top card into the sheet and then, measured against NAV-011's collapsed-sheet caps, behind a one-line entry row (progressive disclosure); the hint icon moved into the action row; status-area priority 2 went to the restore notice, and the arrival sentence moved from the notification title to the text line.
 
 ## Design notes (decisions inside the AC)
 1. **Distance as the notification title** (not the instruction): see Alternatives. AC 1 (b), (c) are both in the collapsed card; (c) may be shortened by the system at 360 dp (Known limitations 1).
@@ -309,9 +314,9 @@ Nielsen heuristics checked: **visibility of system status** (restore notice, res
 
 ## Known limitations (design, within the AC)
 1. **Collapsed notification at 360 dp**: instructions longer than about 28 characters are shortened by the system with "…" (measured 28/36 at 100 %, 20/36 at 130 %, 11/36 at 200 % for «Баруун талын гарах зам руу эргэнэ үү»). The distance and the manoeuvre icon are always visible, the expanded card and the lock-screen S5 show the full text. AC 1 asks that (c) is "visible" in the collapsed card: QA should read that as "present and starting visible" on the reference device, or the BA tightens the AC (open question in the handoff).
-2. **Font scale 130–200 % in the system template**: the collapsed text line is shortened earlier (recalculating 23/30 characters at 130 %, 14/30 at 200 % on 360 dp; the arrival side variant 28/33 already at 100 % next to the flag, but it lasts ≤ 10 s and the arrival panel and prompt carry it); «Замчлал тасарлаа» ellipsises at 200 %; action labels may be shortened by the system at 200 % on 360 dp. N2's whole card is the «Үргэлжлүүлэх» target, so the action is never only in a shortened label.
+2. **Long status titles and font scale 130–200 % in the system template**: the recalculating title is borderline at 360 dp / 100 % (259 of 256 dp in the wireframe) and is shortened at 130 % and above (AC 2 fixes it as the title; if the reference device shortens it at 100 %, the fallback is to move it to the text line, open question in the handoff); the arrival side variant shows 28/33 characters next to the flag at 100 % (it lasts ≤ 10 s and the arrival panel and prompt carry it); «Замчлал тасарлаа» ellipsises at 200 %; action labels may be shortened by the system at 200 % on 360 dp. N2's whole card is the «Үргэлжлүүлэх» target, so the action is never only in a shortened label.
 3. **N2 is silent** (channel «Замчлал» is LOW importance; a second, alerting channel would need a new glossary name). The driver may not notice it until the next look at the phone; opening the app restores anyway. Possible follow-up through the BA.
-4. **Route preview with the hint at 130 % and above on 360×640**: the map above the collapsed sheet is 40 dp at 130 % and none at 200 % (the sheet reaches its 80 % cap; that is a NAV-005/NAV-011 sheet property, the hint adds about 128–172 dp). The summary and «Эхлэх» stay visible; «Хаах» gives the space back.
+4. **B2 needs one tap in the collapsed preview**: the collapsed sheet shows only «Батарейн хязгаарлалт»; the explanation and «Хаах» / «Тохиргоо нээх» are in the expanded sheet (and directly on wide windows and with TalkBack). AC 26 says the hint "appears" on the route preview; whether the expanded sheet satisfies that is an open question for the BA (handoff). Expanded at 130 % and above on 360×640 the hint is partly below the fold of the lower part (the user scrolls it, as everything in the expanded part).
 5. **S7 battery row needs scrolling** on 360×640 (last item).
 6. **320 dp-wide phones above 100 %** are outside the design target (NAV-005 Known limitations 7, D66); the checker reports them as INFO, as in NAV-005.
 7. **Real-device behaviour** (OEM notification skins, lock-screen flags per API level, Bluetooth latency, VoIP detection) is not provable in a wireframe: AC 52 list.
@@ -341,13 +346,13 @@ Nielsen heuristics checked: **visibility of system status** (restore notice, res
 | 52 | Known limitations 7; Evidence (what the wireframe cannot show) |
 
 ## Evidence
-- `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node docs/design/prototypes/check-layout-nav012.mjs`: 4 viewports (360×640, 412×915, 320×568, 640×360 dp; 24 dp status bar, 48 dp 3-button navigation bar) × 17 states × day/night × mn/en × font scale 1.0/1.3/2.0 = **816 combinations, 0 problems in the design target** (2026-10-03, Liberation Sans). 138 INFO lines outside the target: 320×568 above 100 % (Known limitations 6) and notification action labels at 200 % (Known limitations 2).
+- `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node docs/design/prototypes/check-layout-nav012.mjs`: 4 viewports (360×640, 412×915, 320×568, 640×360 dp; 24 dp status bar, 48 dp 3-button navigation bar) × 18 states × day/night × mn/en × font scale 1.0/1.3/2.0 = **864 combinations, 0 problems in the design target** (2026-10-03, Liberation Sans). 142 INFO lines outside the target: 138 at 320×568 above 100 % (Known limitations 6) and 4 notification action labels at 200 % on 360×640 (Known limitations 2).
   - Minimum portrait map band in the guidance states: 360×640 **204 / 94 / 83 dp** at 100 / 130 / 200 % (rule 150 / 80 / 80); 412×915 421 / 345 / 334 dp. Banner instruction ≤ 2 lines at 360 and 412 dp, ≤ 3 at 320 dp and in landscape.
   - Status area: the restored worst case shows one message on 360×640 and two on 412×915 (Layout rule 8).
-  - Route preview with the hint (360×640): map above the collapsed sheet **111 dp** at 100 % (mn and en), 40 dp at 130 %, 0 at 200 %; summary visible at every scale; whole hint visible at 100 % and 130 %. 412×915: 386 / 315 / 55 dp (mn). Landscape: the sheet sits in the right column, the hint scrolls at every scale and the summary at 130 % and above (reported, not a rule; the map stays visible on the left).
-  - Collapsed notification, longest instruction: 28/36 characters at 360 dp 100 %, 36/36 at 412 dp; English "Take the exit on the right" complete up to 130 %. Recalculating text 30/30 at 360 dp 100 %; arrival side variant 28/33 (33/33 at 412 dp). Distance titles never clipped.
-  - The first run failed the 150 dp band on 360×640 in the restored worst case (146 dp with two messages): fixed by Layout rule 8 (only the higher-priority message shows). The first hint layout (icon column) was 164 dp tall and left 75 dp of map: changed to the full-width text with the icon in the action row (128 dp, 111 dp of map).
-- `--wide` stress run (DejaVu Sans): 42 problems, all at 360×640 with font scale 130–200 % in the restored states (status message against the control pair and recenter), the same pattern as the NAV-005 stress run; not a design target.
+  - Route preview (NAV-011 sheet model: collapsed composition copied from the NAV-011 wireframe, 274 dp at 360×640 without the row): collapsed with the entry row **59 % of the area above R5, 206 dp of map** at 100 % (P3: ≤ 60 %, ≥ 160 dp), 200 / 196 dp at 130 / 200 % (the top part scrolls there, NAV-011 P2); summary, entry row and «Эхлэх» visible at every scale; 412×915: 473 / 460 / 363 dp. Expanded: the full hint visible without scrolling at 100 % on 360×640 and up to 130 % on 412×915. Landscape side sheet: the hint follows the summary and needs a scroll at every scale (reported, not a rule).
+  - Collapsed notification, longest instruction: 28/36 characters at 360 dp 100 %, 36/36 at 412 dp; English "Take the exit on the right" complete up to 130 %. Recalculating title borderline at 360 dp 100 % (259/256 dp), fits at 412 dp; arrival side variant 28/33 (33/33 at 412 dp). Distance titles never clipped.
+  - Iterations the checker forced: (1) the restored worst case had a 146 dp band on 360×640 with two messages → Layout rule 8 (only the higher-priority message shows); (2) the first hint layout (icon column) was 164 dp tall → full-width text with the icon in the action row (128 dp); (3) modelled on the NAV-011 collapsed sheet, the full hint broke NAV-011 P3 (about 100 dp of map) → entry row + hint in the expanded part; (4) the arrival sentence beside the flag was shortened as a title → moved to the text line, where the expanded card wraps it.
+- `--wide` stress run (DejaVu Sans): 42 problems of 864, all at 360×640 with font scale 130–200 % in the restored states (status message against the control pair and recenter), the same pattern as the NAV-005 stress run; not a design target.
 - `node docs/design/prototypes/check-contrast.mjs`: all checks pass (no new colour pairs; two new duration tokens).
 - Mermaid: the 11 diagrams of the flow parse with Mermaid 11 (checked in a headless browser).
 - Timing budgets (AC 2–6, 8–10, 14, 18–19, 22, 27, 32, 36, 38, 42): stated here and in navigation-ux §12; measured by QA (Robolectric with fake clocks) and on the reference device (AC 52). Not measured by the wireframe.

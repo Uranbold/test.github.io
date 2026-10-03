@@ -138,7 +138,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
         val puck = g?.puck ?: return@LaunchedEffect
         if (!guiding || !ui.cameraFollowing) return@LaunchedEffect
         val headingUp = ui.orientation == Orientation.HEADING_UP
-        val z = CameraRules.zoom(g.speedMps * 3.6, g.trip.mode == TravelMode.WALK, followZoom)
+        val z = CameraRules.zoom(g.speedMps * 3.6, g.trip.mode != TravelMode.CAR, followZoom)
         followZoom = z
         val pad = CameraRules.padding(mapHeightPx.toDouble(), covered.top.toDouble(), covered.bottom.toDouble(), covered.left.toDouble(), 0.0, headingUp)
         c.follow(
