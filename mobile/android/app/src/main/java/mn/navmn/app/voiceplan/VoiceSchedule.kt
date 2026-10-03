@@ -42,6 +42,8 @@ object VoiceConstants {
     /** navigation-ux §4.4 «Дугуй»: chaining when the next manoeuvre is ≤ 60 m after this one. */
     const val CHAIN_BIKE_M = 60.0
     const val RESTORE_MIN_AHEAD_M = 20.0
+    /** NAV-012 AC 19, 38: the restore prompt and the call catch-up only for a manoeuvre ≥ 30 m ahead. */
+    const val RESUME_MIN_AHEAD_M = 30.0
     const val SPEED_WINDOW_MS = 5_000L
     /** §4.5: a waiting prompt that cannot start within 3 s of its trigger is dropped. */
     const val MAX_WAIT_MS = 3_000L
@@ -113,7 +115,8 @@ class VoiceScheduler(private val profile: VoiceProfile) {
     private val chainedAnnounced = HashSet<Pair<Int, Int>>()
     private var lastStep: Pair<Int, Int>? = null
 
-    private enum class CatchUp { REROUTE, RESTORE }
+    /** NAV-012: RESUME = a restored session's one prompt (AC 19); CALL = the catch-up after a call (AC 38). */
+    private enum class CatchUp { REROUTE, RESTORE, RESUME, CALL }
     private var pendingCatchUp: CatchUp? = null
 
     private val chainM get() = when (profile) {
@@ -177,6 +180,21 @@ class VoiceScheduler(private val profile: VoiceProfile) {
     /** §4.3: after «GPS дохио сэргэлээ», a catch-up if the upcoming manoeuvre had no prompt yet and is > 20 m ahead. */
     fun onGpsRestored() {
         pendingCatchUp = CatchUp.RESTORE
+    }
+
+    /**
+     * NAV-012 resume mode (ADR-0013 §3.4 step 5): a restored session has no depart and no "continue on" prompt; exactly
+     * one §4.3 catch-up for the next manoeuvre with the live distance if it is ≥ 30 m ahead. It replaces a pending
+     * GPS-restore catch-up, so the two are the same prompt, never two (navigation-ux §12.4).
+     */
+    fun onResumed() {
+        pendingCatchUp = CatchUp.RESUME
+        lastStep = null
+    }
+
+    /** NAV-012 AC 38: one catch-up after a call for the current next manoeuvre (the caller checked the conditions). */
+    fun onCallEnded() {
+        pendingCatchUp = CatchUp.CALL
     }
 
     data class Input(
@@ -253,6 +271,21 @@ class VoiceScheduler(private val profile: VoiceProfile) {
         pendingCatchUp?.let { catchUp ->
             pendingCatchUp = null
             if (catchUp == CatchUp.RESTORE && (id in spoken || d <= VoiceConstants.RESTORE_MIN_AHEAD_M)) return@let
+            if (catchUp == CatchUp.RESUME || catchUp == CatchUp.CALL) {
+                // NAV-012 AC 19 / AC 38: exactly one prompt with the live distance, in the §4.3 catch-up form; only the
+                // kinds whose trigger distance is already passed are marked, so the later schedule is unchanged.
+                if (d < VoiceConstants.RESUME_MIN_AHEAD_M) return@let
+                if (!walk && d >= VoiceConstants.CONTINUE_ON_MIN_M) {
+                    fired += Triple(gen, m, PromptKind.CONTINUE_ON)
+                    return emit(gen, m, PromptKind.CATCH_UP, VoiceContent.ContinueOn(d), now)
+                }
+                if (key.isArrive && d > VoiceConstants.ARRIVE_CATCH_UP_MAX_M) return@let
+                if (early != null && d <= early) fired += Triple(gen, m, PromptKind.EARLY)
+                if (main != null && d <= main) fired += Triple(gen, m, PromptKind.MAIN)
+                if (nowThr != null && d <= nowThr) fired += Triple(gen, m, PromptKind.NOW)
+                val content = maneuverContent(plan, m, d, chain = true) ?: return null
+                return emit(gen, m, PromptKind.CATCH_UP, content, now)
+            }
             if (!walk && d >= VoiceConstants.CONTINUE_ON_MIN_M) {
                 fired += Triple(gen, m, PromptKind.CONTINUE_ON)
                 return emit(gen, m, PromptKind.CATCH_UP, VoiceContent.ContinueOn(d), now)

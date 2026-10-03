@@ -79,6 +79,21 @@ class FerrostarNavigator(route: FerrostarRoute) : Navigator {
         return snapshot(s, fix)
     }
 
+    /** NAV-012 (ADR-0013 §3.4): `getInitialState`, then `advanceToNextStep` [stepIndex] times (public API, no fork). */
+    override fun initialAt(fix: Fix, stepIndex: Int): NavSnapshot {
+        var s = session.getInitialState(userLocation(fix))
+        catchUpGate.reset()
+        lastFixOffStep = false
+        repeat(stepIndex.coerceIn(0, (ferrostarRoute.steps.size - 1).coerceAtLeast(0))) {
+            if (s.tripState is TripState.Navigating) s = session.advanceToNextStep(s)
+        }
+        state = s
+        return snapshot(s, fix)
+    }
+
+    override fun stepGeometries(): List<List<LatLon>> =
+        ferrostarRoute.steps.map { step -> step.geometry.map { LatLon(it.lat, it.lng) } }
+
     override fun update(fix: Fix): NavSnapshot {
         val prev = state ?: return initial(fix)
         val s = catchUp(session.updateUserLocation(userLocation(fix), prev), fix)

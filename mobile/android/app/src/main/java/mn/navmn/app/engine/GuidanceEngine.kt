@@ -8,10 +8,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import mn.navmn.app.i18n.Lang
@@ -47,7 +49,8 @@ class GuidanceEngine(
     context: Context,
     route: ParsedRoute,
     trip: Trip,
-    firstFix: Fix,
+    /** null = NAV-012 restore: the session waits for its first good fix ([GuidanceCore.startRestored]). */
+    firstFix: Fix?,
     navigators: NavigatorFactory,
     requester: RouteRequester,
     private val location: LocationSource,
@@ -56,6 +59,12 @@ class GuidanceEngine(
     private val settings: SettingsRepository,
     log: DebugLog,
     private val onFinished: (GuidanceEvent) -> Unit,
+    /** NAV-012 AC 35: the raw call signal, collected only while this engine lives. */
+    private val callSignals: Flow<Boolean> = emptyFlow(),
+    /** NAV-012 AC 18: «Замчлал сэргэлээ» on a restore the user opened (not on the silent system restart). */
+    private val showResumedNotice: Boolean = false,
+    /** NAV-012 (ADR-0013 §3.2): called on the engine thread when a new route became active. */
+    private val onNewRoute: (ParsedRoute) -> Unit = {},
 ) {
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "navmn-guidance").apply { isDaemon = true } }
     private val dispatcher = executor.asCoroutineDispatcher()
@@ -98,8 +107,9 @@ class GuidanceEngine(
                 onState = { _state.value = it },
                 onEvent = { e -> handle(e) },
                 log = log,
+                onNewRoute = onNewRoute,
             )
-            core.start(firstFix)
+            if (firstFix != null) core.start(firstFix) else core.startRestored(showResumedNotice)
             locationJob = launch { location.guidanceUpdates().collect { core.onFix(it) } }
             launch {
                 while (isActive) {
@@ -110,6 +120,7 @@ class GuidanceEngine(
             launch { network.validated.drop(1).collect { core.onNetwork(it) } }
             launch { settings.lang.drop(1).collect { voice.onLanguageChanged(); core.setLanguage(it) } }
             launch { settings.muted.drop(1).collect { core.setMuted(it) } }
+            launch { callSignals.collect { core.onCallSignal(it) } }
         }
     }
 

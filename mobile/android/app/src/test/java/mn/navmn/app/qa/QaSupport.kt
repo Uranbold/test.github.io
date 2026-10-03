@@ -270,6 +270,7 @@ class QaRun(
         return when (b) {
             is Banner.Maneuver -> BannerText.text(b.key, l, s)
             is Banner.Arrival -> BannerText.text(b.key, l, s)
+            Banner.Restoring -> s[StringKey.STATUS_LOADING] // NAV-012 restoring banner
             is Banner.Rerouting -> s[StringKey.NAV_REROUTING] + (
                 b.secondary?.let {
                     " / " + s[

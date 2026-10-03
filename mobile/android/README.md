@@ -88,9 +88,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | `voice` | TTS usable-voice decision, chime (generated PCM), `VoiceOutput` (focus, ducking, fallback) | §3.4, AC 36–39 |
 | `location`, `net`, `settings` | `LocationSource` interface + `PlatformLocationSource` (`LocationManager`, no Play services), validated network, DataStore + per-app locale | §5, §8, §9 |
 | `service` | `GuidanceForegroundService` (type `location`, channel «Замчлал»), notification text | §9, AC 13–20 |
-| `search`, `preview`, `permission` | NAV-003 search profile (query as typed), preview states, location access decisions | AC 3–12 |
+| `search`, `preview`, `permission` | NAV-003 search profile (NAV-011: planned by `search.assist`), preview states (NAV-011: k routes, selection, «Дугуй»), location access decisions | AC 3–12 |
 | `map`, `ui` | `MapSurface` / `MapCamera` seam (MapLibre: `MapLibreSurface` + `NavMapController`), camera rules, Compose screens S1–S8, tokens → `TokenColours` (generated) | §6, §10, AC 1–2, 21–25, 58–64 |
 | `di` | `AppModule` (gateway clients, Ferrostar), `PlatformModule` (location, map surface, voice: replaced by fakes in Robolectric tests) | §10 |
+| `search.assist` (NAV-011) | ADR-0006 query assistance ported to Kotlin: `Settle` (JS whitespace set, surrogate-safe 200 cap), `QueryPlanner` rules A–D, `LatinToCyrillic`, `Merge`, `CombineOutcomes`; checked against the shared fixture `web/src/search/queryPlan.vectors.json` | ADR-0012 §1–§3, NAV-011 AC 2–5 |
+| `search.reverse` (NAV-011) | `ReverseClient` (`GET /v1/reverse`, 6 decimals, `limit=1`, `radius=0.5`), `ReverseController` (one request per coordinate card, own 429 cooldown) | ADR-0012 §4, AC 8–13 |
+| `route.alternatives` (NAV-011) | `PreviewRoutes` (k routes, each parsed from a single-route slice into the unchanged NAV-005 pipeline), `AlternativeHitTest` (48 dp tap box) | ADR-0012 §5, AC 14–21 |
+| `typinglock` (NAV-011) | `FixSpeed`, `TypingLockRule` (pure), `PlatformLockFixSource` (own 1 Hz GPS listener, S1/S3 foreground only), `PassengerOverride` (process memory only), `TypingLockController` | ADR-0012 §7, AC 27–37 |
 
 Pure packages have no Android or Ferrostar types; all time is injected.
 
@@ -106,6 +110,13 @@ Pure packages have no Android or Ferrostar types; all time is injected.
   `nav-voice-notice`, `nav-voice`, `nav-orientation`, `nav-recenter`, `nav-progress`, `nav-eta`, `nav-remaining`,
   `nav-settings`, `nav-end`, `nav-arrival`, `search-bar`, `search-results`, `settings`, `coordinate-card`,
   `route-preview`, `preview-result`, `nav-start`, `location-rationale`, `location-message`, `map`.
+  NAV-011 adds: `preview-sheet-handle`, `preview-summary`, `mode-car`, `mode-walk`, `mode-bike`, `route-options`,
+  `route-option` (selectable), `typing-lock`, `typing-lock-close`, `typing-lock-passenger`, `coord-nearest`,
+  `coord-nearest-retry`; custom semantics `sheetState` (`collapsed`|`expanded`, on `route-preview`) and `reverseState`
+  (`pending`…`error`, on `coord-nearest`). The coordinate card keeps its NAV-005 tag `coordinate-card`.
+- **NAV-011 build inputs:** no new build property. `syncSharedTestResources` also copies
+  `web/src/search/queryPlan.vectors.json` (AC 5); a 3-route preview response is synthesised in the tests from the
+  recorded single-route responses until QA records a live one.
 - **String resource keys:** the screen spec's proposed keys, with manoeuvre keys in snake_case
   (`maneuver_turn_slight_left` for web `maneuver.turn.slightLeft`, `maneuver_on_ramp_left`, …) and the place-type labels
   as `place_type_*`. `values/` = Mongolian, `values-en/` = English.
@@ -157,3 +168,51 @@ Pure packages have no Android or Ferrostar types; all time is injected.
 - **Not verifiable here (AC 73):** MapLibre rendering of `pmtiles://` and `asset://` glyphs on a device, real TTS and
   the `mn` voice, real GPS and tunnels, foreground service with the screen off, Doze/OEM battery savers, the
   notification-permission dialog, audio ducking, chime audibility, battery use.
+
+## 6. NAV-012: background guidance, restore, battery savers (ADR-0013)
+
+### 6.1 Code map
+| Package | What |
+|---|---|
+| `background/restore` | Restore record (`RestoreRecord`, `RestoreStore` in `noBackupFilesDir/restore/`), pure `RestoreRules` (window 30 min, loop limit 2 in 10 min, schema check) and `RestartPlan` (null-intent restart per API level), `RestoreStartStep`, `RestoreManager` (write at «Эхлэх», on new routes, 30 s heartbeat, delete on normal end), `RestoreLauncher` (app open), `InterruptedNotification` + `InterruptedEndReceiver` (AC 22) |
+| `background/battery` | `BatteryHintRules` (pure), `BatteryHint` (power state, 30-day dismissal, one showing after a restore), `BatterySettings` (system intent with fallback), H1/H2 composables |
+| `audio/calls` | `CallModes`, pure `CallGate` (skip during calls, 1 s end debounce, one catch-up, 5 s guard), `AudioModeCallSignals` (mode listener on API 31+, 250 ms poll below; transient focus loss) |
+| `audio/output` | `AudioOutputRules` / `AudioOutputMonitor`: Bluetooth media output → 300 ms silent lead-in. The app never selects a device |
+| `service/notification` | `RichNotification` (content per state), `NotificationPostPolicy` (1 s / 2 s / ≤ 1 per s, Android 14+ dismissal), `GuidanceNotificationBuilder` (standard template, large icon, public version) |
+| `lockscreen` | `LockScreenGate`: `setShowWhenLocked` while guiding or on the arrival panel, unlock prompt before leaving the guidance screen, volume keys → prompt stream |
+| `theme/sun` | `SunCalc` (NOAA algorithm, UTC), `AutoThemeHold` (≤ 1 change / 10 min), `SunTheme` (position: session fix → last known ≤ 24 h → P1) |
+
+Tuning values (change only after a real-device check, AC 52): Bluetooth lead-in **300 ms** (`AudioOutputRules.BLUETOOTH_LEAD_IN_MS`, ≤ 500 ms by AC 33; not yet tuned on a car or headset); restore start step: earliest step within **50 m**, bearing within **60°** when the fix has a usable bearing (`RestoreStartStep`; not yet tuned on a device).
+
+### 6.2 Keeping navigation alive under OEM battery savers (AC 29)
+Android itself keeps the location foreground service running with the screen off. Many manufacturers add their own
+battery managers that stop apps anyway, especially after the app is removed from Recents. If guidance stops, the app
+restores it when it is opened again within 30 minutes (or offers «Замчлал тасарлаа» on Android 11+), but it is better
+to allow the app to run in the background. The in-app hint only opens the standard Android battery-optimisation screen;
+the steps below are for testers and support. Menu names differ between OS versions and regions.
+
+| Family | Settings path(s) that let the app run in the background | Written for | Verified on device |
+|---|---|---|---|
+| Samsung (One UI) | Settings → Apps → *app* → Battery → **Unrestricted**. Settings → Battery → Background usage limits → remove the app from "Sleeping apps" / "Deep sleeping apps"; optionally add it to "Never sleeping apps". Recents: long-press the app icon → "Keep open" (where offered) | One UI 6–7 (Android 14–15) | not verified |
+| Xiaomi / Redmi / POCO (MIUI, HyperOS) | Settings → Apps → Manage apps → *app* → **Autostart** on; → Battery saver → **No restrictions**. Recents: pull the app card down (or long-press) → **Lock** | MIUI 14, HyperOS 1–2 (Android 13–15) | not verified |
+| Huawei (EMUI, HarmonyOS) | Settings → Battery → App launch → *app* → turn off "Manage automatically", then enable **Auto-launch**, **Secondary launch** and **Run in background**. Recents: swipe the card down → **Lock** | EMUI 12, HarmonyOS 3–4 | not verified |
+| Honor (MagicOS) | Settings → Battery → App launch → *app* → turn off "Manage automatically", enable **Auto-launch**, **Secondary launch**, **Run in background**. Recents: swipe the card down → **Lock** | MagicOS 7–8 (Android 13–14) | not verified |
+| OPPO / realme (ColorOS, realme UI) | Settings → Apps → App management → *app* → Battery usage → allow **background activity** (and "Allow auto launch"). Settings → Battery → More settings → turn off "Optimise battery use" for the app. Recents: tap the card menu → **Lock** | ColorOS 13–14, realme UI 4–5 (Android 13–14) | not verified |
+| vivo (Funtouch OS, OriginOS) | Settings → Battery → Background power consumption management → *app* → **Allow** (high background power consumption). Settings → Apps → Permissions → Autostart → enable for the app. Recents: swipe the card down → **Lock** | Funtouch OS 13–14, OriginOS 3–4 | not verified |
+| OnePlus (OxygenOS) | Settings → Apps → *app* → Battery usage → **Allow background activity** (OxygenOS 13+: "Unrestricted"); Settings → Battery → Battery optimisation → *app* → **Don't optimise**. Recents: card menu → **Lock** | OxygenOS 13–14 (Android 13–14) | not verified |
+| Stock Android / Pixel | Settings → Apps → *app* → App battery usage → **Unrestricted** (the in-app «Тохиргоо нээх» opens the system battery-optimisation list, where the app can be set to "Not optimised") | Android 14–15 | not verified |
+
+Tester checklist (record the model, OS version and date in the table above once a step is verified):
+1. Start guidance, turn the screen off, drive or replay at least **10 minutes**, including a period without GPS (tunnel
+   or covered phone): prompts keep coming, the notification follows, no gap longer than 2 s.
+2. Swipe the app away from Recents during guidance: guidance and prompts continue; reopening shows the same route, no
+   depart prompt, no route request.
+3. Force-stop the app during guidance (Settings → Apps → *app* → Force stop) or `adb shell am kill mn.navmn.app.debug`
+   in the background, then open it within 30 minutes: guidance resumes to the same destination with «Замчлал
+   сэргэлээ» and exactly one prompt. On Android 9/10 after `am kill` the system may restart the service by itself;
+   on Android 11+ «Замчлал тасарлаа» appears instead.
+
+### 6.3 Not verified in this environment (AC 52)
+Real lock-screen behaviour and unlock prompts, OEM killers, the system's sticky restart, Bluetooth output and
+first-word clipping, cellular and VoIP calls, ducking, a real sunset theme switch, notification rendering on OEM skins
+and battery use: all need a real Android phone. JVM/Robolectric tests cover the pure rules and the Android glue.

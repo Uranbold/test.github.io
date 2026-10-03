@@ -39,8 +39,12 @@ data class GuidancePlan(
     val end: LatLon get() = geometry.last()
 }
 
-/** A parsed route: our plan plus the navigation engine's own route object (Ferrostar `Route` on the device). */
-class ParsedRoute(val plan: GuidancePlan, val native: NativeRoute)
+/**
+ * A parsed route: our plan plus the navigation engine's own route object (Ferrostar `Route` on the device).
+ * NAV-012 (ADR-0013 §3.1): [source] is the exact OSRM body that entered the pipeline (before the token rewrite), kept
+ * in memory so the restore record can store it; null where no body exists (tests that build routes by hand).
+ */
+class ParsedRoute(val plan: GuidancePlan, val native: NativeRoute, val source: ByteArray? = null)
 
 /** Marker for the navigation engine's route object; keeps pure code free of Ferrostar types. */
 interface NativeRoute {

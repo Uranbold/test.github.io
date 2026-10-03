@@ -106,10 +106,19 @@ object FakeCamera : MapCamera {
 object RecordingMapSurface : MapSurface {
     @Volatile var content: MapContent? = null
     @Volatile private var onLongPress: ((LatLon) -> Unit)? = null
+    @Volatile private var onTap: ((LatLon, List<Int>) -> Unit)? = null
 
     fun reset() {
         content = null
         onLongPress = null
+        onTap = null
+    }
+
+    /** NAV-011: simulates a map tap whose 48 dp box hit the preview routes [hit] (Valhalla indices). */
+    fun tap(p: LatLon, hit: List<Int>): Boolean {
+        val cb = onTap ?: return false
+        cb(p, hit)
+        return true
     }
 
     /** Simulates a long-press on the map; false when the screen has no long-press handler (guidance, preview). */
@@ -132,10 +141,12 @@ object RecordingMapSurface : MapSurface {
         onGesture: () -> Unit,
         onCameraIdle: (center: LatLon, bearing: Double, zoom: Double) -> Unit,
         onFailed: () -> Unit,
+        onTap: ((LatLon, List<Int>) -> Unit)?,
     ) {
         SideEffect {
             this.content = content
             this.onLongPress = onLongPress
+            this.onTap = onTap
         }
         LaunchedEffect(Unit) { onReady(FakeCamera) }
         Box(modifier.semantics { contentDescription = description })

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,6 +26,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import mn.navmn.app.R
+import mn.navmn.app.background.battery.BatterySettingsRow
 import mn.navmn.app.i18n.Lang
 import mn.navmn.app.settings.ThemeChoice
 import mn.navmn.app.ui.theme.LocalTokens
@@ -44,11 +47,16 @@ fun SettingsSheet(
     onLang: (Lang) -> Unit,
     onVoice: (Boolean) -> Unit,
     onDismiss: () -> Unit,
+    /** NAV-012 H2 (AC 28): the battery row, shown whatever the state; null = not wired (previews, older callers). */
+    batteryRestricted: Boolean? = null,
+    onOpenBatterySettings: () -> Unit = {},
 ) {
     val t = LocalTokens.current
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = t.uiSurface.c(), modifier = Modifier.testTag("settings-sheet")) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
+        // NAV-012: the battery row is the last item and needs scrolling on 360×640 (screen spec Known limitations 5).
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
             Text(stringResource(R.string.settings_title), style = NavType.title, color = t.uiOnSurface.c(), modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            // NAV-012 T1: «Автомат» = sunrise/sunset at the current position (no supporting line until a glossary term exists).
             for ((choice, label) in listOf(ThemeChoice.DAY to R.string.theme_day, ThemeChoice.NIGHT to R.string.theme_night, ThemeChoice.AUTO to R.string.theme_auto)) {
                 RadioRow(stringResource(label), theme == choice) { onTheme(choice) }
             }
@@ -64,6 +72,7 @@ fun SettingsSheet(
                 Text(stringResource(R.string.voice_guidance), style = NavType.bodyLarge, color = t.uiOnSurface.c(), modifier = Modifier.weight(1f))
                 Switch(checked = voiceOn, onCheckedChange = null)
             }
+            if (batteryRestricted != null) BatterySettingsRow(batteryRestricted, onOpenBatterySettings)
             Spacer(Modifier.height(8.dp))
         }
     }

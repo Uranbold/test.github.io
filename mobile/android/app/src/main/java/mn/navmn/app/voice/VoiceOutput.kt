@@ -14,6 +14,8 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import dagger.hilt.android.qualifiers.ApplicationContext
 import mn.navmn.app.BuildConfig
+import mn.navmn.app.audio.calls.AudioFocusSignals
+import mn.navmn.app.audio.output.AudioOutputMonitor
 import mn.navmn.app.i18n.Lang
 import mn.navmn.app.log.DebugLog
 import mn.navmn.app.voiceplan.SpokenPrompt
@@ -54,6 +56,9 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
         .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
+
+    /** NAV-012 AC 33: Bluetooth media output → a short silent lead-in before each prompt (ADR-0013 §6.4). */
+    private val output = AudioOutputMonitor(audio, attributes)
 
     private val probe = object : TtsProbe {
         override fun setLanguage(locale: Locale): Int = tts?.setLanguage(locale) ?: -2
@@ -115,14 +120,21 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
             return
         }
         val locale = if (initDoneAt >= 0) localeFor(prompt.lang) else null
+        val leadIn = output.leadInMs()
         if (locale != null) {
             tts?.language = locale
-            val r = tts?.speak(prompt.text, TextToSpeech.QUEUE_FLUSH, Bundle(), prompt.id.toString())
+            // The focus request comes first, so ducking starts during the lead-in; audio still starts ≤ 1 s (AC 33).
+            val mode = if (leadIn > 0 && tts?.playSilentUtterance(leadIn.toLong(), TextToSpeech.QUEUE_FLUSH, LEAD_IN_ID) == TextToSpeech.SUCCESS) {
+                TextToSpeech.QUEUE_ADD
+            } else {
+                TextToSpeech.QUEUE_FLUSH
+            }
+            val r = tts?.speak(prompt.text, mode, Bundle(), prompt.id.toString())
             if (r == TextToSpeech.SUCCESS) return
             sessionFallback = true
         }
         onFallback?.invoke()
-        chime(prompt.id)
+        chime(prompt.id, leadIn)
     }
 
     private val listener = object : UtteranceProgressListener() {
@@ -142,8 +154,10 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
         }
     }
 
-    private fun chime(id: Long) {
-        val pcm = ChimePcm.samples()
+    private fun chime(id: Long, leadInMs: Int = output.leadInMs()) {
+        val tone = ChimePcm.samples()
+        // NAV-012 AC 33: prepended PCM silence on Bluetooth outputs (same lead-in as the voice).
+        val pcm = if (leadInMs > 0) ShortArray(ChimePcm.SAMPLE_RATE * leadInMs / 1000) + tone else tone
         runCatching {
             track?.release()
             val t = AudioTrack.Builder()
@@ -167,7 +181,7 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
             t.play()
             track = t
         }
-        main.postDelayed({ if (current?.id == id) finish(id) }, ChimePcm.durationMs + 50)
+        main.postDelayed({ if (current?.id == id) finish(id) }, ChimePcm.durationMs + leadInMs + 50)
     }
 
     private fun finish(id: Long) {
@@ -191,7 +205,8 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
     private fun requestFocus(): Boolean {
         val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             .setAudioAttributes(attributes)
-            .setOnAudioFocusChangeListener { }
+            // NAV-012 AC 35: a transient loss while a prompt plays counts as a call (ADR-0013 §6.1).
+            .setOnAudioFocusChangeListener { change -> AudioFocusSignals.onFocusChange(change) }
             .build()
         focusRequest = req
         return audio.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
@@ -200,10 +215,15 @@ class VoiceOutput @Inject constructor(@ApplicationContext private val context: C
     private fun abandonFocus() {
         focusRequest?.let { audio.abandonAudioFocusRequest(it) }
         focusRequest = null
+        AudioFocusSignals.onAbandoned()
     }
 
     /** Language switch (AC 60): selection re-evaluated for the next prompt. */
     override fun onLanguageChanged() {
         main.post { selected.clear() }
+    }
+
+    private companion object {
+        const val LEAD_IN_ID = "navmn-lead-in"
     }
 }

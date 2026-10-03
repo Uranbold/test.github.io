@@ -71,11 +71,11 @@ import mn.navmn.app.ui.theme.NavType
 import mn.navmn.app.ui.theme.c
 import java.time.ZoneId
 
-/** QA hook (screen spec NavBanner): `variant` = maneuver | reroute | arrival. */
+/** QA hook (screen spec NavBanner): `variant` = maneuver | reroute | arrival | restoring (NAV-012). */
 val BannerVariant = SemanticsPropertyKey<String>("variant")
 var SemanticsPropertyReceiver.bannerVariant by BannerVariant
 
-/** QA hook (status message): `kind` = gps-lost | gps-restored | offline. */
+/** QA hook (status message): `kind` = gps-lost | gps-restored | resumed (NAV-012) | offline. */
 val StatusKind = SemanticsPropertyKey<String>("kind")
 var SemanticsPropertyReceiver.statusKind by StatusKind
 
@@ -83,6 +83,9 @@ var SemanticsPropertyReceiver.statusKind by StatusKind
 const val OVERLAY_CAP = 1.3f
 const val DISTANCE_CAP = 1.2f
 const val STACKED_FROM = 1.15f
+
+/** NAV-012 Layout rule 8: overlay heights below this show one status message while the restore notice is visible. */
+val RESUMED_TWO_MESSAGES_MIN_HEIGHT = 700.dp
 
 /** Heights covered by the overlay, in px, for the camera padding (Layout rule 2). */
 data class Covered(val top: Int = 0, val bottom: Int = 0, val left: Int = 0)
@@ -107,10 +110,13 @@ fun NavBanner(banner: Banner, lang: Lang, strings: Strings, maxHeight: Dp, modif
         is Banner.Maneuver -> "maneuver"
         is Banner.Rerouting -> "reroute"
         is Banner.Arrival -> "arrival"
+        Banner.Restoring -> "restoring"
     }
-    val bg = if (banner is Banner.Rerouting) t.navBannerReroute.c() else t.navBanner.c()
+    // NAV-012: the restoring variant uses the recalculating look ("the system is working").
+    val greyLook = banner is Banner.Rerouting || banner is Banner.Restoring
+    val bg = if (greyLook) t.navBannerReroute.c() else t.navBanner.c()
     val onBg = t.navOnBanner.c()
-    val variantColour = if (banner is Banner.Rerouting) t.navOnBannerRerouteVariant.c() else t.navOnBannerVariant.c()
+    val variantColour = if (greyLook) t.navOnBannerRerouteVariant.c() else t.navOnBannerVariant.c()
     val shape = RoundedCornerShape(16.dp)
     Surface(
         color = bg,
@@ -129,16 +135,19 @@ fun NavBanner(banner: Banner, lang: Lang, strings: Strings, maxHeight: Dp, modif
                 is Banner.Maneuver -> maneuverIcon(banner.key.key)
                 is Banner.Rerouting -> R.drawable.ic_route
                 is Banner.Arrival -> R.drawable.ic_flag
+                Banner.Restoring -> R.drawable.ic_location_searching
             }
             val instruction = when (banner) {
                 is Banner.Maneuver -> BannerText.text(banner.key, lang, strings)
                 is Banner.Rerouting -> strings[StringKey.NAV_REROUTING]
                 is Banner.Arrival -> BannerText.text(banner.key, lang, strings)
+                Banner.Restoring -> strings[StringKey.STATUS_LOADING]
             }
             val second: String? = when (banner) {
                 is Banner.Maneuver -> banner.street.ifEmpty { null }
                 is Banner.Rerouting -> banner.secondary?.let { rerouteSecondaryText(it, strings) }
                 is Banner.Arrival -> banner.street.ifEmpty { null }
+                Banner.Restoring -> null
             }
             val distance = (banner as? Banner.Maneuver)?.let { Formatters.distance(it.distanceM, lang, strings) }
             val distanceColour = if ((banner as? Banner.Maneuver)?.stale == true) variantColour else onBg
@@ -262,7 +271,16 @@ fun TripProgressPanel(state: GuidanceState, lang: Lang, strings: Strings, onSett
         modifier = modifier.fillMaxWidth().testTag("nav-progress"),
     ) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).clearAndSetSemantics { contentDescription = a11y }) {
+            if (state.restoring) {
+                // NAV-012 R1: two static skeleton bars until the first good fix (decorative; no shimmer).
+                val loading = strings[StringKey.STATUS_LOADING]
+                Column(Modifier.weight(1f).testTag("nav-progress-skeleton").clearAndSetSemantics { contentDescription = loading }) {
+                    val bar = if (night) t.uiOutlineVariant.c() else t.uiSurfaceContainer.c()
+                    Box(Modifier.fillMaxWidth(0.6f).height(20.dp).background(bar, RoundedCornerShape(4.dp)))
+                    Spacer(Modifier.height(8.dp))
+                    Box(Modifier.fillMaxWidth(0.4f).height(16.dp).background(bar, RoundedCornerShape(4.dp)))
+                }
+            } else Column(Modifier.weight(1f).clearAndSetSemantics { contentDescription = a11y }) {
                 Text(etaText, style = NavType.titleLarge, color = t.uiOnSurface.c(), modifier = Modifier.testTag("nav-eta"))
                 Text("$time · $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.testTag("nav-remaining"))
             }
@@ -334,18 +352,23 @@ fun GuidanceOverlay(
 ) {
     val arrived = state.phase == GuidancePhase.ARRIVED || state.phase == GuidancePhase.ENDED
     val destinationText = state.trip.destinationName ?: stringResource(R.string.place_selected_point)
-    val statuses = buildList {
+    val allStatuses = buildList {
         if (!arrived) {
             if (state.gpsLost) add(Triple("gps-lost", R.drawable.ic_gps_off, strings[StringKey.NAV_GPS_LOST]))
             else if (state.gpsRestoredVisible) add(Triple("gps-restored", R.drawable.ic_my_location, strings[StringKey.NAV_GPS_RESTORED]))
+            // NAV-012 Layout rule 8: «Замчлал сэргэлээ» has priority 2, after the GPS messages and before offline.
+            if (state.resumedNoticeVisible) add(Triple("resumed", R.drawable.ic_info, strings[StringKey.NAV_RESUMED]))
             val bannerSaysOffline = (state.banner as? Banner.Rerouting)?.secondary == RerouteSecondary.OFFLINE
             if (state.offline && !bannerSaysOffline) add(Triple("offline", R.drawable.ic_cloud_off, strings[StringKey.STATUS_OFFLINE]))
         }
-    }.take(2)
+    }
     val density = LocalDensity.current
     BoxWithConstraints(modifier.fillMaxSize()) {
         val landscape = maxWidth > maxHeight
         val bannerMax = maxHeight * 0.5f
+        // NAV-012 Layout rule 8: with the restore notice, two messages only where the map band stays above the minimum
+        // (measured: one on 360×640, two on 412×915); otherwise only the higher-priority message shows.
+        val statuses = allStatuses.take(if (state.resumedNoticeVisible && maxHeight < RESUMED_TWO_MESSAGES_MIN_HEIGHT) 1 else 2)
         // [top, bottom, left] in px, kept across recompositions; reported only when it changes.
         val px = remember { IntArray(3) }
         val last = remember { arrayOfNulls<Covered>(1) }

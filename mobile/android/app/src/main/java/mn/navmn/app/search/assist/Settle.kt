@@ -30,8 +30,8 @@ object Settle {
     }
 
     fun isJsSpace(c: Char): Boolean = when (c) {
-        '\t', '\n', '\u000B', '\u000C', '\r', ' ', ' ', ' ', ' ', ' ', ' ', ' ', '　', '﻿' -> true
-        else -> c in ' '..' '
+        '\t', '\n', '\u000B', '\u000C', '\r', ' ', '\u00A0', '\u1680', '\u2028', '\u2029', '\u202F', '\u205F', '\u3000', '\uFEFF' -> true
+        else -> c in '\u2000'..'\u200A'
     }
 
     fun settle(raw: String): String = cap(jsTrim(Normalizer.normalize(raw, Normalizer.Form.NFC).replace(WHITESPACE, " ")))

@@ -1,6 +1,8 @@
 package mn.navmn.app.engine
 
 import mn.navmn.app.arrival.ArrivalDetector
+import mn.navmn.app.audio.calls.CallGate
+import mn.navmn.app.background.restore.RestoreStartStep
 import mn.navmn.app.gps.GpsMonitor
 import mn.navmn.app.i18n.Lang
 import mn.navmn.app.i18n.Strings
@@ -19,6 +21,7 @@ import mn.navmn.app.route.RouteRequester
 import mn.navmn.app.voiceplan.PlaybackListener
 import mn.navmn.app.voiceplan.PlaybackQueue
 import mn.navmn.app.voiceplan.PromptClass
+import mn.navmn.app.voiceplan.PromptKind
 import mn.navmn.app.voiceplan.ScheduledPrompt
 import mn.navmn.app.voiceplan.Speaker
 import mn.navmn.app.voiceplan.SpeedTracker
@@ -48,6 +51,8 @@ class GuidanceCore(
     private val onState: (GuidanceState) -> Unit,
     private val onEvent: (GuidanceEvent) -> Unit,
     private val log: DebugLog = DebugLog.NONE,
+    /** NAV-012 (ADR-0013 §3.2): a new route became active; the restore record is rewritten with it. */
+    private val onNewRoute: (ParsedRoute) -> Unit = {},
 ) {
     private var route: ParsedRoute = initialRoute
     private val plan get() = route.plan
@@ -105,6 +110,13 @@ class GuidanceCore(
     private var inFlight: Cancelable? = null
     private var started = false
 
+    /** NAV-012 AC 18–19: a restored session waiting for its first good fix (banner «Ачаалж байна…», no puck). */
+    private var restoring = false
+    private var resumedUntil = Long.MIN_VALUE
+
+    /** NAV-012 AC 35–38 (ADR-0013 §6.2): prompts are skipped during a call, one catch-up after it. */
+    val callGate = CallGate()
+
     val finished: Boolean get() = phase == GuidancePhase.ARRIVED || phase == GuidancePhase.ENDED
     val currentPhase: GuidancePhase get() = phase
     val currentRoute: ParsedRoute get() = route
@@ -134,9 +146,62 @@ class GuidanceCore(
         emit()
     }
 
+    /**
+     * NAV-012 restore (ADR-0013 §3.4): the stored route is already parsed into [initialRoute]; guidance waits for the
+     * first good fix (≤ 10 s, else the NAV-005 GPS-lost state) without a depart prompt. [showNotice] shows
+     * «Замчлал сэргэлээ» for 3 s (not on the silent system restart, screen spec Design note 6).
+     */
+    fun startRestored(showNotice: Boolean) {
+        check(!started) { "already started" }
+        started = true
+        restoring = true
+        val now = clock.elapsedMs()
+        gps.start(now)
+        if (showNotice) resumedUntil = now + RESUMED_NOTICE_MS
+        log.d("guidance restored gen=${plan.generation} steps=${plan.steps.size}")
+        emit()
+    }
+
+    /** The first good fix of a restored session: start step, or an off-route episode (> 50 m from every step). */
+    private fun finishRestore(fix: Fix, now: Long) {
+        restoring = false
+        lastGoodFix = fix
+        speed.add(fix.elapsedMs, fix.speedMps)
+        previousFixGood = true
+        previousFixElapsed = fix.elapsedMs
+        val geometries = navigator.stepGeometries()
+        val start = if (geometries.isEmpty()) 0 else RestoreStartStep.choose(fix.latLon, RestoreStartStep.usableBearing(fix), geometries)
+        if (start != null) {
+            val snap = navigator.initialAt(fix, start)
+            snapshot = snap
+            positionTrusted = true
+            updateProgress(snap)
+            scheduler.onResumed()
+            log.d("restore start step $start")
+            evaluateVoice(now)
+        } else {
+            val snap = navigator.initial(fix)
+            snapshot = snap
+            updateProgress(snap)
+            offRoute.begin()
+            startEpisode(now)
+            log.d("restore off the stored route")
+            maybeReroute(now)
+        }
+    }
+
     fun onFix(fix: Fix) {
         if (!started || finished) return
         val now = clock.elapsedMs()
+        if (restoring) {
+            lastFix = fix
+            if (fix.isGood(now)) {
+                if (gps.onGoodFix(fix.elapsedMs) == GpsMonitor.Event.RESTORED) onGpsRestored(now)
+                finishRestore(fix, now)
+            }
+            emit()
+            return
+        }
         lastFix = fix
         val good = fix.isGood(now)
         val snap = navigator.update(fix)
@@ -192,9 +257,47 @@ class GuidanceCore(
             return
         }
         if (gps.onTick(now) == GpsMonitor.Event.LOST) onGpsLost(now)
+        if (callGate.tick(now) == CallGate.Event.ENDED) onCallEnded(now)
         evaluateVoice(now)
         maybeReroute(now)
         emit()
+    }
+
+    /** NAV-012 AC 35: the raw call signal changed (audio mode or transient focus loss). */
+    fun onCallSignal(inCall: Boolean) {
+        if (!started || finished) return
+        val now = clock.elapsedMs()
+        when (callGate.onSignal(inCall, now)) {
+            CallGate.Event.STARTED -> {
+                // AC 36: a playing prompt stops (≤ 500 ms) and focus is released; a stopped manoeuvre prompt for the
+                // current next manoeuvre counts as skipped (AC 38).
+                queue.current?.maneuver?.takeIf { it == currentNext() && queue.current?.cls == PromptClass.MANEUVER }?.let { callGate.recordSkipped(it) }
+                queue.clear()
+                log.d("call started")
+            }
+            CallGate.Event.ENDED -> onCallEnded(now)
+            null -> Unit
+        }
+    }
+
+    /** AC 38: exactly one catch-up for the current next manoeuvre if a prompt for it was skipped during the call. */
+    private fun onCallEnded(now: Long) {
+        log.d("call ended")
+        val skipped = callGate.takeSkipped() ?: return
+        val good = lastGoodFix?.isGood(now) == true
+        if (phase != GuidancePhase.NAVIGATING || gps.lost || !positionTrusted || restoring || !good) return
+        if (skipped != currentNext()) return
+        scheduler.onCallEnded()
+        val before = promptIds
+        evaluateVoice(now)
+        if (promptIds != before) callGate.suppress(skipped, now)
+    }
+
+    /** (generation, plan step) of the upcoming manoeuvre, or null. */
+    private fun currentNext(): Pair<Int, Int>? {
+        val snap = snapshot ?: return null
+        val m = snap.stepIndex + 1
+        return if (m < plan.steps.size) plan.generation to m else null
     }
 
     fun onNetwork(validated: Boolean) {
@@ -317,6 +420,7 @@ class GuidanceCore(
         scheduler.onRouteActive()
         evaluateVoice(now)
         log.d("new route active gen=${newRoute.plan.generation}")
+        onNewRoute(newRoute)
     }
 
     private fun arrive(now: Long) {
@@ -349,6 +453,15 @@ class GuidanceCore(
 
     private fun speak(p: ScheduledPrompt, cls: PromptClass, now: Long) {
         if (muted) return // muted prompts count as handled (ADR-0009 §3.3)
+        // NAV-012 AC 37: during a call every prompt is skipped, not queued; a manoeuvre prompt for the current next
+        // manoeuvre is remembered for the one catch-up after the call (AC 38).
+        if (callGate.inCall) {
+            if (cls == PromptClass.MANEUVER && p.maneuver != null && p.maneuver == currentNext()) callGate.recordSkipped(p.maneuver)
+            log.d("prompt skipped during a call")
+            return
+        }
+        // AC 38: a regular trigger for the same manoeuvre within 5 s after the catch-up is skipped.
+        if (p.kind != PromptKind.CATCH_UP && callGate.isSuppressed(p.maneuver, now)) return
         val text = VoiceText.render(p.content, lang, stringsFor(lang))
         queue.enqueue(SpokenPrompt(++promptIds, text, lang, cls, p.maneuver, now), now)
     }
@@ -382,7 +495,7 @@ class GuidanceCore(
     private fun emit() {
         val now = clock.elapsedMs()
         val snap = snapshot
-        val banner: Banner = when (phase) {
+        val banner: Banner = if (restoring && phase == GuidancePhase.NAVIGATING) Banner.Restoring else when (phase) {
             GuidancePhase.ARRIVED, GuidancePhase.ENDED -> plan.steps.last().let { Banner.Arrival(it.key, it.street) }
             GuidancePhase.OFF_ROUTE -> Banner.Rerouting(policy.secondary)
             GuidancePhase.NAVIGATING -> {
@@ -396,6 +509,7 @@ class GuidanceCore(
                         street = step.street,
                         then = scheduler.thenVisible(plan, k),
                         stale = gps.lost,
+                        index = m,
                     )
                 } else {
                     plan.steps.last().let { Banner.Arrival(it.key, it.street) }
@@ -404,7 +518,7 @@ class GuidanceCore(
         }
         val fix = lastFix
         val puck = when {
-            fix == null -> null
+            fix == null || restoring -> null
             gps.lost -> Puck((lastGoodFix ?: fix).latLon, (lastGoodFix ?: fix).bearingDeg, stale = true, snapped = false)
             phase == GuidancePhase.OFF_ROUTE || snap == null -> Puck(fix.latLon, fix.bearingDeg, stale = false, snapped = false)
             else -> Puck(snap.snapped, snap.snappedCourseDeg ?: fix.bearingDeg, stale = false, snapped = true)
@@ -424,12 +538,17 @@ class GuidanceCore(
                 voiceNoticeVisible = now < voiceNoticeUntil && !finished,
                 muted = muted,
                 speedMps = speed.mean(),
+                restoring = restoring && !finished,
+                resumedNoticeVisible = now < resumedUntil && !finished,
             ),
         )
     }
 
     companion object {
         const val GPS_RESTORED_MS = 3_000L
+
+        /** NAV-012 B3 «Замчлал сэргэлээ», tokens.json `motion.nav-resumed-notice` (3 s). */
+        const val RESUMED_NOTICE_MS = 3_000L
         const val VOICE_NOTICE_MS = 8_000L
     }
 }

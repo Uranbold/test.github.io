@@ -51,6 +51,16 @@ class OffRouteDetector(
         return null
     }
 
+    /**
+     * NAV-012 AC 19 (ADR-0013 §3.4 step 4): a restored session whose first good fix is more than 50 m from every
+     * remaining step of the stored route starts an off-route episode at once (NAV-005 section G applies).
+     */
+    fun begin() {
+        inEpisode = true
+        runCount = 0
+        onCount = 0
+    }
+
     /** A new route became active (ends the episode) or GPS was lost (resets the debounce). */
     fun reset() {
         inEpisode = false

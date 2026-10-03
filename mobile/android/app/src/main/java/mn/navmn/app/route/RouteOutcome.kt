@@ -67,6 +67,6 @@ class RouteProcessor(private val parser: RouteParser) {
         val rewritten = TextRewrite.rewrite(root, generation).toString().encodeToByteArray()
         val native = runCatching { parser.parse(rewritten) }.getOrElse { return RouteOutcome.BadResponse }
         if (native.stepCount != plan.steps.size) return RouteOutcome.BadResponse
-        return RouteOutcome.Ok(ParsedRoute(plan, native))
+        return RouteOutcome.Ok(ParsedRoute(plan, native, source = body)) // NAV-012: body kept for the restore record
     }
 }

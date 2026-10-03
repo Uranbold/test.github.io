@@ -38,12 +38,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -65,6 +73,8 @@ import mn.navmn.app.preview.PreviewState
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.search.PlaceDisplay
 import mn.navmn.app.search.SearchView
+import mn.navmn.app.search.reverse.ReverseView
+import mn.navmn.app.typinglock.TypingLockState
 import mn.navmn.app.ui.components.MapIconButton
 import mn.navmn.app.ui.components.MessageCard
 import mn.navmn.app.ui.theme.LocalTokens
@@ -94,6 +104,19 @@ class BrowseActions(
     val onDismissMapProblem: () -> Unit,
     val onRetryTiles: () -> Unit,
     val onSheetHeight: (Int) -> Unit,
+    // NAV-011 (defaults keep the NAV-005 call sites and tests unchanged)
+    val onSelectRoute: (Int) -> Unit = {},
+    val onSheetExpanded: (Boolean) -> Unit = {},
+    val onReverseRetry: () -> Unit = {},
+    /** A tap on the search field: true → typing allowed; false → the lock card is shown (AC 31). */
+    val onSearchFieldTap: () -> Boolean = { true },
+    val onLockedWhileTyping: () -> Unit = {},
+    val onDismissLock: () -> Unit = {},
+    val onPassenger: () -> Unit = {},
+    /** Side sheet width in px (wide windows; 0 otherwise) for the camera padding (P5). */
+    val onSheetStart: (Int) -> Unit = {},
+    /** Height of the top bar (search row) in px, for the camera padding (AC 16). */
+    val onTopBar: (Int) -> Unit = {},
 )
 
 data class BrowseModel(
@@ -107,6 +130,11 @@ data class BrowseModel(
     val offline: Boolean,
     val bearing: Double,
     val followingMe: Boolean,
+    // NAV-011
+    val reverse: ReverseView? = null,
+    val lock: TypingLockState = TypingLockState(),
+    val sheetExpanded: Boolean = false,
+    val focusSearch: Int = 0,
 )
 
 @Composable
@@ -132,11 +160,36 @@ fun LocationMessage(p: LocationProblem, actions: BrowseActions, onRetry: () -> U
     }
 }
 
-/** S1 search bar (docked) with the settings button. */
+/**
+ * S1 search bar (docked) with the settings button. NAV-011 typing lock (AC 31, 34; screen spec › Search bar): no visual
+ * change; while locked the field is read-only, a tap (or TalkBack focus) shows the lock card instead of the keyboard,
+ * the lock engaging while typing hides the keyboard and keeps the text, and «Би зорчигч» focuses the field.
+ */
 @Composable
 private fun SearchRow(m: BrowseModel, a: BrowseActions) {
     val t = LocalTokens.current
-    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    var focused by remember { mutableStateOf(false) }
+    val locked = m.lock.locked
+    LaunchedEffect(locked) {
+        if (locked && focused) {
+            keyboard?.hide()
+            focusManager.clearFocus()
+            a.onLockedWhileTyping()
+        }
+    }
+    // «Би зорчигч» bumps focusSearch; handled once (not again after a rotation recreates the composition).
+    var handledFocus by rememberSaveable { mutableIntStateOf(m.focusSearch) }
+    LaunchedEffect(m.focusSearch) {
+        if (m.focusSearch > handledFocus) {
+            handledFocus = m.focusSearch
+            runCatching { focus.requestFocus() }
+            keyboard?.show()
+        }
+    }
+    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp).onGloballyPositioned { a.onTopBar(it.size.height) }, verticalAlignment = Alignment.CenterVertically) {
         Surface(shape = RoundedCornerShape(28.dp), color = t.uiSurface.c(), shadowElevation = 2.dp, modifier = Modifier.weight(1f).heightIn(min = 56.dp).testTag("search-bar")) {
             Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = t.uiOnSurfaceVariant.c())
@@ -146,11 +199,23 @@ private fun SearchRow(m: BrowseModel, a: BrowseActions) {
                     if (m.query.isEmpty()) Text(placeholder, style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c())
                     BasicTextField(
                         value = m.query,
-                        onValueChange = { a.onQuery(it.take(200)) },
+                        onValueChange = { if (!locked) a.onQuery(it.take(200)) },
                         singleLine = true,
+                        readOnly = locked,
                         textStyle = NavType.bodyLarge.copy(color = t.uiOnSurface.c()),
                         cursorBrush = SolidColor(t.uiPrimary.c()),
-                        modifier = Modifier.fillMaxWidth().semantics { contentDescription = placeholder },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focus)
+                            .onFocusChanged { fs ->
+                                val gained = fs.isFocused && !focused
+                                focused = fs.isFocused
+                                if (gained && !a.onSearchFieldTap()) {
+                                    keyboard?.hide()
+                                    focusManager.clearFocus()
+                                }
+                            }
+                            .semantics { contentDescription = placeholder },
                     )
                 }
                 if (m.query.isNotEmpty()) {
@@ -233,7 +298,7 @@ private fun MapControls(m: BrowseModel, a: BrowseActions, modifier: Modifier = M
 }
 
 @Composable
-private fun StateRow(text: String, progress: Boolean = false, retry: (() -> Unit)? = null, retryEnabled: Boolean = true) {
+internal fun StateRow(text: String, progress: Boolean = false, retry: (() -> Unit)? = null, retryEnabled: Boolean = true) {
     val t = LocalTokens.current
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         if (progress) {
@@ -245,9 +310,12 @@ private fun StateRow(text: String, progress: Boolean = false, retry: (() -> Unit
     }
 }
 
-/** S2 coordinate card «Сонгосон цэг» (AC 4): 5 decimals, «Маршрут гаргах», 0 reverse requests. */
+/**
+ * S2 coordinate card «Сонгосон цэг» (AC 4): 5 decimals, «Маршрут гаргах». NAV-011 AC 8–13: the nearest-place area
+ * (one `reverse` per card) sits between the coordinates and «Маршрут гаргах», which is usable at once (P6).
+ */
 @Composable
-private fun CoordinateCard(p: LatLon, a: BrowseActions, modifier: Modifier) {
+private fun CoordinateCard(p: LatLon, m: BrowseModel, strings: Strings, a: BrowseActions, modifier: Modifier) {
     val t = LocalTokens.current
     Surface(shape = RoundedCornerShape(16.dp), color = t.uiSurface.c(), shadowElevation = 2.dp, modifier = modifier.fillMaxWidth().testTag("coordinate-card")) {
         // Scrolls instead of squeezing «Маршрут гаргах» when the card gets less than its height (NAV-005-D5).
@@ -259,6 +327,7 @@ private fun CoordinateCard(p: LatLon, a: BrowseActions, modifier: Modifier) {
                 }
             }
             Text(Formatters.coordinates(p.lat, p.lon), style = NavType.body.copy(fontFeatureSettings = "tnum"), color = t.uiOnSurface.c())
+            NearestPlaceArea(p, m.reverse, strings, a)
             Spacer(Modifier.height(12.dp))
             Button(onClick = a.onCardDirections, modifier = Modifier.heightIn(min = 48.dp), colors = ButtonDefaults.buttonColors(containerColor = t.uiPrimary.c(), contentColor = t.uiOnPrimary.c())) {
                 Icon(painterResource(R.drawable.ic_directions), contentDescription = null, modifier = Modifier.size(18.dp))
@@ -269,61 +338,8 @@ private fun CoordinateCard(p: LatLon, a: BrowseActions, modifier: Modifier) {
     }
 }
 
-/** S3 route preview sheet (non-modal, content height up to 80 %, «Эхлэх» pinned). */
 @Composable
-private fun PreviewSheet(s: PreviewState, m: BrowseModel, strings: Strings, a: BrowseActions, maxHeight: androidx.compose.ui.unit.Dp, modifier: Modifier) {
-    val t = LocalTokens.current
-    val lang = m.lang
-    Surface(
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        color = t.uiSurface.c(),
-        shadowElevation = 3.dp,
-        modifier = modifier.fillMaxWidth().heightIn(max = maxHeight).testTag("route-preview"),
-    ) {
-        Column {
-            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.route_title), style = NavType.title, color = t.uiOnSurface.c(), modifier = Modifier.weight(1f).padding(top = 8.dp))
-                    IconButton(onClick = a.onPreviewClose, modifier = Modifier.size(48.dp)) {
-                        Icon(painterResource(R.drawable.ic_close), contentDescription = stringResource(R.string.action_close))
-                    }
-                }
-                val originLabel = stringResource(R.string.marker_my_location)
-                val originA11y = stringResource(R.string.route_origin) + ": " + originLabel
-                PointRow(R.drawable.ic_my_location, originLabel, originA11y)
-                val destText = s.destination.name ?: stringResource(R.string.place_selected_point)
-                PointRow(R.drawable.ic_place, destText, stringResource(R.string.route_destination) + ": " + destText)
-                val modes = stringResource(R.string.route_modes)
-                TabRow(selectedTabIndex = if (s.mode == TravelMode.CAR) 0 else 1, containerColor = t.uiSurface.c(), contentColor = t.uiPrimary.c(), modifier = Modifier.semantics { contentDescription = modes }) {
-                    Tab(selected = s.mode == TravelMode.CAR, onClick = { a.onMode(TravelMode.CAR) }, text = { Text(stringResource(R.string.route_mode_car)) }, icon = { Icon(painterResource(R.drawable.ic_car), null) })
-                    Tab(selected = s.mode == TravelMode.WALK, onClick = { a.onMode(TravelMode.WALK) }, text = { Text(stringResource(R.string.route_mode_walk)) }, icon = { Icon(painterResource(R.drawable.ic_walk), null) })
-                }
-                if (s.mode == TravelMode.CAR) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.route_avoid_unpaved), style = NavType.bodyLarge, color = t.uiOnSurface.c(), modifier = Modifier.weight(1f))
-                        Switch(checked = s.avoidUnpaved, onCheckedChange = a.onAvoid)
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Box(Modifier.testTag("preview-result")) { PreviewResultRegion(s, lang, strings, a) }
-                Spacer(Modifier.height(8.dp))
-            }
-            Button(
-                onClick = a.onStart,
-                enabled = s.canStart,
-                colors = ButtonDefaults.buttonColors(containerColor = t.uiPrimary.c(), contentColor = t.uiOnPrimary.c()),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).heightIn(min = 56.dp).testTag("nav-start"),
-            ) {
-                Icon(painterResource(R.drawable.ic_play), contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.nav_start), style = NavType.label)
-            }
-        }
-    }
-}
-
-@Composable
-private fun PointRow(icon: Int, text: String, a11y: String) {
+internal fun PointRow(icon: Int, text: String, a11y: String) {
     val t = LocalTokens.current
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics(mergeDescendants = true) { contentDescription = a11y }, verticalAlignment = Alignment.CenterVertically) {
         Icon(painterResource(icon), contentDescription = null, tint = t.uiOnSurfaceVariant.c(), modifier = Modifier.size(24.dp))
@@ -333,15 +349,16 @@ private fun PointRow(icon: Int, text: String, a11y: String) {
 }
 
 @Composable
-private fun PreviewResultRegion(s: PreviewState, lang: Lang, strings: Strings, a: BrowseActions) {
+internal fun PreviewResultRegion(s: PreviewState, lang: Lang, strings: Strings, a: BrowseActions) {
     val t = LocalTokens.current
     when (val r = s.result) {
         PreviewResult.WaitingForLocation, PreviewResult.Loading -> StateRow(stringResource(R.string.status_loading), progress = true)
         PreviewResult.Pending -> Spacer(Modifier.height(56.dp))
         is PreviewResult.Location -> LocationMessage(r.problem, a, a.onPreviewRetry, a.onPreviewClose, onMessageSurface = false)
         is PreviewResult.Route -> {
-            val plan = r.route.plan
-            Column {
+            val plan = r.route.plan // NAV-011: the selected route (AC 17)
+            Column(Modifier.testTag("preview-summary")) {
+                RouteNumberLine(r, strings)
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(Formatters.duration(plan.duration, strings), style = NavType.titleLarge, color = t.uiOnSurface.c())
                     Text(" · " + Formatters.distance(plan.distance, lang, strings), style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c())
@@ -414,26 +431,51 @@ fun BrowseOverlay(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: 
         val maxH = maxHeight
         val preview = m.preview
         val wide = maxWidth >= WIDE_MIN_WIDTH || (maxWidth > maxHeight && maxWidth >= WIDE_LANDSCAPE_MIN_WIDTH)
+        val sheetW = (maxWidth * 0.4f).coerceIn(320.dp, 400.dp)
         when {
+            // NAV-011 P5: wide windows get a side sheet at the start edge, always expanded.
+            preview != null && wide -> Row(Modifier.fillMaxSize()) {
+                RoutePreviewSheet(
+                    preview, m, strings, a, maxH, wide = true,
+                    Modifier.width(sheetW).fillMaxHeight().padding(start = 8.dp, top = 8.dp, bottom = 8.dp).onGloballyPositioned {
+                        a.onSheetStart(it.size.width)
+                        a.onSheetHeight(0)
+                    },
+                )
+                Column(Modifier.weight(1f)) {
+                    SearchRow(m, a)
+                    TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                    SearchResults(m, strings, a)
+                    StatusMessages(m, a)
+                }
+            }
             preview != null -> {
                 Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
                     SearchRow(m, a)
+                    TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                     SearchResults(m, strings, a)
                     StatusMessages(m, a)
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-                    PreviewSheet(preview, m, strings, a, maxH * 0.8f, Modifier.onGloballyPositioned { a.onSheetHeight(it.size.height) })
+                    RoutePreviewSheet(
+                        preview, m, strings, a, maxH, wide = false,
+                        Modifier.fillMaxWidth().onGloballyPositioned {
+                            a.onSheetHeight(it.size.height)
+                            a.onSheetStart(0)
+                        },
+                    )
                 }
             }
             wide -> Column(Modifier.fillMaxSize()) {
                 SearchRow(m, a)
+                TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
                         Column(Modifier.weight(1f, fill = false)) {
                             SearchResults(m, strings, a, Modifier.weight(1f, fill = false))
                             StatusMessages(m, a, Modifier.weight(1f, fill = false))
                         }
-                        m.card?.let { CoordinateCard(it, a, Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp)) }
+                        m.card?.let { CoordinateCard(it, m, strings, a, Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp)) }
                     }
                     MapControls(m, a, Modifier.align(Alignment.Bottom).padding(start = 8.dp, end = 16.dp, bottom = 16.dp))
                 }
@@ -441,12 +483,13 @@ fun BrowseOverlay(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: 
             else -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f, fill = false)) {
                     SearchRow(m, a)
+                    TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                     SearchResults(m, strings, a, Modifier.weight(1f, fill = false))
                     StatusMessages(m, a, Modifier.weight(1f, fill = false))
                 }
                 Column(Modifier.fillMaxWidth()) {
                     MapControls(m, a, Modifier.align(Alignment.End).padding(end = 16.dp, bottom = 16.dp))
-                    m.card?.let { CoordinateCard(it, a, Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) }
+                    m.card?.let { CoordinateCard(it, m, strings, a, Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) }
                 }
             }
         }

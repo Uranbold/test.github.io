@@ -43,6 +43,15 @@
     <string name="route_unavailable">Routing is temporarily unavailable</string>
     <string name="route_rate_limited">Too many route requests. Wait a moment and try again</string>
     <string name="route_snap_notice">The nearest road is {distance} from the chosen point</string>
+    <!-- NAV-011 (route preview and search parity). -->
+    <string name="route_mode_bike">Bike</string>
+    <string name="route_options">Choose a route</string>
+    <string name="route_option">Route {n}</string>
+    <string name="route_alternative">Alternative route</string>
+    <string name="place_nearest">Nearest place</string>
+    <string name="typing_lock_title">You can\'t type while moving</string>
+    <string name="typing_lock_hint">If you are driving, stop before you search</string>
+    <string name="typing_lock_passenger">I\'m a passenger</string>
     <string name="nav_name">Navigation</string>
     <string name="nav_start">Start</string>
     <string name="nav_end">End</string>
@@ -167,4 +176,10 @@
     <string name="place_type_road">Road</string>
     <string name="place_type_address">Address</string>
     <string name="place_type_place">Place</string>
+    <!-- NAV-012 (background and lock screen). -->
+    <string name="battery_restrictions">Battery restrictions</string>
+    <string name="battery_hint">Battery saving can stop navigation. Turn off battery restrictions in your phone settings.</string>
+    <string name="nav_resumed">Navigation resumed</string>
+    <string name="nav_interrupted_title">Navigation was interrupted</string>
+    <string name="nav_interrupted_text">Tap to continue</string>
 </resources>

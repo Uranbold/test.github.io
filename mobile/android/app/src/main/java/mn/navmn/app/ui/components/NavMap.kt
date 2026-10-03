@@ -41,7 +41,8 @@ class MapLibreSurface @Inject constructor() : MapSurface {
         onGesture: () -> Unit,
         onCameraIdle: (center: LatLon, bearing: Double, zoom: Double) -> Unit,
         onFailed: () -> Unit,
-    ) = NavMap(modifier, description, night, colours, pmtilesUrl, content, onReady, onLongPress, onGesture, onCameraIdle, onFailed)
+        onTap: ((LatLon, List<Int>) -> Unit)?,
+    ) = NavMap(modifier, description, night, colours, pmtilesUrl, content, onReady, onLongPress, onGesture, onCameraIdle, onFailed, onTap)
 }
 
 /**
@@ -61,6 +62,7 @@ fun NavMap(
     onGesture: () -> Unit,
     onCameraIdle: (center: LatLon, bearing: Double, zoom: Double) -> Unit,
     onFailed: () -> Unit,
+    onTap: ((LatLon, List<Int>) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -68,6 +70,7 @@ fun NavMap(
     val gesture = rememberUpdatedState(onGesture)
     val idle = rememberUpdatedState(onCameraIdle)
     val failed = rememberUpdatedState(onFailed)
+    val tap = rememberUpdatedState(onTap)
     val controller = remember {
         MapLibre.getInstance(context)
         val options = MapLibreMapOptions.createFromAttributes(context).attributionEnabled(false).logoEnabled(false).compassEnabled(false)
@@ -102,6 +105,14 @@ fun NavMap(
                 if (cb != null) cb(LatLon(p.latitude, p.longitude))
                 cb != null
             }
+            // NAV-011 AC 17 / map-style §7.6: 48 × 48 dp query box around the tap; the tap never moves the camera.
+            map.addOnMapClickListener { p ->
+                val cb = tap.value ?: return@addOnMapClickListener false
+                val px = map.projection.toScreenLocation(p)
+                val box = TAP_BOX_DP * context.resources.displayMetrics.density
+                cb(LatLon(p.latitude, p.longitude), controller.routeIndicesAt(px.x, px.y, box))
+                false
+            }
             map.addOnCameraMoveStartedListener { reason ->
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) gesture.value()
             }
@@ -118,3 +129,6 @@ fun NavMap(
     LaunchedEffect(content) { controller.apply(content) }
     AndroidView(factory = { controller.mapView }, modifier = modifier.semantics { contentDescription = description })
 }
+
+/** map-style §7.6: the tap box is 48 × 48 dp (≥ 24 dp on each side of a line centre, NAV-011 AC 17). */
+private const val TAP_BOX_DP = 48f

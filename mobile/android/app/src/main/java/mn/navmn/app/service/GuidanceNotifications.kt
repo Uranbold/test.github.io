@@ -9,7 +9,9 @@ import mn.navmn.app.i18n.Strings
 import mn.navmn.app.instructions.BannerText
 
 /**
- * Screen spec S8 notification text, from our resources only (AC 15, 17; ADR-0009 §9). Title = the banner line
+ * NAV-005 S8 notification text. Since NAV-012 the service posts [mn.navmn.app.service.notification.RichNotification]
+ * (title = distance, text = instruction); this first-slice mapping is kept only for the NAV-005 tests QA adapts
+ * (story Context table). Screen spec S8 notification text, from our resources only (AC 15, 17; ADR-0009 §9). Title = the banner line
  * (instruction, «Маршрутыг дахин тооцоолж байна», or «GPS дохио тасарлаа» while lost); text = distance · street
  * (street omitted when empty; none in the recalculating and GPS-lost cases). Never coordinates (AC 67).
  */
@@ -25,6 +27,7 @@ object GuidanceNotificationText {
             }
             is Banner.Rerouting -> Content(strings[StringKey.NAV_REROUTING], null)
             is Banner.Arrival -> Content(BannerText.text(b.key, lang, strings), b.street.ifEmpty { null })
+            Banner.Restoring -> Content(strings[StringKey.STATUS_LOADING], null)
         }
     }
 }
