@@ -46,12 +46,13 @@ class SearchController(
     private val bias: () -> LatLon,
     private val isOnline: () -> Boolean,
     private val now: () -> Long,
+    /** NAV-018 (ADR-0015 §5): the per-operation 429 cooldown, shared by the map-screen and the preview-field instances. */
+    private val cooldown: SearchCooldown = SearchCooldown(),
 ) {
     private val _view = MutableStateFlow<SearchView>(SearchView.Closed)
     val view: StateFlow<SearchView> = _view.asStateFlow()
     private var job: Job? = null
     private var lastSettled: String? = null
-    private var cooldownUntil = 0L
     private var generation = 0
 
     companion object {
@@ -90,7 +91,7 @@ class SearchController(
 
     fun retry() {
         val q = lastSettled ?: return
-        if (now() < cooldownUntil) return
+        if (cooldown.active(now())) return
         job?.cancel()
         job = scope.launch { run(q, force = true) }
     }
@@ -109,8 +110,14 @@ class SearchController(
             _view.value = SearchView.Offline
             return
         }
-        if (now() < cooldownUntil) {
+        if (cooldown.active(now())) {
             _view.value = SearchView.RateLimited(retryEnabled = false)
+            // NAV-018: the wait may come from the other instance (shared cooldown); «Дахин оролдох» enables when it ends.
+            val wait = cooldown.until - now()
+            scope.launch {
+                delay(wait)
+                if (_view.value == SearchView.RateLimited(retryEnabled = false)) _view.value = SearchView.RateLimited(retryEnabled = true)
+            }
             return
         }
         val g = ++generation
@@ -137,7 +144,7 @@ class SearchController(
             SearchOutcome.Offline -> SearchView.Offline
             SearchOutcome.Unavailable -> SearchView.Unavailable
             is SearchOutcome.RateLimited -> {
-                cooldownUntil = now() + outcome.retryAfterS * 1000L
+                cooldown.start(now() + outcome.retryAfterS * 1000L)
                 scope.launch {
                     delay(outcome.retryAfterS * 1000L)
                     if (_view.value is SearchView.RateLimited) _view.value = SearchView.RateLimited(retryEnabled = true)

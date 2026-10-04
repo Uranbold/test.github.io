@@ -12,6 +12,8 @@ interface MapCamera {
     fun easeTo(p: LatLon, zoom: Double? = null, durationMs: Int = 300)
     fun fit(points: List<LatLon>, left: Int, top: Int, right: Int, bottom: Int)
     fun follow(target: LatLon, bearing: Double, tilt: Double, zoom: Double, padding: CameraRules.Padding, animate: Boolean)
+    /** NAV-018 AC 22: centre [p] at [zoom] inside the area left by the padding (px); [durationMs] 0 = jump. */
+    fun focus(p: LatLon, zoom: Double, left: Int, top: Int, right: Int, bottom: Int, durationMs: Int) = easeTo(p, zoom, durationMs)
     fun resetNorth()
     fun zoomBy(delta: Double)
     val bearing: Double

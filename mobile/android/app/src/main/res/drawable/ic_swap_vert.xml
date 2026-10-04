@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Own path (same artwork as web/src/ui/routeIcons.ts "swap", NAV-018); decorative. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M8 3 3.5 7.5 4.9 8.9 7 6.8V14h2V6.8l2.1 2.1 1.4-1.4Zm8 18 4.5-4.5-1.4-1.4-2.1 2.1V10h-2v7.2l-2.1-2.1-1.4 1.4Z" />
+</vector>

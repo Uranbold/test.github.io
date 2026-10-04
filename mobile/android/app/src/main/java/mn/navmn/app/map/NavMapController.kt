@@ -45,6 +45,10 @@ data class MapContent(
      */
     val routeIndex: Int = 0,
     val alternatives: List<Pair<Int, List<LatLon>>> = emptyList(),
+    /** NAV-018 map-style §7.7: the start marker for a chosen start (null with a device start: the location dot). */
+    val origin: LatLon? = null,
+    /** NAV-018 map-style §7.7: the manoeuvre point after a turn-list row tap (`nav-route-step`). */
+    val step: LatLon? = null,
 )
 
 /**
@@ -118,6 +122,9 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         s.getSourceAs<GeoJsonSource>(SRC_PIN)?.setGeoJson(points(listOfNotNull(c.destination)))
         s.getSourceAs<GeoJsonSource>(SRC_CANDIDATE)?.setGeoJson(points(listOfNotNull(c.candidate)))
         s.getSourceAs<GeoJsonSource>(SRC_DOT)?.setGeoJson(points(listOfNotNull(c.myLocation)))
+        // NAV-018 §7.7: chosen-start marker and manoeuvre point (preview only).
+        s.getSourceAs<GeoJsonSource>(SRC_ORIGIN)?.setGeoJson(points(listOfNotNull(c.origin.takeIf { !c.guidance })))
+        s.getSourceAs<GeoJsonSource>(SRC_STEP)?.setGeoJson(points(listOfNotNull(c.step.takeIf { !c.guidance })))
         s.getLayer(L_DOT)?.setProperties(
             PropertyFactory.circleColor(argb(if (c.myLocationStale) colours?.locationStaleDot else colours?.locationDot)),
         )
@@ -180,7 +187,7 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
     private fun addOverlay(s: Style) {
         val c = colours ?: return
         val d = context.resources.displayMetrics.density
-        listOf(SRC_ROUTE, SRC_ALT, SRC_PIN, SRC_CANDIDATE, SRC_DOT, SRC_PUCK).forEach { s.addSource(GeoJsonSource(it)) }
+        listOf(SRC_ROUTE, SRC_ALT, SRC_PIN, SRC_CANDIDATE, SRC_DOT, SRC_PUCK, SRC_ORIGIN, SRC_STEP).forEach { s.addSource(GeoJsonSource(it)) }
         s.addImage(IMG_PUCK, MapBitmaps.puck(d, c, stale = false))
         s.addImage(IMG_PUCK_STALE, MapBitmaps.puck(d, c, stale = true))
         s.addImage(IMG_PIN, MapBitmaps.pin(d, c, candidate = false))
@@ -197,6 +204,15 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         below(line(L_SEL, c.routeSelected, widths(5f to 4f, 10f to 6f, 14f to 8f, 18f to 12f)))
         below(line(L_GUIDE_CASING, c.routeSelectedCasing, widths(12f to 10f, 15f to 14f, 18f to 18f)))
         below(line(L_GUIDE, c.routeSelected, widths(12f to 6f, 15f to 9f, 18f to 13f)))
+        // NAV-018 §7.7: manoeuvre point above the selected line, below the first symbol layer (radius 6 dp, 3 dp ring).
+        below(
+            CircleLayer(L_STEP, SRC_STEP).withProperties(
+                PropertyFactory.circleRadius(6f),
+                PropertyFactory.circleColor(argb(c.routeStepFill)),
+                PropertyFactory.circleStrokeWidth(3f),
+                PropertyFactory.circleStrokeColor(argb(c.routeStepStroke)),
+            ),
+        )
         // Markers and puck above everything (map-style §7.1, §7.4).
         s.addLayer(
             CircleLayer(L_DOT, SRC_DOT).withProperties(
@@ -205,6 +221,16 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
                 PropertyFactory.circleStrokeWidth(3f),
                 PropertyFactory.circleStrokeColor(argb(c.locationDotStroke)),
             ),
+        )
+        // NAV-018 §7.7: chosen-start marker, 18 dp incl. a 4 dp ring (radius 5 + stroke 4), below the pins and the dot.
+        s.addLayerBelow(
+            CircleLayer(L_ORIGIN, SRC_ORIGIN).withProperties(
+                PropertyFactory.circleRadius(5f),
+                PropertyFactory.circleColor(argb(c.routeOriginFill)),
+                PropertyFactory.circleStrokeWidth(4f),
+                PropertyFactory.circleStrokeColor(argb(c.routeOriginStroke)),
+            ),
+            L_DOT,
         )
         for ((id, src, img) in listOf(Triple(L_CANDIDATE, SRC_CANDIDATE, IMG_CANDIDATE), Triple(L_PIN, SRC_PIN, IMG_PIN))) {
             s.addLayer(
@@ -257,6 +283,17 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         }
     }
 
+    /** NAV-018 AC 22 (screen spec Q8): centre [p] at [zoom] inside the padded area; [durationMs] 0 = jump. */
+    override fun focus(p: LatLon, zoom: Double, left: Int, top: Int, right: Int, bottom: Int, durationMs: Int) {
+        val m = map ?: return
+        val pos = CameraPosition.Builder(m.cameraPosition)
+            .target(LatLng(p.lat, p.lon))
+            .zoom(zoom)
+            .padding(left.toDouble(), top.toDouble(), right.toDouble(), bottom.toDouble())
+            .build()
+        if (durationMs > 0) m.easeCamera(CameraUpdateFactory.newCameraPosition(pos), durationMs) else m.moveCamera(CameraUpdateFactory.newCameraPosition(pos))
+    }
+
     /** navigation-ux §8 follow camera; [animate] false with reduced motion. */
     override fun follow(target: LatLon, bearing: Double, tilt: Double, zoom: Double, padding: CameraRules.Padding, animate: Boolean) {
         val m = map ?: return
@@ -298,6 +335,11 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         const val SRC_CANDIDATE = "nav-candidate"
         const val SRC_DOT = "nav-location"
         const val SRC_PUCK = "nav-puck"
+        /** NAV-018 map-style §7.7. */
+        const val SRC_ORIGIN = "nav-origin"
+        const val L_ORIGIN = "nav-origin"
+        const val SRC_STEP = "nav-route-step"
+        const val L_STEP = "nav-route-step"
         const val L_SEL_CASING = "nav-route-sel-casing-preview"
         const val L_SEL = "nav-route-sel-preview"
         const val L_GUIDE_CASING = "nav-route-sel-casing"

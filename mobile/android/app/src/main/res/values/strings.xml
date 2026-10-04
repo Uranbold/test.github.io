@@ -59,6 +59,14 @@
     <string name="typing_lock_title">Хөдөлж байх үед бичих боломжгүй</string>
     <string name="typing_lock_hint">Жолооч бол зогсоод хайна уу</string>
     <string name="typing_lock_passenger">Би зорчигч</string>
+    <!-- NAV-018 (start point choice and turn list). Glossary N2, N3, N4, N5, N17, N18; O1 is glossary 2.6, needs native review. -->
+    <string name="route_origin_placeholder">Эхлэх цэг сонгох</string>
+    <string name="route_destination_placeholder">Очих газар сонгох</string>
+    <string name="route_swap">Эхлэх цэг, очих газрыг солих</string>
+    <string name="route_directions">Маршрутын заавар</string>
+    <string name="route_set_origin">Эхлэх цэг болгох</string>
+    <string name="route_set_destination">Очих газар болгох</string>
+    <string name="route_start_only_from_location">Замчлал зөвхөн таны байршлаас эхэлнэ</string>
     <!-- Guidance screen, notification channel and title -->
     <string name="nav_name">Замчлал</string>
     <string name="nav_start">Эхлэх</string>

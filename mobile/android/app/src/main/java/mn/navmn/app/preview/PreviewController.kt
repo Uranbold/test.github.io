@@ -7,10 +7,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import mn.navmn.app.geo.Geo
 import mn.navmn.app.geo.LatLon
 import mn.navmn.app.i18n.Lang
 import mn.navmn.app.location.Fix
+import mn.navmn.app.preview.points.PointRules
+import mn.navmn.app.preview.points.RoutePoint
 import mn.navmn.app.route.ParsedRoute
 import mn.navmn.app.route.RouteOutcome
 import mn.navmn.app.route.RoutePurpose
@@ -50,16 +51,30 @@ sealed interface PreviewResult {
     data object Error : PreviewResult
 }
 
-data class Destination(val point: LatLon, val name: String?)
+/**
+ * The preview destination from a search result ([name]) or a map point (null → «Сонгосон цэг»). NAV-018 (ADR-0015 §2):
+ * both points are [RoutePoint]s; this factory keeps the NAV-005 / NAV-011 call sites unchanged.
+ */
+@Suppress("FunctionName")
+fun Destination(point: LatLon, name: String?): RoutePoint = if (name != null) RoutePoint.Place(point, name) else RoutePoint.MapPoint(point)
 
 data class PreviewState(
-    val destination: Destination,
+    /** NAV-018: never null (AC 7). */
+    val destination: RoutePoint,
     val mode: TravelMode = TravelMode.CAR,
     val avoidUnpaved: Boolean = false,
-    val origin: Fix? = null,
+    /** NAV-018: null while «Миний байршил» is being resolved on open, or when it could not be (AC 2: empty start field). */
+    val origin: RoutePoint? = null,
     val result: PreviewResult = PreviewResult.WaitingForLocation,
 ) {
-    val canStart: Boolean get() = result is PreviewResult.Route
+    /** NAV-018 AC 15 (ADR-0015 §3): a route and no chosen start. */
+    val canStart: Boolean get() = PointRules.canStart(result is PreviewResult.Route, origin)
+
+    /** NAV-018 AC 15: O1 next to the disabled «Эхлэх» when a route renders with a chosen start. */
+    val showStartHint: Boolean get() = PointRules.showStartHint(result is PreviewResult.Route, origin)
+
+    /** NAV-018 AC 2: the start field is empty (placeholder) only when the device start failed and nothing was chosen. */
+    val originEmpty: Boolean get() = origin == null && result is PreviewResult.Location
 }
 
 /**
@@ -95,7 +110,7 @@ class PreviewController(
     var requestsStarted = 0
         private set
 
-    fun open(destination: Destination) {
+    fun open(destination: RoutePoint) {
         job?.cancel()
         generation++
         _state.value = PreviewState(destination, mode = sessionMode)
@@ -118,10 +133,33 @@ class PreviewController(
         _state.value = s.copy(result = PreviewResult.WaitingForLocation)
     }
 
-    fun setOrigin(fix: Fix) {
+    /** NAV-005 / NAV-011 call sites: the start is «Миний байршил» from [fix]. */
+    fun setOrigin(fix: Fix) = setOrigin(RoutePoint.MyLocation(fix))
+
+    /** NAV-018 AC 2–6, 10: sets the start (frozen when set) and sends one request when both points are set. */
+    fun setOrigin(point: RoutePoint) {
         val s = _state.value ?: return
-        _state.value = s.copy(origin = fix)
+        _state.value = s.copy(origin = point)
         request(0)
+    }
+
+    /** NAV-018 AC 4, 6: sets the destination; one request when the start is set. */
+    fun setDestination(point: RoutePoint) {
+        val s = _state.value ?: return
+        _state.value = s.copy(destination = point)
+        request(0)
+    }
+
+    /**
+     * NAV-018 AC 11: exchanges the two points (texts and markers follow the state) and sends exactly one request,
+     * subject to the same-point, offline and 429 rules. False (no change) while the start is empty.
+     */
+    fun swap(): Boolean {
+        val s = _state.value ?: return false
+        val origin = s.origin ?: return false
+        _state.value = s.copy(origin = s.destination, destination = origin)
+        request(0)
+        return true
     }
 
     fun setMode(mode: TravelMode) {
@@ -169,7 +207,7 @@ class PreviewController(
         val origin = s.origin ?: return
         job?.cancel()
         val g = ++generation
-        if (Geo.distance(origin.latLon, s.destination.point) <= SAME_POINT_M) {
+        if (PointRules.samePoint(origin, s.destination)) {
             update(PreviewResult.SamePoint)
             return
         }
@@ -189,8 +227,9 @@ class PreviewController(
                 delay(LOADING_DELAY_MS)
                 update(PreviewResult.Loading)
             }
+            // NAV-018 AC 13: the start as set when the request was planned (never refreshed), the current destination.
             val req = RouteRequest(
-                origin.latLon, cur.destination.point, cur.mode, cur.avoidUnpaved && cur.mode == TravelMode.CAR, lang(),
+                (cur.origin ?: origin).point, cur.destination.point, cur.mode, cur.avoidUnpaved && cur.mode == TravelMode.CAR, lang(),
                 purpose = RoutePurpose.PREVIEW,
             )
             requestsStarted++
