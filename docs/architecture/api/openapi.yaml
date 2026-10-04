@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.5.3
+  version: 0.5.4
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
@@ -14,7 +14,25 @@ info:
     and ADR-0009 (Android guidance client: app-owned route requests and reroute policy, keyed banner and voice text)
     and ADR-0011 (web demo mode NAV-017: offline replay of recorded routes, no backend calls)
     and ADR-0012 (Android NAV-011: ADR-0006 query assistance ported to Kotlin, reverse on the coordinate card,
-    route alternatives handed to guidance as a single-route slice, on-device typing lock).
+    route alternatives handed to guidance as a single-route slice, on-device typing lock)
+    and ADR-0015 (Android NAV-018: start and destination as one typed point model, swap, guidance only from a
+    device start, field search on the shared 429 cooldown, turn list built on the client from the parsed steps).
+
+    **Changes in 0.5.4 (2026-10-04, NAV-018 design, ADR-0015).** Documentation only. No path, parameter, status
+    code, header, schema or gateway behaviour change, so there is nothing for backend to implement (backend
+    re-runs the contract check, which now also sends the new request example):
+    - `postRoute`: **Android preview profile from NAV-018.** `locations[0]` may now be a **chosen start** (a search
+      result, a map point, or a typed coordinate once the D137 change is applied), not only the device position.
+      «Миний байршил» may be either location after a swap. One request per point change or swap. The body is
+      otherwise the NAV-011 preview body, never with `heading`. The Android turn list «Маршрутын заавар» is built
+      on the client from `legs[0].steps[]` (ADR-0008 rules), with no new field and no extra request. Guidance
+      starts only from a device start (NAV-018 Open question 1, default (a)), so reroutes are unchanged. New request
+      example `androidPreviewChosenStartWalk`.
+    - `search`: the two route-preview fields use the NAV-011 Android profile unchanged. They share one 429 cooldown
+      with the map-screen search field (per operation, per device). At most one field is active, so the budget is
+      unchanged.
+    - `reverse`: the coordinate card is also opened by a long-press in the route preview. Still exactly one request
+      per card, and the chosen point (never the `reverse` result) becomes the start or the destination.
 
     **Changes in 0.5.3 (2026-10-03, NAV-011 design, ADR-0012).** Documentation only. No path, parameter, status
     code, header, schema or gateway behaviour change, so there is nothing for backend to implement (backend
@@ -163,7 +181,9 @@ info:
     Story traceability: NAV-001 (all operations), NAV-003 (`search`, `reverse` web client profile),
     NAV-004 (`postRoute` web route-preview client profile, `bicycle`), NAV-005 (`postRoute` Android guidance and
     reroute profile, `search`, tiles from MapLibre Native), NAV-008 (staging server, 429), NAV-011 (Android
-    `search` assisted variants, `reverse`, `postRoute` preview with `alternates: 2` and `bicycle`).
+    `search` assisted variants, `reverse`, `postRoute` preview with `alternates: 2` and `bicycle`), NAV-018
+    (Android route preview with a chosen start, swap and the client-side turn list; `postRoute`, `search`,
+    `reverse` profiles unchanged on the wire).
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -471,7 +491,29 @@ paths:
         - Load: still one request per settled user action (mode tabs settle for 300 ms), at most 1 preview request in
           flight. Asking for alternates costs Valhalla more time than `alternates: 0`; the web preview (NAV-004)
           already sends the same value.
-      x-stories: [NAV-001, NAV-004, NAV-005, NAV-008, NAV-011, NAV-017]
+
+        **Android route-preview points and turn list (NAV-018, ADR-0015).** Informative for backend and QA; the
+        binding rules are the NAV-018 acceptance criteria. It changes only these points of the NAV-011 profile above:
+        - `locations` = [start, destination]. The start is either the device position («Миний байршил», a good fix
+          frozen when it was set) or a **chosen start**: a search result coordinate, a long-press map point, or a
+          typed coordinate once the D137 change is applied. All of them are sent with 6 decimals, never rounded.
+          After a swap, «Миний байршил» may be `locations[1]`. The device position appears in a route body only when a
+          location is «Миний байршил».
+        - Triggers: the NAV-011 ones plus "a point is set or changed" and "swap", each **one** request (subject to the
+          10 m same-point rule, offline and 429). Swapping twice sends 2 requests. Opening the preview without a usable
+          start sends 0 requests until a start is set.
+        - The body is the NAV-011 preview body unchanged (`alternates: 2`, the NAV-005 fixed field set), and **never**
+          carries `heading` on any location.
+        - `waypoints[0].distance` (start) and `waypoints[1].distance` (destination) both feed the D51 snap notice above
+          500 m.
+        - The turn list «Маршрутын заавар» shows one row per step of `legs[0].steps` of the selected route: step *i*'s
+          own `maneuver` (`type`, `modifier`, `exit`, `bearing_after`, `location`), cleaned `name`, and `distance`
+          (none on `arrive`). Text comes from the ADR-0008 Android rules, so selecting another route, tapping a row or
+          switching the UI language sends **0** requests.
+        - «Эхлэх» (guidance, 0 requests) is enabled only when the start is «Миний байршил» (NAV-018 Open question 1,
+          default (a)), so reroutes and the NAV-005 guidance profile are unchanged.
+        - Load per device: still at most one request per settled user action and at most 1 preview request in flight.
+      x-stories: [NAV-001, NAV-004, NAV-005, NAV-008, NAV-011, NAV-017, NAV-018]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route, docs: "https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/" }
       requestBody:
         required: true
@@ -629,6 +671,19 @@ paths:
                   voice_instructions: true
                   units: kilometers
                   language: en-US
+              androidPreviewChosenStartWalk:
+                summary: NAV-018 Android preview with a chosen start (search result P4 Gandan) to P1 Sükhbaatar Square on foot, Mongolian UI. Same body shape as NAV-011, no heading (not measured with this exact body; the stack was down at design time)
+                value:
+                  locations:
+                    - { lat: 47.92150, lon: 106.89500 }
+                    - { lat: 47.91890, lon: 106.91760 }
+                  costing: pedestrian
+                  alternates: 2
+                  format: osrm
+                  banner_instructions: true
+                  voice_instructions: true
+                  units: kilometers
+                  language: mn-MN
       responses:
         "200":
           $ref: "#/components/responses/RouteOk"
@@ -741,8 +796,15 @@ paths:
         never displayed. Expected load: the same as the web (worst case about 8 requests/s while typing at the
         250 ms debounce, typically under 1/s).
 
+        **NAV-018 Android route-preview fields (ADR-0015 §5):** the start and destination fields send exactly the
+        NAV-011 profile above, through the same code. They share **one** 429 cooldown with the map-screen field (per
+        operation, per device). Only one field is active at a time, and a response for a field that lost focus or
+        changed text is discarded, so the budget is unchanged. The «Миний байршил» option in the start field sends
+        **0** `search` requests, and the device position is never sent except as the D30 bias (3 decimals). Typed
+        coordinates follow the NAV-011 rule in force (AC 7 / D115 until the D137 change is applied).
+
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 36). The gateway read timeout is 5 s.
-      x-stories: [NAV-001, NAV-003, NAV-005, NAV-008, NAV-011]
+      x-stories: [NAV-001, NAV-003, NAV-005, NAV-008, NAV-011, NAV-018]
       x-upstream: { service: photon, version: "1.3.0", path: /api, docs: "https://github.com/komoot/photon/blob/1.3.0/docs/api-v1.md" }
       parameters:
         - name: q
@@ -827,8 +889,13 @@ paths:
         the user acts. 400: no retry. 502/503/504, network error or timeout: one user-triggered retry. The
         route-preview destination text stays the chosen point, never the reverse result.
 
+        **NAV-018 Android route preview (ADR-0015 §6):** a long-press while the route preview is open opens the same
+        card with the same single `reverse` request. Its buttons «Эхлэх цэг болгох» / «Очих газар болгох» set the start
+        or destination to the long-pressed point («Сонгосон цэг»), never to the `reverse` result, and send no further
+        `reverse` request.
+
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 37).
-      x-stories: [NAV-001, NAV-003, NAV-008, NAV-011]
+      x-stories: [NAV-001, NAV-003, NAV-008, NAV-011, NAV-018]
       x-upstream: { service: photon, version: "1.3.0", path: /reverse }
       parameters:
         - name: lat

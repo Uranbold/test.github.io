@@ -12,8 +12,11 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0010: Mongolian voice clip pack (proposed)
 - ADR-0011: web demo mode (offline replay)
 - ADR-0012: Android route preview and search parity (NAV-011)
+- ADR-0013: Android background guidance, restore and lock screen (NAV-012)
+- ADR-0014: daily rebuild slots and pointer switch (NAV-006)
+- ADR-0015: Android route preview points (chosen start, swap) and turn list (NAV-018)
 
-HTTP contract: `api/openapi.yaml` 0.5.3.
+HTTP contract: `api/openapi.yaml` 0.5.4.
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 
@@ -203,6 +206,32 @@ flowchart LR
   TL -. "blocks the keyboard only" .-> SC
 ```
 
+## 1c-ter. Android route preview points and turn list (NAV-018, ADR-0015)
+
+There is **no new host, endpoint or field**. The start of a preview route may now be a chosen point (a search result, a long-press map point, or a typed coordinate once D137 is applied), and the user can swap start and destination. Each point change or swap sends one `POST /v1/route` with the NAV-011 body.
+
+The turn list «Маршрутын заавар» is built on the phone from the steps of the selected route. That route was already parsed when the response arrived, and the text comes from the ADR-0008 rules, so the list sends 0 requests. «Эхлэх» is enabled only when the start is «Миний байршил» (NAV-018 Open question 1, default (a)). Guidance and reroute are therefore unchanged.
+
+```mermaid
+flowchart LR
+  subgraph Phone["Android app"]
+    PF["preview fields<br/>2nd SearchController (shared 429 cooldown)"]
+    CC["coordinate card in preview<br/>«Эхлэх цэг болгох» / «Очих газар болгох»"]
+    PT["preview.points (pure)<br/>RoutePoint · swap · same point · start gate"]
+    PV["PreviewController<br/>only route requester, 1 in flight"]
+    TL["preview.turnlist (pure)<br/>rows from ParsedRoute.plan.steps"]
+    GE["NAV-005 guidance pipeline, unchanged"]
+  end
+  GW["gateway"]
+  PF -->|"GET /v1/search"| GW
+  CC -->|"GET /v1/reverse (1 per card)"| GW
+  PF --> PT
+  CC --> PT
+  PT --> PV -->|"POST /v1/route {alternates:2}"| GW
+  PV --> TL
+  PV -->|"«Эхлэх» only with a device start, 0 requests"| GE
+```
+
 ## 1d. Web demo mode (NAV-017, ADR-0011)
 
 A **separate build** of the web client (`npm run build:demo-mode` → `dist-demo-mode/`) that the PO uploads by hand into a **public sub-folder** of the shared web hosting, with no password (D107, 2026-10-03, supersedes the password part of D74; the page keeps `noindex`; folder and host names are never in the repo, D35). It replays three recorded UB routes (R1–R3) with simulated turn-by-turn guidance. It sends **0** requests to `search`, `reverse` or `route` and has no backend. The public static site (D44) and its build are unchanged.
@@ -353,6 +382,7 @@ sequenceDiagram
 | NFR-L6 | Web demo-mode replay timing | simulated fix applied ± 100 ms of its track time at 1×; prompts within ± 2 s of the shared golden set; core cost ≤ 1 ms per fix on the main thread (measured 0.2–0.8 ms in Node, ADR-0011 W2) | NAV-017 AC 12, 26 | Vitest fake clock + golden test |
 | NFR-R2 | Search request budget (web and, from NAV-011, Android) | ≤ 2 `search` requests per settled query, 1 `reverse` per coordinate card, no automatic retry except one resume when the network returns; 429 honoured per operation | NAV-003 AC 3, 15, 35, 36; NAV-011 AC 2–4, 7, 11, 12; openapi 0.4.0 rate-limit rules | QA e2e (web); JVM/Robolectric request capture (Android) |
 | NFR-P6 | Typing-lock privacy (Android) | lock fixes only while the map or route preview is in the foreground; 0 network requests and 0 stored values from the lock; passenger override in process memory only (never restored after a restart) | NAV-011 AC 27, 28, 34; ADR-0012 §7 | Robolectric log/storage scan, process-recreation test |
+| NFR-P7 | Route-preview points privacy (Android) | start and destination (a chosen start may be a customer's pickup) live in ViewModel memory only: never logged, stored or restored after process death; the device position is sent only in a route body whose point is «Миний байршил» (and as the D30 bias), never as a `reverse` point | NAV-018 AC 31–33; ADR-0015 §10 | Robolectric log/storage scan, request capture |
 
 These targets are BA-proposed Phase 0 baselines (NAV-001 Open question 3), not production SLAs.
 
