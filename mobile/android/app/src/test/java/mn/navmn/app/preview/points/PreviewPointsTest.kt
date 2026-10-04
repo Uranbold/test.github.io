@@ -107,6 +107,28 @@ class PreviewPointsTest {
     }
 
     @Test
+    fun myLocationStartAfterMovingTurnsTheSwappedMyLocationDestinationIntoASelectedPoint() = runTest {
+        // PO 2026-10-04, answer 5: swap «Миний байршил» to the destination, move > 10 m, pick «Миний байршил» as the start.
+        val (c, sent) = ctl { ok }
+        c.open(Destination(p3, "Зайсан толгой"))
+        c.setOrigin(fix)
+        runCurrent()
+        assertTrue(c.swap())
+        runCurrent()
+        assertEquals(RoutePoint.MyLocation(fix), c.state.value!!.destination)
+        val moved = Fix(p2.lat, p2.lon, 5.0, 90.0, 5.0, 10.0, 60_000, 0)
+        assertTrue("moved more than 10 m", Geo.distance(p1, p2) > PointRules.SAME_POINT_M)
+        c.setOrigin(moved)
+        runCurrent()
+        assertEquals("the old fix as a map point («Сонгосон цэг»)", RoutePoint.MapPoint(p1), c.state.value!!.destination)
+        assertEquals(RoutePoint.MyLocation(moved), c.state.value!!.origin)
+        assertEquals("one request for the new start", 3, sent.size)
+        assertEquals(p2, sent[2].origin)
+        assertEquals(p1, sent[2].destination)
+        assertTrue("a device start again: «Эхлэх» enabled", c.state.value!!.canStart)
+    }
+
+    @Test
     fun samePointAnyKindsSendsNothing() = runTest {
         val (c, sent) = ctl { ok }
         c.open(Destination(p3, null))

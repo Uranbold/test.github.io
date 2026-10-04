@@ -122,6 +122,8 @@ class BrowseActions(
     val onReverseRetry: () -> Unit = {},
     /** A tap on the search field: true → typing allowed; false → the lock card is shown (AC 31). */
     val onSearchFieldTap: () -> Boolean = { true },
+    /** NAV-011 re-focus: the field gained focus with typing allowed (a kept coordinate query shows its option again). */
+    val onSearchFocused: () -> Unit = {},
     val onLockedWhileTyping: () -> Unit = {},
     val onDismissLock: () -> Unit = {},
     val onPassenger: () -> Unit = {},
@@ -243,6 +245,8 @@ private fun SearchRow(m: BrowseModel, a: BrowseActions) {
                                 if (gained && !a.onSearchFieldTap()) {
                                     keyboard?.hide()
                                     focusManager.clearFocus()
+                                } else if (gained) {
+                                    a.onSearchFocused()
                                 }
                             }
                             .semantics { contentDescription = placeholder },

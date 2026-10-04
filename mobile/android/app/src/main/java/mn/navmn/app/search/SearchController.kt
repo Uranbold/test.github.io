@@ -109,6 +109,23 @@ class SearchController(
         job = scope.launch { run(q, force = true) }
     }
 
+    /**
+     * NAV-011 re-focus (NAV-018 minor): the field gains focus again with [raw] still in it and the list Closed (e.g.
+     * after the coordinate option opened the card). A recognised coordinate pair is settled again at once, so the
+     * «Сонгосон цэг» option shows again, with 0 requests. Any other text, or an open list, is left alone (false).
+     */
+    fun onRefocus(raw: String): Boolean {
+        if (_view.value !is SearchView.Closed) return false
+        val q = settle(raw)
+        if (q.length < MIN_LENGTH) return false
+        val p = QueryPlanner.plan(q) as? QueryPlan.Coordinate ?: return false
+        job?.cancel()
+        generation++
+        lastSettled = q
+        _view.value = SearchView.Coordinate(p.point)
+        return true
+    }
+
     fun close() {
         job?.cancel()
         generation++

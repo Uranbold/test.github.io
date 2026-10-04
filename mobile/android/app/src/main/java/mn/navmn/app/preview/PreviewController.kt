@@ -136,10 +136,13 @@ class PreviewController(
     /** NAV-005 / NAV-011 call sites: the start is «Миний байршил» from [fix]. */
     fun setOrigin(fix: Fix) = setOrigin(RoutePoint.MyLocation(fix))
 
-    /** NAV-018 AC 2–6, 10: sets the start (frozen when set) and sends one request when both points are set. */
+    /**
+     * NAV-018 AC 2–6, 10: sets the start (frozen when set) and sends one request when both points are set. A swapped
+     * «Миний байршил» destination more than 10 m from a new «Миний байршил» start becomes «Сонгосон цэг» (PO answer 5).
+     */
     fun setOrigin(point: RoutePoint) {
         val s = _state.value ?: return
-        _state.value = s.copy(origin = point)
+        _state.value = s.copy(origin = point, destination = PointRules.destinationForStart(point, s.destination))
         request(0)
     }
 

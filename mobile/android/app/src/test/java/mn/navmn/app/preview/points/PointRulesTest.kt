@@ -9,6 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -63,6 +64,40 @@ class PointRulesTest {
         assertEquals("AC 33 / D11: a result name is not re-localised", "Гандан хийд", PointRules.label(RoutePoint.Place(p3, "Гандан хийд"), en))
         assertEquals("Гандан хийд", PointRules.storedName(RoutePoint.Place(p3, "Гандан хийд")))
         assertNull(PointRules.storedName(RoutePoint.MapPoint(p3)))
+    }
+
+    @Test
+    fun aSwappedMyLocationDestinationBecomesASelectedPointWhenTheUserMovedMoreThan10m() {
+        // PO 2026-10-04, answer 5: the old fix stays as a map point («Сонгосон цэг»); no new string.
+        val oldFix = RoutePoint.MyLocation(fix(p1))
+        val moved = RoutePoint.MyLocation(fix(Geo.offset(p1, 90.0, 11.0)))
+        val converted = PointRules.destinationForStart(moved, oldFix)
+        assertEquals(RoutePoint.MapPoint(p1), converted)
+        assertEquals("Сонгосон цэг", PointRules.label(converted, TestStrings.of(Lang.MN)))
+        // Within 10 m it stays «Миний байршил» (AC 9 then shows the same-point state).
+        val near = RoutePoint.MyLocation(fix(Geo.offset(p1, 90.0, 9.0)))
+        assertSame(oldFix, PointRules.destinationForStart(near, oldFix))
+        // Any other combination leaves the destination unchanged.
+        val place = RoutePoint.Place(p3, "Гандан хийд")
+        assertSame(place, PointRules.destinationForStart(moved, place))
+        assertSame(oldFix, PointRules.destinationForStart(RoutePoint.MapPoint(p3), oldFix))
+        assertSame(oldFix, PointRules.destinationForStart(place, oldFix))
+    }
+
+    @Test
+    fun cameraFitLeavesTheLivePositionOutWithAChosenStart() {
+        // PO 2026-10-04, answer 7 (NAV-011 AC 16, NAV-018 AC 8).
+        val me = LatLon(47.90, 106.90)
+        val dest = RoutePoint.Place(p3, "Зайсан толгой")
+        val device = RoutePoint.MyLocation(fix(p1))
+        assertEquals("device start: the live position is kept", listOf(p3, p1, me), PointRules.fitMarkers(device, dest, me))
+        assertEquals("start still resolving: the live position is kept", listOf(p3, me), PointRules.fitMarkers(null, dest, me))
+        for (chosen in listOf(RoutePoint.Place(p1, "x"), RoutePoint.MapPoint(p1), RoutePoint.TypedCoordinate(p1))) {
+            assertEquals("chosen start $chosen: only the two markers", listOf(p3, p1), PointRules.fitMarkers(chosen, dest, me))
+        }
+        // «Миний байршил» swapped to the destination: the start is chosen, so the live position is dropped too.
+        assertEquals(listOf(p1, p3), PointRules.fitMarkers(dest, device, me))
+        assertEquals(listOf(p3, p1), PointRules.fitMarkers(device, dest, null))
     }
 
     @Test

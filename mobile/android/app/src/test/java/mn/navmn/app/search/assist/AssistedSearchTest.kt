@@ -21,6 +21,7 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Collections
@@ -148,6 +149,36 @@ class AssistedSearchTest {
         assertEquals(SearchView.Coordinate(LatLon(-45.5, -170.0)), c.view.value)
         settle(c, "47 106")
         assertEquals(SearchView.Coordinate(LatLon(47.0, 106.0)), c.view.value)
+        assertEquals(0, calls.size)
+    }
+
+    /**
+     * NAV-011 re-focus (NAV-018 minor): after the coordinate option closed the list (card opened), focusing the field
+     * again with the pair still in it shows «Сонгосон цэг» again at once, with 0 requests. Text and an open list are
+     * left alone.
+     */
+    @Test
+    fun refocusWithAKeptCoordinateShowsTheOptionAgainWithNoRequest() = runTest {
+        val (c, calls) = controller { SearchOutcome.Ok(listOf(f("N1"))) }
+        settle(c, "47.9189, 106.9176")
+        assertEquals(SearchView.Coordinate(LatLon(47.9189, 106.9176)), c.view.value)
+        c.close() // the option was chosen: the list closes, the field keeps the typed text
+        assertEquals(SearchView.Closed, c.view.value)
+        assertTrue(c.onRefocus("47.9189, 106.9176"))
+        assertEquals("shown at once, no debounce", SearchView.Coordinate(LatLon(47.9189, 106.9176)), c.view.value)
+        advanceTimeBy(SearchController.DEBOUNCE_MS + SearchController.LOADING_DELAY_MS + 1)
+        runCurrent()
+        assertEquals(SearchView.Coordinate(LatLon(47.9189, 106.9176)), c.view.value)
+        assertFalse("the list is open: nothing to do", c.onRefocus("47.9189, 106.9176"))
+        // A repeated settle of the same text after the re-focus sends nothing either.
+        settle(c, "47.9189, 106.9176")
+        assertEquals(0, calls.size)
+        // Text queries are not re-settled on focus (0 requests); a too-short query neither.
+        c.close()
+        assertFalse(c.onRefocus("Зайсан"))
+        assertFalse(c.onRefocus("4"))
+        assertEquals(SearchView.Closed, c.view.value)
+        runCurrent()
         assertEquals(0, calls.size)
     }
 

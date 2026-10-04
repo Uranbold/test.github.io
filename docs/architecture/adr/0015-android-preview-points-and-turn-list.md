@@ -37,7 +37,7 @@ A sealed `RoutePoint` with `point: LatLon` (6 decimals in the body, never rounde
 | `MyLocation(fix)` | the «Миний байршил» option, or preview open with a good fix (AC 1, 3) | «Миний байршил» / "My location", rendered from resources at composition | The fix is **frozen** when the point is set (AC 10). It is never refreshed, also after a swap (AC 11) |
 | `Place(point, name)` | a search result (AC 4) | the result name as shown in the list, stored once | Not re-localised on a language switch (AC 33) |
 | `MapPoint(point)` | the coordinate-card buttons (AC 6) | «Сонгосон цэг» / "Selected point", from resources | Never takes the `reverse` name (NAV-011 AC 9) |
-| `TypedCoordinate(point)` | only after the D137 change is applied (AC 5, second bullet) | «Сонгосон цэг» / "Selected point", from resources | Mapped from whatever coordinate outcome D137 adds to the search code. The fields have no parser of their own |
+| `TypedCoordinate(point)` | the typed-coordinate option of the field list (AC 5, second bullet) | «Сонгосон цэг» / "Selected point", from resources | Mapped from `SearchView.Coordinate` (NAV-011 D140, ADR-0012 Amendment A1). The fields have no parser of their own |
 
 Rules (pure functions with JVM tests, injected clock):
 - **Both points have the same type**, so a swap is a pure exchange of two values. The destination is never null. The origin is null only in the AC 2 case.
@@ -70,7 +70,7 @@ With NAV-018, a late fix must not replace a start the user chose meanwhile. Rule
   - The constructor parameter has a default (a private holder), so existing call sites and NAV-005 / NAV-011 tests compile and behave as before.
   - This is the only `SearchController` edit NAV-018 needs. It does not touch `requestsFor`, which is the D137 area.
   - `reverse` keeps its own cooldown (ADR-0012 §4).
-- **Typed coordinates** follow whatever the shared controller does at verification time (AC 5). The fields add no coordinate logic.
+- **Typed coordinates** follow the shared controller's `SearchView.Coordinate` outcome (D140, ADR-0012 Amendment A1) (AC 5). The fields add no coordinate logic.
 - **Typing lock:** both fields are text-entry surfaces and use the existing NAV-011 `TypingLock` gate (`readOnly` while engaged, K1/K3 card).
   - The «Миний байршил» option is a list item, not typing, so it stays selectable under the lock (AC 34).
   - It sends 0 `search` requests.
@@ -118,7 +118,7 @@ Targeted edits:
 - **Chosen start:** the map-style §7.3 origin marker (tokens `route.origin-fill` / `route.origin-stroke`, 18 dp circle with a 4 dp ring), drawn natively like the NAV-011 destination pin, from `docs/design/tokens.json` values bundled under ADR-0009 §6. No new colour.
 - **Destination:** always the existing NAV-011 pin at the destination point, also when «Миний байршил» has been swapped to the destination. The pin then sits at the frozen fix, and the live puck stays separate.
 - MapLibre symbols are not exposed to TalkBack. The content descriptions «Эхлэх цэг: …» and «Очих газар: …» (AC 8) therefore go on an accessibility node the app owns, the same approach as the NAV-011 destination pin.
-- The NAV-011 camera fit already takes both markers into its bounds.
+- The NAV-011 camera fit already takes both markers into its bounds. With a chosen start it leaves out the live device position (Amendment 2026-10-04, PO answer 7).
 
 ### 10. State, privacy and lifetime (AC 31–33)
 - Points, field texts, the selected route and the list scroll position live in the ViewModel (in memory). They survive rotation, theme and language changes with 0 requests.
@@ -164,9 +164,22 @@ Lines from the D137 run and the NAV-012 battery-row fix are never removed.
 - **NAV-005 / NAV-011 tests that change:** only those asserting the start is always «Миний байршил», the display-only points block, or «Маршрут гаргах» on the card in the preview (story AC 35). The QA handoff lists each one.
 - **If the PO picks Open question 1 (b)** («Эхлэх» starts from the current device position): «Эхлэх» with a chosen start must first replace the origin with `MyLocation(fresh fix)`, wait for one new preview response, and then hand off. That breaks the "0 requests at start" rule of NAV-011 AC 19 for that path, and the user's choice of route is lost. This needs an amendment of §3 and a story change. **(c)** («Эхлэх» hidden) changes only the UI.
 - **If the PO picks Open question 3 (b)** (keep a chosen start for the app session): a process-scoped holder like the NAV-011 passenger override, never `SavedStateHandle`. This affects §10 only.
-- **Edge case not covered by the story (open question for the PO):** «Миний байршил» swapped to the destination, then «Миний байршил» picked again as the start after the user has moved more than 10 m. Both points are then `MyLocation`, the start gate holds, and guidance would lead to the old position labelled «Миний байршил». The point rules make whatever the PO decides a one-line change. The architect recommends converting the destination to a `MapPoint` («Сонгосон цэг»), which needs no new string.
+- **Edge case «Миний байршил» picked again as the start after a swap:** decided by the PO (answer 5, see the Amendment below): the destination becomes a `MapPoint` («Сонгосон цэг»), with no new string.
 - **iOS (NAV-015)** can reuse this point model and list semantics. The text rules are already shared through the fixture.
 - **Not verified in this design:**
   - live routes with a chosen start, or the new example (dev stack down);
   - the RS3, RS4 and RS6 recordings (QA records them when `/health` is 200);
   - every real-device behaviour (story AC 38).
+
+## Amendment 2026-10-04: PO answers to the NAV-018 questions
+*Source: PO chat answer "All as recommended", 2026-10-04, relayed by the orchestrator. Binding wording: the NAV-018 story (BA). This section records only what changes or confirms this ADR.*
+
+- **Answers 1 and 3 confirm the defaults.** §3 (guidance only from a device start; a disabled «Эхлэх» with the hint O1 «Замчлал зөвхөн таны байршлаас эхэлнэ», AC 15) and §10 (a chosen start is not kept; every new route preview starts from «Миний байршил», AC 32) stand as written. The "if the PO picks (b) or (c)" consequences no longer apply.
+- **Answer 5: «Миний байршил» picked again as the start after a swap.** Case: the destination is `MyLocation(oldFix)` after a swap, the user has moved more than 10 m from `oldFix`, and then picks «Миний байршил» as the start. Rule (pure, in `preview/points`, JVM-tested):
+  - the destination becomes `MapPoint(oldFix point)`, so its field text is «Сонгосон цэг» / "Selected point" from resources (glossary T6); no new string;
+  - the start becomes `MyLocation(newFix)`; the start gate then holds as usual (§2, §3);
+  - if the new fix is within 10 m of `oldFix`, the existing same-point rule applies first (`SamePoint`, 0 requests, AC 9) and nothing is converted;
+  - one route request, as for any point change (§7). The device position still leaves the phone only as a `MyLocation` route point (§10): the converted destination is the old frozen fix that was already sent as a route point.
+- **Answer 7: camera fit with a chosen start.** The NAV-011 preview fit (ADR-0012 §5.4: one fit per response, every drawn route, 40 dp padding, zoom ≤ 17) covers the start and destination markers, but **not** the live device position when `PointRules.isChosenStart(origin)`. With a device start the fit is unchanged (the start marker *is* the device position). This is a client-only camera rule: 0 requests, no contract change. As read on 2026-10-04, `NavRoot` still adds `me` to the fit points unconditionally, so this is a mobile task.
+- **Answers 2, 4 and 6** are story wording (AC 2, AC 6, AC 7) and the UX layout rule P8, which ADR-0012 Amendment A4 already records for both coordinate-card entry points. They change nothing in this ADR.
+- **No contract change.** openapi 0.5.5 is a wording tidy-up only.

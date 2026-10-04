@@ -18,6 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import dagger.hilt.android.testing.HiltTestApplication
+import kotlinx.coroutines.runBlocking
 import mn.navmn.app.background.restore.InterruptedEndReceiver
 import mn.navmn.app.background.restore.InterruptedNotification
 import mn.navmn.app.background.restore.RestoreCodec
@@ -67,6 +68,11 @@ import javax.inject.Inject
 @RunWith(AndroidJUnit4::class)
 @Config(application = HiltTestApplication::class, qualifiers = "mn")
 class Nav012AndroidTest {
+    private companion object {
+        /** Untimed waits only (set-up, notification re-post); the AC 3 ≤ 1 s assertion is unchanged. */
+        const val SETTLE_TIMEOUT_MS = 10_000L
+    }
+
     @get:Rule val hilt = HiltAndroidRule(this)
 
     @Inject lateinit var session: GuidanceSession
@@ -107,22 +113,41 @@ class Nav012AndroidTest {
 
     private val nm get() = context.getSystemService(NotificationManager::class.java)
 
+    /** Idles the main looper and lets background threads (engine, DataStore IO) run for [ms] of real time. */
+    private fun settle(ms: Long = 250) {
+        val end = System.nanoTime() + ms * 1_000_000
+        while (System.nanoTime() < end) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(10)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
     @Test
     fun voiceActionTogglesMuteWithoutOpeningTheAppOrEndingGuidance() {
-        settings.setMuted(false)
-        waitUntil { !settings.muted.value }
+        // Deterministic start: the DataStore-backed flow starts at `false` before its first read, so a bare
+        // setMuted(false) + wait could pass on that initial value while an older stored value is still on its way
+        // (and would then flip the toggle). Write true, see it, write false, see it: the false is the persisted value.
+        // This also warms the DataStore write path before the timed toggle.
+        runBlocking { settings.setMuted(true).join() }
+        waitUntil(SETTLE_TIMEOUT_MS) { settings.muted.value }
+        runBlocking { settings.setMuted(false).join() }
+        waitUntil(SETTLE_TIMEOUT_MS) { !settings.muted.value }
         session.start(route, trip, fix())
         val started = shadowOf(app).nextStartedService
-        waitUntil { session.engine.value?.state?.value != null }
+        waitUntil(SETTLE_TIMEOUT_MS) { session.engine.value?.state?.value != null }
         val controller = Robolectric.buildService(GuidanceForegroundService::class.java, started).create().startCommand(0, 1)
-        waitUntil { shadowOf(nm).getNotification(GuidanceForegroundService.NOTIFICATION_ID)?.actions?.firstOrNull()?.title?.toString() == "Дууг хаах" }
+        waitUntil(SETTLE_TIMEOUT_MS) { shadowOf(nm).getNotification(GuidanceForegroundService.NOTIFICATION_ID)?.actions?.firstOrNull()?.title?.toString() == "Дууг хаах" }
+        // The engine subscribes to the mute setting right after its first state, on its own thread: let it and the main
+        // looper settle before the timed toggle, so the toggle is not dropped as the subscription's initial value.
+        settle()
         val ms = run {
             controller.withIntent(Intent(context, GuidanceForegroundService::class.java).setAction(GuidanceForegroundService.ACTION_TOGGLE_VOICE)).startCommand(0, 2)
-            waitUntil { session.engine.value?.state?.value?.muted == true }
+            waitUntil(SETTLE_TIMEOUT_MS) { session.engine.value?.state?.value?.muted == true }
         }
         assertTrue("muted in $ms ms (AC 3: ≤ 1 s)", ms <= 1_000)
         assertTrue(settings.muted.value)
-        waitUntil { shadowOf(nm).getNotification(GuidanceForegroundService.NOTIFICATION_ID)?.actions?.firstOrNull()?.title?.toString() == "Дууг нээх" }
+        waitUntil(SETTLE_TIMEOUT_MS) { shadowOf(nm).getNotification(GuidanceForegroundService.NOTIFICATION_ID)?.actions?.firstOrNull()?.title?.toString() == "Дууг нээх" }
         assertNull("the guidance screen is not opened", shadowOf(app).nextStartedActivity)
         assertEquals(GuidancePhase.NAVIGATING, session.engine.value!!.state.value!!.phase)
         settings.setMuted(false)

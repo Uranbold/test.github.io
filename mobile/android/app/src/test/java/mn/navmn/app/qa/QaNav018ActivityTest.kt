@@ -247,7 +247,7 @@ class QaNav018ActivityTest {
         onVm { it.setSheetExpanded(true) }
         idle(300)
         // The list is the last item of the lazy body: scroll to it (lazy composition, AC 25).
-        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("route-steps"))
+        compose.onNode(hasScrollToNodeAction() and hasTestTag("route-preview-body")).performScrollToNode(hasTestTag("route-steps"))
         assertTrue("AC 18: «Маршрутын заавар» in the expanded sheet", exists("Маршрутын заавар"))
         assertTrue("AC 18: rows shown", tagged("route-step"))
 

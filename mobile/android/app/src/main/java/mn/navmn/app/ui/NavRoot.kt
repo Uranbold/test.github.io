@@ -240,7 +240,9 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
         val routes = fitRoutes ?: return@LaunchedEffect
         delay(FIT_SETTLE_MS) // the sheet re-measures for the new result first
         val pad = with(density) { 40.dp.roundToPx() }
-        val points = routes.flatMap { it.plan.geometry } + listOfNotNull(preview?.destination?.point, preview?.origin?.point, me?.latLon)
+        // NAV-018 PO answer 7: with a chosen start the live device position is not part of the fit.
+        val markers = preview?.let { PointRules.fitMarkers(it.origin, it.destination, me?.latLon) }.orEmpty()
+        val points = routes.flatMap { it.plan.geometry } + markers
         val left = pad + currentSheetStartPx
         val top = pad + currentTopBarPx
         val bottom = pad + currentSheetPx
@@ -394,6 +396,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                         onSheetExpanded = vm::setSheetExpanded,
                         onReverseRetry = vm.reverse::retry,
                         onSearchFieldTap = vm::onSearchFieldTap,
+                        onSearchFocused = vm::onSearchFocused,
                         onLockedWhileTyping = vm::onLockedWhileTyping,
                         onDismissLock = {
                             vm.dismissTypingLock()

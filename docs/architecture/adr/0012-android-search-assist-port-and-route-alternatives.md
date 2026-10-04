@@ -183,7 +183,7 @@ onCoordinate: ((LatLon) -> Unit)? = null,
 - Sets the edited side to `RoutePoint.TypedCoordinate(point)` (ADR-0015 §2). The field text is «Сонгосон цэг», from resources.
 - Closes `fieldSearch` as after a result. There is **no card**, **0** `reverse`, and **0** `search` requests (NAV-018 AC 5, NAV-004 AC 6 parity).
 - Exactly one route request once both points are set, through the existing `PreviewController` path. No camera request beyond the existing NAV-011 fit.
-- The fields add no coordinate logic of their own (ADR-0015 §5 stands). The ADR-0015 §2 row "mapped from whatever coordinate outcome D137 adds" now means `SearchView.Coordinate`.
+- The fields add no coordinate logic of their own (ADR-0015 §5 stands). The ADR-0015 §2 `TypedCoordinate` row names `SearchView.Coordinate` directly.
 
 ### A4. Camera on selection (D142). Map screen only
 *Aligned 2026-10-04 (integration review) with the UX screen spec camera rule **C1** and layout rule **P8**, as built in `mn.navmn.app.map.CoordinateCamera` and `NavRoot`. The UX spec is the source for the numbers; this section records the mechanism.*
@@ -194,7 +194,7 @@ onCoordinate: ((LatLon) -> Unit)? = null,
   - wide windows (P8: the card is a start-edge column of the P5 side-sheet width, for both entry points): from the card column's end edge to the control lane's start edge, from the bottom of the top group to the bottom of the map view;
   - inside it: top 16 dp + 40 dp (the pin stands above the point), bottom and sides 16 dp;
   - if that leaves no room, the 16 dp margins are dropped (the pin room stays); if there is still no room, 40 dp on every side (the §5.4 / ADR-0006 §5 rule).
-- `durationMs` = **700** (`motion.route-camera`, the same as the NAV-018 step focus `StepCamera.EASE_MS`), or 0 with reduced motion (animator duration scale 0).
+- `durationMs` = **700 ms** (`motion.route-camera`, as built in `CoordinateCamera.EASE_MS`; the same value as the NAV-018 step focus `StepCamera.EASE_MS`), or 0 with reduced motion (animator duration scale 0). It is not 300 ms: 300 ms is only the follow-me move below.
 - **Stale padding:** MapLibre keeps the padding on the camera position. The follow-me effect therefore calls `focus(device, zoom, 0, 0, 0, 0, 300)` instead of `easeTo`, which resets the padding left by this move or by the NAV-018 step focus. Duration and zoom of the follow-me move are unchanged (300 ms, max(zoom, 15)). The preview fit (§5.4) passes its own padding. On-device confirmation is not verified (no Android test phone, NAV-011 AC 47).
 - **Focus for TalkBack:** after the typed entry, input focus moves once to the card title (a heading), per the UX screen spec › Accessibility.
 - **Long-press is unchanged:** it never moves the camera (NAV-011 AC 9). After the card has opened, the pin, coordinates and camera do not move.

@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -96,7 +97,7 @@ import mn.navmn.app.search.reverse.ReverseView
 import mn.navmn.app.typinglock.TypingLockState
 import mn.navmn.app.ui.screens.preview.PointsBlock
 import mn.navmn.app.ui.screens.preview.StartHint
-import mn.navmn.app.ui.screens.preview.turnListItems
+import mn.navmn.app.ui.screens.preview.turnListItem
 import mn.navmn.app.ui.theme.LocalNight
 import mn.navmn.app.ui.theme.LocalTokens
 import mn.navmn.app.ui.theme.NavType
@@ -148,10 +149,15 @@ internal fun RoutePreviewSheet(
     val shape = if (wide) RoundedCornerShape(16.dp) else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
     // NAV-018: one list state for the expanded body, kept while the sheet collapses and expands (Q8) and on rotation.
     val listState = rememberLazyListState()
+    // NAV-018 AC 23: the rows are their own lazy list (the «Маршрутын заавар» collection), with their own state.
+    val turnState = rememberLazyListState()
     val route = (result as? PreviewResult.Route)?.route
     LaunchedEffect(route) {
         // AC 21: another route or a new response shows its list from the first row (heading at the top).
-        if (listState.firstVisibleItemIndex > 1) listState.scrollToItem(1)
+        if (turnState.firstVisibleItemIndex > 0 || turnState.firstVisibleItemScrollOffset > 0) {
+            if (listState.firstVisibleItemIndex >= 1) listState.scrollToItem(1)
+            turnState.scrollToItem(0)
+        }
     }
     Surface(
         shape = shape,
@@ -167,13 +173,13 @@ internal fun RoutePreviewSheet(
     ) {
         if (wide) {
             Column(Modifier.fillMaxHeight()) {
-                ExpandedBody(s, m, strings, a, listState, Modifier.weight(1f))
+                ExpandedBody(s, m, strings, a, listState, turnState, Modifier.weight(1f))
                 StartFooter(s, a, divider = true)
             }
         } else if (expanded) {
             Column(Modifier.heightIn(max = availableHeight * 0.8f)) {
                 HandleZone(expanded = true, a)
-                ExpandedBody(s, m, strings, a, listState, Modifier.weight(1f, fill = false))
+                ExpandedBody(s, m, strings, a, listState, turnState, Modifier.weight(1f, fill = false))
                 StartFooter(s, a, divider = true)
             }
         } else {
@@ -302,28 +308,36 @@ private fun HandleZone(expanded: Boolean, a: BrowseActions) {
 
 /**
  * NAV-018 Q1: the expanded body (and the wide side sheet) is one lazy list: the points block, tabs, summary region and
- * lower part as the first item, then «Маршрутын заавар» (heading and one lazy row per step, AC 18, 25).
+ * lower part as the first item, then «Маршрутын заавар» (heading and one lazy row per step, AC 18, 25). The rows sit in
+ * their own lazy list inside that last item, so TalkBack gets one collection node named «Маршрутын заавар» (AC 23).
  */
 @Composable
-private fun ExpandedBody(s: PreviewState, m: BrowseModel, strings: Strings, a: BrowseActions, listState: LazyListState, modifier: Modifier) {
+private fun ExpandedBody(s: PreviewState, m: BrowseModel, strings: Strings, a: BrowseActions, listState: LazyListState, turnState: LazyListState, modifier: Modifier) {
     val r = s.result as? PreviewResult.Route
     val rows = remember(r?.route) { r?.let { TurnListModel.build(it.route.plan) }.orEmpty() }
     val active = m.points.step?.takeIf { r != null && it.route === r.route }?.index
-    LazyColumn(modifier, state = listState) {
-        item(key = "preview-top") {
-            Column {
-                PointsBlock(s, strings, a.points, a.onPreviewClose) // NAV-018 Q4: replaces the NAV-011 header row
-                Column(Modifier.padding(horizontal = 16.dp)) {
-                    ModeTabs(s.mode, a)
-                    Spacer(Modifier.height(8.dp))
-                    SummaryRegion(s, m.lang, strings, a)
-                    LowerPart(s, strings, m.lang, a)
+    BoxWithConstraints(modifier) {
+        // The turn-list section is at most as tall as the body, so its rows can be a lazy list of their own (AC 23, 25).
+        val viewport = if (constraints.hasBoundedHeight) maxHeight else TURN_LIST_FALLBACK_HEIGHT
+        LazyColumn(Modifier.fillMaxWidth().testTag("route-preview-body"), state = listState) {
+            item(key = "preview-top") {
+                Column {
+                    PointsBlock(s, strings, a.points, a.onPreviewClose) // NAV-018 Q4: replaces the NAV-011 header row
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        ModeTabs(s.mode, a)
+                        Spacer(Modifier.height(8.dp))
+                        SummaryRegion(s, m.lang, strings, a)
+                        LowerPart(s, strings, m.lang, a)
+                    }
                 }
             }
+            if (r != null) turnListItem(rows, r.selected, active, m.lang, strings, a.points.onTurnRow, turnState, listState, viewport)
         }
-        if (r != null) turnListItems(rows, r.selected, active, m.lang, strings, a.points.onTurnRow)
     }
 }
+
+/** Turn-list section height when the body is measured without a height bound (not the case in the app's layouts). */
+private val TURN_LIST_FALLBACK_HEIGHT = 480.dp
 
 /** «Зорчих хэлбэр»: «Машин» / «Явган» / «Дугуй»; icon beside the label, stacked from font scale 1.5 (AC 22, 44). */
 @Composable

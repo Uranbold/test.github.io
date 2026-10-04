@@ -16,7 +16,7 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0014: daily rebuild slots and pointer switch (NAV-006)
 - ADR-0015: Android route preview points (chosen start, swap) and turn list (NAV-018)
 
-HTTP contract: `api/openapi.yaml` 0.5.4.
+HTTP contract: `api/openapi.yaml` 0.5.5.
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 
@@ -208,7 +208,7 @@ flowchart LR
 
 ## 1c-ter. Android route preview points and turn list (NAV-018, ADR-0015)
 
-There is **no new host, endpoint or field**. The start of a preview route may now be a chosen point (a search result, a long-press map point, or a typed coordinate once D137 is applied), and the user can swap start and destination. Each point change or swap sends one `POST /v1/route` with the NAV-011 body.
+There is **no new host, endpoint or field**. The start of a preview route may now be a chosen point (a search result, a long-press map point, or a typed coordinate, NAV-011 D140), and the user can swap start and destination. Each point change or swap sends one `POST /v1/route` with the NAV-011 body.
 
 The turn list «Маршрутын заавар» is built on the phone from the steps of the selected route. That route was already parsed when the response arrived, and the text comes from the ADR-0008 rules, so the list sends 0 requests. «Эхлэх» is enabled only when the start is «Миний байршил» (NAV-018 Open question 1, default (a)). Guidance and reroute are therefore unchanged.
 

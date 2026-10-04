@@ -145,7 +145,7 @@ class QaNav018LayoutTest {
     fun tcL02_expandedShowsO1AndTheB2CardWithoutCoveringStart() {
         model.value = m(expanded = true)
         show()
-        rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("battery-hint"))
+        rule.onNode(hasScrollToNodeAction() and hasTestTag("route-preview-body")).performScrollToNode(hasTestTag("battery-hint"))
         rule.waitForIdle()
         val start = node("nav-start").boundsInRoot
         val hint = node("route-origin-hint")
@@ -165,7 +165,7 @@ class QaNav018LayoutTest {
         model.value = m(expanded = false)
         show()
         for (tag in listOf("route-origin", "route-destination", "route-swap", "nav-start")) assertTrue("$tag in the side sheet", whole(node(tag)))
-        rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("route-steps"))
+        rule.onNode(hasScrollToNodeAction() and hasTestTag("route-preview-body")).performScrollToNode(hasTestTag("route-steps"))
         assertTrue("«Маршрутын заавар» in the side sheet", rule.onAllNodes(hasText("Маршрутын заавар"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
         val sheet = node("route-preview").boundsInRoot
         assertTrue("side sheet, not a bottom sheet (width ${dp(sheet.width)} dp)", dp(sheet.width) < 900f * 0.75f)

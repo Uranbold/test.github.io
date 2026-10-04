@@ -246,14 +246,24 @@ class Nav018OverlayTest {
         model.value = m(PreviewState(dest, TravelMode.CAR, false, gandan, PreviewResult.Route(p1p3, 1_790_000_000_000L)), expanded = true)
         show()
         assertFalse("the NAV-011 display-only points block is gone", exists("Очих газар: Зайсан толгой") && tagged("route-point-row").isNotEmpty())
-        rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("route-steps"))
+        rule.onNode(hasScrollToNodeAction() and hasTestTag("route-preview-body")).performScrollToNode(hasTestTag("route-steps"))
         val heading = node("route-steps")
         assertNotNull("AC 23: heading semantics", heading.config.getOrNull(SemanticsProperties.Heading))
         assertTrue(exists("Маршрутын заавар"))
         val rows = TurnListModel.build(p1p3.plan)
-        assertEquals(rows.size, heading.config.getOrNull(SemanticsProperties.CollectionInfo)?.rowCount)
+        assertNull("the heading is not the collection", heading.config.getOrNull(SemanticsProperties.CollectionInfo))
+        // AC 23: the rows' parent is the collection «Маршрутын заавар», sized to the steps, rows carry their positions.
+        val list = node("route-steps-list")
+        assertEquals(rows.size, list.config.getOrNull(SemanticsProperties.CollectionInfo)?.rowCount)
+        assertEquals(1, list.config.getOrNull(SemanticsProperties.CollectionInfo)?.columnCount)
+        assertEquals("Маршрутын заавар", desc(list))
         val shown = tagged("route-step")
         assertTrue(shown.isNotEmpty())
+        for ((i, n) in shown.withIndex()) {
+            assertEquals("row $i is a direct child of the collection", list.id, n.parent?.id)
+            assertEquals("row $i position", i, n.config.getOrNull(SemanticsProperties.CollectionItemInfo)?.rowIndex)
+        }
+        assertTrue("the collection holds only rows", list.children.all { it.config.getOrNull(SemanticsProperties.CollectionItemInfo) != null })
         val first = shown.first()
         assertEquals("AC 23: instruction, street, distance", TurnRowText.contentDescription(rows[0], Lang.MN, TestStrings.of(Lang.MN)), desc(first))
         assertEquals(0, first.config.getOrNull(SemanticsProperties.CollectionItemInfo)?.rowIndex)
@@ -275,7 +285,7 @@ class Nav018OverlayTest {
             points = PointsUi(step = StepFocus(three[0], 0, three[0].plan.steps[0].location, 1, collapse = false)),
         )
         show()
-        rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("route-steps"))
+        rule.onNode(hasScrollToNodeAction() and hasTestTag("route-preview-body")).performScrollToNode(hasTestTag("route-steps"))
         // Another route selected: its rows are listed (AC 21) and no row of it is activated.
         model.value = m(
             PreviewState(dest, TravelMode.CAR, false, device, r.copy(selected = 1)),
@@ -283,9 +293,9 @@ class Nav018OverlayTest {
             points = PointsUi(step = StepFocus(three[0], 0, three[0].plan.steps[0].location, 1, collapse = false)),
         )
         rule.waitForIdle()
-        rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("route-steps"))
+        rule.onNode(hasScrollToNodeAction() and hasTestTag("route-preview-body")).performScrollToNode(hasTestTag("route-steps"))
         val expected = TurnListModel.build(three[1].plan)
-        assertEquals(expected.size, node("route-steps").config.getOrNull(SemanticsProperties.CollectionInfo)?.rowCount)
+        assertEquals(expected.size, node("route-steps-list").config.getOrNull(SemanticsProperties.CollectionInfo)?.rowCount)
     }
 
     @Test
@@ -298,7 +308,7 @@ class Nav018OverlayTest {
         val long = ParsedRoute(GuidancePlan(0, steps, 50_000.0, 5_000.0, p1p3.plan.geometry, listOf(0.0, 0.0)), p1p3.native)
         model.value = m(PreviewState(dest, TravelMode.CAR, false, device, PreviewResult.Route(long, 1_790_000_000_000L)), expanded = true)
         show()
-        rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("route-steps"))
+        rule.onNode(hasScrollToNodeAction() and hasTestTag("route-preview-body")).performScrollToNode(hasTestTag("route-steps"))
         val composed = rule.onAllNodesWithTag("route-step").fetchSemanticsNodes().size
         assertTrue("AC 25: $composed of 500 rows composed", composed in 1..40)
     }

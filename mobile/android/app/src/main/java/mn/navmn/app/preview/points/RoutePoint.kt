@@ -65,6 +65,27 @@ object PointRules {
     fun samePoint(a: RoutePoint, b: RoutePoint): Boolean = Geo.distance(a.point, b.point) <= SAME_POINT_M
 
     /**
+     * NAV-018 edge case (PO 2026-10-04, answer 5): «Миний байршил» was swapped to the destination, the user moved
+     * more than [SAME_POINT_M] and then picks «Миний байршил» as the start. The destination keeps the old fix but turns
+     * into a map point («Сонгосон цэг»), so the two fields never both read «Миний байршил». Within 10 m it stays as it
+     * is (AC 9 then shows «Эхлэх цэг, очих газар ижил байна»). Any other combination returns [destination] unchanged.
+     */
+    fun destinationForStart(origin: RoutePoint, destination: RoutePoint): RoutePoint =
+        if (origin is RoutePoint.MyLocation && destination is RoutePoint.MyLocation && !samePoint(origin, destination)) {
+            RoutePoint.MapPoint(destination.point)
+        } else {
+            destination
+        }
+
+    /**
+     * NAV-011 AC 16 / NAV-018 AC 8 camera fit markers (PO 2026-10-04, answer 7): the destination, the start and, with a
+     * device start (or none yet), the live device position [me]. With a chosen start only the start and destination
+     * markers are fitted; the live position is left out.
+     */
+    fun fitMarkers(origin: RoutePoint?, destination: RoutePoint, me: LatLon?): List<LatLon> =
+        listOfNotNull(destination.point, origin?.point, me.takeUnless { isChosenStart(origin) })
+
+    /**
      * The field text in the current UI language (AC 1, 4, 6, 33): resource-backed kinds are rendered at composition,
      * so a language switch changes them with 0 requests; a result name stays as returned.
      */

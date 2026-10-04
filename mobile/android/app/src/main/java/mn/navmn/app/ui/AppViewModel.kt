@@ -233,6 +233,12 @@ class AppViewModel @Inject constructor(
 
     fun onSearchActive(active: Boolean) = _ui.update { it.copy(searchActive = active) }
 
+    /** NAV-011 re-focus: the search field gained focus (typing allowed); a kept coordinate query shows its option again. */
+    fun onSearchFocused() {
+        val q = _ui.value.query
+        if (q.isNotEmpty() && search.onRefocus(q)) _ui.update { it.copy(searchActive = true) }
+    }
+
     fun clearSearch() {
         _ui.update { it.copy(query = "") }
         search.close()

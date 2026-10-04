@@ -25,8 +25,8 @@ Secondary personas:
 - **Origin:** PO decision [D112](../decisions.md) (2026-10-04) took these two items out of NAV-011 into "one separate follow-up item through triage" (NAV-011 Out of scope, Open question 3). Triage 2026-10-04 (`docs/triage/log.md`): type feature, new Android story, size M. **PO-confirmed as P2 / standard, [D136](../decisions.md)**. Starts after NAV-011 is accepted (same preview sheet, default "finish first"). This story replaces the backlog draft row "NAV-011 follow-up: origin choice and turn list".
 - **Parity means the web behaviour, already specified and verified, on Android:** [NAV-004](NAV-004-route-preview-web.md) AC 4–9 (fields, «Миний байршил» option, search in the fields, coordinate card buttons, swap, markers), AC 14 (same point), AC 26–30 (turn list) and AC 45 (turn list accessibility), with the screen spec `docs/design/screens/NAV-004-route-preview.md` and **ADR-0008** (instruction text from the client-side templates, already ported to Android for the NAV-005 banners: `instructions/ManeuverRules.kt`, tested against `web/src/route/maneuvers.fixture.json`). Where Android needs a different rule (draggable sheet, touch targets, TalkBack, the NAV-005 permission flow, guidance), this story states it.
 - **Built on NAV-011** (preview sheet, alternatives, «Дугуй», assisted search, reverse on the coordinate card, typing lock; ADR-0012) and **NAV-005** (permission flow AC 8–12, preview states AC 7, guidance). The NAV-011 screen spec has a points block that is "display only (origin editing is out of scope)". This story replaces that row. **NAV-011 itself is not edited now** (it is waiting for acceptance, and a parallel change-request run, D137, is analysing NAV-011 AC 7 / AC 39). The QA handoff lists every NAV-005 / NAV-011 test that changes because of this story (AC 35).
-- **Guidance from a start that is not the device position.** NAV-005 guidance follows the device position. The web demo has no guidance, so NAV-004 never had to decide this. The AC below use the BA default from **Open question 1 (a)**: «Эхлэх» is disabled when the start is not «Миний байршил», with the new hint O1. This is a PO decision. The PO may choose differently, and only AC 15 and the O1 row change.
-- **PO decisions that apply:** [D11](../decisions.md) (Cyrillic names in the English UI), [D30](../decisions.md) (search bias), [D51](../decisions.md) (snap notice above 500 m), [D55](../decisions.md) (draggable sheet), [D58](../decisions.md) / [D112](../decisions.md) (scope), [D60](../decisions.md) (no toll option), [D62](../decisions.md) (no Google Play services), [D66](../decisions.md) (320 dp above 100 % font scale), [D9](../decisions.md) / [D26](../decisions.md) (team-only staging), [D110](../decisions.md) / [D113](../decisions.md) (typing lock), [D115](../decisions.md) / [D137](../decisions.md) (typed coordinates), [D136](../decisions.md) (priority and start).
+- **Guidance from a start that is not the device position.** NAV-005 guidance follows the device position. The web demo has no guidance, so NAV-004 never had to decide this. **Decided by the PO ([D147](../decisions.md), Open question 1 (a)):** «Эхлэх» is disabled when the start is not «Миний байршил», with the new hint O1 (AC 15).
+- **PO decisions that apply:** [D11](../decisions.md) (Cyrillic names in the English UI), [D30](../decisions.md) (search bias), [D51](../decisions.md) (snap notice above 500 m), [D55](../decisions.md) (draggable sheet), [D58](../decisions.md) / [D112](../decisions.md) (scope), [D60](../decisions.md) (no toll option), [D62](../decisions.md) (no Google Play services), [D66](../decisions.md) (320 dp above 100 % font scale), [D9](../decisions.md) / [D26](../decisions.md) (team-only staging), [D110](../decisions.md) / [D113](../decisions.md) (typing lock), [D115](../decisions.md) / [D137](../decisions.md) (typed coordinates), [D136](../decisions.md) (priority and start), [D140](../decisions.md) / [D145](../decisions.md) (typed coordinates in the fields), [D147–D153](../decisions.md) (this story's open questions and build alignment, 2026-10-04).
 - **Light-QA mode (PO decision for this run, the [D108](../decisions.md) pattern):**
   - QA writes the test plan. It runs only the JVM/Robolectric tests for the changed areas, plus the existing Android suite as regression (`./gradlew :app:testDebugUnitTest -Pnav.hostFerrostar=required`). No long suites.
   - Live checks run only if the shared dev stack answers `/health` 200. Otherwise they are reported as not verified.
@@ -67,7 +67,7 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
 | Instruction texts | section 3 rows, N14, N15, N23, C2, C4 banner ordinals | the NAV-004 AC 27 table, already in the Android resources |
 | Search, reverse, location and preview states | as NAV-005 / NAV-011 | unchanged |
 
-**New row O1, added 2026-10-04 to glossary section 2.6, `needs native review`** (BA proposal. Used only while Open question 1 stays at (a). The PO may pre-review it, as in D69. The NAV-007 panel rates it):
+**New row O1, added 2026-10-04 to glossary section 2.6, `needs native review`** (BA proposal; its use is decided by [D147](../decisions.md). The PO may pre-review the wording, as in D69. The NAV-007 panel rates it):
 
 | # | English term | `mn` | `en` | Where |
 |---|---|---|---|---|
@@ -81,8 +81,8 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
    - the fields' accessible names are «Эхлэх цэг» and «Очих газар»;
    - the route request is sent exactly as today (NAV-005 AC 5 with the NAV-011 AC 14 body). Opening the preview adds **0** requests.
 2. **Given** the preview opens and the start cannot be the device position (permission never granted, denied, approximate only, location services off, or no good fix within 10 s), **When** it opens, **Then**:
-   - the NAV-005 AC 8–12 location message for that case is shown in the result region, as today (Open question 2, default (a));
-   - the start field is **empty** with the placeholder «Эхлэх цэг сонгох» and the accessible name «Эхлэх цэг»;
+   - the NAV-005 AC 8–12 location message for that case (with its actions) is shown in the result region, as today ([D148](../decisions.md));
+   - at the same time, the start field is **empty** with the placeholder «Эхлэх цэг сонгох» and the accessible name «Эхлэх цэг»;
    - **0** route requests are sent, and no OS permission dialog appears unless the user acts on the message (NAV-005 AC 8).
    **When** the user then sets a chosen start (AC 4–6), **Then** within **500 ms** the location message is removed, and **one** route request is sent.
 3. **Given** the start field has focus and is empty, or shows a chosen start, **When** its list opens, **Then** «Миний байршил» is the first option. **When** it is selected, **Then**:
@@ -103,16 +103,16 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
    - instead of «Маршрут гаргах», the card has **two** buttons, «Эхлэх цэг болгох» and «Очих газар болгох», each ≥ **48 dp** tall and usable at once without waiting for `reverse`.
    **When** one is activated, **Then**:
    - that point is set to the coordinate, and the field text is «Сонгосон цэг» (the nearest place is never used as the field text, NAV-011 AC 9);
-   - within **500 ms** the card closes and the preview is shown again with the existing route lines until the new response arrives;
-   - **one** route request is sent when both points are set.
+   - within **500 ms** the card closes, the preview is shown again and the marker of the changed point is at the new coordinate ([D150](../decisions.md));
+   - **one** route request is sent when both points are set. The old route lines are removed when that request starts (they are not kept until the response arrives), and the new lines appear with the response.
    «Хаах» or Back on the card returns to the preview unchanged, with **0** route requests.
-7. **Given** a field is being edited, **When** the user leaves it without choosing an option (Back, a tap on the map, the other field), **Then** the field shows its previous text again, the point is unchanged, and **0** route requests are sent. Clearing the text does not clear the point. The destination is never empty in the Android preview. The start is empty only in the AC 2 case.
+7. **Given** a field is being edited (only one field is edited at a time, [D150](../decisions.md)), **When** the user leaves it without choosing an option, by Back or by a tap on the map, **Then** the field shows its previous text again, the point is unchanged, and **0** route requests are sent. Back and a map tap are the only ways to leave a field without choosing. Clearing the text does not clear the point. The destination is never empty in the Android preview. The start is empty only in the AC 2 case.
 8. **Given** both points are set, **When** the map is shown, **Then**:
    - exactly one start marker and one destination marker are visible;
    - a device start uses the NAV-005 location marker (no second marker);
    - a chosen start uses the start marker that UX defines (map-style), distinct from the location marker and the destination marker in both themes;
    - the markers' content descriptions are «Эхлэх цэг: <field text>» and «Очих газар: <field text>»;
-   - the NAV-011 AC 16 camera fit includes both markers.
+   - the NAV-011 AC 16 camera fit includes both markers. With a **chosen start**, the fit covers only the start and destination markers; the live device position is **not** part of the fit, even when the location marker is shown ([D153](../decisions.md)). With a device start, the fit is unchanged (the start marker is the location marker).
 9. **Given** the start and destination are within **10 m** of each other (haversine), whatever the kind of start, **When** they are set, **Then** **0** route requests are sent and «Эхлэх цэг, очих газар ижил байна» is shown within **500 ms** (NAV-005 AC 7).
 10. **Given** a set start, **When** location fixes arrive, GPS is lost or the permission changes while the preview is open, **Then** the start does not change and **0** route requests are sent (the start is fixed when it is set, as NAV-004 Edge cases). Permission or GPS changes affect only «Эхлэх» (AC 15, NAV-005 AC 10).
 
@@ -122,6 +122,12 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
     - exactly **one** route request is sent, subject to the AC 9 rule and the NAV-005 AC 7 offline and 429 rules;
     - «Миний байршил» moves with its point and keeps the fix it was set from (it is not refreshed).
     Swapping twice restores the original points and sends **2** requests in total. While either point is empty, the swap button is disabled. TalkBack still reads it, as disabled.
+11a. **Given** «Миний байршил» was swapped to the destination (AC 11), so the destination holds the fix it was set from, and the device has since moved **> 10 m** (haversine) from that fix, **When** the user selects «Миний байршил» as the start (AC 3) and a good fix ≤ 60 s old is available, **Then** ([D151](../decisions.md)):
+    - the start is the new fix and the start field shows «Миний байршил»;
+    - the destination keeps the old fix as a map point, and its field text and marker content description become «Сонгосон цэг» («Очих газар: Сонгосон цэг»); the destination coordinate does not change;
+    - exactly **one** route request is sent, from the new fix to the old fix, and «Эхлэх» follows the device-start rule of AC 15 (enabled, no O1);
+    - no new string is used.
+    If the device is ≤ **10 m** from that fix, AC 9 applies (N10, **0** requests); the destination field text in that case is Open question 4.
 12. **Given** a route request is in flight or a 429 wait is running, **When** swap or a point change happens, **Then**:
     - at most **1** route request is in flight, and an older response never replaces a newer one (NAV-011 AC 14; QA delays the first response by 1 s);
     - during the `Retry-After` wait the fields and markers update, and **0** requests are sent until the wait ends (NAV-005 AC 7).
@@ -132,7 +138,7 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
     - `alternates: 2`, the mode's `costing`, `costing_options` only per NAV-011 AC 23.
     The `GET` form is never used.
 14. **Given** a 200 response, **When** either `waypoints[0].distance` (start) or `waypoints[1].distance` (destination) is **> 500 m**, **Then** the D51 notice «Хамгийн ойрын зам сонгосон цэгээс {distance} зайтай» shows the larger of the two (NAV-004 AC 21). With a chosen start, this check also covers the start.
-15. **Given** a route state, **When** «Эхлэх» renders, **Then** (Open question 1, default (a)):
+15. **Given** a route state, **When** «Эхлэх» renders, **Then** ([D147](../decisions.md)):
     - with a **device start** and precise permission, «Эхлэх» is enabled as today (NAV-005 AC 7, 10; NAV-011 AC 19);
     - with a **chosen start**, «Эхлэх» is **disabled**, and within **200 ms** of the route rendering the hint «Замчлал зөвхөн таны байршлаас эхэлнэ» (O1) is shown next to it. TalkBack reads «Эхлэх» as disabled, followed by O1;
     - activating the disabled «Эхлэх» does nothing: no guidance, **0** requests, no permission dialog.
@@ -182,7 +188,7 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
     - the start text, the destination text, the summary and «Эхлэх» are visible without dragging, plus O1 when it is shown (AC 15);
     - the map band above the collapsed sheet is ≥ **160 dp** (NAV-011 screen spec P3);
     - «© OpenStreetMap contributors» is not covered (NAV-005 AC 2).
-    At font scale 200 %, the NAV-011 P2 fallback applies (the top part gives way first). In wide windows, the side sheet holds the fields, swap and list (NAV-011 P5). Checked with the UX layout checker and a Compose test.
+    At font scale 200 %, the NAV-011 P2 fallback applies (the top part gives way first). In wide windows, the side sheet holds the fields, swap and list (NAV-011 P5), and the coordinate card is the narrower card at the start edge. That card is **one layout** for both the long-press card (AC 6) and the typed-coordinate card of the map screen (NAV-011 AC 7a), as built ([D152](../decisions.md)). Checked with the UX layout checker and a Compose test.
 28. **Given** the new controls (fields, swap, card buttons, list rows, O1), **When** they render, **Then**:
     - touch targets are ≥ **48 × 48 dp**;
     - text contrast is ≥ **4.5:1** in both themes;
@@ -201,7 +207,7 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
     - the device position appears only in a route POST body where a point is «Миний байршил», and never in a `search` or `reverse` request;
     - list-row taps and language switches send **0** route requests (AC 22, AC 24), and each point change or swap sends at most the one request stated in AC 4, 6 and 11;
     - the NAV-005 AC 67 log and storage scan finds **0** coordinates after the session. The start and destination of a preview are never stored across app restarts (the NAV-012 restore record applies only during guidance, which needs a device start).
-32. **Given** a preview with a chosen start, **When** it is closed («Хаах», Back) and a new preview opens from a search result or the coordinate card, **Then** the start follows AC 1–2 again: a chosen start is not kept (Open question 3, default (a)). The mode is kept for the app session (NAV-011 AC 22). Nothing is stored.
+32. **Given** a preview with a chosen start, **When** it is closed («Хаах», Back) and a new preview opens from a search result or the coordinate card, **Then** the start resets to «Миний байршил» and follows AC 1–2 again: a chosen start is not kept, on every new route preview ([D149](../decisions.md)). The mode is kept for the app session (NAV-011 AC 22). Nothing is stored.
 33. **Given** a chosen start and a route, **When** the phone rotates, or the theme or language changes, **Then**:
     - the points, the swap state, the list, the selection and the sheet state are kept, with **0** route requests;
     - «Миний байршил» and «Сонгосон цэг» switch to their `en` values ("My location", "Selected point") and back; result names in the fields stay as they were.
@@ -246,7 +252,8 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
 - **Cyrillic/Latin:** "Sukhbaatar" vs «Сүхбаатар», "suhbaatar", Russian-layout «Сухбаатар» and «БЗД 4-р хороо» behave in the fields exactly as in the main search field (AC 4, NAV-011 AC 2–6).
 - **Typed coordinates:** follow NAV-011 AC 7 until the D137 change is applied, then its rule (AC 5).
 - **Start equals destination** (the same result picked twice, or a long-press on the user's own position): N10 with 0 requests (AC 9).
-- **Swap with «Миний байршил»:** the destination becomes the device position at the time the start was set, so «Эхлэх» is disabled with O1 until the user swaps back (AC 11, 15). A tester who has moved since will see a route from the old fix. This is accepted, because the start is fixed when it is set (AC 10).
+- **Swap with «Миний байршил»:** the destination becomes the device position at the time the start was set, so «Эхлэх» is disabled with O1 until the user swaps back (AC 11, 15). A tester who has moved since will see a route from the old fix. This is accepted, because the start is fixed when it is set (AC 10). If the user has moved > 10 m and then picks «Миний байршил» as the start, the destination turns into «Сонгосон цэг» (the old fix as a map point) and the route runs from the new fix ([D151](../decisions.md), AC 11a).
+- **Camera with a chosen start far from the device:** the fit covers only the start and destination markers, so a driver planning a trip across town is not zoomed out to include its own position (AC 8, [D153](../decisions.md)).
 - **Point far from any road** (ger plot, steppe), now also for the start: snap notice for the larger distance (AC 14).
 - **Unpaved roads:** the avoid toggle on «Машин» works for any start (NAV-011 AC 23). Countryside turn lists can contain many `continue` rows on unnamed tracks (R2).
 - **Winter:** no seasonal rule. Rows and buttons are ≥ 48 dp for gloves (AC 22, 28). A cold GPS start can take more than 10 s, so the start field falls back to empty with «Байршил тодорхойлж чадсангүй» (AC 2–3) and the user can still choose a start.
@@ -265,10 +272,10 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
 | R6 | **`maxspeed` coverage, no traffic** (NAV-001 R8) | Durations and «Хүрэх цаг» for a planned trip at another time of day are wrong, because no departure time is supported | Out of scope (departure time). Phase 3 traffic |
 | R7 | **Personal data:** a chosen start (for example a customer's pickup) goes to the backend in the route body (D9) | The legal gate before outside testers use Singapore staging | Team-only staging (D9 / D26). NAV-008 AC 24 |
 | R8 | **Parallel edits** in shared files (D137 change run, NAV-012 housekeeping fix) | Merge conflicts or lost changes | AC 36. Own packages, latest-file reads |
-| R9 | **Open question 1 changes «Эхлэх»** | If the PO picks (b) or (c), AC 15, O1 and the screen spec change | Only AC 15 and the O1 row depend on it |
+| R9 | **Open question 1 changes «Эхлэх»** | Closed: the PO chose (a), [D147](../decisions.md). Remaining risk is the O1 wording only (`needs native review`) | The NAV-007 panel or a PO pre-review may change the O1 wording; only resources and test expectations change |
 
 ## Out of scope
-- Guidance from a chosen start (a simulated or step-through "preview drive"). With default (a), guidance needs a device start (Open question 1).
+- Guidance from a chosen start (a simulated or step-through "preview drive"). Guidance needs a device start ([D147](../decisions.md)).
 - More than two points (waypoints «дайрах цэг»), dragging the route, departure or arrival time.
 - Saved places (home, work), recent starts, favourites.
 - A turn list during active guidance (the guidance screen is NAV-005).
@@ -278,32 +285,39 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
 - A toll option (D60).
 
 ## Open questions
-None blocks UX or architecture work. Each has a BA default already written into the AC.
+Questions 1–3 were **decided by the PO on 2026-10-04** ("All as recommended", option (a) each: [D147](../decisions.md), [D148](../decisions.md), [D149](../decisions.md)). Question 4 is new and does not block anything.
 1. **What «Эхлэх» does when the start is not the device position** (AC 15, O1). Options:
    - (a) «Эхлэх» disabled, with the hint O1 «Замчлал зөвхөн таны байршлаас эхэлнэ» (new glossary row, `needs native review`). The user swaps back or picks «Миний байршил» to navigate (BA default);
    - (b) «Эхлэх» starts guidance from the current device position to the destination: the chosen start is ignored, and one new route request is sent (no new string, but it silently drops the user's choice);
    - (c) «Эхлэх» hidden with a chosen start (no new string, but nothing explains why it is gone).
-   *Recommendation: (a).* It is what Google Maps does ("Start" is not offered from another start), it never sends the driver along a route that starts somewhere else, and only one new string is needed.
+   *Recommendation: (a).* It is what Google Maps does ("Start" is not offered from another start), it never sends the driver along a route that starts somewhere else, and only one new string is needed. **Decided: (a), [D147](../decisions.md).**
 2. **Location messages when the preview opens without usable location** (AC 2). Options:
    - (a) keep the NAV-005 AC 8–12 messages (with their actions) and also show the empty start field (BA default);
    - (b) web parity: no message, only the placeholder «Эхлэх цэг сонгох». The permission flow starts only when the user picks «Миний байршил».
-   *Recommendation: (a).* Most Android users want to start from where they are, so the message helps them, and NAV-005 AC 8–12 and their tests stay unchanged.
+   *Recommendation: (a).* Most Android users want to start from where they are, so the message helps them, and NAV-005 AC 8–12 and their tests stay unchanged. **Decided: (a), [D148](../decisions.md).**
 3. **Whether a chosen start is kept** (AC 32). Options:
    - (a) reset to «Миний байршил» on every new preview (BA default);
    - (b) keep the chosen start for the rest of the app session.
-   *Recommendation: (a).* Most previews start from the device position. A start kept from an earlier plan would disable «Эхлэх» unexpectedly (AC 15).
+   *Recommendation: (a).* Most previews start from the device position. A start kept from an earlier plan would disable «Эхлэх» unexpectedly (AC 15). **Decided: (a), [D149](../decisions.md).**
+4. **Destination text when «Миний байршил» is picked as the start within 10 m of the swapped fix** (AC 11a, last sentence; D151 covers only > 10 m). AC 9 already gives N10 with 0 requests. Options:
+   - (a) the destination also turns into «Сонгосон цэг», as in D151, so two fields never both show «Миний байршил» (no new string);
+   - (b) both fields show «Миний байршил» until the user changes a point.
+   *Recommendation: (a).* One rule for both distances, and it is simpler to test. Non-blocking: QA tests the built behaviour and reports it.
+
+Also decided on 2026-10-04 (not story open questions): AC 6 and AC 7 describe the built behaviour, old route lines removed when the new request starts and one field edited at a time, left by Back or a map tap ([D150](../decisions.md)); a swapped «Миний байршил» destination turns into «Сонгосон цэг» when the user has moved > 10 m and picks «Миний байршил» as the start ([D151](../decisions.md), AC 11a); one narrower start-edge coordinate card layout in wide windows for both entries ([D152](../decisions.md), AC 27); the camera fit with a chosen start leaves out the device position ([D153](../decisions.md), AC 8).
 
 ## Traceability
 | AC | Screen spec / flow | API operation | ADR | Code | Test | Issues |
 |---|---|---|---|---|---|---|
-| AC1–10 | `docs/design/screens/NAV-018-android-origin-turn-list.md` (UX, TBD), delta on the NAV-011 S3 spec; NAV-004 screen spec (reference) | `search`, `reverse`, `postRoute` | ADR-0006, ADR-0012 (search reuse) | TBD (`…/preview/points`) | JVM / Robolectric (TBD) | N2, N3, N17, N18, T6; D30, D115, D137; NAV-005 AC 8–12 |
-| AC11–12 | swap (UX, TBD) | `postRoute` | — | TBD | JVM (TBD) | N4 |
-| AC13–17 | «Эхлэх» footer, O1 hint (UX, TBD) | `postRoute` | ADR-0009 (guidance unchanged) | TBD | JVM / Robolectric (TBD) | O1; D51; Open question 1 |
+| AC1–10 | `docs/design/screens/NAV-018-android-origin-turn-list.md` (UX, TBD), delta on the NAV-011 S3 spec; NAV-004 screen spec (reference) | `search`, `reverse`, `postRoute` | ADR-0006, ADR-0012 (search reuse) | TBD (`…/preview/points`) | JVM / Robolectric (TBD) | N2, N3, N17, N18, T6; D30, D115, D137, D140, D145; NAV-005 AC 8–12; D148 (AC 2), D150 (AC 6, 7), D153 (AC 8 camera fit, `PointRules.isChosenStart`) |
+| AC11–12 (incl. AC 11a) | swap (UX, TBD) | `postRoute` | — | TBD | JVM (TBD) | N4, T6; D151 (AC 11a); Open question 4 |
+| AC13–17 | «Эхлэх» footer, O1 hint (UX, TBD) | `postRoute` | ADR-0009 (guidance unchanged) | TBD | JVM / Robolectric (TBD) | O1; D51; D147 (AC 15) |
 | AC18–26 | turn list (UX, TBD); map-style (camera, start marker) | `postRoute` (`legs[].steps[]`) | ADR-0008 (accepted), shared fixture | TBD (`…/preview/turnlist`), `instructions/ManeuverRules.kt` (reused) | fixture JVM test, text scans, Robolectric list (TBD) | N5; C2; NAV-004 AC 26–30, 45 |
-| AC27–30 | layout rules (UX checker) | — | — | TBD | Compose / Robolectric (TBD) | D66; NAV-012 AC 26 (B2) |
-| AC31–38 | — | all | — | `mobile/android/**` | existing Android suite; test plan `docs/qa/test-plans/NAV-018.md` | D9, D108 pattern, D110, D113, D136; coordination with the D137 run and the NAV-012 fix |
+| AC27–30 | layout rules (UX checker) | — | — | TBD | Compose / Robolectric (TBD) | D66; NAV-012 AC 26 (B2); D152 (AC 27 wide-window card) |
+| AC31–38 | — | all | — | `mobile/android/**` | existing Android suite; test plan `docs/qa/test-plans/NAV-018.md` | D9, D108 pattern, D110, D113, D136, D149 (AC 32); coordination with the D137 run and the NAV-012 fix |
 
 ## Change log
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-04 | NAV-011 follow-up "Android origin choice and turn list" (D112 draft row; triage 2026-10-04, PO-confirmed P2 / standard, [D136](../decisions.md); feature-delivery lane) | Created as **NAV-018** (next free ID after NAV-017; replaces the backlog draft row). 38 AC in sections A–F: start and destination fields with NAV-011 search reuse, «Миний байршил» option and the NAV-005 permission flow, map point as start or destination on the coordinate card, swap, request rules, «Эхлэх» only from the device start (Open question 1 default), turn list «Маршрутын заавар» from the ADR-0008 Android rules with fixture and text-quality checks, layout and TalkBack, privacy, typing lock, regression, coordination and light-QA verification. Priority should (P2), phase 1, size M. Glossary row **O1** added in new section 2.6 (`needs native review`). Three non-blocking open questions with BA defaults. NAV-011 not edited (waiting for acceptance; parallel D137 run) | Refine the D112 follow-up to `ready` for UX and the architect |
+| 2026-10-04 | PO answer "All as recommended" in chat to seven NAV-018 items ([D147–D153](../decisions.md)) | **Open questions 1–3 decided**, option (a) each: AC 15 «Эхлэх» disabled with O1 for a chosen start (D147; Context, User-facing strings, R9 and Out of scope reworded from "default" to decided); AC 2 keeps the NAV-005 AC 8–12 message next to the empty start field «Эхлэх цэг сонгох» (D148); AC 32 resets a chosen start to «Миний байршил» on every new preview (D149). **AC 6** bullet 2 reworded to the built behaviour: the changed marker moves at once and the old route lines are removed when the new request starts (D150). **AC 7:** one field is edited at a time; Back and a map tap are the only ways to leave without choosing ("the other field" removed) (D150). **New AC 11a:** after a swap of «Миний байршил» to the destination and a move > 10 m, picking «Миний байршил» as the start turns the destination into «Сонгосон цэг» (old fix kept), 1 request, «Эхлэх» enabled; no new string (D151); ≤ 10 m case → new non-blocking Open question 4. **AC 8:** with a chosen start the camera fit covers only the start and destination markers, not the live device position (D153). **AC 27:** in wide windows, one narrower start-edge coordinate card layout for both long-press and typed-coordinate cards (D152). Edge cases (swap with «Миний байршил», camera with a chosen start), Context decision list and Traceability updated. Glossary O1 row already present (section 2.6, `needs native review`); only its section intro updated | Record the PO decisions and align AC 6 / AC 7 with the build so QA tests what was built |

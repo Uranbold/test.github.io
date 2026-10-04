@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.5.4
+  version: 0.5.5
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
@@ -18,11 +18,18 @@ info:
     and ADR-0015 (Android NAV-018: start and destination as one typed point model, swap, guidance only from a
     device start, field search on the shared 429 cooldown, turn list built on the client from the parsed steps).
 
+    **Changes in 0.5.5 (2026-10-04, documentation tidy-up after the NAV-011 D140 change landed).** Wording only. No
+    path, parameter, status code, header, schema, example or gateway behaviour change; nothing for backend to
+    implement and no contract check to re-run:
+    - `search`: the NAV-011 Android profile now states the D140 rule (a recognised typed coordinate pair sends **0**
+      requests, ADR-0012 Amendment A1). The NAV-018 field text no longer says "until the D137 change is applied".
+    - `postRoute`: the NAV-018 profile no longer says "once the D137 change is applied" for typed coordinates.
+
     **Changes in 0.5.4 (2026-10-04, NAV-018 design, ADR-0015).** Documentation only. No path, parameter, status
     code, header, schema or gateway behaviour change, so there is nothing for backend to implement (backend
     re-runs the contract check, which now also sends the new request example):
     - `postRoute`: **Android preview profile from NAV-018.** `locations[0]` may now be a **chosen start** (a search
-      result, a map point, or a typed coordinate once the D137 change is applied), not only the device position.
+      result, a map point, or a typed coordinate), not only the device position.
       «Миний байршил» may be either location after a swap. One request per point change or swap. The body is
       otherwise the NAV-011 preview body, never with `heading`. The Android turn list «Маршрутын заавар» is built
       on the client from `legs[0].steps[]` (ADR-0008 rules), with no new field and no extra request. Guidance
@@ -496,7 +503,8 @@ paths:
         binding rules are the NAV-018 acceptance criteria. It changes only these points of the NAV-011 profile above:
         - `locations` = [start, destination]. The start is either the device position («Миний байршил», a good fix
           frozen when it was set) or a **chosen start**: a search result coordinate, a long-press map point, or a
-          typed coordinate once the D137 change is applied. All of them are sent with 6 decimals, never rounded.
+          typed coordinate (the NAV-011 D140 option «Сонгосон цэг»). All of them are sent with 6 decimals, never
+          rounded.
           After a swap, «Миний байршил» may be `locations[1]`. The device position appears in a route body only when a
           location is «Миний байршил».
         - Triggers: the NAV-011 ones plus "a point is set or changed" and "swap", each **one** request (subject to the
@@ -794,14 +802,17 @@ paths:
         bias rounded to 3 decimals, client timeout 8 s, 429 cooldown per operation, nothing retried automatically
         except one resume when the network returns. The field shows what the user typed; assisted variants are
         never displayed. Expected load: the same as the web (worst case about 8 requests/s while typing at the
-        250 ms debounce, typically under 1/s).
+        250 ms debounce, typically under 1/s). **Typed coordinates (D140, ADR-0012 Amendment A1, supersedes the D115
+        "sent as typed" rule):** a settled query that matches the ADR-0006 §2.2 coordinate rule sends **0** `search`
+        requests and offers one option, «Сонгосон цэг», which opens the coordinate card (one `reverse`, see below).
 
         **NAV-018 Android route-preview fields (ADR-0015 §5):** the start and destination fields send exactly the
         NAV-011 profile above, through the same code. They share **one** 429 cooldown with the map-screen field (per
         operation, per device). Only one field is active at a time, and a response for a field that lost focus or
         changed text is discarded, so the budget is unchanged. The «Миний байршил» option in the start field sends
         **0** `search` requests, and the device position is never sent except as the D30 bias (3 decimals). Typed
-        coordinates follow the NAV-011 rule in force (AC 7 / D115 until the D137 change is applied).
+        coordinates follow the NAV-011 D140 rule above: a recognised pair sends **0** `search` requests and sets the
+        edited point to that coordinate.
 
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 36). The gateway read timeout is 5 s.
       x-stories: [NAV-001, NAV-003, NAV-005, NAV-008, NAV-011, NAV-018]
