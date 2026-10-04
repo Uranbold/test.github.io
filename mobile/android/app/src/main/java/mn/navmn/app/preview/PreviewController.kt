@@ -66,12 +66,18 @@ data class PreviewState(
     /** NAV-018: null while «Миний байршил» is being resolved on open, or when it could not be (AC 2: empty start field). */
     val origin: RoutePoint? = null,
     val result: PreviewResult = PreviewResult.WaitingForLocation,
+    /**
+     * ADR-0016 §3 (NAV-019 AC 10): a recorded route opened by a replay build ([PreviewController.showRoute]) may start
+     * from its chosen start; false everywhere else (NAV-018 AC 15 / D147 unchanged).
+     */
+    val startFromChosenPoint: Boolean = false,
 ) {
     /** NAV-018 AC 15 (ADR-0015 §3): a route and no chosen start. */
-    val canStart: Boolean get() = PointRules.canStart(result is PreviewResult.Route, origin)
+    val canStart: Boolean get() =
+        PointRules.canStart(result is PreviewResult.Route, origin) || (startFromChosenPoint && result is PreviewResult.Route)
 
     /** NAV-018 AC 15: O1 next to the disabled «Эхлэх» when a route renders with a chosen start. */
-    val showStartHint: Boolean get() = PointRules.showStartHint(result is PreviewResult.Route, origin)
+    val showStartHint: Boolean get() = !startFromChosenPoint && PointRules.showStartHint(result is PreviewResult.Route, origin)
 
     /** NAV-018 AC 2: the start field is empty (placeholder) only when the device start failed and nothing was chosen. */
     val originEmpty: Boolean get() = origin == null && result is PreviewResult.Location
@@ -120,6 +126,23 @@ class PreviewController(
         job?.cancel()
         generation++
         _state.value = null
+    }
+
+    /**
+     * ADR-0016 §3 (NAV-019 AC 9–10): opens the preview for an already received response (a replay build's recorded
+     * route) with 0 requests: both points set, [mode] selected, the routes ready. Later changes (mode, swap, points)
+     * request as usual; the preview stays the single owner of its state (ADR-0015 §7).
+     */
+    fun showRoute(outcome: RouteOutcome.Ok, origin: RoutePoint, destination: RoutePoint, mode: TravelMode) {
+        job?.cancel()
+        generation++
+        _state.value = PreviewState(
+            destination = destination,
+            mode = mode,
+            origin = origin,
+            result = PreviewResult.Route(outcome.routes, wallNow(), selected = 0),
+            startFromChosenPoint = true,
+        )
     }
 
     fun locationProblem(p: LocationProblem) {

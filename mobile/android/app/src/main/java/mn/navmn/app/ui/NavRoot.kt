@@ -3,6 +3,7 @@ package mn.navmn.app.ui
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,6 +78,9 @@ import mn.navmn.app.ui.screens.SettingsSheet
 import mn.navmn.app.ui.screens.preview.PointActions
 import mn.navmn.app.ui.theme.LocalTokens
 import mn.navmn.app.ui.theme.NavTheme
+import mn.navmn.app.ui.theme.c
+import mn.navmn.app.variant.ReplayHost
+import mn.navmn.app.variant.TilesState
 
 /** Platform intents the root needs from the Activity (settings pages, background). */
 class PlatformActions(
@@ -142,6 +146,16 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
 
     val g: GuidanceState? = guidance
     val guiding = g != null && g.phase != GuidancePhase.ENDED
+
+    // ADR-0016 §3: a replay (demo) build; null in debug and release, where every branch below keeps today's path.
+    val replay = vm.replay
+    val replayTiles = replay?.tiles?.collectAsState()?.value
+    val pmtilesUrl: String? = when {
+        replay == null -> AppConfig.pmtilesUrl()
+        replayTiles is TilesState.Ready -> replayTiles.pmtilesUrl
+        else -> null // §9: copying or failed; the map waits (the start screen shows the state)
+    }
+    val offline = !online && replay?.tilesBundled != true
 
     // AC 18: the screen stays on while guiding; cleared when guidance ends (also at arrival).
     KeepScreenOn(guiding && g?.phase != GuidancePhase.ARRIVED)
@@ -310,12 +324,15 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
 
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { mapRect = it.boundsInRoot() }) {
-            mapSurface.Map(
+            if (pmtilesUrl == null) {
+                // ADR-0016 §9: no MapLibre view until the bundled archive is ready (map background colour meanwhile).
+                Box(Modifier.fillMaxSize().background(tokens.uiSurfaceContainer.c()).testTag("map"))
+            } else mapSurface.Map(
                 modifier = Modifier.fillMaxSize().testTag("map"),
                 description = stringResource(R.string.map_content_description),
                 night = night,
                 colours = tokens,
-                pmtilesUrl = AppConfig.pmtilesUrl(),
+                pmtilesUrl = pmtilesUrl,
                 content = content,
                 onReady = { c ->
                     controller = c
@@ -323,7 +340,8 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     mapHeightPx = c.heightPx
                 },
                 // NAV-018 AC 6: long-press also works during the preview (the card then sets the start or destination).
-                onLongPress = if (!guiding && points.editor == null) ({ p -> vm.onLongPress(p) }) else null,
+                // NAV-019 UX P1: the replay start screen's map pans and zooms only (no coordinate card).
+                onLongPress = if (!guiding && points.editor == null && !(replay != null && preview == null)) ({ p -> vm.onLongPress(p) }) else null,
                 // NAV-011 AC 17: a tap on an unselected line selects it (0 requests, no camera move).
                 onTap = if (!guiding && preview != null) ({ p, hit ->
                     // NAV-018 AC 7: a map tap leaves the point editor without changes.
@@ -358,11 +376,31 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     onDismissNotice = vm::dismissVoiceNotice,
                     onArrivalClose = vm::onArrivalClose,
                     onCovered = { covered = it },
+                    demoRow = replay?.let { r -> { arrived: Boolean -> r.GuidanceControls(arrived, Modifier) } },
+                    showOfflineStatus = replay?.tilesBundled != true,
+                )
+            } else if (replay != null && preview == null) {
+                // ADR-0016 §3 / NAV-019 UX P1: the route picker replaces the browse overlay in a replay build.
+                replay.StartScreen(
+                    ReplayHost(
+                        lang = lang,
+                        strings = strings,
+                        mapFailed = ui.tilesFailed,
+                        openPreview = vm::openRecordedRoute,
+                        openSettings = { vm.openSettings(true) },
+                        retryTiles = {
+                            vm.setTilesFailed(false)
+                            replay.retryTiles()
+                            val url = (replay.tiles.value as? TilesState.Ready)?.pmtilesUrl
+                            if (url != null) controller?.setStyle(night, tokens, "$url")
+                        },
+                    ),
+                    Modifier,
                 )
             } else {
                 BrowseOverlay(
                     m = BrowseModel(
-                        lang, ui.query, searchView, ui.card, preview, ui.mapProblem, ui.tilesFailed, !online, bearing, ui.followingMe,
+                        lang, ui.query, searchView, ui.card, preview, ui.mapProblem, ui.tilesFailed, offline, bearing, ui.followingMe,
                         reverse = reverseView, lock = lock, sheetExpanded = ui.sheetExpanded, focusSearch = ui.focusSearch,
                         points = points, fieldView = fieldView, cardTitleFocus = ui.cardTitleFocus,
                     ),
@@ -389,7 +427,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                         onDismissMapProblem = vm::dismissMapProblem,
                         onRetryTiles = {
                             vm.setTilesFailed(false)
-                            controller?.let { c -> c.setStyle(night, tokens, AppConfig.pmtilesUrl() + "") }
+                            controller?.let { c -> pmtilesUrl?.let { c.setStyle(night, tokens, "$it") } }
                         },
                         onSheetHeight = { sheetPx = it },
                         onSelectRoute = vm::selectRoute,
@@ -427,8 +465,10 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                             onCardSetDestination = { vm.onCardSetPoint(PointSide.DESTINATION) },
                             // Q8: portrait touch use collapses the sheet; TalkBack and wide windows keep it as it is.
                             onTurnRow = { i -> vm.focusStep(i, collapse = sheetStartPx == 0 && !vm.touchExploration()) },
+                            offerMyLocation = replay == null,
                         ),
                     ),
+                    replayBadge = replay?.let { r -> { m: Modifier -> r.Badge(m) } },
                 )
             }
         }

@@ -65,6 +65,8 @@ class GuidanceEngine(
     private val showResumedNotice: Boolean = false,
     /** NAV-012 (ADR-0013 §3.2): called on the engine thread when a new route became active. */
     private val onNewRoute: (ParsedRoute) -> Unit = {},
+    /** ADR-0016 §3: a replay build runs the engine on its replay clock (frozen while paused). */
+    private val clock: Clock = SystemClocks,
 ) {
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "navmn-guidance").apply { isDaemon = true } }
     private val dispatcher = executor.asCoroutineDispatcher()
@@ -94,7 +96,7 @@ class GuidanceEngine(
         voice.onFallback = { scope.launch { core.onVoiceFallback() } }
         scope.launch {
             core = GuidanceCore(
-                clock = SystemClocks,
+                clock = clock,
                 initialRoute = route,
                 trip = trip,
                 navigators = navigators,

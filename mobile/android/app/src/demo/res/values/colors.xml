@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- NAV-019 UX (launcher icon): the demo build's adaptive-icon background is tokens.json color.light.demo.badge, so
+         the two installs differ by colour and label (the launcher icon cannot read generated Kotlin). -->
+    <color name="launcher_background">#FDE293</color>
+</resources>

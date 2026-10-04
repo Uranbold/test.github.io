@@ -349,6 +349,13 @@ fun GuidanceOverlay(
     onArrivalClose: () -> Unit,
     onCovered: (Covered) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * ADR-0016 / NAV-019 UX RD: a replay build's demo row directly below the banner (outside the 50 % banner cap), with
+     * `arrived`; null everywhere else.
+     */
+    demoRow: (@Composable (Boolean) -> Unit)? = null,
+    /** NAV-019 UX Design note 4: false when nothing needs the network (bundled tiles in a replay build). */
+    showOfflineStatus: Boolean = true,
 ) {
     val arrived = state.phase == GuidancePhase.ARRIVED || state.phase == GuidancePhase.ENDED
     val destinationText = state.trip.destinationName ?: stringResource(R.string.place_selected_point)
@@ -359,7 +366,7 @@ fun GuidanceOverlay(
             // NAV-012 Layout rule 8: «Замчлал сэргэлээ» has priority 2, after the GPS messages and before offline.
             if (state.resumedNoticeVisible) add(Triple("resumed", R.drawable.ic_info, strings[StringKey.NAV_RESUMED]))
             val bannerSaysOffline = (state.banner as? Banner.Rerouting)?.secondary == RerouteSecondary.OFFLINE
-            if (state.offline && !bannerSaysOffline) add(Triple("offline", R.drawable.ic_cloud_off, strings[StringKey.STATUS_OFFLINE]))
+            if (showOfflineStatus && state.offline && !bannerSaysOffline) add(Triple("offline", R.drawable.ic_cloud_off, strings[StringKey.STATUS_OFFLINE]))
         }
     }
     val density = LocalDensity.current
@@ -385,6 +392,10 @@ fun GuidanceOverlay(
             CappedFontScale(OVERLAY_CAP) {
                 Column(m) {
                     NavBanner(state.banner, lang, strings, bannerMax, Modifier.padding(horizontal = 8.dp))
+                    if (demoRow != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Box(Modifier.padding(horizontal = 8.dp)) { demoRow(arrived) }
+                    }
                     for ((kind, icon, text) in statuses) {
                         Spacer(Modifier.height(8.dp))
                         StatusMessage(kind, icon, text, Modifier.padding(horizontal = if (landscape) 8.dp else 16.dp))

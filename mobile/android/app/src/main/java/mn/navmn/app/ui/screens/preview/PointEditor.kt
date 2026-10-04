@@ -97,7 +97,7 @@ internal fun PointEditor(
     val myLocation = stringResource(R.string.marker_my_location)
     val current = if (origin) fieldText(s.origin, !s.originEmpty, strings, myLocation) else PointRules.label(s.destination, strings)
     // AC 3: the option is offered when the start is empty or a chosen start (not while it already is «Миний байршил»).
-    val showOption = origin && (s.originEmpty || PointRules.isChosenStart(s.origin) || editor.myLocation != MyLocationOption.Idle)
+    val showOption = pa.offerMyLocation && origin && (s.originEmpty || PointRules.isChosenStart(s.origin) || editor.myLocation != MyLocationOption.Idle)
     Column(modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         EditorField(editor, current, lock, focusSearch, pa)
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {

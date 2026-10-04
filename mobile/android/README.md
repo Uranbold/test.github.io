@@ -216,3 +216,142 @@ Tester checklist (record the model, OS version and date in the table above once 
 Real lock-screen behaviour and unlock prompts, OEM killers, the system's sticky restart, Bluetooth output and
 first-word clipping, cellular and VoIP calls, ducking, a real sunset theme switch, notification rendering on OEM skins
 and battery use: all need a real Android phone. JVM/Robolectric tests cover the pure rules and the Android glue.
+
+## 7. Demo build (NAV-019)
+
+A separate build of the real app for the PO's own phone. It needs **no server**: it replays the three recorded
+Ulaanbaatar routes of the web demo (NAV-017) through the real guidance engine, with a simulated position along the
+recorded track. Everything else is the production code path: banner, Android TTS voice or the D23 chime with notice A1,
+the foreground-service notification «Замчлал», the lock screen, Bluetooth audio and phone-call handling. Story
+[NAV-019](../../docs/requirements/stories/NAV-019-android-demo-mode.md), design
+[ADR-0016](../../docs/architecture/adr/0016-android-demo-mode.md), UX
+[screen spec](../../docs/design/screens/android-demo-picker.md).
+
+> **Distribution (D17).** The demo APK goes **only to the PO, by direct file transfer** (USB cable, or `adb`). It is
+> never put on the public website, in a store, or behind any download link.
+
+The orchestrator defaults R1–R7 behind this build are **proposed defaults, PO to confirm** (story Open questions 1–8),
+not PO decisions. Two of them affect what you see:
+
+- **Location permission (Open question 6, option (b) implemented).** At the first «Эхлэх» the app asks for location
+  exactly like the real app, and location services must be on. The reason: on Android 14+ a foreground service of type
+  `location` needs that permission. The demo **never reads a real fix**: the position on the map is always the
+  simulated one, and the phone's GPS is never used.
+- **Speed 1× with a pause (Open question 4, option (a)).** «Түр зогсоох» pauses the replay and «Үргэлжлүүлэх» resumes it.
+  2× and 4× exist in the replay code and its tests, but the UI offers no speed choice, because NAV-017 has none and a
+  speed label would need a new glossary term.
+
+### 7.1 Build
+
+The demo build is the Gradle build type `demo`. It installs next to the debug app with the application ID
+`mn.navmn.app.demo`. It is signed with your local debug key (`~/.android/debug.keystore`, which is never committed), is
+not debuggable and is not minified. Its launcher label is «Туршилтын горим» ("Demo mode"), and its icon has an amber
+background. It needs **exactly one** basemap source:
+
+| Property (or environment variable, or `gateway.local.properties` key) | Meaning |
+|---|---|
+| `nav.demoTilesFile` (`NAV_DEMO_TILES_FILE`) | Absolute path to a local PMTiles v3 archive. It is copied into the APK, so the app works offline, also in airplane mode. **Recommended.** |
+| `nav.demoTilesUrl` (`NAV_DEMO_TILES_URL`) | An `https://` PMTiles URL, for example on the PO's static site. The phone then needs a network for the map. |
+
+```bash
+cd mobile/android
+./gradlew :app:assembleDemo -Pnav.demoTilesFile=<path-to>.pmtiles
+# or: ./gradlew :app:assembleDemo -Pnav.demoTilesUrl=https://<host>/<path>.pmtiles
+# APK: app/build/outputs/apk/demo/app-demo.apk
+```
+
+Never commit the archive, the APK or either property value. The repository holds placeholders only (AC 41).
+`gateway.local.properties` is git-ignored, so you can put `nav.demoTilesFile=<path-to>.pmtiles` there instead of the
+command line. If neither property is set, any demo task stops in `preDemoBuild` with one message that names both
+properties and points here (`checkDemoTiles`). `assembleDebug`, `assembleRelease` and `testDebugUnitTest` never need
+them.
+
+**Archive.** Use a Ulaanbaatar extract that covers R1–R3 with some margin. Make it with the `pmtiles` CLI (go-pmtiles,
+BSD-3-Clause) from the Mongolia archive, for example
+`pmtiles extract <mongolia>.pmtiles <ub-demo>.pmtiles --bbox=106.80,47.83,107.05,47.98`. Measured on 2026-10-04 with the
+local test archive used for the quick check (bbox 106.55,47.72 to 107.25,48.12, zoom 0–14): **6,293,133 bytes
+(6.0 MiB)**. The archive sits twice on the phone: once inside the APK, once in app storage (see 7.3).
+
+**What the build packages (AC 4).** The Gradle task `syncDemoAssets` runs for the demo build type only. It copies the
+following byte for byte from their repo paths:
+
+- `web/src/demo/routes.manifest.json` to `demo/routes.manifest.json`;
+- the route JSON and the GPX track of every `picker: true` entry to `demo/files/<repo path>` (R1 = G1, R2 = G5,
+  R3 = G8; G4 and the off-route G2 are not offered);
+- the archive to `demo/basemap.pmtiles`.
+
+It validates the manifest, the routes and the tracks. Nothing is copied under `mobile/`.
+
+**Code (AC 5).**
+
+| Location | Contents |
+|---|---|
+| `app/src/replay/java` (package `mn.navmn.app.demo.replay`) | Pure Kotlin: track parser, replay clock, the simulated `LocationSource`, the voice pause gate, the network block, tile copy, route catalogue. Compiled into the demo build and into the debug unit tests. |
+| `app/src/demo` (package `mn.navmn.app.demo`) | Android parts: the `ReplayVariant` binding, wake lock, picker and pause UI, strings `demo_mode` / `demo_pause`, the launcher colour, the manifest overlay. |
+| `src/main` | Only the generic optional binding `mn.navmn.app.variant.ReplayVariant`. When it is absent (debug, release, every existing test), every call site keeps today's path. |
+
+Debug and release APKs contain no `mn.navmn.app.demo` class, no `demo/` asset, no GPX file and no `.pmtiles` file.
+
+### 7.2 Install on the PO's phone
+
+1. Copy `app-demo.apk` to the phone by direct file transfer (USB cable to the phone's Download folder). Alternatively,
+   with USB debugging on, run `adb install -r app/build/outputs/apk/demo/app-demo.apk`.
+2. On the phone, open the APK in the Files app. The first time, Android asks you to allow installs from this app. Go to
+   **Settings › Apps › Special app access › Install unknown apps**, select the Files app (or the app you opened the APK
+   with) and turn on **Allow from this source**. The names vary by phone maker. Then go back and tap **Install**.
+3. The demo build installs **next to** the debug build: two icons, "Газрын зураг" and «Туршилтын горим» (amber icon).
+   Uninstalling one never touches the other.
+4. Afterwards you may switch "Allow from this source" off again.
+
+### 7.3 What the demo does differently (and what that means for the test)
+
+- **Start screen.** The route picker «Туршилтын горим» lists R1–R3. Tap an entry to open the normal route preview with
+  «Маршрутын заавар». «Эхлэх» is enabled although the start is not your position. Settings «Тохиргоо» is the gear on
+  the picker.
+- **No network at all.** An in-process block sits first on the app's only HTTP client, and MapLibre gets a client that
+  refuses every request, so 0 requests leave the phone. Search in the point editor, a long-press address, a new route
+  (another mode, swap, changed points) and any reroute show their normal "unavailable" or «Интернэт холболт алга»
+  states. The base URL is the fixed loopback discard address `https://127.0.0.1:9`, which is never contacted.
+- **Tiles.** MapLibre 13.6.1 cannot read byte ranges from APK assets (upstream issue #4360; the fix is not in a
+  release yet). On first launch, the app therefore copies the archive once into no-backup app storage and opens it as
+  **`pmtiles://file://<absolute path>`**. While it copies, «Ачаалж байна…» shows. A broken archive shows
+  «Газрын зургийг ачаалж чадсангүй» with «Дахин оролдох», and the list keeps working.
+- **Background.** The replay keeps running with the screen off, after Home and after a swipe-away. To keep its timing it
+  holds a partial wake lock while it runs; it releases it on pause, arrival and end. The real app relies on GPS
+  wake-ups instead, so **screen-off battery drain in the demo does not predict production**.
+- **Process death.** No restore record is written. If the OEM kills the app during a replay, the next launch shows the
+  picker, and nothing about the replay is kept (Open question 8, default).
+- **End of track.** If a track ends without arrival, the app ends guidance 2 s later as if «Дуусгах» was tapped.
+
+### 7.4 PO phone checklist (AC 43)
+
+Fill in one row per item: pass, fail, or a note. Skipped items stay "not verified".
+
+| # | Check | Result (pass / fail / note) |
+|---|---|---|
+| a | Phone model and Android version. The TTS engine set in **Settings › Text-to-speech output** (or the phone's equivalent), and whether a Mongolian voice is listed (input for NAV-007 AC 9). Also the screen size in dp (Developer options › Smallest width) and the font size | |
+| b | R1 in the Mongolian UI: banner texts readable; either Mongolian speech, or notice A1 «Энэ утсанд монгол дуут заавар ажиллахгүй байна. Заавар зөвхөн дэлгэцэнд харагдана.» and an audible chime per prompt | |
+| c | R1 in the English UI (Settings › «Хэл» › English): English speech heard | |
+| d | R2 (walk) with the phone locked: lock-screen view with the badge, notification content and actions («Дуусгах», voice toggle), «Туршилтын горим» in the notification header | |
+| e | R3 with the screen off for the whole replay: prompts heard; the replay ends within 787 s ± 15 s of «Эхлэх» | |
+| f | Swipe the app away from Recents during a replay: guidance and the notification continue | |
+| g | Bluetooth car audio or headset: the first word of 5 prompts in a row is audible | |
+| h | A phone call during a replay: no prompt during the call, one catch-up prompt after it; the replay keeps running | |
+| i | Battery saver on, and the battery hint on the preview. Does the replay survive? If the app was killed: the next launch shows the picker | |
+| j | Airplane mode, R1 from «Эхлэх» to arrival: map, banner, voice or chime, notification and arrival all work | |
+| k | «Түр зогсоох» and «Үргэлжлүүлэх» (also over the lock screen): no prompt and no «GPS дохио тасарлаа» while paused, no repeated prompt after resuming; «Дуусгах»; arrival «Хаах» returns to the picker | |
+| l | The debug build still opens and works after installing the demo build. Both launcher icons look different (colour and label) | |
+| m | First launch: how long «Ачаалж байна…» showed while the map was copied (target ≤ 30 s) | |
+| n | TalkBack on the picker: an entry is read as start, destination, mode, distance and duration | |
+
+### 7.5 Not verified in this environment
+
+There is no emulator or device here. Only the JVM tests, lint and the APK inspection ran. These are verified only by
+the PO's phone test above:
+
+- MapLibre drawing `pmtiles://file://` on a device, and the copy time;
+- real TTS and whether a Mongolian voice exists;
+- the notification and lock-screen behaviour, Bluetooth and calls;
+- the wake lock under Doze and OEM battery savers;
+- the Android 14+ foreground-service prerequisites at runtime;
+- TalkBack, and the layout on the PO's screen size.

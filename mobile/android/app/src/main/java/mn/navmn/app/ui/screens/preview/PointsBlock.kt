@@ -75,6 +75,8 @@ class PointActions(
     val onCardSetDestination: () -> Unit = {},
     /** A turn-list row tap (AC 22): the index of the step in the selected route. */
     val onTurnRow: (Int) -> Unit = {},
+    /** ADR-0016 / NAV-019 UX: a replay build never reads the device position, so «Миний байршил» is not offered. */
+    val offerMyLocation: Boolean = true,
 )
 
 /** The text a field shows: the point's label in the UI language, «Миний байршил» while it is resolved, "" when empty. */

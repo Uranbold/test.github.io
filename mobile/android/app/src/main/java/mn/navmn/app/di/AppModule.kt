@@ -13,15 +13,20 @@ import mn.navmn.app.route.RouteClient
 import mn.navmn.app.route.RouteProcessor
 import mn.navmn.app.route.RouteRequester
 import mn.navmn.app.search.SearchClient
+import mn.navmn.app.variant.ReplayVariant
 import okhttp3.OkHttpClient
+import java.util.Optional
 import javax.inject.Singleton
 
 /** One OkHttp client for the gateway only (AC 65): no logging interceptor, no cache, no other host. */
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
+    /** ADR-0016 §7: a replay build adds its in-process network block as the first interceptor (absent: unchanged). */
     @Provides @Singleton
-    fun okHttp(): OkHttpClient = OkHttpClient.Builder().cache(null).build()
+    fun okHttp(replay: Optional<ReplayVariant>): OkHttpClient = OkHttpClient.Builder().cache(null)
+        .apply { replay.ifPresent { addInterceptor(it.httpInterceptor) } }
+        .build()
 
     @Provides @Singleton
     fun routeClient(http: OkHttpClient, network: NetworkMonitor): RouteClient =

@@ -537,7 +537,17 @@ object PreviewEtaClock {
  *    card use the width left of it, so nothing stacks over the controls on a 360 dp high screen.
  */
 @Composable
-fun BrowseOverlay(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: Modifier = Modifier) {
+fun BrowseOverlay(
+    m: BrowseModel,
+    strings: Strings,
+    a: BrowseActions,
+    modifier: Modifier = Modifier,
+    /**
+     * ADR-0016 / NAV-019 UX P2: in a replay build the preview's top area shows only this badge (no search bar, no
+     * typing lock, no results); null everywhere else.
+     */
+    replayBadge: (@Composable (Modifier) -> Unit)? = null,
+) {
     BoxWithConstraints(modifier.fillMaxSize()) {
         val maxH = maxHeight
         val maxW = maxWidth
@@ -565,7 +575,10 @@ fun BrowseOverlay(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: 
                     )
                 }
                 Column(Modifier.weight(1f).reportTopGroup(a)) {
-                    if (editor == null) {
+                    if (editor == null && replayBadge != null) {
+                        ReplayBadgeRow(replayBadge, a)
+                        StatusMessages(m, a)
+                    } else if (editor == null) {
                         SearchRow(m, a)
                         TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                         SearchResults(m, strings, a, onCoordinate = a.onCoordinateOption)
@@ -579,9 +592,13 @@ fun BrowseOverlay(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: 
                     PointEditor(preview, editor, m.fieldView, m.lock, m.focusSearch, strings, a, Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().imePadding())
                 } else {
                     Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().reportTopGroup(a)) {
-                        SearchRow(m, a)
-                        TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
-                        SearchResults(m, strings, a, onCoordinate = a.onCoordinateOption)
+                        if (replayBadge != null) {
+                            ReplayBadgeRow(replayBadge, a)
+                        } else {
+                            SearchRow(m, a)
+                            TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                            SearchResults(m, strings, a, onCoordinate = a.onCoordinateOption)
+                        }
                         StatusMessages(m, a)
                     }
                     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
@@ -631,6 +648,17 @@ fun BrowseOverlay(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: 
         }
         // NAV-018 AC 8: the markers' TalkBack descriptions (MapLibre symbols are not accessible).
         if (preview != null) MarkerDescriptions(preview, strings, Modifier.align(Alignment.TopStart))
+    }
+}
+
+/**
+ * NAV-019 UX P2 badge pill: top-left, 8 dp below the status bar, 16 dp from the start edge. Its height is the top bar
+ * of the camera fit (UX layout rule P6: the badge + 40 dp).
+ */
+@Composable
+private fun ReplayBadgeRow(badge: @Composable (Modifier) -> Unit, a: BrowseActions) {
+    Box(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp).onGloballyPositioned { a.onTopBar(it.size.height) }) {
+        badge(Modifier.align(Alignment.TopStart))
     }
 }
 

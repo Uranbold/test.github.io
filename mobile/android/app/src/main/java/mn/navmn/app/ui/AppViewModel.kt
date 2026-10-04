@@ -46,6 +46,7 @@ import mn.navmn.app.preview.points.PointsUi
 import mn.navmn.app.preview.points.RoutePoint
 import mn.navmn.app.preview.points.StepFocus
 import mn.navmn.app.route.RouteClient
+import mn.navmn.app.route.RouteOutcome
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.search.PlaceDisplay
 import mn.navmn.app.search.SearchClient
@@ -57,7 +58,9 @@ import mn.navmn.app.settings.SettingsRepository
 import mn.navmn.app.settings.ThemeChoice
 import mn.navmn.app.typinglock.LockFixSource
 import mn.navmn.app.typinglock.TypingLockController
+import mn.navmn.app.variant.ReplayVariant
 import mn.navmn.app.voice.GuidanceVoice
+import java.util.Optional
 import javax.inject.Inject
 
 enum class Orientation { HEADING_UP, NORTH_UP }
@@ -109,7 +112,11 @@ class AppViewModel @Inject constructor(
     private val voice: GuidanceVoice,
     private val reverseClient: ReverseClient,
     lockFixes: LockFixSource,
+    replayVariant: Optional<ReplayVariant>,
 ) : ViewModel() {
+    /** ADR-0016 §3: present only in a replay (demo) build; NavRoot reads it for the start screen, tiles and slots. */
+    val replay: ReplayVariant? = replayVariant.orElse(null)
+
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
 
@@ -217,6 +224,13 @@ class AppViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { settings.lang.drop(1).collect { voice.onLanguageChanged() } }
+        // ADR-0016 §3 (NAV-019 AC 23, 25): in a replay build every end of guidance (screen, notification, lock screen,
+        // end of the recorded track) returns to the start screen, so the recorded preview is closed with it.
+        if (replay != null) {
+            viewModelScope.launch {
+                session.engine.map { it != null }.distinctUntilChanged().drop(1).collect { alive -> if (!alive) closePreview() }
+            }
+        }
     }
 
     private fun biasPoint(): LatLon {
@@ -339,6 +353,17 @@ class AppViewModel @Inject constructor(
     fun closePreview() {
         resetPoints()
         preview.close()
+    }
+
+    /**
+     * ADR-0016 §3 (NAV-019 AC 9): a replay build's start screen opens the normal preview for a recorded response, with
+     * 0 requests and no device position (the start is the recorded route's chosen start).
+     */
+    fun openRecordedRoute(outcome: RouteOutcome.Ok, origin: RoutePoint, destination: RoutePoint, mode: TravelMode) {
+        voice.prepare() // navigation-ux §4.6: TTS initialises when the preview opens
+        _ui.update { it.copy(sheetExpanded = touchExploration(), card = null, mapProblem = null, searchActive = false) }
+        resetPoints()
+        preview.showRoute(outcome, origin, destination, mode)
     }
 
     private fun resetPoints() {
@@ -589,6 +614,8 @@ class AppViewModel @Inject constructor(
             preview.locationProblem(LocationProblem.UNAVAILABLE)
             return
         }
+        // NAV-019 edge case: a double tap on «Эхлэх» starts one replay only (no second depart prompt).
+        if (replay != null && session.engine.value != null) return
         _ui.update { it.copy(orientation = Orientation.HEADING_UP, cameraFollowing = true, followingMe = false) }
         session.start(route, Trip(s.destination.point, PointRules.storedName(s.destination), s.mode, s.avoidUnpaved && s.mode == TravelMode.CAR), fix)
     }

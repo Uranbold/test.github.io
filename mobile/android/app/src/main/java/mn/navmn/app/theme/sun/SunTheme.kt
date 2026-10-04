@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import mn.navmn.app.geo.LatLon
 import mn.navmn.app.settings.ThemeChoice
+import mn.navmn.app.variant.ReplayVariant
 import java.time.Instant
+import java.util.Optional
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
@@ -85,8 +87,9 @@ class SunTheme internal constructor(
     private val wallNow: () -> Long,
     private val elapsedNow: () -> Long,
 ) {
-    @Inject constructor(@ApplicationContext context: Context) : this(
-        lastKnown = { PlatformLastKnown.read(context) },
+    /** ADR-0016 §3: a replay build never reads the device's last known location (NAV-019 AC 13, 17). */
+    @Inject constructor(@ApplicationContext context: Context, replay: Optional<ReplayVariant>) : this(
+        lastKnown = if (replay.isPresent) ({ null }) else ({ PlatformLastKnown.read(context) }),
         wallNow = { System.currentTimeMillis() },
         elapsedNow = { SystemClock.elapsedRealtime() },
     )

@@ -9,8 +9,8 @@ import android.location.LocationManager
 import android.os.HandlerThread
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
-import dagger.Binds
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
@@ -22,11 +22,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import mn.navmn.app.location.Fix
 import mn.navmn.app.location.PlatformLocationSource.Companion.toFix
+import mn.navmn.app.variant.ReplayVariant
+import java.util.Optional
+import javax.inject.Provider
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -90,8 +94,19 @@ class PlatformLockFixSource @Inject constructor(@ApplicationContext private val 
 
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class TypingLockModule {
-    @Binds abstract fun lockFixSource(impl: PlatformLockFixSource): LockFixSource
+object TypingLockModule {
+    /**
+     * ADR-0016 §3: a replay build has no device fixes, so the lock never engages and shows nothing (NAV-019 AC 17);
+     * [PlatformLockFixSource] is then never constructed.
+     */
+    @Provides @Singleton
+    fun lockFixSource(replay: Optional<ReplayVariant>, platform: Provider<PlatformLockFixSource>): LockFixSource =
+        if (replay.isPresent) NoLockFixes else platform.get()
+}
+
+/** A lock source that never reports anything (replay builds). */
+object NoLockFixes : LockFixSource {
+    override fun signals(): Flow<LockSignal> = emptyFlow()
 }
 
 /**
