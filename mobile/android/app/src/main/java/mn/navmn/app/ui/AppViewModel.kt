@@ -37,11 +37,20 @@ import mn.navmn.app.preview.Destination
 import mn.navmn.app.preview.LocationProblem
 import mn.navmn.app.preview.PreviewController
 import mn.navmn.app.preview.PreviewResult
+import mn.navmn.app.preview.points.MyLocationOption
+import mn.navmn.app.preview.points.OriginAttempts
+import mn.navmn.app.preview.points.PointEditorState
+import mn.navmn.app.preview.points.PointRules
+import mn.navmn.app.preview.points.PointSide
+import mn.navmn.app.preview.points.PointsUi
+import mn.navmn.app.preview.points.RoutePoint
+import mn.navmn.app.preview.points.StepFocus
 import mn.navmn.app.route.RouteClient
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.search.PlaceDisplay
 import mn.navmn.app.search.SearchClient
 import mn.navmn.app.search.SearchController
+import mn.navmn.app.search.SearchCooldown
 import mn.navmn.app.search.reverse.ReverseClient
 import mn.navmn.app.search.reverse.ReverseController
 import mn.navmn.app.settings.SettingsRepository
@@ -111,6 +120,9 @@ class AppViewModel @Inject constructor(
     /** Map centre for the search bias when there is no fresh device fix (D30). Updated by the map. */
     @Volatile var mapCenter: LatLon = DEFAULT_CENTER
 
+    /** NAV-018 (ADR-0015 §5): one `search` 429 cooldown for the device, shared by both search instances. */
+    private val searchCooldown = SearchCooldown()
+
     val search = SearchController(
         scope = viewModelScope,
         search = { q, l, b -> searchClient.search(q, l, b) },
@@ -118,7 +130,29 @@ class AppViewModel @Inject constructor(
         bias = { biasPoint() },
         isOnline = { network.isOnline() },
         now = { SystemClock.elapsedRealtime() },
+        cooldown = searchCooldown,
     )
+
+    /**
+     * NAV-018 AC 4 (ADR-0015 §5): the route-preview fields' own instance of the same search code (same profile, bias and
+     * assistance), so the map-screen query and list survive while the preview is open. One field list at a time.
+     */
+    val fieldSearch = SearchController(
+        scope = viewModelScope,
+        search = { q, l, b -> searchClient.search(q, l, b) },
+        lang = { settings.lang.value },
+        bias = { biasPoint() },
+        isOnline = { network.isOnline() },
+        now = { SystemClock.elapsedRealtime() },
+        cooldown = searchCooldown,
+    )
+
+    /** NAV-018 UI state (point editor, activated turn row): ViewModel memory only, never saved or logged (ADR-0015 §10). */
+    private val _points = MutableStateFlow(PointsUi())
+    val points: StateFlow<PointsUi> = _points.asStateFlow()
+
+    /** NAV-018 (ADR-0015 §4): a location fix sets the start only for the attempt that asked for it. */
+    private val originAttempts = OriginAttempts()
 
     val preview = PreviewController(
         scope = viewModelScope,
@@ -254,14 +288,117 @@ class AppViewModel @Inject constructor(
         currentStatus = provider
     }
 
-    private fun openPreview(d: Destination, expanded: Boolean = false) {
+    private fun openPreview(d: RoutePoint, expanded: Boolean = false) {
         voice.prepare() // navigation-ux §4.6: TTS initialises when the preview opens
         _ui.update { it.copy(sheetExpanded = expanded || touchExploration()) } // P4: collapsed, TalkBack → expanded
+        // NAV-018 AC 32: a new preview starts from AC 1–2 (no chosen start kept); no attempt of an older preview applies.
+        resetPoints()
         preview.open(d)
         requireLocation(LocationAction.PREVIEW_ORIGIN)
     }
 
-    fun closePreview() = preview.close()
+    fun closePreview() {
+        resetPoints()
+        preview.close()
+    }
+
+    private fun resetPoints() {
+        originAttempts.cancel()
+        if (pending == LocationAction.PREVIEW_ORIGIN) pending = null
+        _points.value = PointsUi()
+        fieldSearch.close()
+    }
+
+    // ------------------------------------------------------------------------------------------- points (NAV-018)
+
+    /** A tap on the start or destination field: the point editor opens in the search position (Q5); 0 requests. */
+    fun openPointEditor(side: PointSide) {
+        if (preview.state.value == null) return
+        fieldSearch.close()
+        editorSessions++
+        _points.update { it.copy(editor = PointEditorState(side, session = editorSessions)) }
+    }
+
+    /** Each editor opening is a new session (its text starts from the field text again). */
+    private var editorSessions = 0
+
+    /** Back, a map tap or «Хаах»: the editor closes, the field shows its previous text, 0 requests (AC 7). */
+    fun closePointEditor() {
+        val e = _points.value.editor ?: return
+        // A «Миний байршил» wait started from the editor ends with it; the preview-open attempt (no start yet) goes on.
+        if (e.myLocation == MyLocationOption.Waiting && preview.state.value?.origin != null) {
+            originAttempts.cancel()
+            if (pending == LocationAction.PREVIEW_ORIGIN) pending = null
+        }
+        fieldSearch.close()
+        if (typingLock.state.value.cardVisible) typingLock.dismissCard()
+        _points.update { it.copy(editor = null) }
+    }
+
+    fun onPointQuery(q: String) = fieldSearch.onQuery(q)
+
+    /** AC 4: a result sets the edited point to the feature's coordinate; the editor closes; one request (both set). */
+    fun onPointResult(info: PlaceDisplay.Info, name: String) {
+        val e = _points.value.editor ?: return
+        _points.update { it.copy(editor = null) }
+        fieldSearch.close()
+        val p = RoutePoint.Place(info.point, name)
+        if (e.side == PointSide.ORIGIN) setChosenOrigin(p) else preview.setDestination(p)
+    }
+
+    /** AC 3: «Миний байршил» in the start editor runs the NAV-005 flow; on failure the start stays, 0 requests. */
+    fun onPointMyLocation() {
+        if (_points.value.editor?.side != PointSide.ORIGIN) return
+        _points.update { it.copy(editor = it.editor?.copy(myLocation = MyLocationOption.Waiting)) }
+        requireLocation(LocationAction.PREVIEW_ORIGIN)
+    }
+
+    /** AC 6: «Эхлэх цэг болгох» / «Очих газар болгох» on the coordinate card during the preview («Сонгосон цэг»). */
+    fun onCardSetPoint(side: PointSide) {
+        val p = _ui.value.card ?: return
+        _ui.update { it.copy(card = null) }
+        reverse.close()
+        val point = RoutePoint.MapPoint(p)
+        if (side == PointSide.ORIGIN) setChosenOrigin(point) else preview.setDestination(point)
+    }
+
+    /** AC 11: swap (one request); a running location attempt can no longer set the start. */
+    fun swapPoints() {
+        if (preview.state.value?.origin == null) return
+        cancelOriginAttempt()
+        preview.swap()
+    }
+
+    /**
+     * AC 22 (Q8): activates turn-list row [index] of the selected route; the camera moves to it ([collapse]: portrait
+     * touch use collapses the sheet first). 0 requests; the route, the selection and the list position stay.
+     */
+    fun focusStep(index: Int, collapse: Boolean) {
+        val r = preview.state.value?.result as? PreviewResult.Route ?: return
+        val step = r.route.plan.steps.getOrNull(index) ?: return
+        if (collapse) setSheetExpanded(false)
+        _points.update { it.copy(step = StepFocus(r.route, index, step.location, (it.step?.seq ?: 0) + 1, collapse)) }
+    }
+
+    private fun setChosenOrigin(p: RoutePoint) {
+        cancelOriginAttempt()
+        preview.setOrigin(p)
+    }
+
+    /** ADR-0015 §4: the user set the start; a late fix must not overwrite it, and no pending origin action resumes. */
+    private fun cancelOriginAttempt() {
+        originAttempts.cancel()
+        if (pending == LocationAction.PREVIEW_ORIGIN) pending = null
+        _points.update { it.copy(editor = it.editor?.copy(myLocation = MyLocationOption.Idle)) }
+    }
+
+    /** A PREVIEW_ORIGIN problem: the start field's own message (AC 2), or inside the editor's option card (AC 3). */
+    private fun originProblem(p: LocationProblem) {
+        val waiting = _points.value.editor?.myLocation == MyLocationOption.Waiting
+        if (waiting) _points.update { it.copy(editor = it.editor?.copy(myLocation = MyLocationOption.Failed(p))) }
+        val s = preview.state.value
+        if (s == null) _ui.update { it.copy(mapProblem = p) } else if (s.origin == null) preview.locationProblem(p)
+    }
     fun setMode(m: TravelMode) = preview.setMode(m)
 
     /** NAV-011 AC 17: a line tap or a «Маршрут сонгох» row; 0 requests, no camera move. */
@@ -290,7 +427,7 @@ class AppViewModel @Inject constructor(
                 run(action)
             }
             LocationAccess.Decision.ShowRationale -> _ui.update { it.copy(rationale = true) }
-            is LocationAccess.Decision.Problem -> showProblem(d.problem)
+            is LocationAccess.Decision.Problem -> if (action == LocationAction.PREVIEW_ORIGIN) originProblem(d.problem) else showProblem(d.problem)
         }
     }
 
@@ -302,7 +439,12 @@ class AppViewModel @Inject constructor(
 
     fun onRationaleClose() {
         _ui.update { it.copy(rationale = false) }
-        if (preview.state.value != null) preview.locationProblem(LocationProblem.NEEDS_PERMISSION)
+        // NAV-018: for the start, a set start is never replaced by the message (AC 3); the editor card shows it instead.
+        if (pending == LocationAction.PREVIEW_ORIGIN) {
+            originProblem(LocationProblem.NEEDS_PERMISSION)
+        } else if (preview.state.value != null) {
+            preview.locationProblem(LocationProblem.NEEDS_PERMISSION)
+        }
         pending = null
     }
 
@@ -332,10 +474,22 @@ class AppViewModel @Inject constructor(
     private fun run(action: LocationAction) {
         startLocationUpdates()
         when (action) {
-            LocationAction.PREVIEW_ORIGIN -> viewModelScope.launch {
-                preview.waitingForLocation()
-                val fix = freshFix(Fix.PREVIEW_FRESH_MS)
-                if (fix == null) preview.locationProblem(LocationProblem.UNAVAILABLE) else preview.setOrigin(fix)
+            LocationAction.PREVIEW_ORIGIN -> {
+                // NAV-018 (ADR-0015 §4): only this attempt's fix may set the start; a start the user chose meanwhile wins.
+                val token = originAttempts.begin()
+                viewModelScope.launch {
+                    if (preview.state.value?.origin == null) preview.waitingForLocation()
+                    val fix = freshFix(Fix.PREVIEW_FRESH_MS)
+                    if (!originAttempts.finish(token)) return@launch
+                    val point = fix?.let { PointRules.myLocation(it, SystemClock.elapsedRealtime()) }
+                    if (point == null) {
+                        originProblem(LocationProblem.UNAVAILABLE)
+                    } else {
+                        if (_points.value.editor?.side == PointSide.ORIGIN) _points.update { it.copy(editor = null) }
+                        fieldSearch.close()
+                        preview.setOrigin(point)
+                    }
+                }
             }
             LocationAction.START_GUIDANCE -> viewModelScope.launch { startGuidanceWithFix() }
             LocationAction.MY_LOCATION -> _ui.update { it.copy(followingMe = true) }
@@ -382,7 +536,7 @@ class AppViewModel @Inject constructor(
             return
         }
         _ui.update { it.copy(orientation = Orientation.HEADING_UP, cameraFollowing = true, followingMe = false) }
-        session.start(route, Trip(s.destination.point, s.destination.name, s.mode, s.avoidUnpaved && s.mode == TravelMode.CAR), fix)
+        session.start(route, Trip(s.destination.point, PointRules.storedName(s.destination), s.mode, s.avoidUnpaved && s.mode == TravelMode.CAR), fix)
     }
 
     fun onEnd() {

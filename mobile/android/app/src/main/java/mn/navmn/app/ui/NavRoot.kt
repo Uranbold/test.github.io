@@ -51,6 +51,9 @@ import mn.navmn.app.map.MapCamera
 import mn.navmn.app.map.MapContent
 import mn.navmn.app.map.MapSurface
 import mn.navmn.app.preview.PreviewResult
+import mn.navmn.app.preview.points.PointRules
+import mn.navmn.app.preview.points.PointSide
+import mn.navmn.app.preview.turnlist.StepCamera
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.route.alternatives.AlternativeHitTest
 import mn.navmn.app.search.SearchView
@@ -62,6 +65,7 @@ import mn.navmn.app.ui.screens.BrowseOverlay
 import mn.navmn.app.ui.screens.Covered
 import mn.navmn.app.ui.screens.GuidanceOverlay
 import mn.navmn.app.ui.screens.SettingsSheet
+import mn.navmn.app.ui.screens.preview.PointActions
 import mn.navmn.app.ui.theme.LocalTokens
 import mn.navmn.app.ui.theme.NavTheme
 
@@ -104,6 +108,8 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     val me by vm.myLocation.collectAsState()
     val reverseView by vm.reverse.view.collectAsState()
     val lock by vm.typingLock.state.collectAsState()
+    val points by vm.points.collectAsState() // NAV-018
+    val fieldView by vm.fieldSearch.view.collectAsState()
     val strings = rememberStrings(lang)
     val tokens = LocalTokens.current
     val context = LocalContext.current
@@ -145,6 +151,8 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
             guiding && g?.phase == GuidancePhase.ARRIVED -> vm.onArrivalClose()
             guiding -> platform.moveToBack()
             lock.cardVisible && lock.locked -> vm.dismissTypingLock() // NAV-011: Back closes the lock card
+            points.editor != null -> vm.closePointEditor() // NAV-018: Back leaves the point editor, nothing changes (AC 7)
+            preview != null && ui.card != null -> vm.closeCard() // NAV-018: the card returns to the preview, 0 requests
             preview != null && ui.sheetExpanded -> vm.setSheetExpanded(false) // NAV-011: an expanded sheet collapses first
             preview != null -> vm.closePreview()
             ui.card != null -> vm.closeCard()
@@ -171,6 +179,10 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                 myLocation = me?.latLon,
                 routeIndex = r?.selected ?: 0,
                 alternatives = r?.routes?.mapIndexedNotNull { i, x -> if (i == r.selected) null else i to x.plan.geometry } ?: emptyList(),
+                // NAV-018 map-style §7.7: chosen-start marker, candidate pin while the card is open, manoeuvre point.
+                origin = preview!!.origin?.takeIf { PointRules.isChosenStart(it) }?.point,
+                candidate = ui.card,
+                step = points.step?.takeIf { r != null && it.route === r.route }?.location,
             )
         }
         else -> MapContent(candidate = ui.card, myLocation = if (ui.followingMe || me != null) me?.latLon else null)
@@ -213,12 +225,25 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
         val routes = fitRoutes ?: return@LaunchedEffect
         delay(FIT_SETTLE_MS) // the sheet re-measures for the new result first
         val pad = with(density) { 40.dp.roundToPx() }
-        val points = routes.flatMap { it.plan.geometry } + listOfNotNull(preview?.destination?.point, me?.latLon)
+        val points = routes.flatMap { it.plan.geometry } + listOfNotNull(preview?.destination?.point, preview?.origin?.point, me?.latLon)
         val left = pad + currentSheetStartPx
         val top = pad + currentTopBarPx
         val bottom = pad + currentSheetPx
         val roomy = (c.widthPx <= 0 || left + pad < c.widthPx - 1) && (c.heightPx <= 0 || top + bottom < c.heightPx - 1)
         if (roomy) c.fit(points, left, top, pad, bottom) else c.fit(points, pad, pad, pad, pad)
+    }
+    // NAV-018 AC 22 (Q8): a turn-row tap centres the step at zoom max(17, current) in the uncovered map area, 40 dp
+    // padding; after a collapse the sheet re-measures first. Theme, language and rotation do not repeat it.
+    val stepFocus = points.step
+    var handledStep by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(controller, stepFocus?.seq) {
+        val c = controller ?: return@LaunchedEffect
+        val f = stepFocus ?: return@LaunchedEffect
+        if (f.seq == handledStep) return@LaunchedEffect
+        handledStep = f.seq
+        if (f.collapse) delay(STEP_COLLAPSE_SETTLE_MS)
+        val pad = StepCamera.padding(with(density) { StepCamera.PADDING_DP.dp.roundToPx() }, currentSheetStartPx, currentTopBarPx, currentSheetPx)
+        c.focus(f.location, StepCamera.zoom(c.zoom), pad.left, pad.top, pad.right, pad.bottom, if (reducedMotion) 0 else StepCamera.EASE_MS)
     }
     LaunchedEffect(controller, me, ui.followingMe) {
         val c = controller ?: return@LaunchedEffect
@@ -254,11 +279,15 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     if (c.center == null || c.zoom < 3) c.moveTo(AppViewModel.DEFAULT_CENTER, AppViewModel.DEFAULT_ZOOM)
                     mapHeightPx = c.heightPx
                 },
-                onLongPress = if (!guiding && preview == null) ({ p -> vm.onLongPress(p) }) else null,
+                // NAV-018 AC 6: long-press also works during the preview (the card then sets the start or destination).
+                onLongPress = if (!guiding && points.editor == null) ({ p -> vm.onLongPress(p) }) else null,
                 // NAV-011 AC 17: a tap on an unselected line selects it (0 requests, no camera move).
                 onTap = if (!guiding && preview != null) ({ p, hit ->
+                    // NAV-018 AC 7: a map tap leaves the point editor without changes.
+                    val editing = vm.points.value.editor != null
+                    if (editing) vm.closePointEditor()
                     val r = vm.preview.state.value?.result as? PreviewResult.Route
-                    if (r != null && r.k >= 2) {
+                    if (!editing && r != null && r.k >= 2) {
                         AlternativeHitTest.pick(p, hit, r.selected, r.routes.map { it.plan.geometry })?.let(vm::selectRoute)
                     }
                 }) else null,
@@ -292,6 +321,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     m = BrowseModel(
                         lang, ui.query, searchView, ui.card, preview, ui.mapProblem, ui.tilesFailed, !online, bearing, ui.followingMe,
                         reverse = reverseView, lock = lock, sheetExpanded = ui.sheetExpanded, focusSearch = ui.focusSearch,
+                        points = points, fieldView = fieldView,
                     ),
                     strings = strings,
                     a = BrowseActions(
@@ -324,10 +354,27 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                         onReverseRetry = vm.reverse::retry,
                         onSearchFieldTap = vm::onSearchFieldTap,
                         onLockedWhileTyping = vm::onLockedWhileTyping,
-                        onDismissLock = vm::dismissTypingLock,
+                        onDismissLock = {
+                            vm.dismissTypingLock()
+                            vm.closePointEditor() // NAV-018: «Хаах» on the lock card in the point editor closes the editor
+                        },
                         onPassenger = vm::onPassenger,
                         onSheetStart = { sheetStartPx = it },
                         onTopBar = { topBarPx = it },
+                        points = PointActions(
+                            onField = vm::openPointEditor,
+                            onSwap = vm::swapPoints,
+                            onEditorQuery = vm::onPointQuery,
+                            onEditorResult = vm::onPointResult,
+                            onEditorRetry = vm.fieldSearch::retry,
+                            onEditorMyLocation = vm::onPointMyLocation,
+                            onEditorClose = vm::closePointEditor,
+                            onEditorFieldTap = vm::onSearchFieldTap,
+                            onCardSetOrigin = { vm.onCardSetPoint(PointSide.ORIGIN) },
+                            onCardSetDestination = { vm.onCardSetPoint(PointSide.DESTINATION) },
+                            // Q8: portrait touch use collapses the sheet; TalkBack and wide windows keep it as it is.
+                            onTurnRow = { i -> vm.focusStep(i, collapse = sheetStartPx == 0 && !vm.touchExploration()) },
+                        ),
                     ),
                 )
             }
@@ -372,3 +419,6 @@ fun KeepScreenOn(enabled: Boolean) {
 
 /** NAV-011 AC 16: wait for the sheet to re-measure for a new response before the one camera fit (well inside 1 s). */
 private const val FIT_SETTLE_MS = 150L
+
+/** NAV-018 Q8: the collapse (250 ms) settles before the step camera move; both finish within 1 s. */
+private const val STEP_COLLAPSE_SETTLE_MS = 260L
