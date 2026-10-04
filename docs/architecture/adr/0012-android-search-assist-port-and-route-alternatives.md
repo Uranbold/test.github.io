@@ -53,7 +53,7 @@ Edits to existing NAV-005 files are small and targeted: `SearchController` (plan
 - `parallel`: two `async` calls on the existing `SearchClient`. `ifEmpty`: the secondary call is sent only after the primary returns `Ok(empty)`. `none`: one call.
 - Pair combination (ADR-0006 §3): if either result is `RateLimited`, the outcome is `RateLimited`. Otherwise, if any is `Ok`, the `Ok` results are merged. Otherwise the outcome is the primary's class. This is a pure function with a unit test.
 - Debounce, `lang`, D30 bias, 8 s timeout, 429 cooldown and offline handling are unchanged from NAV-005 (AC 7).
-- **Coordinate input** ("47.9189, 106.9176"): the pure plan returns `Coordinate` (fixture parity), but NAV-011 has no AC for it on Android. Until UX/PO decide (handoff open question), the controller **sends it as typed**, which is the NAV-005 behaviour. That keeps AC 7 and the NAV-005 regression intact.
+- **Coordinate input** ("47.9189, 106.9176"): the pure plan returns `Coordinate` (fixture parity). On Android the controller **sends it as typed**: one `search` request like any other query, with no assistance variant, and no coordinate card. This is the NAV-005 behaviour and keeps AC 7 and the NAV-005 regression intact. **Decided (D115, 2026-10-04).** The typed text reaches the gateway inside `q`; it is what the user typed, not the device position (NAV-011 AC 39). Web parity (a typed coordinate opening the coordinate card, as NAV-003 AC 26 / D29 do on the web) is a **follow-up item through triage**, not part of NAV-011.
 - The field always shows what the user typed (AC 4). Planned variants never reach the UI.
 
 ### 4. Reverse on the coordinate card (AC 8–13)

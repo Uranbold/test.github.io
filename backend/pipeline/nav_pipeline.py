@@ -14,7 +14,9 @@ rebuild:  lock -> reconcile -> guards (disk, memory) -> fetch + validate the ext
           -> Photon dump -> build into slots/<run-id>.partial (one-shot builders) -> complete + rename
           -> verify on the free lane through the private gateway-verify (smoke, contract, reference routes,
           artefact sizes) -> switch = rename(2) of pointer/public/active.json -> post-switch smoke (automatic
-          rollback on failure) -> grace -> stop the old lane -> keep exactly 2 slots.
+          rollback on failure) -> grace -> stop the old lane -> keep exactly 2 slots. An interrupt during the
+          post-switch smoke leaves the old lane running and state.json.post_switch_pending set; the next run's
+          reconciliation runs that smoke before it stops the old lane (rollback on failure).
 rollback: start the previous slot's lane, rename the pointer back, mark the newer slot rolled back.
 status:   one JSON object (active/previous slot, data dates, last run, stale, next scheduled run). No lock.
 
@@ -25,7 +27,8 @@ Exit codes (RUNBOOK.md NAV-006 section):
   11 skipped: low disk   12 skipped: low memory   13 skipped: no valid source   14 skipped: source was rolled back
   15 skipped: unchanged, but the active slot failed smoke or its data is stale
   20 failed at validation   21 failed at build   22 failed at verification   23 failed at switch / post-switch
-  24 rolled back automatically after the post-switch check
+  24 rolled back automatically after the post-switch check (also by reconciliation, when the post-switch check of
+     an interrupted run is still pending and fails then)
   30 rollback refused (no previous good slot)   31 rollback failed
   40 interrupted (SIGTERM/SIGINT); cleanup done
 
@@ -732,7 +735,11 @@ class Pipeline:
                            state_active=st.get("active"), pointer_active=active, cause=how)
             st["active"] = active
             save_state(self.lay, st)
-        # 3. stop lanes that are not the pointer's lane (e.g. a run killed in its grace period)
+        # 3. a switch whose post-switch check did not finish: check it now, while the old lane still runs, and
+        #    roll back on failure (QA F5). Then stop lanes that are not the pointer's lane (e.g. a run killed in
+        #    its grace period).
+        st = self.check_pending_post_switch(st, ptr)
+        ptr = self.lay.pointer()
         running = self.lanes_running()
         for lane in running - ({ptr["lane"]} if ptr else set()):
             self.stop_lane(lane)
@@ -814,6 +821,7 @@ class Pipeline:
             ratio = size / a_bytes if a_bytes else 1.0
             if ratio < self.cfg.min_size_ratio:
                 if overrides.get("accept_size_drop"):
+                    facts["size_drop_accepted"] = True
                     self.log.event("warn", "override ACCEPT_SIZE_DROP: size check 3(d) skipped for this run",
                                    old_bytes=a_bytes, new_bytes=size, ratio=round(ratio, 3))
                 else:
@@ -829,6 +837,17 @@ class Pipeline:
         if self.cfg.max_age_h > 0 and age_h > self.cfg.max_age_h:
             raise SourceError("3(f) fresh", f"data date {date} is {age_h:.1f} h old (> {self.cfg.max_age_h:g} h)")
         return info, facts
+
+    def checks_passed(self, active, facts=None):
+        """The checks the 'validate' step line lists. A disabled check is shown as off, never as passed (QA F2).
+        3(d)/3(e) need an active slot; 3(d) is skipped when ACCEPT_SIZE_DROP=1 let a shrink through, 3(e) is off with
+        REBUILD_REQUIRE_NOT_OLDER=0 and 3(f) with REBUILD_MAX_DATA_AGE_HOURS=0 (its 'has a data date' part still runs;
+        'off' refers to the age limit, as in the config step's 'relaxed' line)."""
+        out = ["3(a)", "3(b)", "3(c)", "3(f)" if self.cfg.max_age_h > 0 else "3(f) off"]
+        if active:
+            out += ["3(d) skipped" if (facts or {}).get("size_drop_accepted") else "3(d)",
+                    "3(e)" if self.cfg.require_not_older else "3(e) off"]
+        return " ".join(out)
 
     def resolve_osm(self, st, active_slot, force, overrides):
         """Try every source (each retried once). Returns ('unchanged', facts) or ('candidate', entry)."""
@@ -927,7 +946,7 @@ class Pipeline:
         self.log.step("validate", "ok", time.monotonic() - t1, source=src, sha256=sha, bytes=facts["bytes"],
                       data_date=facts["data_date"], data_date_source=facts["data_date_source"],
                       age_hours=facts["age_hours"], blocks=facts.get("blocks"),
-                      checks="3(a) 3(b) 3(c) 3(f)" + ("" if not active else " 3(d) 3(e)"),
+                      checks=self.checks_passed(active, facts),
                       first_build=facts.get("first_build"))
         if meta.get("downloaded"):
             st["last_download"] = {"date_ub": today, "url": src, "sha256": sha, "md5": meta.get("md5"),
@@ -1225,6 +1244,11 @@ class Pipeline:
             if dn is None or do is None:
                 if required and dn is None:
                     bad.append(f"{label}: no route on the new slot (HTTP {cn})")
+                if required and do is None:
+                    # The live (active) gateway gave an error or no route: AC 12 cannot compare this route, so a
+                    # damaged new slot could pass it on the smoke alone. Not a failure of the new slot (QA F4).
+                    self.log.event("warn", "reference route not compared: the live gateway gave no route",
+                                   route=label, live_status=co, new_status=cn)
                 rec["compared"] = False
             else:
                 dev = abs(dn - do) / do if do else 0.0
@@ -1326,15 +1350,65 @@ class Pipeline:
             st = load_state(self.lay)
             st["previous"] = old_ptr["slot"] if old_ptr else None
             st["active"] = slot_id
+            if old_ptr:
+                # Cleared when the post-switch smoke passes or the switch is rolled back. If the run ends before
+                # that (SIGTERM, kill -9), the old lane keeps running and the next run's reconciliation runs the
+                # check before it stops that lane, or rolls back (QA F5).
+                st["post_switch_pending"] = {"slot": slot_id, "lane": lane, "previous_slot": old_ptr["slot"],
+                                             "previous_lane": old_ptr["lane"], "switched_at": switched_at,
+                                             "run_id": self.run_id}
             save_state(self.lay, st)
             self.phase = "switched"
         return switched_at
+
+    def clear_post_switch_pending(self):
+        with self.critical():
+            st = load_state(self.lay)
+            if st.pop("post_switch_pending", None) is not None:
+                save_state(self.lay, st)
+
+    def check_pending_post_switch(self, st, ptr):
+        """Reconciliation: a switch whose post-switch check never finished (interrupted during the smoke). Runs
+        smoke.py through the public URL while the old lane still runs; on failure rolls back to that lane."""
+        pend = st.get("post_switch_pending")
+        if not pend:
+            return st
+        if not ptr or (ptr["slot"], ptr["lane"]) != (pend.get("slot"), pend.get("lane")):
+            self.log.event("warn", "post-switch check pending for a slot that no longer serves; dropped",
+                           pending_slot=pend.get("slot"), active_slot=ptr["slot"] if ptr else None)
+            st.pop("post_switch_pending", None)
+            save_state(self.lay, st)
+            return st
+        rc, tail, _ = self.smoke(self.cfg.smoke_url, "pending-post-switch-smoke")
+        if rc == 0:
+            self.log.event("info", "pending post-switch check passed; the old lane may stop", slot=pend["slot"],
+                           smoke=tail, base_url=self.cfg.smoke_url)
+            self.clear_post_switch_pending()
+            return load_state(self.lay)
+        reason = (f"pending post-switch check of {pend['slot']}: smoke.py against {self.cfg.smoke_url} "
+                  f"exit {rc}: {tail}")
+        prev, prev_lane = pend.get("previous_slot"), pend.get("previous_lane")
+        if not prev or prev != st.get("previous") or not self.lay.complete(prev) or prev_lane not in LANES:
+            self.clear_post_switch_pending()
+            raise Outcome(23, "failed", "reconcile", reason + f"; previous slot {prev} is not available, "
+                                                              f"nothing to roll back to")
+        mounted = self.lane_mounted_slot(prev_lane)
+        ok, msg = self.start_lane(prev_lane, prev, recreate=mounted != prev, timeout=self.cfg.rollback_timeout_s)
+        if not ok:
+            self.stop_lane(prev_lane)
+            self.clear_post_switch_pending()
+            raise Outcome(23, "failed", "reconcile", reason + f"; lane {prev_lane} did not become healthy on {prev}: "
+                                                              f"{msg}; the new slot keeps serving")
+        self.phase = "rolling_back"
+        self.rollback_after_switch(pend["slot"], pend["lane"], {"slot": prev, "lane": prev_lane}, reason)
+        raise Outcome(24, "rolled back", "reconcile", reason)
 
     def rollback_after_switch(self, new_slot, new_lane, old_ptr, reason):
         with self.critical():
             write_pointer(self.lay.ptr_public, old_ptr["slot"], old_ptr["lane"])
             st = load_state(self.lay)
             st["active"], st["previous"] = old_ptr["slot"], None
+            st.pop("post_switch_pending", None)
             st["rolled_back"].append(new_slot)
             sha = osm_facts(self.lay.build_info(new_slot)).get("sha256")
             if sha:
@@ -1458,6 +1532,12 @@ class Pipeline:
             except Exception as e:  # noqa: BLE001
                 self.log.event("error", "cleanup after the failure was incomplete; the next run reconciles",
                                error=f"{type(e).__name__}: {e}")
+        pend = load_state(self.lay).get("post_switch_pending") if self.phase == "switched" else None
+        if pend and pend.get("slot") == self.run_id:
+            # Ended between the switch and the end of the post-switch smoke: the old lane is NOT stopped (QA F5).
+            o.reason = (f"{o.reason or o.result}; post-switch check pending: lane {pend['previous_lane']} "
+                        f"({pend['previous_slot']}) keeps running, the next run checks {pend['slot']} with smoke.py "
+                        f"before it stops that lane and rolls back on failure")
         self.log.event("error" if o.code not in (0, 10) else "info", o.reason or o.result, result=o.result,
                        step=o.step, exit_code=o.code)
         return self.finish(o.code, o.result, o.step, o.reason)
@@ -1523,6 +1603,7 @@ class Pipeline:
             self.phase = "rolling_back"
             self.rollback_after_switch(self.run_id, new_lane, active_ptr, reason)
             raise Outcome(24, "rolled back", "post_switch", reason)
+        self.clear_post_switch_pending()
         self.log.step("post_switch", "ok", time.monotonic() - t0, smoke=tail, base_url=cfg.smoke_url)
         self.phase = "grace"
         with self.step("grace") as s:
@@ -1586,6 +1667,7 @@ class Pipeline:
                     write_pointer(self.lay.ptr_public, prev, lane)
                     st = load_state(self.lay)
                     st["active"], st["previous"] = prev, None
+                    st.pop("post_switch_pending", None)
                     st["rolled_back"].append(cur)
                     sha = osm_facts(self.lay.build_info(cur)).get("sha256")
                     if sha:
@@ -1656,7 +1738,8 @@ def status(cfg):
     doc = {"active": active, "previous": slot_doc(previous) if previous and lay.complete(previous) else None,
            "last_run": st.get("last_run"), "stale": stale, "stale_after_hours": cfg.stale_h,
            "next_scheduled_run": nxt, "rolled_back_slots": st.get("rolled_back", [])[-5:],
-           "state_matches_pointer": (st.get("active") == (ptr["slot"] if ptr else None))}
+           "state_matches_pointer": (st.get("active") == (ptr["slot"] if ptr else None)),
+           "post_switch_pending": st.get("post_switch_pending")}
     print(json.dumps(doc, ensure_ascii=False, indent=2))
     return 0
 

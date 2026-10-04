@@ -10,7 +10,9 @@
 //   route preview with the battery hint (AC 26), modelled on the NAV-011 sheet (P2/P3: collapsed <= 60 %, expanded
 //     <= 80 % of the area above R5): collapsed — «Эхлэх», the summary and the one-line entry row fully visible at every
 //     scale, the map above the sheet >= 160 dp at font scale 1 and >= 96 dp above, header and tabs fixed at font
-//     scale 1; expanded — the full hint (B2 + actions) visible at font scale 1 (portrait 360x640 and larger)
+//     scale 1; the entry row text is one line and its accessible name is the full B2 (every viewport); how much of B2
+//     fits with and without buttons in the row is reported (INFO); expanded — the full hint (B2 + actions) visible at
+//     font scale 1 (portrait 360x640 and larger)
 //   settings sheet (AC 28): controls >= 48 dp, no overlaps, the battery row and its text not clipped
 //   notification cards (AC 1–2, 22): the distance title is never clipped; action buttons >= 48 dp and not clipped;
 //     how much of the instruction fits in the collapsed card is reported (INFO); other titles that ellipsise: INFO
@@ -133,8 +135,43 @@ for (const [w, h] of viewports) {
             const need = window.__scale > 1 ? 96 : 160;
             if (info.mapAbove < need - 0.5) out.push(`map above the collapsed sheet ${info.mapAbove}dp < ${need}dp`);
             if (window.__scale === 1 && info.topScrolls) out.push("top part scrolls in the collapsed sheet at font scale 1");
-          } else if (window.__scale === 1 && !info.hintWhole) out.push("full battery hint not visible in the expanded sheet at font scale 1");
+          }
         }
+        if (entry && sheet.dataset.state === "collapsed") {
+          // AC 26 (2026-10-04 wording): the collapsed hint is ONE line (B2 may be cut with «…»); TalkBack reads the full B2
+          const lab = entry.querySelector("span.l"), cs = getComputedStyle(lab);
+          if (lab.getBoundingClientRect().height > parseFloat(cs.lineHeight) * 1.5) out.push("battery entry row text is more than one line");
+          if (entry.getAttribute("aria-label") !== lab.textContent.trim()) out.push("battery entry row accessible name is not the full B2 text");
+          // How much of B2 fits (INFO): as designed, and with the alternatives the spec rejects (Design note 9):
+          // (b) an icon-only close button in the row, (c) both text buttons «Хаах» and «Тохиргоо нээх» in the row
+          const full = lab.textContent.trim();
+          const fit = (width) => {
+            const probe = document.createElement("span"); probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap";
+            probe.style.font = cs.font; document.body.appendChild(probe);
+            let n = 0; probe.textContent = full;
+            if (probe.getBoundingClientRect().width <= width) n = full.length;
+            else for (let k = 1; k <= full.length; k++) { probe.textContent = full.slice(0, k) + "…"; if (probe.getBoundingClientRect().width <= width) n = k; else break; }
+            probe.remove(); return n;
+          };
+          info.entryChars = `${fit(lab.clientWidth)}/${full.length}`;
+          const variant = (labels, iconOnly) => {
+            const c = entry.cloneNode(true); c.style.cssText = `position:absolute;visibility:hidden;left:0;top:0;width:${entry.getBoundingClientRect().width}px`;
+            c.removeAttribute("data-check"); c.removeAttribute("data-control");
+            c.querySelector("svg:last-of-type").remove(); // the chevron goes when the row has its own actions
+            const btns = labels.map((l) => { const b = document.createElement("span"); b.className = iconOnly ? "btn round" : "btn text"; b.style.flex = "none"; b.style.whiteSpace = "nowrap"; b.textContent = iconOnly ? "" : l; c.appendChild(b); return b; });
+            entry.parentNode.appendChild(c);
+            const w = c.querySelector("span.l").clientWidth;
+            const overflow = c.scrollWidth > c.clientWidth + 1;
+            const res = { chars: fit(w), w: Math.round(w), overflow, btnW: btns.map((b) => Math.round(b.getBoundingClientRect().width)) };
+            c.remove(); return res;
+          };
+          const en = /^[A-Za-z]/.test(full); // the wireframe does not set <html lang>; B2 tells the language
+          const tClose = en ? "Close" : "Хаах", tOpen = en ? "Open settings" : "Тохиргоо нээх";
+          const vb = variant(["x"], true), vc = variant([tClose, tOpen], false);
+          info.entryIcon = `${vb.chars}/${full.length} chars in ${vb.w}dp`;
+          info.entryButtons = vc.overflow ? `row overflows (buttons ${vc.btnW.join("+")}dp)` : `${vc.chars}/${full.length} chars in ${vc.w}dp (buttons ${vc.btnW.join("+")}dp)`;
+        }
+        if (port && big && sheet.dataset.state !== "collapsed" && window.__scale === 1 && !info.hintWhole) out.push("full battery hint not visible in the expanded sheet at font scale 1");
       }
       if (kind === "settings") {
         const row = document.querySelector('[data-check="battery-row"]');
@@ -170,6 +207,7 @@ for (const [w, h] of viewports) {
     if (r.info.band != null && theme === "day") { const k = `min portrait map band ${w}x${h} scale ${scale}`; infos.set(k, Math.min(infos.get(k) ?? 1e9, r.info.band)); }
     if (r.info.lines != null && theme === "day") { const k = `max banner instruction lines ${key}`; infos.set(k, Math.max(infos.get(k) ?? 0, r.info.lines)); }
     if (r.info.mapAbove != null && theme === "day") addInfo(`${state}: ${key}`, `sheet ${r.info.sheetPct}% of the area above R5, map above ${r.info.mapAbove}dp, summary ${r.info.sumVisible ? "visible" : "scrolls"}${r.info.entryVisible != null ? `, entry row ${r.info.entryVisible ? "visible" : "scrolls"}` : ""}${r.info.hintWhole != null ? `, full hint ${r.info.hintWhole ? "visible" : "scrolls"}` : ""}, top part ${r.info.topScrolls ? "scrolls" : "fixed"}`);
+    if (r.info.entryChars && theme === "day") addInfo(`battery entry row ${key}`, `B2 chars visible: as designed ${r.info.entryChars}; (b) with an icon close button ${r.info.entryIcon}; (c) with «Хаах» + «Тохиргоо нээх» ${r.info.entryButtons}`);
     if (r.info.setScroll && theme === "day" && state === "settings-restricted") addInfo(`settings sheet scrolls ${key}`, "yes");
     if (r.info.msgs && theme === "day" && state === "restored-worst") addInfo(`restored-worst visible status ${key}`, r.info.msgs);
     // 320x568 above font scale 1 is outside the design target (NAV-005 Known limitations 7, D66). Notification action

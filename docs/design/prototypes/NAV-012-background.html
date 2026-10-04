@@ -173,7 +173,8 @@
   #sheet.n11 .start { flex: none; }
   /* NAV-012 battery entry row in the collapsed sheet (one line, opens the expanded sheet at the full hint) */
   #sheet .batrow { margin: 0; min-height: 48px; width: 100%; border: 0; border-radius: 12px; background: var(--surface-container); color: var(--on-surface); display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 16px; font: inherit; font-size: calc(14px * var(--fs)); text-align: left; }
-  #sheet .batrow span.l { flex: 1; min-width: 0; }
+  /* AC 26 (BA rewording 2026-10-04): one line, the B2 text cut with «…»; the full B2 is the accessible name */
+  #sheet .batrow span.l { flex: 1 1 0; width: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #sheet .batrow svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
   #sheet .batrow svg.warn { stroke: var(--error); }
   #sheet.n11.expanded .scrollall { overflow: auto; min-height: 0; flex: 1 1 auto; }
@@ -384,8 +385,9 @@ function renderPreview(t, expanded) {
     <div class="toppart"><div class="head2"><div class="t"><div class="t1">${t.previewTitle}</div><div class="t2">${t.dest}</div></div><button class="iconbtn" style="box-shadow:none;outline:0;flex:none" data-control aria-label="${t.close}">${ICON.x}</button></div>
     <div class="tabs" role="tablist"><button class="tab sel" data-control>${t.car}</button><button class="tab" data-control>${t.walk}</button><button class="tab" data-control>${t.bike}</button></div></div>`;
   const sum = `<div class="sumreg" data-check="summary"><div class="rlabel">${t.route1}</div><div class="sum"><div><span class="dur">${t.dur}</span> · ${t.dist}</div><div>${t.etaP}</div></div></div>`;
-  // Collapsed: one-line entry row (B1). Expanded and wide windows: the full hint (B2) first in the lower part.
-  const entry = `<div class="sumreg entryreg"><button class="batrow" data-control data-check="battery-entry">${ICON.battery.replace("<svg", '<svg class="warn" aria-hidden="true"')}<span class="l">${t.battery}</span>${ICON.up.replace("<svg", '<svg aria-hidden="true"')}</button></div>`;
+  // Collapsed: one-line entry row with the B2 text cut with «…» (AC 26), no buttons (spec › Design note 9); TalkBack reads the
+  // full B2 (aria-label). Expanded and wide windows: the full hint (B2 + «Хаах», «Тохиргоо нээх») first in the lower part.
+  const entry = `<div class="sumreg entryreg"><button class="batrow" data-control data-check="battery-entry" aria-label="${t.batteryHint}">${ICON.battery.replace("<svg", '<svg class="warn" aria-hidden="true"')}<span class="l" aria-hidden="true">${t.batteryHint}</span>${ICON.up.replace("<svg", '<svg aria-hidden="true"')}</button></div>`;
   const hint = `<div class="hintrow" data-check="battery-hint" role="note"><div>${t.batteryHint}</div><div class="acts"><span aria-hidden="true">${ICON.battery}</span><button class="btn text" data-control>${t.close}</button><button class="btn text" data-control>${t.openSettings}</button></div></div>`;
   const lower = `<div class="lower">${hint}<div class="row2">${t.route1} · ${t.dur} · ${t.dist}</div><div class="row2">${t.avoid}</div><div class="row2">${t.myLoc}</div><div class="row2">${t.dest}</div></div>`;
   const startBtn = `<div class="start" data-check="start"><button class="btn filled" data-control>${ICON.play}<span>${t.start}</span></button></div>`;

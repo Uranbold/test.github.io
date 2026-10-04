@@ -410,5 +410,166 @@ class RefreshAuxTests(Base):
         self.assertIn("REFRESH_AUX", r.stdout)
 
 
+def log_lines(p):
+    return [json.loads(x) for x in p.log.path.read_text().splitlines()]
+
+
+# ---------------------------------------------------------------- QA F2: the validate line never lists an off check
+class ValidateLogLineTests(Base):
+    def validate_line(self, **cfg):
+        good = self.tmp / "good.osm.pbf"
+        make_pbf(good, ts=nav.utc_now() - dt.timedelta(hours=1))
+        p = self.pipeline(OSM_SOURCES=f"file:{good}", **cfg)
+        kind, _ = p.resolve_osm(nav.load_state(p.lay), None, False, {})
+        self.assertEqual(kind, "candidate")
+        return [x for x in log_lines(p) if x.get("step") == "validate" and x.get("result") == "ok"][-1]
+
+    def test_3f_listed_as_off_when_max_age_is_0(self):
+        line = self.validate_line(REBUILD_MAX_DATA_AGE_HOURS="0")
+        self.assertEqual(line["checks"], "3(a) 3(b) 3(c) 3(f) off")
+
+    def test_3f_listed_as_passed_when_enabled(self):
+        line = self.validate_line()
+        self.assertEqual(line["checks"], "3(a) 3(b) 3(c) 3(f)")
+
+    def test_with_active_slot_3e_off_and_3d_override_are_named(self):
+        p = self.pipeline(REBUILD_MAX_DATA_AGE_HOURS="0", REBUILD_REQUIRE_NOT_OLDER="0")
+        self.assertEqual(p.checks_passed({"bytes": 1}, {}), "3(a) 3(b) 3(c) 3(f) off 3(d) 3(e) off")
+        self.assertEqual(self.pipeline().checks_passed({"bytes": 1}, {"size_drop_accepted": True}),
+                         "3(a) 3(b) 3(c) 3(f) 3(d) skipped 3(e)")
+
+
+# ---------------------------------------------------------------- QA F4: live gateway without a reference route
+class ReferenceRouteWarningTests(Base):
+    def test_live_error_or_no_route_is_a_warning_not_a_failure(self):
+        p = self.pipeline()
+        live = {"P3": (502, None), "P2": (200, None), "P6": (200, None)}
+
+        def fake(base, a, b, costing, extra=None):
+            return (200, 4000.0) if base == p.cfg.verify_url else live[b]
+        p.route_distance = fake
+        routes, bad = p.reference_routes({})
+        self.assertEqual(bad, [])                                   # the run is not failed
+        self.assertTrue(all(r["compared"] is False for r in routes))
+        warns = [x for x in log_lines(p) if x.get("msg", "").startswith("reference route not compared")]
+        self.assertEqual([(w["level"], w["route"], w["live_status"]) for w in warns],
+                         [("warn", "P1->P3 auto mn-MN", 502), ("warn", "P1->P2 pedestrian", 200)])
+
+    def test_no_warning_when_both_sides_answer(self):
+        p = self.pipeline()
+        p.route_distance = lambda base, a, b, costing, extra=None: (200, 4000.0)
+        routes, bad = p.reference_routes({})
+        self.assertEqual(bad, [])
+        self.assertTrue(all(r["compared"] for r in routes))
+        self.assertFalse([x for x in log_lines(p) if "not compared" in x.get("msg", "")])
+
+
+# ---------------------------------------------------------------- QA F5: interrupt during the post-switch smoke
+class FakeResult:
+    returncode, stdout, stderr = 0, "", ""
+
+
+class PendingPostSwitchTests(Base):
+    OLD, NEW = "20261003T000000Z", "20261004T000000Z"     # NEW = the unit pipeline's run_id
+
+    def setUp(self):
+        super().setUp()
+        self.calls = []
+        self.p = self.fake_pipeline()
+        for s in (self.OLD, self.NEW):
+            self.p.lay.slot(s).mkdir(parents=True)
+            (self.p.lay.slot(s) / ".slot-complete").write_text("{}")
+            (self.p.lay.slot(s) / "build-info.json").write_text(json.dumps({"osm": {"sha256": "sha-" + s}}))
+        nav.write_pointer(self.p.lay.ptr_public, self.OLD, "blue")
+        nav.save_state(self.p.lay, dict(nav.load_state(self.p.lay), active=self.OLD))
+        self.p.switch(self.NEW, "green", {"slot": self.OLD, "lane": "blue"})
+
+    def fake_pipeline(self, smoke_rc=0, start_ok=True):
+        p = self.pipeline()
+        p.docker = lambda *a, **k: FakeResult()
+        p.compose = lambda *a, **k: FakeResult()
+        p.container_state = lambda service: "absent"
+        p.lanes_running = lambda: {"blue", "green"}
+        p.lane_mounted_slot = lambda lane: self.OLD if lane == "blue" else self.NEW
+
+        def smoke(base_url, label):
+            self.calls.append(("smoke", label))
+            return smoke_rc, "42 passed, 0 failed" if smoke_rc == 0 else "40 passed, 2 failed", None
+
+        def stop_lane(lane, timeout=60):
+            self.calls.append(("stop", lane))
+            return True
+
+        def start_lane(lane, slot_id, recreate, timeout):
+            self.calls.append(("start", lane, slot_id, recreate))
+            return start_ok, "" if start_ok else "unhealthy"
+        p.smoke, p.stop_lane, p.start_lane = smoke, stop_lane, start_lane
+        return p
+
+    def state(self):
+        return nav.load_state(self.p.lay)
+
+    def test_switch_marks_the_check_pending_and_a_passed_smoke_clears_it(self):
+        pend = self.state()["post_switch_pending"]
+        self.assertEqual((pend["slot"], pend["lane"], pend["previous_slot"], pend["previous_lane"]),
+                         (self.NEW, "green", self.OLD, "blue"))
+        self.p.clear_post_switch_pending()
+        self.assertNotIn("post_switch_pending", self.state())
+
+    def test_sigterm_during_post_switch_smoke_keeps_the_old_lane(self):
+        saved = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)
+        try:
+            self.p.started_at, self.p.t_start = nav.iso(), time.monotonic()
+            code = self.p.handle_failure(nav.Interrupted(signal.SIGTERM))
+        finally:
+            signal.signal(signal.SIGTERM, saved[0])
+            signal.signal(signal.SIGINT, saved[1])
+        self.assertEqual(code, 40)
+        self.assertEqual([c for c in self.calls if c[0] == "stop"], [])     # the old lane is not stopped
+        st = self.state()
+        self.assertEqual(st["post_switch_pending"]["previous_lane"], "blue")
+        self.assertEqual(st["active"], self.NEW)
+        self.assertIn("post-switch check pending", st["last_run"]["reason"])
+        self.assertEqual(self.p.lay.pointer()["slot"], self.NEW)
+
+    def test_reconcile_runs_smoke_before_stopping_the_old_lane(self):
+        p = self.fake_pipeline(smoke_rc=0)
+        p.reconcile()
+        self.assertEqual(self.calls, [("smoke", "pending-post-switch-smoke"), ("stop", "blue")])
+        st = nav.load_state(p.lay)
+        self.assertNotIn("post_switch_pending", st)
+        self.assertEqual((st["active"], st["previous"]), (self.NEW, self.OLD))
+        self.assertEqual(p.lay.pointer()["slot"], self.NEW)
+
+    def test_reconcile_rolls_back_when_the_pending_smoke_fails(self):
+        p = self.fake_pipeline(smoke_rc=1)
+        with self.assertRaises(nav.Outcome) as cm:
+            p.reconcile()
+        self.assertEqual((cm.exception.code, cm.exception.result), (24, "rolled back"))
+        self.assertEqual(self.calls, [("smoke", "pending-post-switch-smoke"), ("start", "blue", self.OLD, False),
+                                      ("stop", "green")])
+        self.assertEqual((p.lay.pointer()["slot"], p.lay.pointer()["lane"]), (self.OLD, "blue"))
+        st = nav.load_state(p.lay)
+        self.assertEqual((st["active"], st["previous"]), (self.OLD, None))
+        self.assertIn(self.NEW, st["rolled_back"])
+        self.assertIn("sha-" + self.NEW, st["rolled_back_sha256"])
+        self.assertNotIn("post_switch_pending", st)
+
+    def test_failed_smoke_and_old_lane_not_healthy_keeps_the_new_slot(self):
+        p = self.fake_pipeline(smoke_rc=1, start_ok=False)
+        with self.assertRaises(nav.Outcome) as cm:
+            p.reconcile()
+        self.assertEqual(cm.exception.code, 23)
+        self.assertEqual(p.lay.pointer()["slot"], self.NEW)
+        self.assertNotIn("post_switch_pending", nav.load_state(p.lay))
+
+    def test_pending_for_a_slot_that_no_longer_serves_is_dropped(self):
+        nav.write_pointer(self.p.lay.ptr_public, self.OLD, "blue")      # e.g. a manual emergency pointer edit
+        p = self.fake_pipeline(smoke_rc=0)
+        p.reconcile()
+        self.assertNotIn(("smoke", "pending-post-switch-smoke"), self.calls)
+        self.assertNotIn("post_switch_pending", nav.load_state(p.lay))
+
+
 if __name__ == "__main__":
     unittest.main()

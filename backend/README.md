@@ -29,7 +29,7 @@ Run everything from `backend/`. Requirements: Docker with Compose v2, `make`, an
 
 `BASE_URL` overrides the gateway URL for `smoke`, `perf` and `contract` (default `http://localhost:8080`).
 
-**Not on the staging host.** These are dev commands. `compose.yaml` has the same project name (`navmn`) as the NAV-008 staging scripts, so `make up/down/restart/rebuild-data/clean-data/cors-check` (or a plain `docker compose up/down`) there would use the dev `.env` and replace the staging gateway. The Makefile refuses those targets while `../infra/staging/.env` exists. On staging, use `infra/staging/bin/nav-compose`, `deploy.sh` and `nav-rebuild.sh --force`, which is the staging form of `make rebuild-data` ([RUNBOOK](../infra/staging/RUNBOOK.md) sections 5–7).
+**Not on the staging host.** These are dev commands. `compose.yaml` has the same project name (`navmn`) as the NAV-008 staging scripts, so `make up/down/restart/rebuild-data/clean-data/cors-check` (or a plain `docker compose up/down`) there would use the dev `.env` and replace the staging gateway. The Makefile refuses those targets while `../infra/staging/.env` exists. On staging, use `infra/staging/bin/nav-compose` and `deploy.sh`, and for data the NAV-006 pipeline: `sudo make -C /opt/nav/backend rebuild [FORCE=1]` (the staging form of `make rebuild-data`), `sudo make -C /opt/nav/backend rollback` and `sudo make -C /opt/nav/backend status` ([RUNBOOK](../infra/staging/RUNBOOK.md) sections 5–6 and §7.3).
 
 ## Endpoints (gateway, default `http://localhost:8080`)
 

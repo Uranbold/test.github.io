@@ -90,19 +90,37 @@ test.describe('A. Build, hosting and protection', () => {
     expect(extra, `${(extra / 1e6).toFixed(2)} MB`).toBeLessThanOrEqual(1.5e6);
   });
 
-  test('AC5: web/README.md "Demo mode (NAV-017)" documents build, upload, tiles + Range check, hPanel step, after-upload checks, who may get the password, supported browsers and the real-iPhone checklist, with placeholders only', () => {
+  // D107/D116 change (2026-10-04): AC 5 and AC 48 now describe a PUBLIC demo folder (no password, `noindex` kept). The
+  // old expectations (hPanel password step, `<username>`, 401 without / 200 with credentials, D74 password holders,
+  // "password prompt" checklist item) are replaced by the new AC 5 items below, plus negative checks that the password
+  // instructions are gone. Every other expectation of the old test is kept.
+  test('AC5 (D107/D116): web/README.md "Demo mode (NAV-017)" documents build, upload of the contents, tiles + Range check, the public folder without a password (D107, D116, D17 not covering the demo) with noindex and the badge kept, after-upload checks (200 without credentials, noindex, 206), supported browsers and the real-iPhone checklist, with placeholders only and no password step', () => {
     const readme = readFileSync(WEB + 'README.md', 'utf8');
     const i = readme.indexOf('## Demo mode (NAV-017)');
     expect(i).toBeGreaterThan(0);
     const sec = readme.slice(i, readme.indexOf('\n## ', i + 10));
-    for (const s of ['<demo-host>', '<demo-folder>', '<username>', 'npm run build:demo-mode', 'dist-demo-mode/', '**contents**', 'Password protect directories', '/tiles/basemap.pmtiles', 'Range', '206', 'Content-Range', 'Content-Encoding', '401', '200', 'D74', 'D17', 'NAV-007', 'iPhone Safari', 'D14']) {
+    for (const s of ['<demo-host>', '<demo-folder>', 'npm run build:demo-mode', 'dist-demo-mode/', '**contents**', '/tiles/basemap.pmtiles', 'Range', '206', 'Content-Range', 'Content-Encoding', '200', 'D107', 'D116', 'D17', 'noindex', '«Туршилтын горим»', 'iPhone Safari', 'D14']) {
       expect(sec, `README demo section mentions ${s}`).toContain(s);
     }
     expect(sec).toMatch(/must not delete `<demo-folder>\/`/);
-    expect(sec).toMatch(/PO and the team members the PO chooses/);
-    expect(sec).toMatch(/never put it on the command line|never\*\* written into the repo/);
-    // real-iPhone checklist covers the AC 48 items
-    for (const s of ['iOS version', 'password prompt', 'Spoken Content', 'English speech', 'without an extra tap', 'silent switch', '787 s', 'Lock the phone', 'Safe areas', 'VoiceOver', 'R1']) expect(sec, `checklist item ${s}`).toContain(s);
+    expect(sec, 'public folder without a password (D107)').toMatch(/\*\*public, without a password\*\*/);
+    expect(sec, 'D17 does not cover the demo (D116)').toMatch(/D17 does not cover this demo/);
+    expect(sec).toMatch(/never\*\*\s+written into the repo/);
+    // after-upload checks (AC 5): 200 without credentials, the noindex meta in the served page, 206 for the tile archive
+    const c = sec.indexOf('Checks after every upload');
+    expect(c, 'after-upload checks block').toBeGreaterThan(0);
+    const checks = sec.slice(c, sec.indexOf('\n### ', c));
+    expect(checks).toMatch(/\*\*200\*\*\s+without credentials/);
+    expect(checks).toContain('name="robots" content="noindex, nofollow"');
+    expect(checks).toMatch(/\*\*206\*\*/);
+    // the password instructions are gone (D107): no credential placeholder, no 401 expectation, no password holders,
+    // and "Password protect directories" appears only as "Do **not** set ..."
+    expect(sec).not.toContain('<username>');
+    expect(sec).not.toMatch(/\b401\b/);
+    expect(sec).not.toMatch(/PO and the team members the PO chooses|who may (get|receive) the password/i);
+    expect(sec.replace(/Do \*\*not\*\* set "Password protect directories"/g, '')).not.toContain('Password protect directories');
+    // real-iPhone checklist covers the AC 48 items (password prompt replaced by "without a password prompt" + 200/noindex)
+    for (const s of ['iOS version', 'without a password prompt', 'noindex', 'Spoken Content', 'Mongolian voice', 'English speech', 'without an extra tap', 'silent switch', '787 s', 'Lock the phone', 'Safe areas', 'VoiceOver', 'R1']) expect(sec, `checklist item ${s}`).toContain(s);
     // placeholders only: no real host, no credentials
     expect(sec).not.toMatch(/https?:\/\/(?!<demo-host>|www\.openstreetmap\.org|localhost)[a-z0-9.-]+\.[a-z]{2,}/i);
     expect(sec).not.toMatch(/-u\s+[A-Za-z0-9_]+:[^\s]+/);

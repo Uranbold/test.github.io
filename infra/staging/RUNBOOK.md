@@ -196,6 +196,7 @@ ls -t /var/lib/nav/data/runs/ | head          # <run-id>.jsonl + smoke/contract/
 - `previous` = the one-step rollback target; `null` after a rollback or on the first build.
 - `stale: true` = the active OSM data date is older than 48 h: the alert hook fires and no heartbeat is sent until fresh data is switched in.
 - `state_matches_pointer: false` = a run died between the pointer rename and the state write; the next run corrects `state.json` from the pointer (logged).
+- `post_switch_pending` (normally `null`) = a run was interrupted after the switch but before its post-switch smoke finished. The old lane is still running; the next run checks the new slot first (7.6).
 
 ### 7.5 Exit codes and skip reasons
 | Code | Result | Operator action |
@@ -212,15 +213,18 @@ ls -t /var/lib/nav/data/runs/ | head          # <run-id>.jsonl + smoke/contract/
 | 21 | `failed` at build (a builder exited non-zero, or free disk fell below the hard floor) | `runs/<id>.<builder>.log`; disk |
 | 22 | `failed` at verification (smoke, contract, reference routes or sizes on the new slot) | `runs/<id>.verify-*.txt`; deliberate change: `ACCEPT_ROUTE_CHANGE=1` / `ACCEPT_SIZE_DROP=1`; data damage: fix in OSM (human mapper), wait for the next extract |
 | 23 | `failed` after the switch (first build only: nothing to roll back to) | `runs/<id>.post-switch-smoke.txt`; Caddy/DNS |
-| 24 | `rolled back` automatically: the post-switch smoke failed, the previous slot serves again | as 22; the rolled-back extract is skipped later (14) |
+| 24 | `rolled back` automatically: the post-switch smoke failed, the previous slot serves again. Step `reconcile`: the pending post-switch check of an interrupted run failed (7.6) | as 22; the rolled-back extract is skipped later (14) |
 | 30 | rollback refused: no previous good slot (first build, or right after a rollback) | none possible; fix forward with `make rebuild FORCE=1` |
 | 31 | rollback failed: the previous lane did not become healthy within 55 s; the active slot keeps serving | `nav-compose logs --tail=50 valhalla-<lane> photon-<lane>` |
 | 40 | interrupted (SIGTERM/SIGINT); cleanup done within 60 s | `make status`; run again |
+
+**Reference routes the live gateway cannot answer:** if the active (live) gateway returns an error or no route for P1->P3 or P1->P2 during verification, that route is not compared (AC 12 cannot apply) and the run is **not** failed for it. The run log has a `warn` event `reference route not compared: the live gateway gave no route` with `route`, `live_status` (HTTP status, 0 = no answer) and `new_status`. Check the live service (`make status`, smoke) before you trust that run: for that route, the new slot was checked only by smoke and contract. A missing route on the **new** slot still fails the run (22).
 
 Failed, rolled-back, guard-skipped (11-14), unchanged-but-unhealthy (15), interrupted (40) and stale runs call `REBUILD_ALERT_CMD` once (placeholder, empty by default; 10 s timeout; never changes the exit code). The Uptime Kuma rebuild heartbeat (26 h) is pushed only after code 0.
 
 ### 7.6 Interrupted run, reboot, power cut (manual recovery)
 - `systemctl stop nav-rebuild`, the 2 h start timeout or a reboot's SIGTERM: the pipeline stops the builders, the candidate lane and `gateway-verify`, deletes the partial slot and records `interrupted` within 60 s. The active slot serves throughout; the pointer is never touched by an interrupt. You can then run `make rollback` if needed.
+- **Interrupted after the switch, during the post-switch smoke** (SIGTERM or `kill -9`): the new slot stays active, the **old lane keeps running**, and `state.json` keeps `post_switch_pending` (`make status`; after a SIGTERM the run's reason also says "post-switch check pending"). The next run's reconciliation runs `smoke.py` through `SMOKE_BASE_URL` first (`runs/<id>.pending-post-switch-smoke.txt`): pass -> the old lane is stopped and the run continues; fail -> the pointer goes back to the previous slot on the old lane (exit 24, step `reconcile`, alert). `make rollback` also clears the pending check.
 - `kill -9`, power cut, host crash: nothing to do by hand. The kernel lock is gone with the process. After boot, Docker restarts the gateway and the lane that was running (`restart: unless-stopped`); the gateway serves exactly the slot in `pointer/public/active.json`. The **next run** reconciles: removes leftover builder and verify containers, stops a lane that is not the pointer's, deletes `*.partial`, `*.failed` and unreferenced slots, puts a set-aside aux cache back, and corrects `state.json`.
 - To force that cleanup now: `sudo make -C /opt/nav/backend rebuild` (it reconciles first; with an unchanged extract it ends as `skipped: unchanged`).
 - Never edit `pointer/public/active.json` by hand except in an emergency, and then only with a temp file + `mv` (the gateway reads it on every request).

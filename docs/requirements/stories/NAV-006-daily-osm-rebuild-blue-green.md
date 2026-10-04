@@ -7,7 +7,7 @@ size: L           # fetch + validation, slot build, private verification, atomic
 needs_design: false
 needs_backend: true
 needs_mobile: false
-status: ready     # 2026-10-04. No blocking open question. Architect ADR (slot layout and switch) comes first, then backend. Built and verified in the dev container (D126); real-VPS deployment waits for NAV-008 host details
+status: in-progress  # 2026-10-04. ADR-0014 and backend built; light-QA run 1 passed all six focused items (docs/qa/reports/NAV-006-run1.md), minor findings F1, F2 with backend. Open questions 1–7 decided (D127–D133), plus D134, D135; Open question 8 is new and non-blocking. Real-VPS deployment waits for NAV-008 host details (D126)
 ---
 
 # NAV-006: Daily OSM data rebuild pipeline with a blue/green switch (zero downtime, one-step rollback)
@@ -29,6 +29,16 @@ As a **taxi / delivery driver** (and a **UB commuter by car**), I want **the map
 - **PO decisions of 2026-10-04** (`decisions.md` D125, D126; PO answer "Yes", relayed by the orchestrator):
   - D125: priority **must**, Phase 1 beta, on the critical path.
   - D126: the PO has no VPS details yet (NAV-008 still waits for them), so NAV-006 is **built and verified in the dev container** on a **separate Compose project and slot directories**, while the shared dev stack at `http://127.0.0.1:8080` keeps serving. **Light-QA mode:** QA writes the test plan and runs only the focused set in AC 38. Deployment to the real VPS is documented in `infra/staging/RUNBOOK.md`, not executed.
+- **PO decisions of 2026-10-04 on the open questions** (`decisions.md` D127–D135; PO answer "All as recommended", relayed by the orchestrator):
+  - D127: ordered source list; staging and production default **Geofabrik only**; the geo2day mirror or a local file only in dev and test (Open question 1).
+  - D128: keep the weekly GraphHopper Photon dump; our own Nominatim import is a separate later item through triage (Open question 2).
+  - D129: the data date is shown to operators and QA only, not to end users (Open question 3).
+  - D130: the *BA proposal* guard values are accepted as starting values, tuned after 2 weeks of staging runs through a change request (Open question 5).
+  - D131: launch coverage is **all of Mongolia** (`mongolia-latest`) (Open question 6; also backlog owed decision 2 and NAV-008 Open question 5).
+  - D132: rebuild at **03:30 Asia/Ulaanbaatar** (Open question 7).
+  - D133: keep the manual auxiliary refresh `make rebuild REFRESH_AUX=1`, no automatic refresh (Open question 4).
+  - D134: after an automatic rollback the same extract checksum is skipped until a newer extract arrives, unless `FORCE=1` (AC 20).
+  - D135: a manual `make rollback` that leaves stale data active does not alert; the next scheduled run does (AC 32).
 - **Runtime stays Docker Compose** (ADR-0001, ADR-0002), project `navmn` on staging. The gateway paths in `openapi.yaml` stay the same (ADR-0002: "Production (NAV-006) replaces the one-shot builders with a scheduled pipeline and blue/green switch. The gateway paths stay the same").
 - **Who decides what.** The architect writes an ADR for the slot layout, the switch mechanism, PMTiles client continuity (AC 16) and private verification of the inactive slot, and changes `openapi.yaml` **only** if an HTTP status or data-version field is added (AC 30). This story fixes the observable behaviour, the limits and the checks. It does not prescribe nginx upstream reload vs symlink.
 
@@ -44,7 +54,7 @@ As a **taxi / delivery driver** (and a **UB commuter by car**), I want **the map
 
 ## Acceptance criteria
 
-Numbers marked *BA proposal* are defaults the backend implements as configuration keys with these values. The PO can change them through a change request.
+Numbers marked *BA proposal* are defaults the backend implements as configuration keys with these values. **The PO accepted them as starting values on 2026-10-04 (D130).** They are tuned after 2 weeks of staging runs on the NAV-008 VPS, through a change request.
 
 ### A. Fetch and validate the extract
 1. **Given** staging is configured with `https://download.geofabrik.de/asia/mongolia-latest.osm.pbf` as the source, **When** runs happen on one calendar day (Asia/Ulaanbaatar), **Then**:
@@ -56,7 +66,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
    - the run log and the slot's `build-info.json` name the source that was actually used
    - if every source fails, the run ends as **"skipped: no valid source"**: nothing is built, nothing switches, and the alert hook is called (AC 32)
 
-   **The staging default list contains Geofabrik only** until the PO answers Open question 1. The test configuration in this container may list a local file or the geo2day mirror (AC 36).
+   **The staging and production default list contains Geofabrik only** (D127). If it fails, the day is skipped, the old data keeps serving, and the stale alert fires once the data is more than 48 h old (AC 29, AC 32). The geo2day mirror or a local file may be listed **only in dev and test configurations**, such as the test configuration in this container (AC 36).
 3. **Given** a downloaded or local extract, **When** it is validated, **Then** it is accepted only if **all** of these hold, and a rejection names the failed check and the measured value:
    - **(a) readable to the end:** it parses as an OSM PBF with a valid header, and a block-level read reaches the end of the file without error. A truncated file or an HTML error page fails
    - **(b) coverage:** its bounding box contains all six NAV-001 reference points P1–P6
@@ -124,7 +134,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
     - the status signal shows the previous slot and its data date as active
     - the slot it rolled back from is marked **rolled back**. It is not a rollback target, so a second `make rollback` refuses with "no previous good slot" until a new slot has been switched in
 19. **Given** no previous good slot exists (first build, or right after a rollback), **When** `make rollback` runs, **Then** it exits non-zero within **≤ 5 s** with a message saying so, and nothing changes.
-20. **Given** a rolled-back slot was built from extract checksum *X*, **When** a later scheduled run finds the same checksum *X*, **Then** it does not build it again: the run ends as **"skipped: source was rolled back"**, and the alert hook is called. A newer extract is built normally. `make rebuild FORCE=1` overrides this.
+20. **Given** a rolled-back slot was built from extract checksum *X*, **When** a later scheduled run finds the same checksum *X*, **Then** it does not build it again: the run ends as **"skipped: source was rolled back"**, and the alert hook is called. A newer extract is built normally. `make rebuild FORCE=1` overrides this. This applies in the same way after the automatic rollback in AC 21 (D134).
 21. **Given** a switch has succeeded, **When** the gateway has served the new slot for **≤ 60 s**, **Then** `smoke.py` runs once against the public gateway. If it fails, the pipeline rolls back automatically as in AC 18, marks the new slot rolled back, exits non-zero and calls the alert hook.
 22. **Given** a switch has succeeded and the AC 21 check passed, **When** cleanup runs, **Then**:
     - exactly **2** complete slots remain on disk: active and previous
@@ -136,13 +146,14 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 
 ### F. Triggers, lock and guards
 23. **Given** the pipeline is installed on staging, **When** the scheduler is inspected, **Then**:
-    - one daily run starts at **03:30 Asia/Ulaanbaatar** (19:30 UTC; Mongolia has no daylight saving time), with a random delay of **≤ 15 min**, and missed runs are caught up after host downtime (the systemd timer from `infra/staging`, or cron if the ADR picks it)
+    - one daily run starts at **03:30 Asia/Ulaanbaatar** (19:30 UTC; Mongolia has no daylight saving time; D132), with a random delay of **≤ 15 min**, and missed runs are caught up after host downtime (the systemd timer from `infra/staging`, or cron if the ADR picks it)
     - **exactly one** scheduled rebuild job is enabled. The NAV-008 interim in-place rebuild timer is replaced, not left running beside it
 24. **Given** the pipeline, **When** the operator uses the manual commands, **Then**:
     - `make rebuild`, `make rollback` and `make status` exist and are documented in `infra/staging/RUNBOOK.md`
     - `make rebuild` goes through the same lock, guards, validation, verification and switch as the timer
     - exit code **0** means success or "skipped: unchanged". Every guard skip and every failure exits non-zero, with distinct codes listed in the runbook
     - every command takes its Compose project name, slot root and gateway port from configuration, so the same commands drive the test project in AC 35 and `navmn` on staging
+    - `make rebuild REFRESH_AUX=1` re-downloads the shared auxiliary sources (about 2.5 GB) for that run only and builds a new slot even when the extract is unchanged (it implies `FORCE=1`). If the run fails, the previous auxiliary cache is kept. It goes through the same lock, guards, validation, verification and switch. The scheduled timer never sets it, and there is no automatic auxiliary refresh (D133)
 25. **Given** a run holds the lock, **When** a second `make rebuild`, the timer, `make rollback` or the NAV-008 `deploy.sh` starts, **Then**:
     - the second command exits non-zero within **≤ 5 s** with a message naming the lock
     - the running build continues and completes, and its result is the same as without the second command
@@ -167,7 +178,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
     - it returns only the active data dates, the slot ID and the tool versions: no paths, hostnames, IPs or run logs
     - `contract_check.py` covers it
     
-    If it is not added, this AC is recorded as "not applicable (status is local only)". Showing the data date to end users in the apps is **not** part of this story (Open question 3).
+    If it is not added, this AC is recorded as "not applicable (status is local only)". Showing the data date to end users in the apps is **not** part of this story: operators and QA only (D129).
 31. **Given** any run, **When** its logs are read, **Then**:
     - there is one structured JSON line per step (fetch, validate, build, verify, switch, post-switch check, cleanup) with run ID, step, result and duration in seconds, plus a final summary line
     - logs go to the systemd journal on staging, and to a file in the test project
@@ -178,6 +189,8 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
     - never fails or blocks the pipeline (timeout **≤ 10 s**)
     
     On staging, the existing Uptime Kuma rebuild heartbeat (deployment-staging §9) is sent only after `success` or a healthy "skipped: unchanged", so a missed heartbeat alerts (26 h interval).
+
+    A manual `make rollback` is not a run. When it leaves stale data active, it does **not** call the alert hook. The next scheduled run alerts, as "skipped: source was rolled back" (AC 20) or through the stale check (D135).
 
 ### H. Failure handling: a failed build never switches
 33. **Given** a failure is injected at any one of these stages:
@@ -232,6 +245,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
     - manual recovery after an interrupted run
     - the guard values and how to change them
     - how to change the source list
+    - the manual auxiliary refresh `make rebuild REFRESH_AUX=1` (D133)
     - a step-by-step checklist for deploying NAV-006 on the real NAV-008 VPS (not executed in this story), including disabling the interim rebuild timer
     
     It contains no hostnames, IP addresses or secrets.
@@ -268,9 +282,9 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 | # | Risk | Impact | Mitigation / owner |
 |---|---|---|---|
 | R1 | **Geofabrik blocked or unreachable** (blocked from the dev container; international link outages; NAV-008 R1) | No fresh data. Old data keeps serving and goes stale after 48 h | Source list with retries (AC 2), stale alert (AC 29, AC 32). Real-host reachability is NAV-008 AC 15. Backend, operator |
-| R2 | **Mirror integrity** (the geo2day.com mirror is third-party, has no replication timestamp, and nobody guarantees its content) | A fallback could serve an unknown or manipulated extract | Staging uses Geofabrik only until the PO decides (Open question 1). Validation (AC 3) checks structure, coverage and size, not authenticity. PO |
+| R2 | **Mirror integrity** (the geo2day.com mirror is third-party, has no replication timestamp, and nobody guarantees its content) | A fallback could serve an unknown or manipulated extract | Staging and production use Geofabrik only; the mirror and local files are for dev and test only (D127). Validation (AC 3) checks structure, coverage and size, not authenticity. PO |
 | R3 | **OSM vandalism or broken edits reach users within about 24 h** | Wrong routes or missing roads for a day | Size guard (3(d)), reference-route deviation (AC 12), one-step rollback (AC 18), rollback memory (AC 20). Small damage is not detected automatically. Operator, human OSM mappers |
-| R4 | **Photon index date differs from tiles and routing** (weekly GraphHopper dump, ADR-0003; NAV-008 R8, NAV-003 R6, NAV-004 R10) | A new place can be on the map and routable but not searchable for up to about a week | Recorded in `build-info.json` and the status (AC 9, AC 29). Own Nominatim import is a follow-up (Open question 2). Architect, PO |
+| R4 | **Photon index date differs from tiles and routing** (weekly GraphHopper dump, ADR-0003; NAV-008 R8, NAV-003 R6, NAV-004 R10) | A new place can be on the map and routable but not searchable for up to about a week | Recorded in `build-info.json` and the status (AC 9, AC 29). The GraphHopper dump stays; our own Nominatim import is a separate draft item through triage (D128). Architect, PO |
 | R5 | **Fresh data is not better data.** Address coverage (`addr:*`, khoroo, ger plots), `maxspeed`, `turn:lanes`, `name:mn` / `name:en` gaps (NAV-001 R6–R10) stay the same | ETAs, search and lane hints stay limited. The upside: fixes by local mappers appear the next day | Tracked in the backlog's data-quality risks. A mapping campaign goes through triage lane `osm-data`. BA, PO |
 | R6 | **PMTiles clients cache the archive header**; MapLibre Native behaviour on archive change is unknown | Garbled or missing tiles after a switch in open sessions | AC 16 for web. ADR states the mechanism (ETag or versioned archive). Native behaviour checked on a device later (NAV-005 / NAV-015). Architect, mobile |
 | R7 | **Memory and disk on staging** (shared-vCPU VPS, NAV-008 R12): 3 slots plus 2 service sets during the switch | Build or switch fails, or the host swaps | Guards (AC 27, AC 28), measured on the real host. Backend, operator |
@@ -280,72 +294,78 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 ## Out of scope
 - Deploying NAV-006 on the real staging VPS (NAV-008: host details still pending from the PO). This story only documents it in `infra/staging/RUNBOOK.md` (AC 41).
 - Production with two hosts, cross-host switching and HA (NAV-009).
-- Our own Nominatim import or Photon update mode (ADR-0003 production direction; Open question 2).
+- Our own Nominatim import or Photon update mode (ADR-0003 production direction). A separate draft item through triage (D128).
 - Minutely or hourly OSM diffs (replication updates). Daily full rebuilds only.
-- Scheduled refresh of the auxiliary Planetiler sources (Natural Earth, water and land polygons, landcover, QRank; Open question 4).
-- Showing the data date to end users in the web or mobile apps (Open question 3).
+- **Automatic** (scheduled) refresh of the auxiliary Planetiler sources (Natural Earth, water and land polygons, landcover, QRank). The manual `make rebuild REFRESH_AUX=1` is in scope (AC 24, D133).
+- Showing the data date to end users in the web or mobile apps (D129). Later, through triage, if testers ask.
 - A real alert channel beyond the placeholder hook and the existing staging heartbeat.
 - Any change to gateway API paths, or to Valhalla, Photon or Planetiler versions (image pins stay; upgrades follow the NAV-008 deploy path).
 - Traffic data (Phase 3).
 
 ## Open questions
-None of them blocks the architect's ADR or the start of the backend work. Each has a working assumption that the AC already follow.
+**Open questions 1–7 were decided on 2026-10-04** (PO "All as recommended", `decisions.md` D127–D133). Each chose the BA recommendation, so the AC already followed them. The options are kept below for the record. Open question 8 is new and does not block anything.
 
-1. **Fallback sources for the OSM extract on staging and production.** Options:
+1. **Decided 2026-10-04: (b) (D127).** **Fallback sources for the OSM extract on staging and production.** Options:
    - (a) Geofabrik only. If it fails, skip the day, keep serving the old data, alert after 48 h
    - (b) build the ordered source list (AC 2), with Geofabrik only as the staging default; the geo2day mirror or a local file only in dev and test
    - (c) (b) plus the geo2day mirror as an automatic fallback on staging
    - (d) (b) plus another fallback the PO names (for example a copy published by ICT Group or another partner)
 
    *Recommendation: (b).* The mechanism is needed anyway to test in the dev container, and one missed day costs little because the 48 h freshness limit allows it. An unverified third-party mirror on staging (c) adds an integrity risk (R2). **Working assumption in the AC: (b).**
-2. **Search data source.** Options:
+2. **Decided 2026-10-04: (a) (D128); the Nominatim item is a draft backlog row.** **Search data source.** Options:
    - (a) keep the GraphHopper Photon dump (weekly) in NAV-006, and raise our own Nominatim import as a separate item through triage
    - (b) add our own Nominatim import to NAV-006 now (search becomes as fresh as the map; more RAM, disk and build time; makes the story larger)
 
    *Recommendation: (a).* It keeps NAV-006 on the critical path small. ADR-0006 R1 (düüreg in the search context line) is also a candidate reason for the later Nominatim item. **Working assumption: (a).**
-3. **Show the data date to end users** (for example in the attribution area or settings of the web demo and the apps). Options:
+3. **Decided 2026-10-04: (a) now, (b) later if testers ask (D129).** **Show the data date to end users** (for example in the attribution area or settings of the web demo and the apps). Options:
    - (a) not now: the date is visible to the operator and QA only
    - (b) yes, as a follow-up through triage (needs UX, glossary terms and an HTTP field per AC 30)
 
    *Recommendation: (a) now, (b) later if testers ask "how fresh is the map?".* **Working assumption: (a).**
-4. **Refresh of the auxiliary sources** (about 2.5 GB, deployment-staging §11 lists this under NAV-006). Options:
+4. **Decided 2026-10-04: (a), manual `make rebuild REFRESH_AUX=1` only (D133); now in AC 24 and AC 41.** **Refresh of the auxiliary sources** (about 2.5 GB, deployment-staging §11 lists this under NAV-006). Options:
    - (a) a manual flag only (`make rebuild` with an auxiliary-refresh option), documented in the runbook
    - (b) (a) plus an automatic monthly refresh
    - (c) leave it out entirely
 
    *Recommendation: (a) in this story, (b) later.* These sources change rarely, and a refresh re-downloads about 2.5 GB. **Working assumption: Out of scope, unless the architect finds (a) trivial.**
-5. **Guard defaults** marked *BA proposal*: 90 % size floors (AC 3(d), AC 13), 20 % reference-route deviation (AC 12), 40 MB minimum extract, 6.5 GB memory, 5 GB hard disk floor, 30 s grace. *Recommendation: accept them as starting values and tune them after 2 weeks of staging runs, through a change request.*
-6. **Launch coverage** (backlog owed decision 2: UB first or all of Mongolia) and **NAV-008 Open question 5** (staging coverage). *Working assumption:* Geofabrik `mongolia-latest`, as on staging. The pipeline does not depend on the answer: coverage is just the configured source and the P1–P6 check.
-7. **Rebuild time window.** *Working assumption:* 03:30 Asia/Ulaanbaatar, as the interim NAV-008 timer. Options: keep it; or move it (for example 05:00) if night-shift taxi traffic proves heavier than expected.
+5. **Decided 2026-10-04: accepted as starting values (D130).** **Guard defaults** marked *BA proposal*: 90 % size floors (AC 3(d), AC 13), 20 % reference-route deviation (AC 12), 40 MB minimum extract, 6.5 GB memory, 5 GB hard disk floor, 30 s grace. *Recommendation: accept them as starting values and tune them after 2 weeks of staging runs, through a change request.*
+6. **Decided 2026-10-04: all of Mongolia, Geofabrik `mongolia-latest` (D131).** **Launch coverage** (backlog owed decision 2: UB first or all of Mongolia) and **NAV-008 Open question 5** (staging coverage). *Working assumption:* Geofabrik `mongolia-latest`, as on staging. The pipeline does not depend on the answer: coverage is just the configured source and the P1–P6 check.
+7. **Decided 2026-10-04: keep 03:30 (D132).** **Rebuild time window.** *Working assumption:* 03:30 Asia/Ulaanbaatar, as the interim NAV-008 timer. Options: keep it; or move it (for example 05:00) if night-shift taxi traffic proves heavier than expected.
+8. **When does "every source failed" alert?** (added 2026-10-04 with D127). The D127 wording says "if it fails, skip the day, keep old data, alert after 48 h". AC 2 and AC 32 (and the built pipeline, exit 13) also call the placeholder alert hook on **every** "skipped: no valid source" run, and the staging heartbeat goes missing after 26 h. Options:
+   - (a) keep the AC as built: the hook fires on every "skipped: no valid source" run, and the stale alert fires after 48 h
+   - (b) call the hook for "skipped: no valid source" only once the active data is more than 48 h old (a change to AC 2, AC 32 and the backend)
+
+   *Recommendation: (a).* The hook is a no-op until a real alert channel is configured, and an early signal gives the operator a day to act before the data goes stale. **Working assumption: (a), AC unchanged.**
 
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
 |---|---|---|---|---|---|
-| AC1–AC3 | — | — | source list and validation step (backend, TBD); `backend/scripts/data-fetch.sh`, `pbfinfo.py` (existing) | unit or script tests (backend); AC 4 run in QA set item 2 if the validation-stage failure is chosen | D125, D126 |
+| AC1–AC3 | — | — | source list and validation step (backend, TBD); `backend/scripts/data-fetch.sh`, `pbfinfo.py` (existing) | unit or script tests (backend); AC 4 run in QA set item 2 if the validation-stage failure is chosen | D125, D126; D127 (source list, Geofabrik only on staging and production); D131 (coverage); D130 (3(c), 3(d)); Open question 8 |
 | AC4 | — | — | validation step (backend, TBD) | truncated-file test (backend test or QA) | |
 | AC5–AC6 | — | — | pipeline (backend, TBD) | review or backend test | |
 | AC7–AC10 | — | — | slot build (backend, TBD); `build_info.py` (extend) | QA set item 1 (checksum listing, `build-info.json`) | |
 | AC11 | — | all operations via `smoke.py`, `contract_check.py` | private slot endpoint (backend, TBD) | QA set items 1 and 5 | |
-| AC12–AC13 | — | `postRoute` | verification step (backend, TBD) | backend test or review | |
+| AC12–AC13 | — | `postRoute` | verification step (backend, TBD) | backend test or review | D130 |
 | AC14–AC15 | — | `getHealth`, `postRoute`, `search`, `reverse`, `getBasemapPmtiles` | switch (backend, per ADR) | QA set item 1 (request loop) | |
 | AC16 | — | `getBasemapPmtiles` | gateway tile serving (backend, per ADR) | PMTiles continuity script (QA, if in scope of the light set; otherwise review) | R6 |
-| AC17 | — | — | switch (backend) | review | |
+| AC17 | — | — | switch (backend) | review | D130 |
 | AC18–AC19 | — | all (loop) | `make rollback` (backend, TBD) | QA set item 3 | |
-| AC20–AC22 | — | `getHealth` via `smoke.py` | pipeline (backend, TBD) | review or backend test; AC 22 disk listing in QA set item 1 | |
-| AC23 | — | — | `infra/staging/systemd/` (backend) | review (no systemd in the dev container) | |
-| AC24 | — | — | Makefile targets (backend) | QA set items 1–4 use them | |
+| AC20–AC22 | — | `getHealth` via `smoke.py` | pipeline (backend, TBD) | review or backend test; AC 22 disk listing in QA set item 1 | D134 (AC 20 after the AC 21 automatic rollback) |
+| AC23 | — | — | `infra/staging/systemd/` (backend) | review (no systemd in the dev container) | D132 |
+| AC24 | — | — | Makefile targets (backend); `REFRESH_AUX=1` in `backend/Makefile` and `backend/pipeline/nav_pipeline.py` | QA set items 1–4 use them; `REFRESH_AUX=1` by backend test or review (not in the light-QA set) | D133 |
 | AC25 | — | — | lock (backend) | QA set item 4 | |
 | AC26 | — | — | interrupt handling (backend) | backend test or review | |
-| AC27–AC28 | — | — | guards (backend) | backend test or review; AC 28 staging measurement in NAV-008 | NAV-008 AC 16 |
+| AC27–AC28 | — | — | guards (backend) | backend test or review; AC 28 staging measurement in NAV-008 | NAV-008 AC 16; D130 |
 | AC29 | — | — | `make status` (backend) | QA set items 1–3 read it | |
-| AC30 | — | new status operation only if the ADR adds it (architect) | `openapi.yaml` (architect, conditional) | `contract_check.py` (conditional) | |
-| AC31–AC32 | — | — | logging and alert hook (backend) | review; hook call checked in QA set item 2 | |
+| AC30 | — | new status operation only if the ADR adds it (architect) | `openapi.yaml` (architect, conditional) | `contract_check.py` (conditional) | D129 (no end-user data date; ADR-0014: not applicable) |
+| AC31–AC32 | — | — | logging and alert hook (backend) | review; hook call checked in QA set item 2; no hook on a stale `make rollback` seen in QA run 1 (report §5 observation) | D135; Open question 8 |
 | AC33 | — | all (loop) | failure handling (backend) | QA set item 2 | |
 | AC34–AC39 | — | `getHealth` (shared-stack probe) | test configuration (backend, QA) | QA report (`docs/qa/`) | D126 |
 | AC40 | — | — | NAV-006 ADR (architect, TBD) | ADR review | |
-| AC41–AC43 | — | — | `infra/staging/RUNBOOK.md`, `.env.example`, deployment-staging §11 (architect) | review, secret scan | NAV-008 AC 15, AC 21 |
+| AC41–AC43 | — | — | `infra/staging/RUNBOOK.md`, `.env.example`, deployment-staging §11 (architect) | review, secret scan | NAV-008 AC 15, AC 21; D133 (AC 41 auxiliary refresh) |
 
 ## Change log
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-04 | Feature request NAV-006 (PO "Yes" to the orchestrator's proposal, relayed by the orchestrator; `decisions.md` D125, D126) | Story written from the backlog draft row: 43 AC in sections A–J (fetch and validation, slot build, private verification, atomic switch with a zero-failure request loop, rollback and retention, triggers/lock/guards, status/logs/alerting, failure handling, dev-container build with light QA, ADR/runbook/config). Priority must, Phase 1 (D125). Light-QA set and dev-container isolation from D126. Seven non-blocking open questions with working assumptions. Status `ready` | Daily fresh OSM data with no downtime is on the Phase 1 beta critical path. The NAV-008 interim rebuild has routing and search downtime and no slot-level rollback |
+| 2026-10-04 | PO answers to the NAV-006 open questions ("All as recommended" in chat, relayed by the orchestrator; `decisions.md` D127–D135) | Open questions 1–7 marked decided (D127–D133). AC 2: staging **and production** default Geofabrik only, mirror or local file only in dev and test (D127). AC intro: *BA proposal* guard values accepted as starting values, tuned after 2 weeks of staging runs (D130). AC 20: also applies after the AC 21 automatic rollback (D134). AC 23: D132 reference. AC 24: new bullet for the manual `make rebuild REFRESH_AUX=1` (D133). AC 30: data date operators and QA only (D129). AC 32: a manual `make rollback` that leaves stale data does not alert; the next scheduled run does (D135). AC 41: the runbook covers the auxiliary refresh. Context, R2, R4, Out of scope and Traceability updated. New non-blocking Open question 8 (per-run hook on "no valid source" vs "alert after 48 h"). Status `ready` → `in-progress` (ADR-0014, backend and light-QA run 1 already done) | All recommendations were already the working assumptions, and D133–D135 match what is built (`RUNBOOK.md` §7, QA report NAV-006 run 1), so no test assertion and no code change follows from them |

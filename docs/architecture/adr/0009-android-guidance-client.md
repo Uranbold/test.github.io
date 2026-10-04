@@ -492,3 +492,6 @@ ADR-0013 changes §9 and §11 for NAV-012:
 - more manifest `tools:node="remove"` lines.
 
 It also settles the R8 follow-up from Amendment 1. The Ferrostar AAR ships the JNA and UniFFI keep rules, and enabling minification becomes a separate tech-debt item before the first distributed release build. Every other part of this ADR is unchanged.
+
+### Amendment 6 (2026-10-04, D123): R8 follow-up owner
+The R8 follow-up of Amendments 1 and 5 is no longer a tech-debt item through triage. It stays an **open architect item** (D123): R8 keep rules and a minified smoke test before the first distributed release build. Details and status are in ADR-0013 Amendment 4. Every other part of this ADR is unchanged.

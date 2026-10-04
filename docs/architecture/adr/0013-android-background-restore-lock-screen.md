@@ -340,3 +340,11 @@ Mechanism (an addition to Amendment 1):
 - The latch resets as before, when the session ends or a new session starts guiding.
 
 **Tests.** `QaNav012LockScreenTest.tcL02_arrivalWhileScreenOffIsNotShownOverLockScreenOnWake` must pass **unchanged**. `tcL01`, `Nav012AndroidTest.arrivalStopsShowingOverLockScreenAfterScreenOff`, `.arrivalScreenOffWithoutKeyguardClearsFlag` and `.lockScreenPolicyArrivalLatch` stay green. Add a pure `LockScreenPolicy.arrivalUnseen` table test. Real device (AC 52): drive with the screen off until arrival, then wake: expect the phone's own lock screen, and the arrival panel after unlocking.
+
+### Amendment 4 (2026-10-04, D123): R8 keep rules stay an architect item (open)
+The PO decided (D123, "All as recommended", item 14) that the **R8 keep rules (B-A8) stay an architect technical item, done before any release build is distributed**. This replaces the "tech-debt item through triage" wording of §10 and of the Consequences follow-up list; the content of §10 is unchanged. Travelled-route trimming and manoeuvre arrows are a separate draft item through triage (D123), not part of NAV-012 and not part of this item.
+
+**Open item (architect), not started.** Before the first distributed release build:
+- enable `isMinifyEnabled = true` with the Ferrostar AAR consumer rules (G3), plus kotlinx-serialization rules for the app's `@Serializable` models if R8 reports them;
+- run the **minified smoke test**: one instrumented test on a device that runs a short replay on the minified APK (the "needs validation" note in ferrostar#185);
+- record the result here as an amendment. Implementation goes to the mobile-engineer (`mobile/android`) through the architect's handoff; the gate itself (D17/D91) is unchanged. Until then release builds stay unminified (ADR-0009 Amendment 1).

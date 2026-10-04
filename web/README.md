@@ -114,16 +114,16 @@ recorded after the NAV-008 AC 24 legal review (AC 54), not a setting to flip her
 
 ## Demo mode (NAV-017)
 
-A **separate build** for the PO and the team members the PO chooses: pick one of three recorded Ulaanbaatar routes and
+A **separate build** for reviewing guidance on an iPhone: pick one of three recorded Ulaanbaatar routes and
 watch simulated turn-by-turn guidance (moving position, Mongolian banner and distance, voice or a chime, recenter,
-arrival) on an iPhone. It sends **0** requests to `search`, `reverse` or `route` on any host and never calls the
-Geolocation API. It is served from a **password-protected sub-folder** of the PO's web hosting; the public static demo
-(D44) does not contain it. Story `docs/requirements/stories/NAV-017-web-demo-mode-replay.md`; screen spec and flow
+arrival). It sends **0** requests to `search`, `reverse` or `route` on any host and never calls the
+Geolocation API. It is served from a **public sub-folder without a password** of the PO's web hosting (PO decisions
+D107, D116; D17 does not cover this demo); the public static demo (D44) does not contain it and never links to it. Story `docs/requirements/stories/NAV-017-web-demo-mode-replay.md`; screen spec and flow
 `docs/design/screens/NAV-017-web-demo-mode.md`, `docs/design/flows/NAV-017-web-demo-mode.md`; navigation-ux §11;
 map style §7.5; ADR-0011.
 
-Placeholders below: `<demo-host>` (the site's host name), `<demo-folder>` (the protected folder), `<username>`. Real
-values are **never** written into the repo, an issue, a commit or a document (D35, CLAUDE.md rule 9).
+Placeholders below: `<demo-host>` (the site's host name), `<demo-folder>` (the demo folder). Real values are **never**
+written into the repo, an issue, a commit or a document (D35, CLAUDE.md rule 9).
 
 ### Build
 
@@ -133,8 +133,8 @@ and routing are off (NAV-017)". The output:
 
 - uses **relative URLs** only, so it works from any folder name and depth without a rebuild;
 - has `<meta name="robots" content="noindex, nofollow">`, no `crossorigin` attributes and a trailing-slash guard;
-- contains **no** `.htaccess`, `.htpasswd` or other server configuration file (an upload never overwrites the hPanel
-  protection);
+- contains **no** `.htaccess`, `.htpasswd` or other server configuration file (an upload never changes the folder's
+  server settings);
 - holds the route data as `demo-routes/r1.json`, `r2.json`, `r3.json`, generated at build time from the recorded NAV-005
   QA fixtures named in `src/demo/routes.manifest.json` (read in place, never copied into `web/`). The build fails if a
   fixture is missing, is not an OSRM `Ok` response with one route and one leg, or its GPX track is not continuous at
@@ -147,34 +147,36 @@ with two roundabouts (car, G8, 787 s). The routes are a **recorded snapshot** (V
 and the tracks are synthetic, so the replay is smoother than real driving and durations are not live ETAs. Replays run
 at 1× only.
 
-### Upload and password (hPanel)
+### Upload (hPanel)
+
+The demo folder is **public, without a password** (D107, D116). Do **not** set "Password protect directories" on it.
+Anyone with the URL can open the demo; it sends no data (NAV-017 AC 42). Two things mark it as a test and must stay:
+the `<meta name="robots" content="noindex, nofollow">` tag in `index.html` (AC 3, added by the build) and the
+«Туршилтын горим» badge during the replay (AC 14).
 
 1. Upload the **contents** of `dist-demo-mode/` (not the folder itself) into `<web root>/<demo-folder>/` with the hPanel
-   File Manager. The folder name can be anything; it is never in the build.
-2. In hPanel, open **Password protect directories**, choose `<demo-folder>`, and set a username and password that the PO
-   chooses. hPanel stores the protection as a server file in that folder: never delete the folder, and never upload a
-   file named `.htaccess` into it.
-3. **Tiles:** the demo reads the public basemap archive at `https://<demo-host>/tiles/basemap.pmtiles` (outside the
-   protected folder, ADR-0011 §4), the same file the public static demo uses. It must stay there. Fallback, only if the
+   File Manager. The folder name can be anything; it is never in the build. Never upload a file named `.htaccess` into
+   it.
+2. **Tiles:** the demo reads the public basemap archive at `https://<demo-host>/tiles/basemap.pmtiles` (outside the
+   demo folder, ADR-0011 §4), the same file the public static demo uses. It must stay there. Fallback, only if the
    public archive is ever removed: put a copy into `<demo-folder>/tiles/basemap.pmtiles` and build with a git-ignored
-   `.env.demo-mode.local` containing `VITE_GATEWAY_BASE_URL=/<demo-folder>` (then Range under the password becomes a
-   real-iPhone check).
-4. **Re-uploading the public static demo** (`dist-static-demo/` into the web root) must not delete `<demo-folder>/` or
-   its protection: upload over the existing files, never "empty the web root first".
+   `.env.demo-mode.local` containing `VITE_GATEWAY_BASE_URL=/<demo-folder>` (then repeat the Range check below on that
+   path).
+3. **Re-uploading the public static demo** (`dist-static-demo/` into the web root) must not delete `<demo-folder>/`:
+   upload over the existing files, never "empty the web root first".
 
 **Checks after every upload** (public or demo):
 
-- `curl -s -o /dev/null -w "%{http_code}\n" https://<demo-host>/<demo-folder>/` answers **401** (without credentials).
-  A 200 here means the protection is missing: stop and set it again before sharing anything.
-- `curl -s -o /dev/null -w "%{http_code}\n" -u <username> https://<demo-host>/<demo-folder>/` (curl asks for the
-  password; never put it on the command line or in a script) answers **200**.
+- `curl -s -o /dev/null -w "%{http_code}\n" https://<demo-host>/<demo-folder>/` answers **200** without credentials.
+- `curl -s https://<demo-host>/<demo-folder>/ | grep -c 'name="robots" content="noindex, nofollow"'` prints **1**: the
+  `noindex` meta is present. If it prints 0, a wrong build was uploaded: upload `dist-demo-mode/` again before sharing
+  the link.
 - `curl -sI -H "Range: bytes=0-16383" https://<demo-host>/tiles/basemap.pmtiles` answers **206** with a `Content-Range`
-  header and **no** `Content-Encoding`; and in the logged-in browser the demo's opening map (P1, zoom 12) draws tiles
-  (in a desktop browser's network panel the archive requests are 206).
+  header and **no** `Content-Encoding`; and the demo's opening map (P1, zoom 12) draws tiles (in a desktop browser's
+  network panel the archive requests are 206).
 
-**Who may get the password:** the PO and the team members the PO chooses, sent privately, never in a public post,
-issue or document, until NAV-007 (native Mongolian review) is done (D74, D17). The public site never links to the demo
-folder and has no `robots.txt` entry for it (that would reveal its name).
+The public site never links to the demo folder and has no `robots.txt` entry for it (AC 7; an entry would reveal its
+name). Share the link privately; it is never written into the repo, an issue or a document (D35).
 
 ### Supported browsers (demo mode)
 
@@ -189,8 +191,8 @@ folder and has no `robots.txt` entry for it (that would reveal its name).
 
 Record the iOS version used, and the result of each item:
 
-1. The browser password prompt appears; the 401 / 200 / 206 checks above pass.
-2. The opening map draws tiles under the protection; the picker shows R1–R3 with names, mode, distance and duration.
+1. The page opens without a password prompt; the 200 / `noindex` / 206 checks above pass.
+2. The opening map draws tiles; the picker shows R1–R3 with names, mode, distance and duration.
 3. Does the notice «Энэ утсанд монгол дуут заавар ажиллахгүй байна. Заавар зөвхөн дэлгэцэнд харагдана.» appear after
    «Эхлэх» (no Mongolian voice found)? Does **Settings › Accessibility › Spoken Content › Voices** list a Mongolian voice?
    (input for NAV-007 AC 9 and the voice spike, D75)

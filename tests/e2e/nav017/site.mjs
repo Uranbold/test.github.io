@@ -3,20 +3,21 @@
 //
 //   node nav017/site.mjs start   builds web/ with the DOCUMENTED commands (npm run build:demo-mode, build:static-demo,
 //                                build), lays out a web root and starts Caddy (Docker) on 127.0.0.1:18097
-//   node nav017/site.mjs stop    stops Caddy, keeps its access log, deletes the throw-away credentials
+//   node nav017/site.mjs stop    stops Caddy, keeps its access log, deletes the state file
 //
 // Web root layout (mirrors the hosting in web/README.md › Demo mode):
 //   /                      the public static demo build (dist-static-demo), as on the PO's site (D44)
 //   /tiles/basemap.pmtiles UB extract of the NAV-001 archive (outside every demo folder, ADR-0011 §4)
 //   /demo-a/               the demo-mode build (dist-demo-mode contents), folder name 1
 //   /x/y/demo-b/           the same files, two levels deep, folder name 2 (AC 2: no rebuild)
-//   /locked-demo/          the same files behind HTTP Basic auth (stand-in for hPanel "Password protect directories")
 //
-// The Basic-auth user and password are RANDOM per run, generated here, hashed by Caddy, written only to
-// test-results/nav017/state.json (git-ignored) and deleted by `stop`. No real host name, folder name or password is used
-// or written anywhere (D35, CLAUDE.md rule 9). The shared dev stack (http://localhost:8080) is never touched.
+// Every folder is served WITHOUT a password, as the PO's demo folder is since D107/D116 (public, `noindex`).
+// Retired 2026-10-04: the `/locked-demo/` folder behind HTTP Basic auth with random throw-away credentials (ADR-0011 §9
+// stand-in for hPanel "Password protect directories"). Its only test (picker.test.mjs, 401 without / 200 with
+// credentials) was replaced by the public-folder test, so no test needs it; it is in git history if ever needed again.
+// No real host name, folder name or password is used or written anywhere (D35, CLAUDE.md rule 9). The shared dev stack
+// (http://localhost:8080) is never touched.
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -27,7 +28,7 @@ export const SITE = OUT + 'site/';
 export const STATE = OUT + 'state.json';
 export const PORT = Number(process.env.NAV017_PORT ?? 18097);
 export const ORIGIN = `http://127.0.0.1:${PORT}`;
-export const FOLDERS = { a: '/demo-a/', b: '/x/y/demo-b/', locked: '/locked-demo/' };
+export const FOLDERS = { a: '/demo-a/', b: '/x/y/demo-b/' };
 const NAME = 'qa-nav017-site';
 const CADDY = 'caddy:2.10.2-alpine';
 const PMTILES = 'ghcr.io/protomaps/go-pmtiles:v1.31.2';
@@ -73,19 +74,12 @@ export async function start() {
   if (!existsSync(tiles)) throw new Error(`no basemap archive (${SRC_TILES} extract failed)`);
   mkdirSync(SITE + 'tiles', { recursive: true });
   copyFileSync(tiles, SITE + 'tiles/basemap.pmtiles');
-  // Throw-away Basic-auth credentials (never real, never committed).
-  const user = 'qa' + randomBytes(3).toString('hex');
-  const pass = randomBytes(18).toString('base64url');
-  const hash = sh('docker', ['run', '--rm', CADDY, 'caddy', 'hash-password', '--plaintext', pass]).trim();
   const caddyfile = `{
 \tadmin off
 \tauto_https off
 }
 :80 {
 \troot * /srv
-\tbasic_auth ${FOLDERS.locked}* {
-\t\t${user} ${hash}
-\t}
 \tfile_server
 \tlog {
 \t\toutput stdout
@@ -102,7 +96,7 @@ export async function start() {
     if (Date.now() - t0 > 30_000) throw new Error(`static server on ${PORT} did not answer 200`);
     await new Promise((r) => setTimeout(r, 300));
   }
-  writeFileSync(STATE, JSON.stringify({ origin: ORIGIN, folders: FOLDERS, user, pass, container: NAME, startedAt: new Date().toISOString() }));
+  writeFileSync(STATE, JSON.stringify({ origin: ORIGIN, folders: FOLDERS, container: NAME, startedAt: new Date().toISOString() }));
   console.log(`[nav017] site up on ${ORIGIN} (${Object.values(FOLDERS).join(', ')})`);
 }
 
