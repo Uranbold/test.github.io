@@ -124,6 +124,33 @@ make nav006-test-teardown              # 0 containers/networks/volumes, root del
 ```
 `make` targets pick the config automatically: `infra/staging/.env` on staging, else `/var/tmp/nav006-test/nav006.env` if it exists, else `NAV_ENV_FILE=...`. The pipeline refuses a Compose project whose containers were created from `compose.yaml` (the dev stack), and test faults only work with `REBUILD_ALLOW_TEST_FAULTS=1` outside `navmn`. Operator guide: [RUNBOOK section 7](../infra/staging/RUNBOOK.md).
 
+## Offline pack publication (NAV-020, ADR-0017)
+
+After a NAV-006 `success` (and with `make pack-publish`), the pack step cuts the offline Mongolia pack from the active slot: `routing.tar` + `search.sqlite` weekly, `basemap.pmtiles` monthly (only together with a weekly cut), each as a deterministic `.gz` under `NAV_DATA_ROOT/packs/mn/<slot>/`, checks it (self-tests, Gate 2 parity of the phone engine against the server), and publishes `packs/mn/manifest.json` with one `rename(2)`. The public gateway serves both (`/packs/`, openapi 0.6.x). The NAV-006 result never depends on it.
+
+| File | What |
+|---|---|
+| [`pipeline/nav_pack.py`](pipeline/nav_pack.py) | the pack step, `pack-publish`, `pack-status`, the rollback hook (AC 28); results and exit codes in its docstring and RUNBOOK 7A.4 |
+| [`pack/search_builder.py`](pack/search_builder.py) | search DB builder v1 (stdlib; runs in `PACK_SEARCH_BUILDER_IMAGE`, network none): schema, NAV-023 normalisation, self-test |
+| [`gate2/`](gate2/) | Gate 2 engine recipe (valhalla-mobile 0.6.3 host build + our `driver.cpp`), the AAR `default.json` copy. **Not built in the dev container** (6-12 GB) |
+| [`pack/gate2_evidence_driver.py`](pack/gate2_evidence_driver.py) | test-only stand-in (`PACK_GATE2_MODE=evidence`): the server's own Valhalla on both sides, exercises runner and comparator, **not the gate** |
+| [`pack/golden-routes.provisional.json`](pack/golden-routes.provisional.json) | provisional copy of the AC 9 golden route set until QA's fixture exists |
+| [`scripts/validate_manifest.py`](scripts/validate_manifest.py) | manifest vs `OfflinePackManifest` (jsonschema) |
+| [`pipeline/nav020-test-setup.sh`](pipeline/nav020-test-setup.sh), [`nav020-test-teardown.sh`](pipeline/nav020-test-teardown.sh), [`nav020_test.py`](pipeline/nav020_test.py), [`nav020-test.env.template`](pipeline/nav020-test.env.template) | dev-container test project `navmn-nav020` (seeded slots, read loop) |
+
+Dev-container test (project `navmn-nav020`, gateway `127.0.0.1:18190`, root `/var/tmp/nav020-test`; the shared dev stack and `data/` are only read):
+```sh
+make nav020-test-setup                                   # root + /var/tmp/nav020-test/nav020.env
+E=/var/tmp/nav020-test/nav020.env
+python3 pipeline/nav020_test.py --env-file $E seed 20261001T000000Z && python3 pipeline/nav020_test.py --env-file $E activate 20261001T000000Z
+make pack-publish NAV_ENV_FILE=$E                        # first publication: all three files, one version
+make pack-status NAV_ENV_FILE=$E
+.venv/bin/python scripts/contract_check.py --base-url http://127.0.0.1:18190   # pack cases included
+make pack-test                                           # unit tests (no Docker)
+make nav020-test-teardown
+```
+Operator guide: [RUNBOOK section 7A](../infra/staging/RUNBOOK.md).
+
 ## How the stack starts
 
 ```

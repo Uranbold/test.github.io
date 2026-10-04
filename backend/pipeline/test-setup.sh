@@ -27,9 +27,9 @@ mkdir -p "$ROOT"
 [[ "$(stat -c %d "$ROOT")" == "$(stat -c %d "$SRC/sources")" ]] || die "TEST_ROOT must be on the same filesystem as backend/data (hard links)"
 [[ ! -e "$DATA/state.json" ]] || die "$ROOT is already set up (run test-teardown.sh first)"
 
-mkdir -p "$DATA"/cache/{sources,tools,osm,photon-dump,photon-index} "$DATA"/{slots,lanes,runs} \
+mkdir -p "$DATA"/cache/{sources,tools,osm,photon-dump,photon-index} "$DATA"/{slots,lanes,runs,packs} \
          "$DATA"/pointer/{public,verify} "$ROOT/input"
-chmod 755 "$ROOT" "$DATA" "$DATA/slots" "$DATA/pointer" "$DATA"/pointer/*
+chmod 755 "$ROOT" "$DATA" "$DATA/slots" "$DATA/pointer" "$DATA"/pointer/* "$DATA/packs"
 
 n=0
 for f in "$SRC"/sources/*; do

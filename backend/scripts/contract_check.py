@@ -12,10 +12,15 @@ header may appear more than once on any response (NAV-001 AC 43), and every Acce
 carry all tokens of the spec's AccessControlExposeHeaders (Retry-After since 0.4.0).
 --rate-limit (NAV-008 AC 13): floods route, search and reverse and validates one 429 per group against
 components/responses/RateLimited (Retry-After integer >= 1 once, Cache-Control: no-store once). Use it only
-against a gateway started with GATEWAY_RATE_LIMIT=on (staging or an isolated test gateway).
+against a gateway started with GATEWAY_RATE_LIMIT=on (staging or an isolated test gateway). With a published pack
+it also floods /packs/ (NAV-020 AC 21).
+NAV-020 (openapi 0.6.0 packs): getOfflinePackManifest 200/304/404 and getOfflinePackFile 200/206/304/404/416 with the
+AC 20 header rules (body SHA-256 = download_sha256 on the smallest file, half-range resume, If-Range mismatch -> 200,
+no Content-Encoding, exactly one Cache-Control). Without a published pack (dev stack) only the 404 cases run.
 Exit code 0 only if every case conforms.
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -155,6 +160,111 @@ class Checker:
         self.result(f"{name} [{method} {spec_path} -> {status}]", errors)
 
 
+def strong_etag(v):
+    return bool(v) and not v.startswith("W/") and v.startswith('"') and v.endswith('"')
+
+
+def single(names, hdrs, name, value=None):
+    """'' if header `name` appears exactly once (with `value` if given), else the problem."""
+    n = names.count(name)
+    if n != 1:
+        return f"{name} must appear exactly once (got {n})"
+    if value is not None and hdrs.get(name) != value:
+        return f"{name} must be {value!r}, got {hdrs.get(name)!r}"
+    return ""
+
+
+def check_packs(c, cors):
+    """NAV-020 AC 19, 20, 23 (openapi 0.6.0 getOfflinePackManifest / getOfflinePackFile). Returns the manifest or None."""
+    mspec, fspec = "/packs/{region}/manifest.json", "/packs/{region}/{fileVersion}/{file}"
+    nf = "#/components/responses/GatewayNotFound"
+    c.case("pack manifest unknown region", "GET", "/packs/xx/manifest.json", "-", headers=cors, response_ref=nf)
+    status, hdrs, raw, names = http(c.base, "GET", "/packs/mn/manifest.json", headers=cors)
+    c.evaluate("pack manifest", "GET", mspec, status, hdrs, raw, names, cors)
+    if status != 200:
+        print("      (no pack published on this gateway: pack file cases skipped)")
+        return None
+    errs = [e for e in (single(names, hdrs, "cache-control", "no-cache"),) if e]
+    if not strong_etag(hdrs.get("etag")):
+        errs.append(f"ETag must be strong, got {hdrs.get('etag')!r}")
+    if "content-encoding" in hdrs:
+        errs.append(f"manifest must not be content-encoded (strong ETag), got {hdrs['content-encoding']!r}")
+    c.result(f"pack manifest headers (no-cache, strong ETag) [GET {mspec}]", errs)
+    c.case("pack manifest If-None-Match", "GET", "/packs/mn/manifest.json", mspec,
+           headers={**cors, "If-None-Match": hdrs.get("etag", "")})
+    s304 = http(c.base, "GET", "/packs/mn/manifest.json", headers={"If-None-Match": hdrs.get("etag", "")})[0]
+    c.result(f"pack manifest 304 on its ETag [GET {mspec}]", [] if s304 == 304 else [f"got {s304}"])
+    m = json.loads(raw)
+    files = sorted(m.get("files") or [], key=lambda f: f.get("download_bytes") or 0)
+    if not files:
+        c.result("pack manifest files", ["no files"])
+        return m
+    f = files[0]
+    url = "/packs/mn/" + f["path"]
+    status, hdrs, body, names = http(c.base, "GET", url, headers=cors)
+    c.evaluate(f"pack file {f['kind']} whole", "GET", fspec, status, hdrs, body, names, cors)
+    errs = [e for e in (single(names, hdrs, "cache-control", "public, max-age=31536000, immutable"),
+                        single(names, hdrs, "accept-ranges", "bytes")) if e]
+    if "content-encoding" in hdrs:
+        errs.append(f"Content-Encoding must be absent, got {hdrs['content-encoding']!r}")
+    if int(hdrs.get("content-length") or -1) != f["download_bytes"]:
+        errs.append(f"Content-Length {hdrs.get('content-length')} != download_bytes {f['download_bytes']}")
+    if hashlib.sha256(body).hexdigest() != f["download_sha256"]:
+        errs.append("SHA-256 of the body != download_sha256")
+    if not strong_etag(hdrs.get("etag")):
+        errs.append(f"ETag must be strong, got {hdrs.get('etag')!r}")
+    c.result(f"pack file {f['kind']} 200 rules (AC 20) [GET {fspec}]", errs)
+    etag, size, half = hdrs.get("etag", ""), f["download_bytes"], f["download_bytes"] // 2
+    status, hdrs, part, names = http(c.base, "GET", url, headers={**cors, "Range": f"bytes={half}-", "If-Range": etag})
+    c.evaluate(f"pack file {f['kind']} resume bytes={half}-", "GET", fspec, status, hdrs, part, names, cors)
+    errs = [] if status == 206 else [f"status {status} (want 206)"]
+    if hdrs.get("content-range") != f"bytes {half}-{size - 1}/{size}":
+        errs.append(f"Content-Range {hdrs.get('content-range')!r}")
+    if hashlib.sha256(body[:half] + part).hexdigest() != f["download_sha256"]:
+        errs.append("first half + resumed part does not hash to download_sha256")
+    e = single(names, hdrs, "cache-control", "public, max-age=31536000, immutable")
+    errs += [e] if e else []
+    if "content-encoding" in hdrs:
+        errs.append("Content-Encoding on 206")
+    c.result(f"pack file {f['kind']} 206 rules (AC 20) [GET {fspec}]", errs)
+    status, hdrs, whole, names = http(c.base, "GET", url, headers={"Range": f"bytes={half}-", "If-Range": '"stale-etag"'})
+    c.result(f"pack file If-Range mismatch -> 200 whole [GET {fspec}]",
+             [] if status == 200 and len(whole) == size else [f"status {status}, {len(whole)} bytes"])
+    for m_ in ("GET", "HEAD"):
+        status, hdrs, raw416, names = http(c.base, m_, url, headers={**cors, "Range": f"bytes={size}-"})
+        if m_ == "GET":   # the spec lists GET only for packs; HEAD is checked by the header rules below
+            c.evaluate(f"pack file range beyond end ({m_})", m_, fspec, status, hdrs, raw416, names, cors)
+        errs = [x for x in (single(names, hdrs, "cache-control", "no-store"),) if x]
+        if status != 416 or hdrs.get("content-range") != f"bytes */{size}":
+            errs.append(f"status {status}, Content-Range {hdrs.get('content-range')!r} (want 416, bytes */{size})")
+        if "accept-ranges" in hdrs:
+            errs.append("416 carries Accept-Ranges")
+        c.result(f"pack file 416 rules ({m_}) [GET {fspec}]", errs)
+    c.case("pack file If-None-Match", "GET", url, fspec, headers={**cors, "If-None-Match": etag})
+    s304 = http(c.base, "GET", url, headers={"If-None-Match": etag})[0]
+    c.result(f"pack file 304 on its ETag [GET {fspec}]", [] if s304 == 304 else [f"got {s304}"])
+    for g in files[1:]:
+        status, hdrs, _, names = http(c.base, "HEAD", "/packs/mn/" + g["path"])
+        errs = [] if status == 200 else [f"status {status}"]
+        if int(hdrs.get("content-length") or -1) != g["download_bytes"]:
+            errs.append(f"Content-Length {hdrs.get('content-length')} != download_bytes {g['download_bytes']}")
+        if "content-encoding" in hdrs:
+            errs.append("Content-Encoding present")
+        e = single(names, hdrs, "cache-control", "public, max-age=31536000, immutable")
+        errs += [e] if e else []
+        c.result(f"pack file {g['kind']} HEAD (size, headers) [HEAD {fspec}]", errs)
+    v = f["version"]
+    for label, path, ref in (("retired version", f"/packs/mn/19990101T000000Z/{f['path'].split('/')[1]}", None),
+                             ("bad fileVersion pattern", "/packs/mn/2026-10-04/routing.tar.gz", nf),
+                             ("bad file name", f"/packs/mn/{v}/routing.tar", nf),
+                             ("unknown file", f"/packs/mn/{v}/other.sqlite.gz", nf),
+                             ("dot path (history)", "/packs/mn/.history.json", nf),
+                             ("dot path (manifest copies)", "/packs/mn/.manifests/", nf),
+                             ("partial directory", f"/packs/mn/{v}.partial/routing.tar.gz", nf)):
+        c.case(f"pack {label} -> 404", "GET", path, fspec if ref is None else "-", headers=cors, response_ref=ref)
+    return m
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://localhost:8080")
@@ -209,6 +319,8 @@ def main():
     c.case("reverse P1", "GET", "/v1/reverse?lat=47.9189&lon=106.9176&lang=mn", "/v1/reverse", headers=cors)
     c.case("reverse Beijing", "GET", "/v1/reverse?lat=39.9042&lon=116.4074&lang=mn", "/v1/reverse")
 
+    pack_manifest = check_packs(c, cors) if "/packs/{region}/manifest.json" in spec["paths"] else None
+
     # Gateway errors on paths/methods the spec does not list
     c.case("unknown path", "GET", "/no/such/path", "-", response_ref="#/components/responses/GatewayNotFound")
     c.case("wrong method", "DELETE", "/v1/route", "-", response_ref="#/components/responses/GatewayMethodNotAllowed")
@@ -220,8 +332,10 @@ def main():
         carmn_body = json.dumps(carmn).encode()
         groups = [("route 429", "POST", "/v1/route", carmn_body), ("search 429", "GET", "/v1/search?q=ulaan&lang=mn", None),
                   ("reverse 429", "GET", "/v1/reverse?lat=47.9189&lon=106.9176&lang=mn", None)]
+        if pack_manifest is not None:
+            groups.append(("packs 429", "GET", "/packs/mn/manifest.json", None))
         for name, method, path, body in groups:
-            spec_path = path.split("?")[0]
+            spec_path = "/packs/{region}/manifest.json" if path.startswith("/packs/") else path.split("?")[0]
             got = None
             for _ in range(5):
                 with ThreadPoolExecutor(max_workers=48) as ex:

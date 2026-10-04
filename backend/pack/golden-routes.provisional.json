@@ -1,0 +1,433 @@
+{
+ "description": "PROVISIONAL Gate 2 golden route set (backend copy, NAV-020 AC 9). The binding set is the QA-owned fixture in tests/ named in the QA test plan; PACK_GATE2_GOLDEN_SET points at it once it exists. Bodies follow ADR-0009 §2 (language mn-MN unless noted, OSRM, banners and voice on). G1-G9: the route requests of the NAV-005 GPX fixtures (tests/gpx/nav005/manifest.json); G1, G3, G4, G6, G7 share the P1->P3 car request.",
+ "expect": {
+  "ub-beijing-out-of-coverage": "NoSegment"
+ },
+ "requests": [
+  {
+   "id": "p1-p3-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 47.8858,
+      "lon": 106.9173
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "p1-p3-car-en",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 47.8858,
+      "lon": 106.9173
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "en-US"
+   }
+  },
+  {
+   "id": "p1-p6-walk",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 47.96,
+      "lon": 106.9
+     }
+    ],
+    "costing": "pedestrian",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "p1-p6-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 47.96,
+      "lon": 106.9
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "p1-p6-car-exclude-unpaved",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 47.96,
+      "lon": 106.9
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN",
+    "costing_options": {
+     "auto": {
+      "exclude_unpaved": true
+     }
+    }
+   }
+  },
+  {
+   "id": "p1-p6-bicycle",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 47.96,
+      "lon": 106.9
+     }
+    ],
+    "costing": "bicycle",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "p1-p3-car-alternates-2",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 47.8858,
+      "lon": 106.9173
+     }
+    ],
+    "costing": "auto",
+    "alternates": 2,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "reroute-heading-90",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176,
+      "heading": 90
+     },
+     {
+      "lat": 47.8858,
+      "lon": 106.9173
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "ub-darkhan-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 49.4867,
+      "lon": 105.9228
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "ub-erdenet-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 49.027,
+      "lon": 104.044
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "ub-zamyn-uud-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 43.7225,
+      "lon": 111.9047
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "ub-khovd-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 48.0056,
+      "lon": 91.638
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "choibalsan-olgii-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 48.071,
+      "lon": 114.534
+     },
+     {
+      "lat": 48.968,
+      "lon": 89.962
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "ub-beijing-out-of-coverage",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 39.9042,
+      "lon": 116.4074
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "g1-g4-g6-g7-p1-p3-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 47.8858,
+      "lon": 106.9173
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "g2-reroute-wrong-turn",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.887561,
+      "lon": 106.910704,
+      "heading": 165
+     },
+     {
+      "lat": 47.8858,
+      "lon": 106.9173
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "g5-p1-p2-walk",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 47.9139,
+      "lon": 106.9044
+     }
+    ],
+    "costing": "pedestrian",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "g8-roundabout-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.898108,
+      "lon": 106.95068
+     },
+     {
+      "lat": 47.930156,
+      "lon": 106.90019
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  },
+  {
+   "id": "g9-p1-x1-car",
+   "body": {
+    "locations": [
+     {
+      "lat": 47.9189,
+      "lon": 106.9176
+     },
+     {
+      "lat": 49.027,
+      "lon": 104.044
+     }
+    ],
+    "costing": "auto",
+    "alternates": 0,
+    "format": "osrm",
+    "banner_instructions": true,
+    "voice_instructions": true,
+    "units": "kilometers",
+    "language": "mn-MN"
+   }
+  }
+ ]
+}

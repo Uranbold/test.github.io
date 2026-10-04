@@ -10,6 +10,7 @@
 #
 # Data: everything under NAV_DATA_ROOT (one filesystem, outside the checkout):
 #   cache/  slots/<slot-id>/  lanes/{blue,green,build} -> ../slots/<id>  pointer/{public,verify}/active.json
+#   packs/mn/  NAV-020 offline pack (manifest.json + <slot-id>/*.gz), served by the public gateway at /packs/
 #
 # Services
 #   gateway            public gateway (127.0.0.1:GATEWAY_PORT; Caddy in front on staging). Reads
@@ -119,6 +120,9 @@ services:
       GATEWAY_BURST_ROUTE: ${GATEWAY_BURST_ROUTE:-60}
       GATEWAY_RATE_SEARCH: ${GATEWAY_RATE_SEARCH:-30r/s}
       GATEWAY_BURST_SEARCH: ${GATEWAY_BURST_SEARCH:-60}
+      # NAV-020 per-IP "packs" limit for /packs/ (own zone; only when GATEWAY_RATE_LIMIT=on).
+      GATEWAY_RATE_PACKS: ${GATEWAY_RATE_PACKS:-2r/s}
+      GATEWAY_BURST_PACKS: ${GATEWAY_BURST_PACKS:-20}
       GATEWAY_REAL_IP_FROM: ${GATEWAY_REAL_IP_FROM:-}
       # Dev-mode fallbacks of the template; unused here because the pointer directory is mounted.
       VALHALLA_UPSTREAM: 127.0.0.1:9
@@ -134,6 +138,9 @@ services:
       # The DIRECTORY, never the file: a single-file bind mount keeps the old inode after a rename.
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/pointer/public", target: /etc/nginx/slot, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/slots", target: /srv/slots, read_only: true, bind: { create_host_path: false } }
+      # NAV-020 offline pack tree (packs/mn/manifest.json + write-once version directories). The DIRECTORY: the
+      # manifest is replaced by rename(2). Public gateway only; gateway-verify never serves packs.
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/packs", target: /srv/packs, read_only: true, bind: { create_host_path: false } }
 
   # ------------------------------------------------------------------ private verify gateway (verification only)
   gateway-verify:

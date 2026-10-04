@@ -9,12 +9,15 @@
 #   GATEWAY_BURST_ROUTE    burst for /v1/route, served nodelay   (default 60)
 #   GATEWAY_RATE_SEARCH    rate for /v1/search + /v1/reverse, one shared zone (default 30r/s)
 #   GATEWAY_BURST_SEARCH   burst for /v1/search + /v1/reverse    (default 60)
+#   GATEWAY_RATE_PACKS     rate for /packs/ (NAV-020 offline pack manifest + files, own zone; default 2r/s)
+#   GATEWAY_BURST_PACKS    burst for /packs/, served nodelay     (default 20)
 #
 # How: limit_req is set at http level and inherited by every location, but its keys are empty for
-# every request that is not a GET/HEAD/POST to /v1/route, /v1/search or /v1/reverse. nginx does not
-# account requests with an empty key, so /health, the tiles file (any method, any rate) and OPTIONS
-# preflights are never limited. A rejected request gets 429, which the ROUTE/SEARCH/REVERSE locations
-# send to @rate_limited (GatewayError RateLimited + Retry-After + Cache-Control: no-store).
+# every request that is not a GET/HEAD/POST to /v1/route, /v1/search, /v1/reverse or under /packs/. nginx does
+# not account requests with an empty key, so /health, the tiles file (any method, any rate) and OPTIONS
+# preflights are never limited. A rejected request gets 429, which the ROUTE/SEARCH/REVERSE/PACKS locations
+# send to @rate_limited (GatewayError RateLimited + Retry-After + Cache-Control: no-store). A resumable pack
+# download is one request per file, so the packs rate counts requests, not bytes.
 # Privacy: the key ($binary_remote_addr) lives only in shared memory. "limiting requests" lines are
 # logged at info, below the gateway's error_log level (crit), so client IPs never reach the logs.
 set -eu
@@ -26,14 +29,16 @@ rate_route="${GATEWAY_RATE_ROUTE:-30r/s}"
 burst_route="${GATEWAY_BURST_ROUTE:-60}"
 rate_search="${GATEWAY_RATE_SEARCH:-30r/s}"
 burst_search="${GATEWAY_BURST_SEARCH:-60}"
+rate_packs="${GATEWAY_RATE_PACKS:-2r/s}"
+burst_packs="${GATEWAY_BURST_PACKS:-20}"
 
 bad() { echo "16-rate-limits.sh: invalid $1: '$2'" >&2; exit 1; }
 
 case "$mode" in on|off) ;; *) bad GATEWAY_RATE_LIMIT "$mode" ;; esac
-for r in "$rate_route" "$rate_search"; do
+for r in "$rate_route" "$rate_search" "$rate_packs"; do
     printf '%s' "$r" | grep -Eq '^[1-9][0-9]*r/s$' || bad "rate (expected <n>r/s, n >= 1; Retry-After is fixed at 1 s)" "$r"
 done
-for b in "$burst_route" "$burst_search"; do
+for b in "$burst_route" "$burst_search" "$burst_packs"; do
     printf '%s' "$b" | grep -Eq '^[0-9]+$' || bad "burst (expected an integer)" "$b"
 done
 
@@ -66,15 +71,21 @@ map \$uri \$nav_rl_search_key {
     /v1/reverse \$nav_rl_client;
     default     "";
 }
+map \$uri \$nav_rl_packs_key {
+    ~^/packs/   \$nav_rl_client;
+    default     "";
+}
 limit_req_zone \$nav_rl_route_key  zone=nav_route:10m  rate=$rate_route;
 limit_req_zone \$nav_rl_search_key zone=nav_search:10m rate=$rate_search;
+limit_req_zone \$nav_rl_packs_key  zone=nav_packs:10m  rate=$rate_packs;
 limit_req zone=nav_route  burst=$burst_route nodelay;
 limit_req zone=nav_search burst=$burst_search nodelay;
+limit_req zone=nav_packs  burst=$burst_packs nodelay;
 limit_req_status    429;
 limit_req_log_level info;
 EOF
     fi
 } > "$out"
 
-printf '{"service":"gateway","level":"info","msg":"rate limits configured","rate_limit":"%s","route":"%s burst %s","search":"%s burst %s","real_ip":"%s"}\n' \
-    "$mode" "$rate_route" "$burst_route" "$rate_search" "$burst_search" "$( [ -n "$real_ip_from" ] && echo trusted-proxy || echo off )"
+printf '{"service":"gateway","level":"info","msg":"rate limits configured","rate_limit":"%s","route":"%s burst %s","search":"%s burst %s","packs":"%s burst %s","real_ip":"%s"}\n' \
+    "$mode" "$rate_route" "$burst_route" "$rate_search" "$burst_search" "$rate_packs" "$burst_packs" "$( [ -n "$real_ip_from" ] && echo trusted-proxy || echo off )"

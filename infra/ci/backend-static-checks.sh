@@ -10,6 +10,9 @@
 # 6. NAV-006 (ADR-0014): compose.slots.yaml renders, publishes only on 127.0.0.1, same image pins as compose.yaml;
 #    gateway slot mode (njs/slot.js): missing/invalid pointer -> JSON 502/404, valid pointer -> slot archive, a
 #    pointer rename switches the archive (new ETag) without reload; pipeline unit tests
+# 7. NAV-020 (ADR-0017): /packs/ static locations (manifest no-cache + strong ETag + 304; files immutable, Range,
+#    If-Range, 416 no-store, no Content-Encoding; other /packs/ paths JSON 404), the "packs" rate-limit zone, the
+#    compose mount, pack + search-builder unit tests, and the Gate 2 recipe rules (no patching, never the upstream image)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 B=$ROOT/backend
@@ -17,8 +20,8 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 echo "== syntax"
 for f in "$B"/scripts/*.sh "$B"/gateway/entrypoint/*.sh "$B"/pipeline/*.sh; do bash -n "$f" || fail "bash -n $f"; done
-python3 -m py_compile "$B"/scripts/*.py "$B"/pipeline/*.py "$B"/pipeline/tests/*.py \
-    && rm -rf "$B/scripts/__pycache__" "$B/pipeline/__pycache__" "$B/pipeline/tests/__pycache__"
+python3 -m py_compile "$B"/scripts/*.py "$B"/pipeline/*.py "$B"/pipeline/tests/*.py "$B"/pack/*.py "$B"/pack/tests/*.py \
+    && rm -rf "$B/scripts/__pycache__" "$B/pipeline/__pycache__" "$B/pipeline/tests/__pycache__" "$B/pack/__pycache__" "$B/pack/tests/__pycache__"
 if command -v shellcheck >/dev/null; then shellcheck -x -P SCRIPTDIR -S warning "$B"/scripts/*.sh "$B"/gateway/entrypoint/*.sh "$B"/pipeline/*.sh; fi
 
 echo "== compose config (defaults only)"
@@ -93,16 +96,27 @@ rl_run() {  # rl_run NAME PORT EXTRA_ENV...
 }
 printf 'PMTiles\003' > "$TMP/tiles/basemap.pmtiles"; head -c 1024 /dev/zero >> "$TMP/tiles/basemap.pmtiles"; chmod a+r "$TMP/tiles/basemap.pmtiles"
 rl_run navmn-ci-gw-rl 18090 -e GATEWAY_RATE_LIMIT=on -e GATEWAY_RATE_ROUTE=1r/s -e GATEWAY_BURST_ROUTE=2 \
-  -e GATEWAY_RATE_SEARCH=1r/s -e GATEWAY_BURST_SEARCH=2
+  -e GATEWAY_RATE_SEARCH=1r/s -e GATEWAY_BURST_SEARCH=2 -e GATEWAY_RATE_PACKS=1r/s -e GATEWAY_BURST_PACKS=2
 for _ in $(seq 30); do curl -fs localhost:18090/health >/dev/null && break; sleep 1; done
 R=http://127.0.0.1:18090
 # never limited: 30 x health, tiles range, OPTIONS on /v1/route and /v1/search
 for _ in $(seq 30); do
   for c in "$(code $R/health)" "$(code -H 'Range: bytes=0-7' $R/tiles/basemap.pmtiles)" \
-           "$(code -X OPTIONS -H 'Origin: http://localhost:5173' $R/v1/route)" "$(code -X OPTIONS $R/v1/search)"; do
+           "$(code -X OPTIONS -H 'Origin: http://localhost:5173' $R/v1/route)" "$(code -X OPTIONS $R/v1/search)" \
+           "$(code -X OPTIONS $R/packs/mn/manifest.json)"; do
     [[ $c != 429 ]] || fail "health/tiles/OPTIONS was rate limited"
   done
 done
+# NAV-020 AC 21: the packs zone (1r/s burst 2 here) limits /packs/ on its own, in the contract shape
+got=$(seq 8 | xargs -P 8 -I{} curl -s -o /dev/null -w '%{http_code} ' "$R/packs/mn/manifest.json")
+[[ $got == *429* ]] || fail "no 429 on /packs/: $got"
+seq 8 | xargs -P 8 -I{} curl -s -o /dev/null "$R/packs/mn/manifest.json"
+H=$(curl -s -D - -o "$TMP/429p.json" -H 'Origin: http://localhost:5173' $R/packs/mn/manifest.json | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 429' && grep -q '"code":"RateLimited"' "$TMP/429p.json" || fail "packs 429 shape: $(echo "$H" | head -1)"
+[[ $(echo "$H" | grep -ci '^retry-after:') == 1 && $(echo "$H" | grep -ci '^cache-control: no-store$') == 1 ]] || fail "packs 429 headers"
+[[ $(echo "$H" | grep -ci '^access-control-allow-origin:') == 1 ]] || fail "packs 429 ACAO"
+docker exec navmn-ci-gw-rl grep -q 'zone=nav_packs' /etc/nginx/conf.d/01-rate-limits.conf || fail "nav_packs zone missing"
+sleep 2
 # route and search+reverse: 6 quick requests each -> at least one 429 in the contract shape
 for p in /v1/route "/v1/search?q=a&lang=mn" "/v1/reverse?lat=47.9&lon=106.9&lang=mn"; do
   got=$(seq 8 | xargs -P 8 -I{} curl -s -o /dev/null -w '%{http_code} ' "$R$p")
@@ -120,14 +134,18 @@ DUP=$(echo "$H" | grep -i '^access-control-[a-z-]*:' | cut -d: -f1 | tr 'A-Z' 'a
 [[ $(echo "$H" | grep -ci '^access-control-allow-origin: http://localhost:5173') == 1 ]] || fail "429 ACAO"
 echo "$H" | grep -qi '^access-control-expose-headers: .*Retry-After' || fail "429 does not expose Retry-After"
 docker logs navmn-ci-gw-rl 2>&1 | grep -qiE 'limiting requests|client: ' && fail "limit_req lines reached the log"
-# the access log reaches `docker logs` asynchronously: wait up to 5 s for the 429 line (was flaky without this)
-for _ in $(seq 25); do docker logs navmn-ci-gw-rl 2>&1 | grep -qE '"status":429' && break; sleep 0.2; done
+# the access log reaches `docker logs` asynchronously: wait up to 15 s for the 429 line (5 s was flaky on a loaded host)
+for _ in $(seq 75); do docker logs navmn-ci-gw-rl 2>&1 | grep -qE '"status":429' && break; sleep 0.2; done
 docker logs navmn-ci-gw-rl 2>&1 | grep -qE '"status":429' || fail "429 not in the access log"
 docker logs navmn-ci-gw-rl 2>&1 | grep -qE '([0-9]{1,3}\.){3}[0-9]{1,3}' && fail "an IPv4 address reached the gateway log"
 # invalid values are refused at start (the container exits instead of running unlimited)
 rl_run navmn-ci-gw-bad 18091 -e GATEWAY_RATE_LIMIT=on -e GATEWAY_RATE_ROUTE=lots
 for _ in $(seq 20); do [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] && break; sleep 0.5; done
 [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] || fail "invalid GATEWAY_RATE_ROUTE was accepted"
+docker rm -f navmn-ci-gw-bad >/dev/null
+rl_run navmn-ci-gw-bad 18091 -e GATEWAY_RATE_LIMIT=on -e GATEWAY_RATE_PACKS=0r/s
+for _ in $(seq 20); do [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] && break; sleep 0.5; done
+[[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] || fail "invalid GATEWAY_RATE_PACKS was accepted"
 echo "== NAV-006 compose.slots.yaml (ADR-0014)"
 printf 'NAV_COMPOSE_PROJECT=ci-slots\nNAV_DATA_ROOT=/nonexistent/nav-data\n' > "$TMP/slots.env"
 ( cd "$B" && docker compose -f compose.slots.yaml --env-file "$TMP/slots.env" --profile '*' config ) > "$TMP/slots.yaml" \
@@ -158,6 +176,9 @@ for lane in ("blue", "green"):
 assert s["gateway-verify"]["profiles"] == ["verify"] and s["gateway-verify"]["environment"]["GATEWAY_RATE_LIMIT"] == "off"
 mounts = {v["target"]: v for v in s["gateway"]["volumes"]}
 assert mounts["/etc/nginx/slot"]["source"].endswith("/pointer/public") and mounts["/etc/nginx/slot"]["read_only"]
+assert mounts["/srv/packs"]["source"].endswith("/packs") and mounts["/srv/packs"]["read_only"], "NAV-020 packs mount"
+assert "/srv/packs" not in {v["target"] for v in s["gateway-verify"]["volumes"]}, "gateway-verify must not serve packs"
+assert "/srv/packs" not in {v["target"] for v in d["gateway"]["volumes"]}, "the dev stack serves no packs (404)"
 assert {v["target"]: v for v in s["gateway-verify"]["volumes"]}["/etc/nginx/slot"]["source"].endswith("/pointer/verify")
 for b in ("tiles-build", "valhalla-build", "photon-import", "build-info"):
     assert s[b]["profiles"] == ["build"] and s[b]["restart"] == "no"
@@ -167,7 +188,12 @@ PY
 
 echo "== NAV-006 gateway slot mode (njs/slot.js, pointer read per request)"
 SL=$TMP/slotroot; A=20261004T000000Z; Bs=20261004T000001Z
-mkdir -p "$SL/pointer" "$SL/slots/$A/tiles" "$SL/slots/$Bs/tiles"
+mkdir -p "$SL/pointer" "$SL/slots/$A/tiles" "$SL/slots/$Bs/tiles" "$SL/packs/mn/$A" "$SL/packs/mn/$A.partial" "$SL/packs/mn/.manifests"
+head -c 300000 /dev/urandom | gzip -n -c > "$SL/packs/mn/$A/routing.tar.gz"
+cp "$SL/packs/mn/$A/routing.tar.gz" "$SL/packs/mn/$A.partial/routing.tar.gz"
+PZ=$(stat -c %s "$SL/packs/mn/$A/routing.tar.gz"); PSHA=$(sha256sum "$SL/packs/mn/$A/routing.tar.gz" | cut -d' ' -f1)
+printf '{"pack_schema":1,"region":"mn","pack_version":"%s"}\n' "$A" > "$SL/packs/mn/manifest.json"
+echo '[]' > "$SL/packs/mn/.history.json"
 printf 'PMTiles\003' > "$SL/slots/$A/tiles/basemap.pmtiles"; head -c 1000 /dev/zero >> "$SL/slots/$A/tiles/basemap.pmtiles"
 printf 'PMTiles\003' > "$SL/slots/$Bs/tiles/basemap.pmtiles"; head -c 2000 /dev/zero >> "$SL/slots/$Bs/tiles/basemap.pmtiles"
 chmod -R a+rX "$SL"
@@ -178,7 +204,7 @@ docker run -d --name navmn-ci-gw-slot --network navmn-ci-net -p 127.0.0.1:18092:
   -v "$B/gateway/snippets:/etc/nginx/snippets:ro" -v "$B/gateway/njs:/etc/nginx/njs:ro" \
   -v "$B/gateway/entrypoint/15-cors-origins.sh:/docker-entrypoint.d/15-cors-origins.sh:ro" \
   -v "$B/gateway/entrypoint/16-rate-limits.sh:/docker-entrypoint.d/16-rate-limits.sh:ro" \
-  -v "$SL/pointer:/etc/nginx/slot:ro" -v "$SL/slots:/srv/slots:ro" "$IMG" >/dev/null
+  -v "$SL/pointer:/etc/nginx/slot:ro" -v "$SL/slots:/srv/slots:ro" -v "$SL/packs:/srv/packs:ro" "$IMG" >/dev/null
 for _ in $(seq 30); do curl -fs localhost:18092/health >/dev/null && break; sleep 1; done
 S=http://127.0.0.1:18092
 slot_errors() {  # $1 = label: route/search/reverse -> JSON 502, tiles -> JSON 404, health 200
@@ -208,9 +234,74 @@ E2=$(echo "$H2" | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')
 docker logs navmn-ci-gw-slot 2>&1 | grep -qiE 'reload|signal process started' && fail "switch must not reload nginx"
 echo "   slot mode: no/invalid/foreign pointer -> JSON 502/404; rename switched the archive (ETag $E1 -> $E2), no reload"
 
-echo "== NAV-006 pipeline unit tests"
-python3 -m unittest discover -s "$B/pipeline/tests" 2>&1 | tail -n 3
-python3 -m unittest discover -s "$B/pipeline/tests" >/dev/null 2>&1 || fail "pipeline unit tests"
-rm -rf "$B/pipeline/__pycache__" "$B/pipeline/tests/__pycache__"
+echo "== NAV-020 /packs/ static locations (openapi 0.6.0 getOfflinePackManifest / getOfflinePackFile)"
+O='Origin: http://localhost:5173'
+H=$(curl -s -D - -o /dev/null -H "$O" -H 'Accept-Encoding: gzip' $S/packs/mn/manifest.json | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 200' || fail "manifest 200: $(echo "$H" | head -1)"
+[[ $(echo "$H" | grep -ci '^cache-control: no-cache$') == 1 && $(echo "$H" | grep -ci '^cache-control:') == 1 ]] || fail "manifest Cache-Control"
+echo "$H" | grep -qi '^content-type: application/json' || fail "manifest Content-Type"
+echo "$H" | grep -qi '^content-encoding:' && fail "manifest must not be gzip-encoded (strong ETag)"
+ME=$(echo "$H" | sed -n 's/^[Ee][Tt][Aa][Gg]: //p'); [[ "$ME" == \"*\" ]] || fail "manifest ETag not strong: $ME"
+[[ $(echo "$H" | grep -ci '^access-control-allow-origin:') == 1 ]] || fail "manifest ACAO"
+[[ $(code -H "If-None-Match: $ME" $S/packs/mn/manifest.json) == 304 ]] || fail "manifest 304"
+F=$S/packs/mn/$A/routing.tar.gz
+H=$(curl -s -D - -o "$TMP/p.gz" -H "$O" -H 'Accept-Encoding: gzip' "$F" | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 200' || fail "pack file 200: $(echo "$H" | head -1)"
+[[ "$(sha256sum "$TMP/p.gz" | cut -d' ' -f1)" == "$PSHA" ]] || fail "pack file body SHA-256"
+echo "$H" | grep -qi "^content-length: $PZ\$" || fail "pack file Content-Length"
+echo "$H" | grep -qi '^content-encoding:' && fail "pack file carries Content-Encoding"
+[[ $(echo "$H" | grep -ci '^cache-control:') == 1 ]] && echo "$H" | grep -qi '^cache-control: public, max-age=31536000, immutable$' || fail "pack file Cache-Control"
+echo "$H" | grep -qi '^accept-ranges: bytes$' || fail "pack file Accept-Ranges"
+PE=$(echo "$H" | sed -n 's/^[Ee][Tt][Aa][Gg]: //p'); [[ "$PE" == \"*\" ]] || fail "pack file ETag not strong: $PE"
+HALF=$((PZ / 2))
+H=$(curl -s -D - -o "$TMP/p2" -H "Range: bytes=$HALF-" -H "If-Range: $PE" "$F" | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 206' && echo "$H" | grep -qi "^content-range: bytes $HALF-$((PZ - 1))/$PZ\$" || fail "pack file 206: $(echo "$H" | head -3 | tr '\n' ' ')"
+echo "$H" | grep -qi '^accept-ranges: bytes$' || fail "pack file 206 Accept-Ranges"
+[[ "$( (head -c "$HALF" "$TMP/p.gz"; cat "$TMP/p2") | sha256sum | cut -d' ' -f1)" == "$PSHA" ]] || fail "resume halves do not hash to the file"
+[[ $(curl -s -o "$TMP/p3" -w '%{http_code}' -H "Range: bytes=$HALF-" -H 'If-Range: "stale"' "$F") == 200 && $(stat -c %s "$TMP/p3") == "$PZ" ]] || fail "If-Range mismatch must give the whole file"
+H=$(curl -s -D - -o "$TMP/p416" -H "$O" -H "Range: bytes=$PZ-" "$F" | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 416' && echo "$H" | grep -qi "^content-range: bytes \*/$PZ\$" || fail "pack 416"
+[[ $(echo "$H" | grep -ci '^cache-control:') == 1 ]] && echo "$H" | grep -qi '^cache-control: no-store$' || fail "pack 416 Cache-Control"
+echo "$H" | grep -qi '^accept-ranges:' && fail "pack 416 carries Accept-Ranges"
+grep -q '"code":"RangeNotSatisfiable"' "$TMP/p416" || fail "pack 416 body"
+[[ $(code -H "If-None-Match: $PE" "$F") == 304 ]] || fail "pack file 304"
+[[ $(code -X POST "$F") == 405 ]] || fail "pack file POST 405"
+[[ $(code -X OPTIONS -H "$O" "$F") == 204 ]] || fail "pack file preflight"
+for p in /packs/xx/manifest.json /packs/mn/.history.json /packs/mn/.manifests/ "/packs/mn/$A.partial/routing.tar.gz" \
+         "/packs/mn/$A/routing.tar" "/packs/mn/$A/other.sqlite.gz" /packs/mn/2026-10-04/routing.tar.gz \
+         "/packs/mn/$Bs/routing.tar.gz" /packs/mn/ /packs/; do
+  [[ $(code "$S$p") == 404 ]] || fail "$p must be 404"
+  curl -s "$S$p" | grep -q '"code":"NotFound"' || fail "$p 404 not JSON"
+done
+rm "$SL/packs/mn/manifest.json"
+[[ $(code $S/packs/mn/manifest.json) == 404 ]] && curl -s $S/packs/mn/manifest.json | grep -q '"code":"NotFound"' || fail "no manifest -> JSON 404"
+# the manifest is replaced by rename(2): the next request sees the new file and a new ETag (newer mtime), no reload
+printf '{"pack_schema":1,"region":"mn","pack_version":"%s"}\n' "$A" > "$SL/packs/mn/.m1"; touch -d '2026-10-04 00:00:00' "$SL/packs/mn/.m1"
+chmod a+r "$SL/packs/mn/.m1"; mv "$SL/packs/mn/.m1" "$SL/packs/mn/manifest.json"
+E1=$(curl -s -D - -o /dev/null $S/packs/mn/manifest.json | tr -d '\r' | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')
+printf '{"pack_schema":1,"region":"mn","pack_version":"%s"}\n' "$Bs" > "$SL/packs/mn/.m2"; touch -d '2026-10-04 00:00:01' "$SL/packs/mn/.m2"
+chmod a+r "$SL/packs/mn/.m2"; mv "$SL/packs/mn/.m2" "$SL/packs/mn/manifest.json"
+B2=$(curl -s $S/packs/mn/manifest.json); E2=$(curl -s -D - -o /dev/null $S/packs/mn/manifest.json | tr -d '\r' | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')
+[[ "$B2" == *"$Bs"* && -n "$E1" && "$E1" != "$E2" ]] || fail "manifest rename not picked up ($E1 -> $E2)"
+docker logs navmn-ci-gw-slot 2>&1 | grep -qE '([0-9]{1,3}\.){3}[0-9]{1,3}' && fail "an IPv4 address reached the gateway log"
+echo "   packs: manifest 200/304/404 (no-cache, strong ETag, not encoded); file 200/206/304/416 (immutable, no Content-Encoding, If-Range); other paths JSON 404; rename picked up"
+
+echo "== NAV-020 Gate 2 recipe and pins"
+DF=$B/gate2/Dockerfile
+grep -v '^[[:space:]]*#' "$DF" | grep -qE '(\bpatch\b|\bsed\b|git apply|git am )' && fail "the Gate 2 recipe must not patch fetched sources"
+grep -v '^[[:space:]]*#' "$DF" | grep -q 'valhalla/valhalla:' && fail "the Gate 2 recipe must not use the upstream Valhalla image"
+grep -q 'WRAPPER_COMMIT=b47ad5a9aa5d907df329bd2a0bfcc9080220c9d8' "$DF" && grep -q 'VALHALLA_COMMIT=e2f017b16080f49203de245a211b09efab09cf72' "$DF" \
+    && grep -q 'VCPKG_BASELINE=f176b58f35a75f9f8f54099cd9df97d2e2793a2e' "$DF" || fail "Gate 2 pins (ADR-0017 A1 F1)"
+grep -q '^FROM \${BASE_IMAGE}' "$DF" && grep -q 'BASE_IMAGE=ubuntu:24.04@sha256:' "$DF" || fail "Gate 2 base image not pinned by digest"
+[[ "$(sha256sum "$B/gate2/default.json" | cut -d' ' -f1)" == "$(sed -n 's/^GATE2_DEFAULT_JSON_SHA256 = "\(.*\)"/\1/p' "$B/pipeline/nav_pack.py")" ]] \
+    || fail "backend/gate2/default.json differs from the pinned AAR copy"
+echo "   Gate 2 recipe: pinned commits and base image, no patching, default.json = AAR copy"
+
+echo "== NAV-006 + NAV-020 pipeline unit tests, NAV-020 search builder tests"
+python3 -m unittest discover -s "$B/pipeline/tests" > "$TMP/ut.log" 2>&1 || { tail -n 30 "$TMP/ut.log"; fail "pipeline unit tests"; }
+tail -n 3 "$TMP/ut.log"
+python3 -m unittest discover -s "$B/pack/tests" > "$TMP/ut2.log" 2>&1 || { tail -n 30 "$TMP/ut2.log"; fail "search builder unit tests"; }
+tail -n 3 "$TMP/ut2.log"
+rm -rf "$B/pipeline/__pycache__" "$B/pipeline/tests/__pycache__" "$B/pack/__pycache__" "$B/pack/tests/__pycache__"
 
 echo "OK: backend static checks passed"

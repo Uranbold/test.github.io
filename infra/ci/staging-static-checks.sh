@@ -43,9 +43,15 @@ assert "edge" not in (s["gateway-verify"].get("networks") or {}), "gateway-verif
 for lane in ("blue", "green"):
     for svc in (f"valhalla-{lane}", f"photon-{lane}"):
         assert "edge" not in (s[svc].get("networks") or {}), svc
-data = [v["source"] for v in s["gateway"]["volumes"] if v["target"] in ("/etc/nginx/slot", "/srv/slots")]
-assert all(d.startswith("/var/lib/nav/data/") for d in data) and len(data) == 2, data
+data = [v["source"] for v in s["gateway"]["volumes"] if v["target"] in ("/etc/nginx/slot", "/srv/slots", "/srv/packs")]
+assert all(d.startswith("/var/lib/nav/data/") for d in data) and len(data) == 3, data
+packs = [v for v in s["gateway"]["volumes"] if v["target"] == "/srv/packs"][0]
+assert packs["source"] == "/var/lib/nav/data/packs" and packs["read_only"], packs
+assert "/srv/packs" not in {v["target"] for v in s["gateway-verify"]["volumes"]}, "gateway-verify must not serve packs"
+env = s["gateway"]["environment"]
+assert env["GATEWAY_RATE_PACKS"] == "2r/s" and env["GATEWAY_BURST_PACKS"] == "20", (env["GATEWAY_RATE_PACKS"], env["GATEWAY_BURST_PACKS"])
 print("   NAV-006: lanes and gateway-verify not on edge; gateway-verify on 127.0.0.1 only; slot root /var/lib/nav/data")
+print("   NAV-020: public gateway mounts /var/lib/nav/data/packs read-only at /srv/packs; packs limit 2r/s burst 20")
 PY
 compose -f "$ST/compose.staging.ipv6.yaml" --env-file "$TMP/stg.env" config > "$TMP/v6.yaml" || fail "compose config (IPv6)"
 for v in v4 v6; do
@@ -194,6 +200,20 @@ for path in sys.argv[1:]:
                 j -= 1
             assert j >= 0 and lines[j].startswith("#"), f"{path}:{i+1} {l.split('=')[0]} has no comment line"
 print("   every key in infra/staging/.env.example, monitoring/ops-vm/.env.example and backend/.env.example has a comment")
+PY
+python3 - "$ST/.env.example" <<'PY' || fail "NAV-020 pack keys in infra/staging/.env.example"
+import re, sys
+kv = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", open(sys.argv[1], encoding="utf-8").read(), re.M))
+want = {"PACK_ENABLED": "0", "PACK_REGION": "mn", "PACK_WEEKLY_MIN_AGE_DAYS": "7", "PACK_TILES_MIN_AGE_DAYS": "28",
+        "PACK_MIN_FREE_GB": "2", "PACK_RETAIN_MANIFESTS": "3", "PACK_GZIP_LEVEL": "6", "PACK_GATE2_MODE": "engine",
+        "PACK_GATE2_RATE": "5", "GATEWAY_RATE_PACKS": "2r/s", "GATEWAY_BURST_PACKS": "20"}
+bad = {k: kv.get(k) for k, v in want.items() if kv.get(k) != v}
+assert not bad, bad
+assert "@sha256:" in kv["PACK_SEARCH_BUILDER_IMAGE"], "builder image not pinned by digest"
+assert not kv["PACK_GATE2_IMAGE"].startswith("ghcr.io/valhalla/"), "upstream Valhalla image as the Gate 2 engine"
+assert "OpenStreetMap" in kv["PACK_ATTRIBUTION"]
+assert not kv.get("PACK_TEST_FAULT") and not kv.get("PACK_TEST_PAUSE_AT"), "test switches in the staging example"
+print("   NAV-020: pack keys at their staging defaults (disabled until the RUNBOOK 7A.8 checklist, Gate 2 mode engine)")
 PY
 cat > "$TMP/t.env" <<'EOF'
 STAGING_HOST=first.example.invalid

@@ -11,7 +11,8 @@ CONTRACT_ARGS ?=
 # staging gateway off the edge network (Caddy -> 502) and delete the live data. Staging uses infra/staging/bin/*
 # (RUNBOOK.md). Read-only targets (help, ps, logs, smoke, perf, contract, stats, build-info, tiles-info) still work.
 STAGING_ENV_FILE ?= ../infra/staging/.env
-STAGING_REFUSED  := .env up down restart cors-check rebuild-data clean-data nav006-up nav006-test-setup nav006-test-teardown
+STAGING_REFUSED  := .env up down restart cors-check rebuild-data clean-data nav006-up nav006-test-setup nav006-test-teardown \
+                    nav020-test-setup nav020-test-teardown
 ifneq ($(wildcard $(STAGING_ENV_FILE)),)
 ifneq ($(filter $(STAGING_REFUSED),$(MAKECMDGOALS)),)
 ifneq ($(NAV_DEV_TARGETS_ON_STAGING),yes)
@@ -25,7 +26,8 @@ endif
 .DEFAULT_GOAL := help
 .PHONY: help up down restart ps logs smoke smoke-backend perf contract rate-limit-check cors-check rebuild-data \
         clean-data stats tiles-info build-info rebuild rollback status slot-checksums nav006-up nav006-ps \
-        nav006-test-setup nav006-test-teardown pipeline-test
+        nav006-test-setup nav006-test-teardown pipeline-test pack-publish pack-status pack-test gate2-image \
+        nav020-test-setup nav020-test-teardown
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -102,7 +104,8 @@ tiles-info: ## pmtiles show on the built archive (go-pmtiles image)
 # (make nav006-test-setup). The dev .env is never used: it has no NAV_DATA_ROOT and its project is navmn.
 # make passes the pipeline's exit code on as "Error <code>" (make itself exits 2); `make status` shows it too.
 NAV006_TEST_ROOT ?= /var/tmp/nav006-test
-NAV_ENV_FILE ?= $(if $(wildcard $(STAGING_ENV_FILE)),$(STAGING_ENV_FILE),$(wildcard $(NAV006_TEST_ROOT)/nav006.env))
+NAV020_TEST_ENV = $(wildcard $(or $(NAV020_TEST_ROOT),/var/tmp/nav020-test)/nav020.env)
+NAV_ENV_FILE ?= $(if $(wildcard $(STAGING_ENV_FILE)),$(STAGING_ENV_FILE),$(or $(wildcard $(NAV006_TEST_ROOT)/nav006.env),$(NAV020_TEST_ENV)))
 PIPELINE = $(if $(wildcard $(STAGING_ENV_FILE)),../infra/staging/bin/nav-pipeline,$(PYTHON) pipeline/nav_pipeline.py --env-file $(NAV_ENV_FILE))
 SLOTS_COMPOSE = $(COMPOSE) --project-directory . -f compose.slots.yaml --env-file $(NAV_ENV_FILE)
 REBUILD_FLAGS = $(if $(filter 1,$(FORCE)),--force) $(if $(filter 1,$(ACCEPT_SIZE_DROP)),--accept-size-drop) \
@@ -135,5 +138,35 @@ nav006-ps: nav006-env-check ## NAV-006 test: containers of the test project
 nav006-test-teardown: ## NAV-006 test: remove the test project (containers, volumes, networks) and its root
 	pipeline/test-teardown.sh $(NAV006_TEST_ROOT)
 
-pipeline-test: ## NAV-006 pipeline unit tests (no Docker, a few seconds)
+pipeline-test: ## NAV-006 + NAV-020 pipeline unit tests (no Docker, a few seconds)
 	$(PYTHON) -m unittest discover -s pipeline/tests -v
+
+# ---------------------------------------------------------------- NAV-020 offline pack (ADR-0017; RUNBOOK NAV-020)
+# Config: the same NAV_ENV_FILE as rebuild (staging .env automatic). Test project: make nav020-test-setup, then
+# NAV_ENV_FILE=$(NAV020_TEST_ROOT)/nav020.env. The timer never passes FORCE or TILES.
+NAV020_TEST_ROOT ?= /var/tmp/nav020-test
+GATE2_IMAGE ?= navmn-gate2:0.6.3
+GATE2_VARIANT ?= wrapper
+PACK_FLAGS = $(if $(filter 1,$(FORCE)),--force) $(if $(filter 1,$(TILES)),--tiles)
+
+pack-publish: nav006-env-check ## NAV-020: pack step on the active slot, same lock as rebuild (FORCE=1 weekly part, TILES=1 also tiles)
+	$(PIPELINE) pack-publish $(PACK_FLAGS)
+
+pack-status: nav006-env-check ## NAV-020: the pack part of make status (published versions, last result, Gate 2 engine)
+	@$(PIPELINE) pack-status
+
+pack-test: ## NAV-020 unit tests: pack step, search DB builder (no Docker, a few seconds)
+	$(PYTHON) -m unittest discover -s pipeline/tests -p 'test_nav_pack*.py' -v
+	$(PYTHON) -m unittest discover -s pack/tests -v
+
+gate2-image: ## NAV-020 Gate 2 engine image (>= 20 GB free, 45-90 min; GATE2_VARIANT=upstream = ADR-0017 A1 item 2)
+	@avail=$$(df -Pk /var/lib/docker 2>/dev/null | awk 'NR==2{print int($$4/1048576)}'); \
+	if [ "$${avail:-0}" -lt 20 ]; then echo "refusing: $${avail:-?} GB free under /var/lib/docker; the Gate 2 build needs >= 20 GB (RUNBOOK NAV-020)"; exit 2; fi
+	docker build --build-arg GATE2_VARIANT=$(GATE2_VARIANT) -t $(GATE2_IMAGE) gate2
+	docker image inspect $(GATE2_IMAGE) --format '{{.Id}} {{json .Config.Labels}}'
+
+nav020-test-setup: ## NAV-020 dev-container test root (separate project navmn-nav020, gateway 127.0.0.1:18190)
+	pipeline/nav020-test-setup.sh $(NAV020_TEST_ROOT)
+
+nav020-test-teardown: ## NAV-020 test: remove the test project (containers, volumes, networks) and its root
+	pipeline/nav020-test-teardown.sh $(NAV020_TEST_ROOT)

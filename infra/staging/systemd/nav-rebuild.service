@@ -9,6 +9,8 @@ After=network-online.target docker.service
 Requires=docker.service
 
 [Service]
+# NAV-020: after a `success` run the offline pack step runs in the same process and lock when PACK_ENABLED=1 (target
+# <= 15 min more; rebuild + pack end well before the 21:30 UTC reboot window). Its result never changes the exit code.
 Type=oneshot
 # The pipeline takes /run/lock/nav-stack.lock (flock, shared with deploy.sh, cert-dry-run.sh and make rollback) itself.
 ExecStart=@NAV_ROOT@/infra/staging/bin/nav-rebuild.sh

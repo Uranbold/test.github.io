@@ -6,6 +6,8 @@
     nav_pipeline.py --env-file FILE rollback
     nav_pipeline.py --env-file FILE status
     nav_pipeline.py --env-file FILE checksums SLOT_ID
+    nav_pipeline.py --env-file FILE pack-publish [--force] [--tiles]     # NAV-020 (pipeline/nav_pack.py)
+    nav_pipeline.py --env-file FILE pack-status
 
 Normally run through `make rebuild | rollback | status` (backend/Makefile) or, on staging, the timer
 (infra/staging/bin/nav-rebuild.sh). Python 3 stdlib only; needs docker (compose v2) and curl on the host.
@@ -17,8 +19,15 @@ rebuild:  lock -> reconcile -> guards (disk, memory) -> fetch + validate the ext
           rollback on failure) -> grace -> stop the old lane -> keep exactly 2 slots. An interrupt during the
           post-switch smoke leaves the old lane running and state.json.post_switch_pending set; the next run's
           reconciliation runs that smoke before it stops the old lane (rollback on failure).
-rollback: start the previous slot's lane, rename the pointer back, mark the newer slot rolled back.
-status:   one JSON object (active/previous slot, data dates, last run, stale, next scheduled run). No lock.
+          NAV-020: after `success` (and only then) the offline pack step runs in the same lock when PACK_ENABLED=1
+          (pipeline/nav_pack.py). Its result is the summary's `pack` field; it never changes this run's result or
+          exit code (ADR-0017 A1 item 12).
+rollback: start the previous slot's lane, rename the pointer back, mark the newer slot rolled back. NAV-020 AC 28:
+          then republish the newest retained pack manifest without files from the rolled-back slot.
+status:   one JSON object (active/previous slot, data dates, last run, stale, next scheduled run, pack). No lock.
+pack-publish: NAV-020 manual pack step (same lock; FORCE=1 cuts the weekly part, TILES=1 also the tiles). Exit codes:
+          0 published / not due, 50 failed (gate 2), 51 failed (self-test), 52 failed (engine version mismatch),
+          53 failed (build), 54 skipped (low disk), 55 skipped (not eligible), 40 interrupted, 10 lock held.
 
 Exit codes (RUNBOOK.md NAV-006 section):
   0 success, or skipped: unchanged with a healthy active slot and fresh data
@@ -55,6 +64,10 @@ import urllib.error
 import urllib.request
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+
+if __name__ == "__main__":
+    # nav_pack.py does `import nav_pipeline`: make that the running module, not a second copy (same exception classes).
+    sys.modules.setdefault("nav_pipeline", sys.modules[__name__])
 
 HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parent
@@ -353,10 +366,11 @@ class Layout:
 
     def ensure(self):
         for d in (self.cache_sources, self.cache_tools, self.cache_osm, self.cache_dump, self.cache_index,
-                  self.slots, self.lanes, self.ptr_public.parent, self.ptr_verify.parent, self.runs):
+                  self.slots, self.lanes, self.ptr_public.parent, self.ptr_verify.parent, self.runs, self.root / "packs"):
             d.mkdir(parents=True, exist_ok=True)
-        for d in (self.root, self.slots, self.ptr_public.parent, self.ptr_verify.parent, self.root / "pointer"):
-            os.chmod(d, 0o755)   # the unprivileged gateway (uid 101) reads pointer and slots
+        for d in (self.root, self.slots, self.ptr_public.parent, self.ptr_verify.parent, self.root / "pointer",
+                  self.root / "packs"):
+            os.chmod(d, 0o755)   # the unprivileged gateway (uid 101) reads pointer, slots and (NAV-020) packs
 
     def slot(self, slot_id):
         return self.slots / slot_id
@@ -430,8 +444,15 @@ class RunLog:
         line = json.dumps(rec, ensure_ascii=False)
         print(line, flush=True)
         if self.f:
-            self.f.write(line + "\n")
-            self.f.flush()
+            try:
+                self.f.write(line + "\n")
+                self.f.flush()
+            except OSError as e:   # e.g. ENOSPC: keep going on stdout (journal) so the run can still end and alert
+                print(json.dumps({"ts": iso(), "job": "nav-pipeline", "run_id": self.run_id, "level": "error",
+                                  "msg": f"run log file write failed ({e.strerror}); logging to stdout only"}), flush=True)
+                with contextlib.suppress(OSError):
+                    self.f.close()
+                self.f = None
 
     def close(self):
         if self.f:
@@ -1619,7 +1640,22 @@ class Pipeline:
                 self.restore_aux_aside(keep_new=True)
             s.update(self.cleanup())
         self.phase = "done"
+        self.facts["pack"] = self.pack_after_success()
         return self.finish(0, "success")
+
+    def pack_after_success(self):
+        """NAV-020 hook: the pack step after a `success` run, inside this run's lock. Never changes the NAV-006 result
+        or exit code (ADR-0017 A1 item 12)."""
+        try:
+            import nav_pack
+            return nav_pack.after_rebuild(self)
+        except Exception as e:  # noqa: BLE001
+            self.log.event("error", "pack step crashed; the NAV-006 result is unchanged", error=f"{type(e).__name__}: {e}")
+            return {"result": "failed (build)", "reason": f"unexpected {type(e).__name__}"}
+
+    def pack_publish(self, force=False, tiles=False):
+        import nav_pack
+        return nav_pack.publish_command(self, force, tiles)
 
     def unchanged(self, active_slot, osm):
         with self.step("check_active") as s:
@@ -1675,6 +1711,11 @@ class Pipeline:
                     save_state(self.lay, st)
                 s.update(slot=prev, lane=lane, rolled_back=cur, seconds_since_start=round(time.monotonic() - t0, 1))
             self.facts["rollback_seconds_to_switch"] = round(time.monotonic() - t0, 1)
+            try:   # NAV-020 AC 28: the pack follows the data rollback (never changes the rollback result)
+                import nav_pack
+                self.facts["pack"] = nav_pack.rollback_hook(self, cur)
+            except Exception as e:  # noqa: BLE001
+                self.log.event("error", "pack rollback hook crashed; rollback result unchanged", error=str(e)[:200])
             with self.step("grace") as s:
                 self.sleep(self.cfg.grace_s)
                 self.stop_lane(cur_lane)
@@ -1740,7 +1781,18 @@ def status(cfg):
            "next_scheduled_run": nxt, "rolled_back_slots": st.get("rolled_back", [])[-5:],
            "state_matches_pointer": (st.get("active") == (ptr["slot"] if ptr else None)),
            "post_switch_pending": st.get("post_switch_pending")}
+    try:   # NAV-020 AC 24
+        import nav_pack
+        doc["pack"] = nav_pack.pack_status(cfg)
+    except Exception as e:  # noqa: BLE001 - status must always print
+        doc["pack"] = {"error": f"{type(e).__name__}: {e}"}
     print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return 0
+
+
+def pack_status_cmd(cfg):
+    import nav_pack
+    print(json.dumps(nav_pack.pack_status(cfg), ensure_ascii=False, indent=2))
     return 0
 
 
@@ -1783,6 +1835,10 @@ def main(argv=None):
     sub.add_parser("status")
     ck = sub.add_parser("checksums")
     ck.add_argument("slot")
+    pp = sub.add_parser("pack-publish", help="NAV-020: manual pack step (same lock as rebuild)")
+    pp.add_argument("--force", action="store_true", help="cut the weekly part (routing + search) regardless of age")
+    pp.add_argument("--tiles", action="store_true", help="also cut the tiles (implies --force)")
+    sub.add_parser("pack-status", help="NAV-020: the pack object of status")
     args = ap.parse_args(argv)
     try:
         cfg = Config(args.env_file).load()
@@ -1793,11 +1849,15 @@ def main(argv=None):
         return status(cfg)
     if args.cmd == "checksums":
         return checksums(cfg, args.slot)
+    if args.cmd == "pack-status":
+        return pack_status_cmd(cfg)
     p = Pipeline(cfg, args.cmd)
     try:
         if args.cmd == "rebuild":
             return p.rebuild(args.force, args.accept_size_drop, args.accept_route_change, args.scheduled,
                              args.assume_locked, args.refresh_aux)
+        if args.cmd == "pack-publish":
+            return p.pack_publish(args.force, args.tiles)
         return p.rollback()
     except Outcome as o:   # before a run ID exists: config refusals and the lock
         print(json.dumps({"ts": iso(), "job": "nav-pipeline", "kind": args.cmd, "level": "error", "step": o.step,

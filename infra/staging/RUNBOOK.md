@@ -274,6 +274,89 @@ Fresh host (no interim rebuild ever ran): sections 4-6 as written; the first `de
 10. After the next timer run (`make status`: `success` or `skipped: unchanged`): `sudo rm -rf /opt/nav/backend/data /var/lib/nav/rollback /var/lib/nav/last-rebuild.json /var/lib/nav/last-smoke.txt /var/lib/nav/osm.md5`.
 11. Once outside tester hours: `make rebuild FORCE=1` with a request loop running (QA plan NAV-006) and `make rollback`; record both in section 15 (NAV-008 AC 15 downtime = 0 s).
 
+## 7A. Offline Mongolia pack (NAV-020)
+
+**Design:** [ADR-0017](../../docs/architecture/adr/0017-offline-mongolia-pack-android.md) §1, §4-§6 and Amendment A1; task file `docs/architecture/tasks/NAV-020-offline-pack-build-publication.md`. **Story:** [NAV-020](../../docs/requirements/stories/NAV-020-offline-pack-build-publication.md). **Contract:** `openapi.yaml` 0.6.x `getOfflinePackManifest`, `getOfflinePackFile`. Code: `backend/pipeline/nav_pack.py`, `backend/pack/`, `backend/gate2/`.
+
+### 7A.1 What it does
+After a NAV-006 run that ends `success` (switch done and post-switch smoke passed), the **pack step** runs in the same process and the same lock, after the grace period, the old-lane stop and slot cleanup. It never changes the NAV-006 result, exit code or heartbeat; its own result is the `pack` field of the run summary, `state.json` and `make status`. Nothing runs after `skipped: *`, `failed`, `rolled back` or `interrupted`.
+
+The pack `mn` has three files, each with its own version (= the slot ID it was cut from), all gzip files under `NAV_DATA_ROOT/packs/mn/<version>/` (write-once directories) plus `packs/mn/manifest.json` (replaced only by one `rename(2)`):
+
+| Kind | File | Source in the active slot | Cut when |
+|---|---|---|---|
+| `routing` | `routing.tar.gz` | `valhalla/valhalla_tiles.tar`, byte-identical | weekly part due: published routing >= `PACK_WEEKLY_MIN_AGE_DAYS` (7) old, and `PACK_WEEKDAY` (if set) is today in Asia/Ulaanbaatar |
+| `search` | `search.sqlite.gz` | built from `sources/photon-dump` by `backend/pack/search_builder.py` in `PACK_SEARCH_BUILDER_IMAGE` (network none) | always together with `routing` (same version) |
+| `tiles` | `basemap.pmtiles.gz` | `tiles/basemap.pmtiles` (z0-14), byte-identical | **only in a run that also cuts the weekly part**, when the published tiles are >= `PACK_TILES_MIN_AGE_DAYS` (28) old (so tiles are at most about 35 days old; ADR-0017 A1 item 6) |
+
+Sub-steps (one JSON line each in the run log, `step` = `pack.<name>`): `select`, `copy` (hard links of the slot files into `packs/.work/<run>/`), `search_build`, `gzip` (deterministic: no name, mtime 0, level `PACK_GZIP_LEVEL`), `checksum` (from the bytes on disk; decompressed copies for the tests), `self_test` (PMTiles v3 z0-14 with P1-P6 + X1 inside the bounds; search DB `quick_check`, schema and `self_test.search` >= 1 row; every `.gz` decompresses to its `bytes`/`sha256`), `gate2` (below; also routes `self_test.route` on the candidate tar), `manifest` (schema-validated, version directory renamed into place, manifest renamed), `cleanup` (retention). An unchanged Photon dump gives a byte-identical `search.sqlite`, so phones skip it.
+
+### 7A.2 Commands
+```sh
+sudo make -C /opt/nav/backend pack-status                 # the pack part of make status (< 2 s, no lock)
+sudo make -C /opt/nav/backend pack-publish                # manual pack step: same lock as rebuild, reads only the active slot, cadence rules
+sudo make -C /opt/nav/backend pack-publish FORCE=1        # cut the weekly part (routing + search) regardless of its age
+sudo make -C /opt/nav/backend pack-publish TILES=1        # also cut the tiles (implies FORCE=1)
+grep '"pack\.' /var/lib/nav/data/runs/<run-id>.jsonl | jq -c '{step,result,duration_s,reason}'
+```
+The timer never passes `FORCE`/`TILES`. A second command while the lock is held exits at once with code 10 and names the lock. A version directory is never rewritten: a second `FORCE=1` on the same active slot ends `not due (already published)`.
+
+### 7A.3 Reading the pack part of `make status`
+```json
+"pack": {"enabled": true, "pack_version": "20261004T193412Z", "published_at": "2026-10-04T20:05:11Z",
+         "files": {"tiles":   {"version": "20260927T193105Z", "data_timestamp": "2026-09-26T20:21:03Z", "download_bytes": 86400000},
+                   "routing": {"version": "20261004T193412Z", "data_timestamp": "2026-10-03T20:21:02Z", "download_bytes": 25900000},
+                   "search":  {"version": "20261004T193412Z", "data_timestamp": "2026-10-03T00:00:00Z", "download_bytes": 8300000}},
+         "last_result": {"run_id": "...", "trigger": "rebuild", "result": "published", "step": null, "reason": null, "duration_s": 61.2},
+         "gate2_engine": {"mode": "engine", "image": "navmn-gate2:0.6.3", "image_id": "sha256:...", "variant": "wrapper",
+                          "valhalla_mobile_version": "0.6.3", "wrapper_commit": "b47ad5a9...", "valhalla_commit": "e2f017b1..."},
+         "retained_manifests": 3}
+```
+`pack_version` = slot of the newest routing/search; `tiles.version` may be older (monthly). After a rollback republish (7A.7) `pack_version` and `published_at` go backwards on purpose (openapi 0.6.1).
+
+### 7A.4 Results and operator action
+`make pack-publish` exits with the code below; on the timer path the NAV-006 exit code is unchanged and the result is in the summary's `pack` field. Failed and low-disk results call `REBUILD_ALERT_CMD` exactly once (`NAV_RUN_RESULT=pack: <result>`, `NAV_RUN_STEP=pack.<sub-step>`). In every non-`published` case the served manifest is unchanged and phones keep what they have.
+
+| Code | Result | Operator action |
+|---|---|---|
+| 0 | `published` | none |
+| 0 | `not due` (the weekly part is younger than `PACK_WEEKLY_MIN_AGE_DAYS`, wrong weekday, or the version directory already exists) | none; `FORCE=1` only for a deliberate extra publication |
+| 54 | `skipped (low disk)`: free < `PACK_MIN_FREE_GB` at start (the log has both values); nothing written | free disk (section 11), then `make pack-publish` |
+| 55 | `skipped (not eligible)`: no complete active slot, the active slot was rolled back, or a NAV-006 post-switch check is pending | run `make rebuild` (it reconciles), then `make pack-publish` |
+| 50 | `failed (gate 2)`: the Gate 2 engine differs from the server on a golden request (the log has one `gate 2 difference` line per request with the first differing field and both values), the image is missing or its labels do not match the pins, or the golden set file is missing | do **not** loosen the rule (ADR-0017 A1 item 13). Send the run log to the architect; a difference after a server or engine change needs the ADR-0017 §4 procedure (7A.5). The serving slot is not rolled back |
+| 51 | `failed (self-test)`: tiles header (zoom / bounds), search DB (`quick_check`, schema, self-test query), a gzip round trip, or `self_test.route` not `Ok` on the candidate tar | `runs/<run-id>.jsonl` `pack.self_test` / `pack.gate2` line; usually bad source data: wait for the next rebuild or roll back the data |
+| 52 | `failed (engine version mismatch)`: the app's `valhalla-mobile` pin (`mobile/android/gradle/libs.versions.toml`) differs from `PACK_GATE2_VALHALLA_MOBILE_VERSION` | rebuild the Gate 2 image for the app's version (7A.5), then set the key |
+| 53 | `failed (build)`: search builder error, missing slot file, manifest rule or schema failure, `PACK_METHOD_URL` empty, configuration error | the `reason` names it; fix and `make pack-publish` |
+| 40 | `failed (interrupted)`: SIGTERM/SIGINT during the step (stop, reboot); partial files deleted | none; the next run or `make pack-publish` starts clean |
+
+**Interrupted step, `kill -9`, power cut:** the served manifest is always the last complete one. The next pack step deletes `packs/.work/*`, `packs/mn/*.partial`, temporary manifests, version directories no retained manifest refers to and stray pack containers, re-checks the SHA-256 of every file the served manifest refers to, and republishes the newest retained manifest that verifies if one is damaged (alert).
+
+### 7A.5 Gate 2 engine: pin, build, change
+The gate compares, strictly (distance to 1 m, duration to 1 s, manoeuvre type/modifier/exit, street names, every polyline6 point at 6 decimals, route count with `alternates: 2`, the OSRM code), the **shipped phone engine** on the candidate `routing.tar` with the **active server Valhalla** through `127.0.0.1:GATEWAY_PORT` (<= `PACK_GATE2_RATE` r/s), for every request of the golden set `PACK_GATE2_GOLDEN_SET` (QA fixture, NAV-020 AC 9). The engine is a host build of `valhalla-mobile` **0.6.3** = wrapper `b47ad5a9…` + Valhalla `e2f017b1…` (upstream 3.6.3), from `backend/gate2/Dockerfile`, unmodified; its config is the AAR's `default.json` (copy in `backend/gate2/`, SHA-256 checked) plus the ADR-0017 A1 item 5 overrides. **Never** use `ghcr.io/valhalla/valhalla:*` as the gate (the configuration refuses it).
+- **Build** (once per pin change; needs >= 20 GB free, plan for 30 GB, 45-90 min on 4 vCPU): `sudo make -C /opt/nav/backend gate2-image` (fallback A1 item 2: `GATE2_VARIANT=upstream`), then `docker builder prune -f`. Or build elsewhere and move it: `docker save navmn-gate2:0.6.3 | gzip > gate2.tar.gz`, `docker load < gate2.tar.gz` (about 0.3-0.6 GB). Check: `docker image inspect navmn-gate2:0.6.3 --format '{{json .Config.Labels}}'` shows the two commits and `nav.gate2.variant`.
+- **Change the pin** only together with an ADR-0017 note and the NAV-021 **Gate 1** re-run (ADR-0017 §4): new image tag, `PACK_GATE2_IMAGE`, `PACK_GATE2_VALHALLA_MOBILE_VERSION`, `PACK_GATE2_WRAPPER_COMMIT`, `PACK_GATE2_VALHALLA_COMMIT`, the AAR `default.json` copy and its SHA-256 in `nav_pack.py`. A server Valhalla upgrade (new `graph_builder`) needs the same ADR note first.
+- `PACK_GATE2_MODE=evidence` (the server's own library on both sides) exists only for dev-container tests and is refused on `navmn`.
+
+### 7A.6 Serving, rate limit, retention, disk
+- The public gateway serves `/packs/mn/manifest.json` (`Cache-Control: no-cache`, strong `ETag`, 304) and `/packs/mn/<version>/<file>.gz` (Range/If-Range, `immutable`, no `Content-Encoding`, 416 JSON), from `NAV_DATA_ROOT/packs` mounted read-only (`compose.slots.yaml`). Other `/packs/` paths, dot files and `*.partial` are JSON 404. Caddy has no `encode` (it would add `Content-Encoding` and break the byte checks).
+- **"packs" rate limit:** `GATEWAY_RATE_PACKS` (staging 2r/s) and `GATEWAY_BURST_PACKS` (20) per client IP, own zone; `/health`, tiles and `OPTIONS` are never limited; `/v1/*` limits are unchanged. A change needs a gateway recreate (`deploy.sh`). Starting values set with the architect; review after 2 weeks of real downloads.
+- **Retention:** exactly the files referenced by the last `PACK_RETAIN_MANIFESTS` (3) published manifests are kept (copies in `packs/mn/.manifests/`, order in `.history.json`), so a download that started before a publication can still resume. Pack files are separate gzip files, so NAV-006 slot cleanup never affects them.
+- **Disk:** about 0.2-0.4 GB steady state (three weekly parts of about 33 MB + one or two tiles files of about 86 MB) plus about 0.3 GB of `packs/.work/` during a run; logged as `packs_disk_bytes` by `pack.cleanup`. The Gate 2 image is about 0.3-0.6 GB, the builder image about 0.15 GB. All far below the NAV-006 guard (`REBUILD_MIN_FREE_GB` 50); `nav-diskcheck` (85 %) is unchanged.
+- **Timing:** the pack step runs inside `nav-rebuild.service` (unchanged timer, 19:30 UTC + <= 15 min, `TimeoutStartSec=2h`). Target <= 15 min from start to the manifest rename on 4 vCPU (NAV-020 AC 27); measured in the dev container: see section 15. Rebuild (~10 min) + pack ends well before the 21:30 UTC reboot window. SIGTERM is handled within 60 s (`TimeoutStopSec=90s`).
+
+### 7A.7 `make rollback` and the pack (NAV-020 AC 28)
+When the served manifest refers to a file cut from the slot being rolled back, `make rollback` replaces it right after its pointer switch (one `rename(2)`, within 60 s) with a fresh copy of the newest retained manifest that refers to **no** file from that slot; `make status` shows `last_result.result = "rollback: republished"`. Phones whose installed `sha256` differs then download the older files (NAV-022). If no retained manifest is clean, the manifest stays, `rollback: no clean manifest` is recorded and the alert hook is called once; publish a clean pack with `make pack-publish FORCE=1 TILES=1` after the data is fixed. The rollback's own result and exit code never depend on this.
+
+### 7A.8 Checklist: enable the pack step on the NAV-008 VPS (not executed yet; needs the host and the Gate 2 image)
+1. NAV-006 is installed and `make status` shows a `success` run (section 7.9).
+2. Add the `PACK_*` and `GATEWAY_*_PACKS` keys from `.env.example` to `infra/staging/.env`; set `PACK_METHOD_URL` to the public pipeline repository; keep `PACK_ENABLED=0`.
+3. `sudo /opt/nav/infra/staging/bin/deploy.sh <tag>` (creates `NAV_DATA_ROOT/packs`, recreates the gateway with the `/srv/packs` mount and the packs zone). `curl -sS -o /dev/null -w '%{http_code}\n' https://staging.<domain>/packs/mn/manifest.json` -> `404` (nothing published yet).
+4. Build or load the Gate 2 image (7A.5) and check its labels. QA's golden set file exists at `PACK_GATE2_GOLDEN_SET` in the deployed checkout.
+5. `df -h /var/lib/nav` >= 5 GB free, then `sudo make -C /opt/nav/backend pack-publish` -> exit 0, `published`; `make pack-status` shows three files with the same version.
+6. `python3 /opt/nav/backend/scripts/contract_check.py --base-url https://staging.<domain>` (from `backend/.venv`) -> exit 0 (pack cases included); `smoke.py` -> exit 0.
+7. Set `PACK_ENABLED=1`. After the next timer run: `make status` -> `last_run.result=success` and `pack.last_result.result` = `published` or `not due`.
+8. Record the first publication's sub-step durations (`grep '"pack\.' runs/<id>.jsonl`), `packs_disk_bytes` and the AC 27 total in section 15.
+
 ## 8. Certificates (Let's Encrypt via Caddy)
 
 - Issued and renewed automatically by Caddy (TLS 1.2/1.3 only, HTTP -> HTTPS 308). No cron job.
@@ -465,6 +548,8 @@ Effective monthly = term total / months + monthly add-ons. The ADR-0005 cost tab
 | | Certificate dry run (LE staging CA) | pass/fail | issuer line | nav-ops |
 | | Rebuild with empty aux cache (AC 15/16): `nav-stats-sampler.sh -- make -C /opt/nav/backend rebuild REFRESH_AUX=1` (section 7.8) | exit code, result | minutes, peak_build_mb + steady_mb = ac16_ratio, free disk, C9 hosts | nav-ops |
 | | NAV-006 install (section 7.9) and first switch with a request loop + `make rollback` | result, failed requests | rebuild minutes, rollback seconds, downtime (expect 0 s) | nav-ops |
+| 2026-10-04 | NAV-020 dev container (not staging; 4 vCPU shared with parallel builds; Gate 2 in **evidence** mode, not the engine): first publication of all three files | `published` | 31 s from start to rename: search build 11.1 s (builder 9.4 s, 43,892 rows), gzip 10.4 s, checksum 2.0 s, self-test 1.8 s, Gate 2 5.4 s (19 requests), manifest 0.3 s. Sizes raw/gzip: tiles 117,536,866 / 86,439,299; routing 63,713,280 / 25,911,251; search 23,117,824 / 8,288,113 B. Weekly-only publications 21-29 s. `packs/` after 6 publications: 189,047,358 B | backend |
+| | NAV-020 first publication on the VPS (7A.8 step 8, real Gate 2 engine) | result | minutes to the manifest rename (AC 27 <= 15), `packs_disk_bytes` | nav-ops |
 | | Alert drill (AC 17) | | alert after .. min, recovery after .. min | nav-ops |
 | | Restore drill (AC 20) | | total minutes | nav-ops |
 

@@ -113,7 +113,7 @@ nav_ensure_data_root() {
     local root
     root=$(nav_data_root)
     install -d -m 755 "$root" "$root/slots" "$root/lanes" "$root/cache" "$root/pointer" \
-        "$root/pointer/public" "$root/pointer/verify" "$root/runs"
+        "$root/pointer/public" "$root/pointer/verify" "$root/runs" "$root/packs"
 }
 
 # nav_compose <compose args...>: the staging compose invocation (NAV-006 slot runtime + overlay(s) + staging .env).
