@@ -7,7 +7,7 @@ size: L           # fetch + validation, slot build, private verification, atomic
 needs_design: false
 needs_backend: true
 needs_mobile: false
-status: in-progress  # 2026-10-04. ADR-0014 and backend built; light-QA run 1 passed all six focused items (docs/qa/reports/NAV-006-run1.md), minor findings F1, F2 with backend. Open questions 1–7 decided (D127–D133), plus D134, D135; Open question 8 is new and non-blocking. Real-VPS deployment waits for NAV-008 host details (D126)
+status: in-progress  # 2026-10-04. ADR-0014 and backend built; light-QA run 1 passed all six focused items (docs/qa/reports/NAV-006-run1.md), minor findings F1, F2 with backend. Open questions 1–7 decided (D127–D133), plus D134, D135; Open question 8 decided as built (D139). Real-VPS deployment waits for NAV-008 host details (D126)
 ---
 
 # NAV-006: Daily OSM data rebuild pipeline with a blue/green switch (zero downtime, one-step rollback)
@@ -64,7 +64,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 2. **Given** an **ordered source list** in configuration (the primary source plus zero or more fallbacks, each an `https://` URL or a local file), **When** a source fails (HTTP status other than 200, no data for **≥ 120 s**, or any AC 3 check fails), **Then**:
    - that source is retried once after **≥ 30 s**, then the next source in the list is tried
    - the run log and the slot's `build-info.json` name the source that was actually used
-   - if every source fails, the run ends as **"skipped: no valid source"**: nothing is built, nothing switches, and the alert hook is called (AC 32)
+   - if every source fails, the run ends as **"skipped: no valid source"**: nothing is built, nothing switches, and the alert hook is called (AC 32) on every such run, not only after 48 h ([D139](../decisions.md))
 
    **The staging and production default list contains Geofabrik only** (D127). If it fails, the day is skipped, the old data keeps serving, and the stale alert fires once the data is more than 48 h old (AC 29, AC 32). The geo2day mirror or a local file may be listed **only in dev and test configurations**, such as the test configuration in this container (AC 36).
 3. **Given** a downloaded or local extract, **When** it is validated, **Then** it is accepted only if **all** of these hold, and a rejection names the failed check and the measured value:
@@ -256,7 +256,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 43. **Given** NAV-006 is installed on staging, **When** the rebuild paths are listed, **Then** only **one** rebuild path can change served data: the interim in-place rebuild (`nav-rebuild.sh`, `nav-rollback-data.sh`) is removed, or reduced to a wrapper around the NAV-006 pipeline. `docs/architecture/deployment-staging.md` §11 and `RUNBOOK.md` §7 describe the same path. NAV-008 AC 15 "downtime measured" is then expected to record **0 s**.
 
 ## Edge cases
-- **No network / international link degraded** (Geofabrik is in Germany; from a Mongolian production host, NAV-009, the route goes through Russia or China): every source fails, the run is "skipped: no valid source", the old data keeps serving, and after 48 h the status shows `stale: true` and the hook fires (AC 2, AC 29, AC 32).
+- **No network / international link degraded** (Geofabrik is in Germany; from a Mongolian production host, NAV-009, the route goes through Russia or China): every source fails, the run is "skipped: no valid source", the old data keeps serving, the hook fires on each such run, and after 48 h the status shows `stale: true` and the stale alert fires (AC 2, AC 29, AC 32; D139).
 - **Geofabrik publishes late or not at all on a day:** "skipped: unchanged" is normal and not an alert, until the data is more than 48 h old (AC 6, AC 29).
 - **Geofabrik replaces the file during the download:** the `.md5` is read once more (AC 1).
 - **Truncated download or HTML error page saved as PBF:** check 3(a) (AC 3, AC 4).
@@ -303,7 +303,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 - Traffic data (Phase 3).
 
 ## Open questions
-**Open questions 1–7 were decided on 2026-10-04** (PO "All as recommended", `decisions.md` D127–D133). Each chose the BA recommendation, so the AC already followed them. The options are kept below for the record. Open question 8 is new and does not block anything.
+**Open questions 1–7 were decided on 2026-10-04** (PO "All as recommended", `decisions.md` D127–D133). Each chose the BA recommendation, so the AC already followed them. The options are kept below for the record. **Open question 8 was decided on 2026-10-04** (PO "All as recommended", D139): option (a), keep as built. All open questions are now decided.
 
 1. **Decided 2026-10-04: (b) (D127).** **Fallback sources for the OSM extract on staging and production.** Options:
    - (a) Geofabrik only. If it fails, skip the day, keep serving the old data, alert after 48 h
@@ -331,7 +331,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 5. **Decided 2026-10-04: accepted as starting values (D130).** **Guard defaults** marked *BA proposal*: 90 % size floors (AC 3(d), AC 13), 20 % reference-route deviation (AC 12), 40 MB minimum extract, 6.5 GB memory, 5 GB hard disk floor, 30 s grace. *Recommendation: accept them as starting values and tune them after 2 weeks of staging runs, through a change request.*
 6. **Decided 2026-10-04: all of Mongolia, Geofabrik `mongolia-latest` (D131).** **Launch coverage** (backlog owed decision 2: UB first or all of Mongolia) and **NAV-008 Open question 5** (staging coverage). *Working assumption:* Geofabrik `mongolia-latest`, as on staging. The pipeline does not depend on the answer: coverage is just the configured source and the P1–P6 check.
 7. **Decided 2026-10-04: keep 03:30 (D132).** **Rebuild time window.** *Working assumption:* 03:30 Asia/Ulaanbaatar, as the interim NAV-008 timer. Options: keep it; or move it (for example 05:00) if night-shift taxi traffic proves heavier than expected.
-8. **When does "every source failed" alert?** (added 2026-10-04 with D127). The D127 wording says "if it fails, skip the day, keep old data, alert after 48 h". AC 2 and AC 32 (and the built pipeline, exit 13) also call the placeholder alert hook on **every** "skipped: no valid source" run, and the staging heartbeat goes missing after 26 h. Options:
+8. **Decided 2026-10-04: (a), keep as built (D139); AC 2, AC 32 and the code unchanged.** **When does "every source failed" alert?** (added 2026-10-04 with D127). The D127 wording says "if it fails, skip the day, keep old data, alert after 48 h". AC 2 and AC 32 (and the built pipeline, exit 13) also call the placeholder alert hook on **every** "skipped: no valid source" run, and the staging heartbeat goes missing after 26 h. Options:
    - (a) keep the AC as built: the hook fires on every "skipped: no valid source" run, and the stale alert fires after 48 h
    - (b) call the hook for "skipped: no valid source" only once the active data is more than 48 h old (a change to AC 2, AC 32 and the backend)
 
@@ -340,7 +340,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
 |---|---|---|---|---|---|
-| AC1–AC3 | — | — | source list and validation step (backend, TBD); `backend/scripts/data-fetch.sh`, `pbfinfo.py` (existing) | unit or script tests (backend); AC 4 run in QA set item 2 if the validation-stage failure is chosen | D125, D126; D127 (source list, Geofabrik only on staging and production); D131 (coverage); D130 (3(c), 3(d)); Open question 8 |
+| AC1–AC3 | — | — | source list and validation step (backend, TBD); `backend/scripts/data-fetch.sh`, `pbfinfo.py` (existing) | unit or script tests (backend); AC 4 run in QA set item 2 if the validation-stage failure is chosen | D125, D126; D127 (source list, Geofabrik only on staging and production); D131 (coverage); D130 (3(c), 3(d)); D139 (Open question 8, hook on every "no valid source" run) |
 | AC4 | — | — | validation step (backend, TBD) | truncated-file test (backend test or QA) | |
 | AC5–AC6 | — | — | pipeline (backend, TBD) | review or backend test | |
 | AC7–AC10 | — | — | slot build (backend, TBD); `build_info.py` (extend) | QA set item 1 (checksum listing, `build-info.json`) | |
@@ -358,7 +358,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 | AC27–AC28 | — | — | guards (backend) | backend test or review; AC 28 staging measurement in NAV-008 | NAV-008 AC 16; D130 |
 | AC29 | — | — | `make status` (backend) | QA set items 1–3 read it | |
 | AC30 | — | new status operation only if the ADR adds it (architect) | `openapi.yaml` (architect, conditional) | `contract_check.py` (conditional) | D129 (no end-user data date; ADR-0014: not applicable) |
-| AC31–AC32 | — | — | logging and alert hook (backend) | review; hook call checked in QA set item 2; no hook on a stale `make rollback` seen in QA run 1 (report §5 observation) | D135; Open question 8 |
+| AC31–AC32 | — | — | logging and alert hook (backend) | review; hook call checked in QA set item 2; no hook on a stale `make rollback` seen in QA run 1 (report §5 observation) | D135; D139 (Open question 8) |
 | AC33 | — | all (loop) | failure handling (backend) | QA set item 2 | |
 | AC34–AC39 | — | `getHealth` (shared-stack probe) | test configuration (backend, QA) | QA report (`docs/qa/`) | D126 |
 | AC40 | — | — | NAV-006 ADR (architect, TBD) | ADR review | |
@@ -369,3 +369,4 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 |---|---|---|---|
 | 2026-10-04 | Feature request NAV-006 (PO "Yes" to the orchestrator's proposal, relayed by the orchestrator; `decisions.md` D125, D126) | Story written from the backlog draft row: 43 AC in sections A–J (fetch and validation, slot build, private verification, atomic switch with a zero-failure request loop, rollback and retention, triggers/lock/guards, status/logs/alerting, failure handling, dev-container build with light QA, ADR/runbook/config). Priority must, Phase 1 (D125). Light-QA set and dev-container isolation from D126. Seven non-blocking open questions with working assumptions. Status `ready` | Daily fresh OSM data with no downtime is on the Phase 1 beta critical path. The NAV-008 interim rebuild has routing and search downtime and no slot-level rollback |
 | 2026-10-04 | PO answers to the NAV-006 open questions ("All as recommended" in chat, relayed by the orchestrator; `decisions.md` D127–D135) | Open questions 1–7 marked decided (D127–D133). AC 2: staging **and production** default Geofabrik only, mirror or local file only in dev and test (D127). AC intro: *BA proposal* guard values accepted as starting values, tuned after 2 weeks of staging runs (D130). AC 20: also applies after the AC 21 automatic rollback (D134). AC 23: D132 reference. AC 24: new bullet for the manual `make rebuild REFRESH_AUX=1` (D133). AC 30: data date operators and QA only (D129). AC 32: a manual `make rollback` that leaves stale data does not alert; the next scheduled run does (D135). AC 41: the runbook covers the auxiliary refresh. Context, R2, R4, Out of scope and Traceability updated. New non-blocking Open question 8 (per-run hook on "no valid source" vs "alert after 48 h"). Status `ready` → `in-progress` (ADR-0014, backend and light-QA run 1 already done) | All recommendations were already the working assumptions, and D133–D135 match what is built (`RUNBOOK.md` §7, QA report NAV-006 run 1), so no test assertion and no code change follows from them |
+| 2026-10-04 | PO answer "All as recommended" in chat, item 4, relayed by the orchestrator (`decisions.md` D139) | **Open question 8 marked decided: option (a), keep as built.** The placeholder alert hook fires on every "skipped: no valid source" run, and the stale-data alert fires once the active data is more than 48 h old. AC 2 (reference added, behaviour unchanged), Edge cases (no-network bullet now names both alerts), front matter status comment, Open questions intro and Traceability (AC1–AC3, AC31–AC32) updated. **No AC behaviour, code or test change** | The recommendation was the working assumption and matches the built pipeline (exit 13) and QA run 1. D139 clarifies the "alert after 48 h" wording of D127, which stays unchanged |
