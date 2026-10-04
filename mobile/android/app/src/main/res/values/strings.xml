@@ -211,4 +211,7 @@
     <string name="nav_resumed">Замчлал сэргэлээ</string>
     <string name="nav_interrupted_title">Замчлал тасарлаа</string>
     <string name="nav_interrupted_text">Үргэлжлүүлэхийн тулд дарна уу</string>
+    <!-- NAV-021 / NAV-023 "offline" indicator (D201): glossary 2.7 OF24, OF25, needs native review. -->
+    <string name="offline_indicator">Офлайн</string>
+    <string name="offline_indicator_a11y">Офлайн газрын зургаас</string>
 </resources>

@@ -181,6 +181,9 @@ enum class StringKey(val resName: String) {
     NAV_RESUMED("nav_resumed"),
     NAV_INTERRUPTED_TITLE("nav_interrupted_title"),
     NAV_INTERRUPTED_TEXT("nav_interrupted_text"),
+    // NAV-021 / NAV-023 (glossary 2.7 OF24, OF25, needs native review)
+    OFFLINE_INDICATOR("offline_indicator"),
+    OFFLINE_INDICATOR_A11Y("offline_indicator_a11y"),
     ;
 
     companion object {

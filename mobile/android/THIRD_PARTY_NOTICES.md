@@ -24,6 +24,13 @@ landcover © ESA WorldCover, CC BY 4.0). Both credits are shown on the map scree
 JNA (`net.java.dev.jna:jna`) is dual-licensed Apache-2.0 OR LGPL-2.1 and is used under **Apache-2.0** (ADR-0009 §11).
 Ferrostar `core` bundles `libferrostar.so` (BSD-3-Clause, built from https://github.com/stadiamaps/ferrostar).
 MapLibre Native bundles `libmaplibre.so` (BSD-2-Clause).
+`valhalla-mobile` (NAV-021, ADR-0017 §2, §7; MIT, © 2024 Adventure Consortium Inc (dba Rallista), © 2018 Valhalla
+contributors) bundles `libvalhalla-wrapper.so` for arm64-v8a, armeabi-v7a, x86 and x86_64, loaded only in the `:routing`
+process. Statically linked, per its `src/vcpkg.json` at tag 0.6.3 (commit b47ad5a) and a symbol scan of the shipped
+library: Valhalla 3.6.3 (MIT) with its bundled date library (MIT), protobuf 4.25.1 (BSD-3-Clause), Abseil (Apache-2.0,
+required by protobuf), Boost algorithm / foreach / format / geometry / heap / optional / property_tree / range / tokenizer
+(BSL-1.0), lz4 (BSD-2-Clause), RapidJSON (MIT), robin-hood-hashing and unordered_dense (MIT). The system `libz`, `liblog`,
+`libm`, `libdl` and `libc` are not bundled.
 
 | Group | Artifact | Version | Licence | Project URL |
 |---|---|---|---|---|
@@ -158,17 +165,27 @@ MapLibre Native bundles `libmaplibre.so` (BSD-2-Clause).
 | `com.google.dagger` | `hilt-core` | 2.58 | Apache 2.0 | https://github.com/google/dagger |
 | `com.google.guava` | `listenablefuture` | 1.0 | The Apache Software License, Version 2.0 | https://github.com/google/guava |
 | `com.jakewharton.timber` | `timber` | 5.0.1 | The Apache Software License, Version 2.0 | https://github.com/JakeWharton/timber |
+| `com.squareup.moshi` | `moshi` | 1.15.1 | The Apache Software License, Version 2.0 | https://github.com/square/moshi/ |
+| `com.squareup.moshi` | `moshi-adapters` | 1.15.1 | The Apache Software License, Version 2.0 | https://github.com/square/moshi/ |
+| `com.squareup.moshi` | `moshi-kotlin` | 1.15.1 | The Apache Software License, Version 2.0 | https://github.com/square/moshi/ |
 | `com.squareup.okhttp3` | `okhttp` | 5.3.2 | The Apache Software License, Version 2.0 | https://square.github.io/okhttp/ |
 | `com.squareup.okhttp3` | `okhttp-android` | 5.3.2 | The Apache Software License, Version 2.0 | https://square.github.io/okhttp/ |
 | `com.squareup.okhttp3` | `okhttp-bom` | 5.3.2 | The Apache Software License, Version 2.0 | https://square.github.io/okhttp/ |
 | `com.squareup.okio` | `okio` | 3.16.4 | The Apache Software License, Version 2.0 | https://github.com/square/okio/ |
 | `com.squareup.okio` | `okio-jvm` | 3.16.4 | The Apache Software License, Version 2.0 | https://github.com/square/okio/ |
+| `com.stadiamaps` | `osrm-openapi` | 0.0.10 | BSD-3-Clause | https://github.com/stadiamaps/osrm-openapi |
 | `com.stadiamaps.ferrostar` | `core` | 0.57.0 | BSD-3-Clause | https://github.com/stadiamaps/ferrostar |
+| `io.github.rallista` | `valhalla-mobile` | 0.6.3 | MIT | https://github.com/Rallista/valhalla-mobile |
+| `io.github.rallista` | `valhalla-models` | 0.5.2 | MIT | https://github.com/Rallista/valhalla-openapi-models-kotlin |
+| `io.github.rallista` | `valhalla-models-config` | 0.5.2 | MIT | https://github.com/Rallista/valhalla-openapi-models-kotlin |
 | `jakarta.inject` | `jakarta.inject-api` | 2.0.1 | The Apache Software License, Version 2.0 | https://github.com/eclipse-ee4j/injection-api |
 | `javax.inject` | `javax.inject` | 1 | Apache-2.0 | https://github.com/javax-inject/javax-inject |
 | `net.java.dev.jna` | `jna` | 5.18.1 | LGPL-2.1-or-later / Apache-2.0 | https://github.com/java-native-access/jna |
 | `org.jetbrains` | `annotations` | 23.0.0 | The Apache Software License, Version 2.0 | https://github.com/JetBrains/java-annotations |
+| `org.jetbrains.kotlin` | `kotlin-reflect` | 1.8.21 | The Apache License, Version 2.0 | https://kotlinlang.org/ |
 | `org.jetbrains.kotlin` | `kotlin-stdlib` | 2.3.20 | Apache-2.0 | https://kotlinlang.org/ |
+| `org.jetbrains.kotlin` | `kotlin-stdlib-jdk7` | 1.8.21 | The Apache License, Version 2.0 | https://kotlinlang.org/ |
+| `org.jetbrains.kotlin` | `kotlin-stdlib-jdk8` | 1.8.21 | The Apache License, Version 2.0 | https://kotlinlang.org/ |
 | `org.jetbrains.kotlinx` | `kotlinx-coroutines-android` | 1.11.0 | Apache-2.0 | https://github.com/Kotlin/kotlinx.coroutines |
 | `org.jetbrains.kotlinx` | `kotlinx-coroutines-bom` | 1.11.0 | Apache-2.0 | https://github.com/Kotlin/kotlinx.coroutines |
 | `org.jetbrains.kotlinx` | `kotlinx-coroutines-core` | 1.11.0 | Apache-2.0 | https://github.com/Kotlin/kotlinx.coroutines |

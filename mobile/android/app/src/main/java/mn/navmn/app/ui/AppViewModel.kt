@@ -54,7 +54,8 @@ import mn.navmn.app.preview.points.PointSide
 import mn.navmn.app.preview.points.PointsUi
 import mn.navmn.app.preview.points.RoutePoint
 import mn.navmn.app.preview.points.StepFocus
-import mn.navmn.app.route.RouteClient
+import mn.navmn.app.routing.FallbackRouteRequester
+import mn.navmn.app.routing.OnDeviceRouting
 import mn.navmn.app.route.RouteOutcome
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.search.PlaceDisplay
@@ -120,7 +121,9 @@ class AppViewModel @Inject constructor(
     val settings: SettingsRepository,
     private val location: LocationSource,
     private val network: NetworkMonitor,
-    private val routeClient: RouteClient,
+    /** NAV-021: the preview goes online first with the on-device fallback (a pass-through without a routing file). */
+    private val routes: FallbackRouteRequester,
+    private val onDeviceRouting: OnDeviceRouting,
     private val searchClient: SearchClient,
     private val session: GuidanceSession,
     private val voice: GuidanceVoice,
@@ -202,9 +205,10 @@ class AppViewModel @Inject constructor(
 
     val preview = PreviewController(
         scope = viewModelScope,
-        fetch = { req -> routeClient.fetch(req, 0) },
+        fetch = { req -> routes.fetch(req, 0) },
         lang = { settings.lang.value },
-        isOnline = { network.isOnline() },
+        // NAV-021 AC 8 (D163): with a usable routing file a preview needs no network (answered on the device, 0 requests).
+        isOnline = { network.isOnline() || onDeviceRouting.available() },
         elapsedNow = { SystemClock.elapsedRealtime() },
         wallNow = { System.currentTimeMillis() },
     )

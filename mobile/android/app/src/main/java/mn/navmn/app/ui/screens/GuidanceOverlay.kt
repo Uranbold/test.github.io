@@ -64,6 +64,7 @@ import mn.navmn.app.reroute.RerouteSecondary
 import mn.navmn.app.ui.Orientation
 import mn.navmn.app.ui.components.CappedFontScale
 import mn.navmn.app.ui.components.MapIconButton
+import mn.navmn.app.ui.components.OfflineIndicatorIcon
 import mn.navmn.app.ui.components.maneuverIcon
 import mn.navmn.app.ui.theme.LocalNight
 import mn.navmn.app.ui.theme.LocalTokens
@@ -261,7 +262,9 @@ fun TripProgressPanel(state: GuidanceState, lang: Lang, strings: Strings, onSett
     val etaText = Formatters.etaText(eta, strings)
     val time = Formatters.duration(p.durationRemaining, strings)
     val dist = Formatters.distance(p.distanceRemaining, lang, strings)
-    val a11y = "$etaText, ${strings[StringKey.NAV_REMAINING_TIME]} $time, ${strings[StringKey.NAV_REMAINING_DISTANCE]} $dist"
+    val base = "$etaText, ${strings[StringKey.NAV_REMAINING_TIME]} $time, ${strings[StringKey.NAV_REMAINING_DISTANCE]} $dist"
+    // NAV-021 AC 28 (screen spec F9): the progress node gains «, Офлайн газрын зургаас» while the route came from the device.
+    val a11y = if (state.onDeviceRoute) "$base, ${strings[StringKey.OFFLINE_INDICATOR_A11Y]}" else base
     Surface(
         color = t.uiSurface.c(),
         contentColor = t.uiOnSurface.c(),
@@ -282,7 +285,16 @@ fun TripProgressPanel(state: GuidanceState, lang: Lang, strings: Strings, onSett
                 }
             } else Column(Modifier.weight(1f).clearAndSetSemantics { contentDescription = a11y }) {
                 Text(etaText, style = NavType.titleLarge, color = t.uiOnSurface.c(), modifier = Modifier.testTag("nav-eta"))
-                Text("$time · $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.testTag("nav-remaining"))
+                if (state.onDeviceRoute) {
+                    // F9: icon only, 20 dp, 8 dp after the text, centred on line 2; adds no panel height.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("$time · $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.testTag("nav-remaining"))
+                        Spacer(Modifier.width(8.dp))
+                        OfflineIndicatorIcon()
+                    }
+                } else {
+                    Text("$time · $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.testTag("nav-remaining"))
+                }
             }
             val settings = stringResource(R.string.settings_title)
             IconButton(onClick = onSettings, modifier = Modifier.size(48.dp).testTag("nav-settings")) {

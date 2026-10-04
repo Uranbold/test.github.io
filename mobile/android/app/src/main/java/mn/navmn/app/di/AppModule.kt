@@ -12,6 +12,7 @@ import mn.navmn.app.net.NetworkMonitor
 import mn.navmn.app.route.RouteClient
 import mn.navmn.app.route.RouteProcessor
 import mn.navmn.app.route.RouteRequester
+import mn.navmn.app.routing.FallbackRouteRequester
 import mn.navmn.app.search.SearchClient
 import mn.navmn.app.variant.ReplayVariant
 import okhttp3.OkHttpClient
@@ -32,8 +33,9 @@ object AppModule {
     fun routeClient(http: OkHttpClient, network: NetworkMonitor): RouteClient =
         RouteClient(AppConfig.gatewayBaseUrl, RouteClient.httpClient(http), { network.isOnline() }, RouteProcessor(FerrostarRouteParser()))
 
+    /** NAV-021: reroutes and the NAV-012 restore go online first with the on-device fallback (RoutingModule). */
     @Provides @Singleton
-    fun routeRequester(client: RouteClient): RouteRequester = client
+    fun routeRequester(fallback: FallbackRouteRequester): RouteRequester = fallback
 
     @Provides @Singleton
     fun searchClient(http: OkHttpClient, network: NetworkMonitor): SearchClient =

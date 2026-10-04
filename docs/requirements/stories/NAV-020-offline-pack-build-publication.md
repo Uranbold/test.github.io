@@ -23,7 +23,7 @@ As an **intercity / countryside driver** (and a **taxi / delivery driver** who o
 - **Constraints carried from review (not PO decisions):** the routing parity gate tests **the shipped `valhalla-mobile` code**: here a host build of the **same Rallista fork commit** that the pinned AAR was built from, never the upstream Valhalla Docker image of the same version (ADR-0017 §4).
 - **What exists today.** NAV-006 builds immutable, verified slots and switches them with a pointer rename (ADR-0014, built; light-QA run 1 passed). `backend/` has no `/packs/` location and no pack-publish code. NAV-006 is **in progress** (real-VPS deployment pending), so **its AC are not changed** by this story; this story only adds a step after the NAV-006 switch, and NAV-006 gets a change-log cross-reference.
 - **Search DB boundary (triage 2026-10-04).** The search DB **schema, normalisation tables and test vectors are owned by [NAV-023](NAV-023-offline-search-reverse.md)**. This story runs the pinned builder and publishes the file. Until NAV-023 delivers its builder, this story publishes a `search.sqlite` built with **builder v1** (the spike prototype's schema re-implemented in `backend/`), which must pass the AC 12 self-test. Search quality is gated in NAV-023, not here.
-- **Environment.** There is still no staging VPS (NAV-008 waits for host details). Like NAV-006 (D126), this story is **built and verified in the dev container** on a separate Compose project, slot root and gateway port. The shared dev stack at `http://127.0.0.1:8080` is never stopped, restarted, rebuilt or used for writes (AC 32). Real-VPS deployment is documented in `infra/staging/RUNBOOK.md` only (AC 35). Open question 2 asks the PO to confirm the QA level.
+- **Environment.** There is still no staging VPS (NAV-008 waits for host details). Like NAV-006 (D126), this story is **built and verified in the dev container** on a separate Compose project, slot root and gateway port. The shared dev stack at `http://127.0.0.1:8080` is never stopped, restarted, rebuilt or used for writes (AC 32). Real-VPS deployment is documented in `infra/staging/RUNBOOK.md` only (AC 35). QA level is **light** (D210, as for NAV-006): unit and integration tests, lint and the build, with no separate QA run.
 
 ### Terms used in this story
 | Term | Meaning here |
@@ -161,8 +161,8 @@ Numbers marked *BA proposal* are starting defaults that the backend implements a
 
 ## Open questions
 Non-blocking; each has a working assumption in the AC.
-1. **Should the published pack follow a manual data rollback?** Options: (a) yes, `make rollback` republishes the newest retained manifest without files from the rolled-back slot (AC 28), so phones re-download older files; (b) no, the pack stays until the next weekly publication. *Recommendation: (a).* A rollback means the data was bad; leaving it in phones for up to a week defeats the rollback. Cost: one extra download of the weekly part (about 33 MB) or the map (about 86 MB) on Wi-Fi.
-2. **QA level for this story.** Options: (a) full QA in the dev container (separate Compose project and port), with real-VPS deployment documented only until NAV-008 exists; (b) light QA as for NAV-006 (D126). *Recommendation: (a).* It is launch-blocking, and every other offline story consumes its files.
+1. **Closed 2026-10-04 by [D209](../decisions.md): option (a).** The published pack follows a manual data rollback: `make rollback` republishes the newest retained manifest without files from the rolled-back slot (AC 28). Cost: one extra Wi-Fi download of the weekly part (about 33 MB) or the map (about 86 MB).
+2. **Closed 2026-10-04 by [D210](../decisions.md): option (b), light QA** as for NAV-006 (D126). The story had recommended (a); the PO's standing light process (D155) and the orchestrator's instruction chose (b). Gate 2 and the AC are unchanged.
 3. **Starting values marked *BA proposal*** (pack minimum free disk 2 GB, pack step ≤ 15 min). *Recommendation:* accept them as starting values, tuned with the NAV-006 guard values after 2 weeks of staging runs (as D130).
 
 ## Traceability
@@ -175,7 +175,7 @@ Non-blocking; each has a working assumption in the AC.
 | AC16–AC18 | — | `getOfflinePackFile` | retention, disk guard (backend) | 4-publication retention test (QA) | NAV-006 AC 22, AC 27 |
 | AC19–AC23 | — | `getOfflinePackManifest`, `getOfflinePackFile` | gateway `/packs/` location (backend) | `contract_check.py`, `smoke.py`, Range/If-Range tests (QA) | openapi 0.6.0 |
 | AC24–AC27 | — | — | status, logs, alert hook (backend) | QA run reads them | NAV-006 AC 29, 31, 32 |
-| AC28 | — | `getOfflinePackManifest` | rollback hook (backend) | rollback test (QA) | Open question 1 |
+| AC28 | — | `getOfflinePackManifest` | rollback hook (backend) | rollback test (backend / light QA, D210) | D209 |
 | AC29–AC32 | — | `getHealth` (shared-stack probe) | test configuration (backend, QA) | QA report (`docs/qa/`) | isolation rules (orchestrator) |
 | AC33–AC35 | — | — | `infra/staging/RUNBOOK.md`, `.env.example`, Gate 2 image recipe | review, secret scan | D35 |
 
@@ -183,3 +183,4 @@ Non-blocking; each has a working assumption in the AC.
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-04 | Offline spike follow-up §9 item 1 (triage log 2026-10-04; PO "all as recommended", [D190](../decisions.md), [D197](../decisions.md)) | Story written: 35 AC in sections A–J (cadence, contents, Gate 2 and self-tests, atomic publication, retention, `/packs/` serving, NAV-006 integration, rollback, dev-container isolation, runbook). Absorbs the NAV-006 part of item 7 and Gate 2. Status `ready` | Launch-blocking (D159); every other offline story consumes its files |
+| 2026-10-04 | Open questions 1 and 2 decided by the orchestrator on the PO's standing instruction ([D209](../decisions.md), [D210](../decisions.md)) | OQ1 closed, option (a): pack follows a manual rollback (AC 28 unchanged). OQ2 closed, option (b): light QA as for NAV-006 (Context line updated); the tests in the AC are run by the implementing engineer and the "(QA)" test columns are read as light-QA checks. Open question 3 stays open | OQ1 recommended option. OQ2 differs from the story's recommendation (a) because the PO's light process applies; risk noted in D210 |

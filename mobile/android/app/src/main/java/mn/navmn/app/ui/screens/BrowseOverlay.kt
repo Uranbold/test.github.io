@@ -3,6 +3,7 @@ package mn.navmn.app.ui.screens
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -84,6 +85,7 @@ import mn.navmn.app.search.reverse.ReverseView
 import mn.navmn.app.typinglock.TypingLockState
 import mn.navmn.app.ui.components.MapIconButton
 import mn.navmn.app.ui.components.MessageCard
+import mn.navmn.app.ui.components.OfflineIndicator
 import mn.navmn.app.preview.points.PointsUi
 import mn.navmn.app.ui.screens.preview.CoordinateCardPointButtons
 import mn.navmn.app.ui.screens.preview.MarkerDescriptions
@@ -478,9 +480,25 @@ internal fun PreviewResultRegion(s: PreviewState, lang: Lang, strings: Strings, 
             val plan = r.route.plan // NAV-011: the selected route (AC 17)
             Column(Modifier.testTag("preview-summary")) {
                 RouteNumberLine(r, strings)
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(Formatters.duration(plan.duration, strings), style = NavType.titleLarge, color = t.uiOnSurface.c())
-                    Text(" · " + Formatters.distance(plan.distance, lang, strings), style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c())
+                if (r.route.onDevice) {
+                    // NAV-021 AC 27 (screen spec android-offline-pack F8): the chip after the duration · distance text,
+                    // wrapping to the next line as a whole; TalkBack reads OF25 at the end of this line (one node).
+                    FlowRow(
+                        verticalArrangement = Arrangement.Center,
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.semantics(mergeDescendants = true) { },
+                    ) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(Formatters.duration(plan.duration, strings), style = NavType.titleLarge, color = t.uiOnSurface.c())
+                            Text(" · " + Formatters.distance(plan.distance, lang, strings), style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c())
+                        }
+                        OfflineIndicator(strings, Modifier.padding(start = 8.dp))
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(Formatters.duration(plan.duration, strings), style = NavType.titleLarge, color = t.uiOnSurface.c())
+                        Text(" · " + Formatters.distance(plan.distance, lang, strings), style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c())
+                    }
                 }
                 // NAV-004 AC 25 (NAV-005 AC 6, D6): from the response time, then recomputed every 60 s from the
                 // current clock while the preview stays open (0 requests). Anchored to the response time, so a

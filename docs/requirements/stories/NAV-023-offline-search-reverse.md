@@ -102,7 +102,7 @@ Every Mongolian string comes from `docs/requirements/glossary.md`. **New rows (g
 ### E. "Offline" indicator on results (D201)
 21. **Given** a results list from the on-device engine, **When** it renders, **Then** the list shows the indicator OF24 «Офлайн» once (as designed by UX) with the accessible name OF25 «Офлайн газрын зургаас», and the screen reader announcement after results render is «{count} илэрц олдлоо» followed by OF25. A list from the gateway shows **no** indicator. «Илэрц олдсонгүй» from the on-device engine also shows the indicator.
 22. **Given** a place card opened from an on-device result, **When** it shows, **Then** it carries OF24 as well.
-23. **Given** a reverse answer from the on-device engine on the coordinate card, **When** «Ойролцоох газар» shows, **Then** OF24 is shown next to it. *(BA proposal, Open question 1.)*
+23. **Given** a reverse answer from the on-device engine on the coordinate card, **When** «Ойролцоох газар» shows, **Then** OF24 is shown next to it. *(D208.)*
 24. **Given** the indicator, **When** it renders, **Then** it never covers the search field, a result name, «Маршрут гаргах» or the OSM attribution, and meets contrast ≥ **4.5:1** in both themes.
 
 ### F. States, regression and failure
@@ -154,7 +154,7 @@ Every Mongolian string comes from `docs/requirements/glossary.md`. **New rows (g
 
 ## Open questions
 Non-blocking; each has a working assumption in the AC.
-1. **"Offline" indicator on reverse results on the coordinate card** (the D201 detail left to the story). Options: (a) show OF24 next to «Ойролцоох газар» when the reverse answer came from the device (AC 23); (b) results lists only. *Recommendation: (a).* The card can show week-old data, as a result can.
+1. **Closed 2026-10-04 by [D208](../decisions.md): option (a).** OF24 is shown next to «Ойролцоох газар» when the reverse answer came from the device (AC 23).
 2. **Counting rule for the D168 gate** (AC 17: a row that also fails online on the same slot is a data gap and is not counted, as NAV-003 does for tier B controls). Options: (a) as written; (b) count every applicable row. *Recommendation: (a).* The gate measures the offline engine, not OSM gaps that online search shares. D168 left the definition of "applicable" to the story.
 3. **Starting values marked *BA proposal*** (AC 4 build time and size, AC 9 latency). *Recommendation:* accept as acceptance values; change through the BA after the first device measurement if needed.
 
@@ -165,7 +165,7 @@ Non-blocking; each has a working assumption in the AC.
 | AC6–AC10 | NAV-011 screen spec (unchanged list and card) | — | on-device search engine (mobile, TBD) | JVM tests; device timing | ADR-0012; NAV-021 benchmark phones |
 | AC11–AC16 | — | `search`, `reverse` | fallback policy (mobile) | JVM tests with fake clock and mock server | D163, D199; D30, D174 |
 | AC17–AC20 | — | `search`, `reverse` (online comparison on the same slot) | — | offline gate harness, held-out report, reverse comparison (QA) | D168, D198; Open question 2 |
-| AC21–AC24 | UX: offline indicator spec (TBD) | — | indicator on list, card (mobile) | Robolectric / TalkBack checks | D201; glossary OF24, OF25; Open question 1 |
+| AC21–AC24 | UX: offline indicator spec (TBD) | — | indicator on list, card (mobile) | Robolectric / TalkBack checks | D201, D208; glossary OF24, OF25 |
 | AC25–AC27 | NAV-011 states | `search`, `reverse` | error handling | regression suite | change 7b (D194) |
 | AC28–AC29 | — | `search`, `reverse` | logging, resources | log scan, glossary check | NAV-005 AC 61 |
 | AC30 | — | — | — | QA report | |
@@ -174,3 +174,4 @@ Non-blocking; each has a working assumption in the AC.
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-04 | Offline spike follow-up §9 item 2 (triage log 2026-10-04; PO "all as recommended", [D191](../decisions.md), [D197](../decisions.md), [D198](../decisions.md), [D199](../decisions.md), [D201](../decisions.md)) | Story written: 30 AC in sections A–H (builder schema and normalisation with shared vectors, Android engine, fallback rule, D168 gate and D198 held-out report, offline indicator, states and regression, privacy and strings, verification). Status `ready` | Launch scope (D157, D159); last of the four offline items (D197) |
+| 2026-10-04 | Open question 1 decided by the orchestrator on the PO's standing instruction ([D208](../decisions.md)) | Closed with option (a): OF24 also on reverse results on the coordinate card (AC 23 now cites D208; no AC meaning changed). Open questions 2 and 3 stay open. AC 9 uses the NAV-021 benchmark phones, so its low-end figure is **not verified** until the PO supplies a low-end phone (D204) | Recommended option, per the PO's standing instruction |

@@ -190,4 +190,7 @@
     <string name="nav_resumed">Navigation resumed</string>
     <string name="nav_interrupted_title">Navigation was interrupted</string>
     <string name="nav_interrupted_text">Tap to continue</string>
+    <!-- NAV-021 / NAV-023 "offline" indicator (D201): glossary 2.7 OF24, OF25, needs native review. -->
+    <string name="offline_indicator">Offline</string>
+    <string name="offline_indicator_a11y">From the offline map</string>
 </resources>

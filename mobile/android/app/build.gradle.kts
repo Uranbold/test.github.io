@@ -127,6 +127,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        aidl = true // NAV-021 R2: IOnDeviceRouting (the :routing bound service)
     }
 
     androidResources {
@@ -455,6 +456,9 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)
     implementation(libs.compose.material3)
+    // NAV-021: the on-device engine (loaded only in the :routing process) and Moshi for its error envelope.
+    implementation(libs.valhalla.mobile)
+    implementation(libs.moshi)
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.viewmodel.compose)
     ksp(libs.hilt.compiler)

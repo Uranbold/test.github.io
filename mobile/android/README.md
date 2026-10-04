@@ -95,6 +95,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | `search.reverse` (NAV-011) | `ReverseClient` (`GET /v1/reverse`, 6 decimals, `limit=1`, `radius=0.5`), `ReverseController` (one request per coordinate card, own 429 cooldown) | ADR-0012 §4, AC 8–13 |
 | `route.alternatives` (NAV-011) | `PreviewRoutes` (k routes, each parsed from a single-route slice into the unchanged NAV-005 pipeline), `AlternativeHitTest` (48 dp tap box) | ADR-0012 §5, AC 14–21 |
 | `typinglock` (NAV-011) | `FixSpeed`, `TypingLockRule` (pure), `PlatformLockFixSource` (own 1 Hz GPS listener, S1/S3 foreground only), `PassengerOverride` (process memory only), `TypingLockController` | ADR-0012 §7, AC 27–37 |
+| `routing` (NAV-021) | on-device routing: online-first fallback, `:routing` bound service with `valhalla-mobile`, installed-pack reader, "offline" indicator (section 8) | ADR-0017 §2, §5 |
 
 Pure packages have no Android or Ferrostar types; all time is injected.
 
@@ -360,3 +361,127 @@ the PO's phone test above:
 - the wake lock under Doze and OEM battery savers;
 - the Android 14+ foreground-service prerequisites at runtime;
 - TalkBack, and the layout on the PO's screen size.
+
+## 8. On-device routing and reroute (NAV-021, ADR-0017 §2, §4, §5)
+
+Story [NAV-021](../../docs/requirements/stories/NAV-021-android-on-device-routing-reroute.md), task list
+[NAV-021](../../docs/architecture/tasks/NAV-021-android-on-device-routing-reroute.md). The engine is
+`io.github.rallista:valhalla-mobile:0.6.3` (Maven Central, MIT; AAR SHA-256 `ac6d7023…eb11cde`, the artefact recorded
+in ADR-0017 A1 F1), used as published. **Without an installed routing file nothing changes**: every request goes to
+the gateway exactly as before and the `:routing` process is never started (AC 13, 30). NAV-022 will install routing
+files; until then only the debug provisioning below does.
+
+### 8.1 Code map
+
+| Where (`app/src/main/java/mn/navmn/app/`) | What | AC |
+|---|---|---|
+| `routing/InstalledRouting.kt` | `PackFiles` reads the `routing` entry of `noBackupFilesDir/packs/active.json` (NAV-022 task file §1 format); `GraphBuilderAllowList` = `["valhalla 3.9.0"]` | 3, 29 |
+| `routing/OnlineFirstPolicy.kt` | no validated network → device at once; 3.0 s header budget; 60 s stickiness after a timeout / connection failure, ended early by a newly validated network; 429 window (`Retry-After`, 5 s default) | 8–12 |
+| `routing/FallbackRouteRequester.kt` | the route transport for the preview, reroutes and the NAV-012 restore: gateway first, cancelled and answered on the device in the same attempt on a connection failure, 502/503/504, 429 or no headers within 3.0 s; authoritative answers are final | 9–14 |
+| `routing/OnDeviceRouteRequester.kt` | sends `RouteBody.json(request)` (the exact ADR-0009 §2 body) to the engine; the OSRM bytes go through the unchanged classification → keyed rewrite → Ferrostar parser; `OnDeviceClassifier` (AC 6 table) | 5, 6 |
+| `routing/OnDeviceRouting.kt` | app-wide state: installed file, version pinned per guidance session, crash health (3 deaths / 10 min), `BIND_IMPORTANT` while guiding, pre-bind on network loss, unbind on memory pressure | 17, 21, 24, 26 |
+| `routing/ipc/` | `IOnDeviceRouting.aidl` (in `src/main/aidl`), `BoundRoutingEngine` (bind, `linkToDeath`, 10 s budget with `poll`, kill + rebind after a timeout), `RoutingWire` (answer frame through a pipe, never in a binder reply) | 4, 22, 23, 25 |
+| `routing/service/` | `OnDeviceRoutingService` (`android:process=":routing"`), `EngineHost` (one engine per routing-file version), `OnDeviceConfig` (AAR `default.json` + exactly the A1 item 5 overrides), `ValhallaEngine` (`Valhalla(configPath, moshi).routeRaw`), `ValhallaErrors` (code table = backend Gate 2) | 4, 6, R3 |
+| `NavApplication.kt`, `routing/ProcessRole.kt` | in `:routing` the application returns before Hilt, crash diagnostics and the replay variant | 4 |
+| `ui/components/OfflineIndicator.kt` | OF24 chip on the preview summary (and once after «Маршрут сонгох»), icon-only in the guidance progress panel; TalkBack name OF25 | 27, 28 |
+| `src/debug/.../routing/debug/` | debug-only provisioning, benchmark and `kill` command (`RoutingDebugReceiver`, protected by `android.permission.DUMP` = adb shell) | 1, 3, 34 |
+
+Moshi note: `valhalla-mobile`'s default Moshi uses `KotlinJsonAdapterFactory`, which needs `kotlin-reflect`; Gradle
+resolves it to 1.8.21 (from `moshi-kotlin` 1.15.1), older than the library's own Kotlin 2.2 metadata. The app passes a
+Moshi with an explicit adapter for the library's error envelope, so no Kotlin reflection runs. The dependency graph is
+left as published (nothing excluded).
+
+### 8.2 Debug provisioning of a routing file (AC 3)
+
+Needs a debug build, a phone with USB debugging and a local `routing.tar` that is **never committed**: for example a
+read-only copy of the dev stack's `backend/data/valhalla/valhalla_tiles.tar` (built by Valhalla 3.9.0, so
+`graph_builder` = `valhalla 3.9.0`). Do not stop or rebuild the shared dev stack for this.
+
+```bash
+PKG=mn.navmn.app.debug
+V=20261004T193412Z                      # any slot-ID-shaped version (^[0-9]{8}T[0-9]{6}Z$)
+R="adb shell am broadcast -a mn.navmn.app.debug.ROUTING -n $PKG/mn.navmn.app.routing.debug.RoutingDebugReceiver"
+adb push routing.tar /data/local/tmp/routing.tar
+adb shell run-as $PKG mkdir -p no_backup/packs/$V
+adb shell run-as $PKG cp /data/local/tmp/routing.tar no_backup/packs/$V/routing.tar
+#   if run-as cannot read /data/local/tmp on the phone, stream it instead:
+#   adb exec-in run-as $PKG sh -c "cat > no_backup/packs/$V/routing.tar" < routing.tar
+adb shell rm /data/local/tmp/routing.tar
+$R --es cmd provision --es version $V    # writes no_backup/packs/active.json (NAV-022 format)
+$R --es cmd status                       # installed=<V>; available=true; deaths=0
+$R --es cmd remove                       # back to today's behaviour (no routing file)
+```
+
+A `graph_builder` outside the allow-list is refused (`--es graph_builder "valhalla 3.10.0"` → `refused`). Release
+builds contain none of this: check with
+`$ANDROID_HOME/build-tools/36.0.0/dexdump app/build/outputs/apk/release/app-release-unsigned.apk | grep -c 'mn/navmn/app/routing/debug'`
+(must print 0) and `aapt2 dump xmltree --file AndroidManifest.xml <apk> | grep -c RoutingDebugReceiver` (0).
+
+### 8.3 Device procedure for the PO's phone (AC 1, 4, 9, 15, 16, 22, 26, 34)
+
+Nothing in this section ran in the build environment (no device, no emulator, no `/dev/kvm`). Phone: the PO's Xiaomi
+Redmi Note 8 Pro (Android 11, MIUI 12.5, Helio G90T, 6 GB). By the story's Terms this phone is neither benchmark
+class (mid-range = released 2022+, Android 12+; low-end = 3–4 GB RAM), so the benchmark is run with both threshold
+columns and the report names the phone. The other class stays **not verified** until the PO supplies a phone (OQ3).
+MIUI: allow "Install via USB" and "USB debugging (Security settings)" in Developer options, and set the app's battery
+saver to "No restrictions" for the 30-minute run.
+
+1. **Build and install:** `./gradlew :app:assembleDebug` and `adb install -r app/build/outputs/apk/debug/app-debug.apk`,
+   then provision a routing file (8.2). The benchmark entry is debug-only; the engine is the same native library as in
+   release (only the Kotlin side is debuggable), so the debug build stands in for the "release-like" build of AC 34.
+2. **Benchmark (AC 34, AC 1 first deliverable):** open the app (foreground), then
+   `$R --es cmd benchmark --es class mid` and again with `--es class low`. Read the report with
+   `adb logcat -d -s navmn.routing.bench` or `adb pull /sdcard/Android/data/$PKG/files/routing-benchmark.txt`. Per route
+   (P1 → P3, UB → Darkhan, Choibalsan → Ölgii) it gives the cold time (the `:routing` process is ended first, so it
+   includes bind, engine build and tar open), warm p50 / p95 over 15 requests, the response size and SHA-256 prefix,
+   the `:routing` peak PSS, and PASS / FAIL against the chosen column. Also record
+   `adb shell dumpsys meminfo $PKG:routing` right after the run. Send the report to the orchestrator before any
+   section C–F change is merged (AC 1); a FAIL goes to the PO with the measured values.
+3. **Process isolation (AC 4):** after the benchmark, `adb shell pidof $PKG:routing` and `adb shell pidof $PKG` give the
+   two pids. `adb shell run-as $PKG grep -c libvalhalla-wrapper /proc/<routing pid>/maps` must be > 0 and the same for
+   the main pid must print 0. The benchmark report line "main-process initialisations in :routing = 0" is the
+   log-free hook for the DI graph / MapLibre / notification channel / worker check.
+4. **Crash checks (AC 22):** start guidance on any route with the routing file installed. (a) idle: `$R --es cmd kill`
+   (or `adb shell run-as $PKG kill -9 <routing pid>`); (b) during a preview: switch on airplane mode, open a preview to a
+   far point (for example Ölgii) and run the kill while «Ачаалж байна…» shows; (c) during a reroute: with airplane mode
+   on, leave the route and kill during «Маршрутыг дахин тооцоолж байна». Each time: the app stays open, banner, voice
+   and progress continue on the current route, the request shows «Маршрутын үйлчилгээ түр ажиллахгүй байна», and the
+   next request (Retry / next off-route) is answered with the «Офлайн» indicator. Three kills within 10 minutes switch
+   on-device routing off until the app restarts (`status` shows `available=false`, AC 24).
+5. **3.0 s fallback timing (AC 9, ≤ 3.2 s):** never against the shared stack. On the dev machine start a server that
+   accepts connections and sends nothing for 10 s, build against it and open a preview on Wi-Fi:
+
+   ```bash
+   python3 -c 'import socket,time
+   s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", 18093)); s.listen(8)
+   while True:
+       c, _ = s.accept(); time.sleep(10); c.close()' &
+   ./gradlew :app:assembleDebug -Pnav.gatewayBaseUrl=http://127.0.0.1:18093 && adb install -r app/build/outputs/apk/debug/app-debug.apk
+   adb reverse tcp:18093 tcp:18093
+   adb logcat -s navmn.routing     # "route source: on-device after the header budget (… ms)"
+   ```
+
+   The logged time is the measured start (10 runs; all ≤ 3200 ms). Rebuild without the property afterwards.
+6. **Offline reroute timing (AC 15, 16):** needs the NAV-005 G2 track (`tests/gpx/nav005/G2.gpx`) played by a mock
+   location app (Developer options → "Select mock location app") with airplane mode on (AC 15: new route ≤ 2.0 s /
+   ≤ 4.0 s after «Маршрутыг дахин тооцоолж байна», no «Интернэт холболт алга», 10 runs) and with the delaying server of
+   step 5 (AC 16: ≤ 5.0 s). Timing is read from a screen recording (`adb shell screenrecord`).
+7. **Memory pressure (AC 26):** not guiding, app in the background: `adb shell am send-trim-memory $PKG RUNNING_CRITICAL`,
+   then `adb shell dumpsys activity services $PKG/mn.navmn.app.routing.service.OnDeviceRoutingService` shows no
+   binding within 5 s. During guidance the binding stays.
+8. **30-minute loop (AC 35):** low-end phone only; not runnable until the PO supplies one.
+
+### 8.4 Gate 1 (AC 7, 32, 33): not run here
+
+Gate 1 must route the golden set with the shipped AAR on an x86_64 emulator (the AAR has `x86_64`), through
+`OnDeviceRoutingService`, on a `routing.tar` from the server builder, and compare with the server engine on the same tar
+by the NAV-020 AC 10 rule. This build machine has no `/dev/kvm`, so no emulator can run, and no CI job exists yet. On a
+host with KVM: start an `x86_64` API 34 emulator, provision the tar (8.2), and route each body of the golden set (QA
+fixture; `backend/pack/golden-routes.provisional.json` until it exists) through the service; the comparison uses the
+backend comparator rules. Until a pass is recorded the allow-list stays `["valhalla 3.9.0"]` on the strength of the
+spike's 12/12 measurement with the upstream 3.6.3 engine (a stand-in, not the gate).
+
+### 8.5 APK size (AC 2)
+
+See the NAV-021 handoff for the measured numbers; the native library is stored uncompressed (`minSdk` 26, page-aligned)
+and is present for all four ABIs the app ships.

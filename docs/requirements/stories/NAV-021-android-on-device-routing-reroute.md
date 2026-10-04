@@ -52,7 +52,7 @@ Every Mongolian string comes from `docs/requirements/glossary.md`. **New rows (g
 ## Acceptance criteria
 
 ### A. Proof first: engine, process isolation and device benchmark
-1. **Given** this story starts, **When** the first mobile change lands, **Then** it is a build that adds the pinned `valhalla-mobile` dependency, the `:routing` process and a debug-only benchmark entry, and the AC 4, AC 22 and AC 34 results on the PO's Android phone are reported to the orchestrator **before** the fallback UI work (sections C–F) is merged. A failed benchmark threshold is reported with the measured values; the PO decides whether to continue (Open question 3).
+1. **Given** this story starts, **When** the first mobile change lands, **Then** it is a build that adds the pinned `valhalla-mobile` dependency, the `:routing` process and a debug-only benchmark entry, and the AC 4, AC 22 and AC 34 results on the PO's Android phone are reported to the orchestrator **before** the fallback UI work (sections C–F) is merged. A failed benchmark threshold is reported with the measured values; the PO decides whether to continue. The phone is the PO's Redmi Note 8 Pro (D204).
 2. **Given** the release APK, **When** it is inspected, **Then** `valhalla-mobile` is the exact pinned version (no fork or patch by us), the native library is present for every ABI the app ships, and its notices are listed for the licences screen (D195; MIT, BSD-3, BSL-1.0, BSD-2 per ADR-0017 §7). The APK grows by **≤ 4 MB** per ABI split download and **≤ 12 MB** installed (*BA proposal*; spike estimate +3.3 MB / +10 MB).
 3. **Given** a debug build and a local `routing.tar` (for example copied from the dev stack's `backend/data/valhalla/valhalla_tiles.tar`, never committed), **When** the developer uses the debug-only provisioning path documented in `mobile/android/README.md` (for example an `adb push` into the pack directory plus a debug command that writes `active.json`), **Then** the app treats it as an installed routing file. The release APK contains **0** classes or entry points of this path.
 4. **Given** the app with an installed routing file, **When** the first on-device request runs, **Then** the engine runs in a separate process (`:routing`, bound service): `libvalhalla` is mapped only in the `:routing` process (checked through `/proc/<pid>/maps` or an equivalent instrumented test), and the main process's DI graph, MapLibre, notification channels and WorkManager initialisation are **not** run in `:routing` (a log-free test hook or instrumented test shows 0 such initialisations there).
@@ -89,7 +89,7 @@ Every Mongolian string comes from `docs/requirements/glossary.md`. **New rows (g
 
 ### F. "Offline" indicator on routes (D201)
 27. **Given** a preview route computed on the device, **When** the preview renders, **Then** each on-device route option shows the indicator OF24 «Офлайн» (`en` "Offline") as designed by UX, with the accessible name OF25 «Офлайн газрын зургаас» (`en` "From the offline map"); a route from the gateway shows **no** indicator. The indicator never covers the route summary, «Эхлэх» or the OSM attribution, and meets contrast ≥ **4.5:1** in both themes.
-28. **Given** guidance follows a route computed on the device (preview or reroute), **When** the guidance screen shows, **Then** the indicator OF24 is visible in the progress area until guidance ends or a reroute from the gateway replaces the route; it never covers the banner, «Дуусгах», the recenter control or the OSM attribution, and is not announced by TalkBack more than once per route. *(BA proposal, Open question 1.)*
+28. **Given** guidance follows a route computed on the device (preview or reroute), **When** the guidance screen shows, **Then** the indicator OF24 is visible in the progress area until guidance ends or a reroute from the gateway replaces the route; it never covers the banner, «Дуусгах», the recenter control or the OSM attribution, and is not announced by TalkBack more than once per route. *(D203.)*
 
 ### G. Gate 1: compatibility with the shipped library (CI)
 29. **Given** the app, **When** it is built, **Then** it contains a compiled-in allow-list of `graph_builder` values (initially `valhalla 3.9.0`), and a routing file whose manifest `format.graph_builder` is not on the list is never used by the engine (NAV-022 does not offer it; a provisioned file is refused with a log line without coordinates).
@@ -99,7 +99,7 @@ Every Mongolian string comes from `docs/requirements/glossary.md`. **New rows (g
 33. **Given** the Gate 1 job, **When** it runs, **Then** it routes the golden set with **the shipped AAR**: an instrumented test on an x86_64 emulator that loads the same AAR version through the same `:routing` service if the AAR has an x86_64 ABI, otherwise a host build of the same Rallista fork commit with the same build options (the NAV-020 Gate 2 image may be reused). It compares with the server engine on the same tar by the NAV-020 AC 10 rule. A pass is the only way a `graph_builder` value enters the allow-list; any difference fails the job and blocks the version change. The upstream Valhalla Docker image is never the gate.
 
 ### H. Device benchmark (acceptance)
-34. **Given** a release-like build on the mid-range and the low-end benchmark phone with an installed routing file, **When** the benchmark runs P1 → P3 car, UB → Darkhan car and Choibalsan → Ölgii car (first request after app start = cold; then 15 requests per route = warm), **Then** the report gives cold time, warm p50 / p95 and the `:routing` process peak PSS, and these hold (*BA proposal*, Open question 3):
+34. **Given** a release-like build on the mid-range and the low-end benchmark phone with an installed routing file, **When** the benchmark runs P1 → P3 car, UB → Darkhan car and Choibalsan → Ölgii car (first request after app start = cold; then 15 requests per route = warm), **Then** the report gives cold time, warm p50 / p95 and the `:routing` process peak PSS, and these hold (*BA proposal*, Open question 2). **Phones (D204):** the measured phone is the PO's Redmi Note 8 Pro (Helio G90T, 6 GB class) against the **mid-range** column; the **low-end** column is **not verified** until the PO supplies a low-end phone:
 
     | Measure | Mid-range | Low-end |
     |---|---|---|
@@ -116,7 +116,7 @@ Every Mongolian string comes from `docs/requirements/glossary.md`. **New rows (g
 38. **Given** the Android resources, **When** the NAV-005 AC 61 checks run, **Then** they pass, the `mn` values of OF24 and OF25 match the glossary exactly, `en` values exist, and no user-facing literal is hard-coded.
 
 ### J. Verification
-39. **Given** the deliverables, **When** QA reports, **Then** the report covers: JVM / Robolectric tests for sections B–G (fake engine, fake clock, mock server), the Gate 1 job result, the AC 22 crash test, and the device results of AC 1, 15, 16, 34, 35 on the named phones. Checks that need a phone not available are listed as **not verified** with the reason (Open question 3).
+39. **Given** the deliverables, **When** QA reports, **Then** the report covers: JVM / Robolectric tests for sections B–G (fake engine, fake clock, mock server), the Gate 1 job result, the AC 22 crash test, and the device results of AC 1, 15, 16, 34, 35 on the named phones. Checks that need a phone not available are listed as **not verified** with the reason; until the PO supplies a low-end phone (D204) that covers the low-end column of AC 15 and 34 and all of AC 35.
 
 ## Edge cases
 - **GPS lost** during guidance: NAV-005 AC 51 unchanged; **0** reroutes (online or on-device) while the loss lasts.
@@ -140,7 +140,7 @@ Every Mongolian string comes from `docs/requirements/glossary.md`. **New rows (g
 | R1 | **Engine version coupling** (wrapper 3.6.3 on the server's 3.9.0 graph; Rallista fork, small maintainer group) | Offline routing stops or differs after an upgrade | Gate 1 (AC 33), allow-list (AC 29), NAV-020 Gate 2; fallback option: own JNI build of upstream Valhalla (ADR-0017 alternatives, +10–15 person-days). Architect, mobile |
 | R2 | **Device memory** with MapLibre, TTS, Ferrostar and Valhalla on 3–4 GB phones | Low-memory kills during guidance | Separate process (AC 4), 32 MiB cache, AC 26, benchmark AC 34–35. Mobile, QA |
 | R3 | **Binder and native crash behaviour** differs per OEM | Lost reroutes, or worse, lost guidance | Pipe transfer (AC 25), crash tests (AC 22–24). Mobile |
-| R4 | **No low-end test phone yet** (the PO has one Android phone, D154) | AC 34–35 low-end column not verified | Open question 3. PO |
+| R4 | **No low-end test phone yet.** The only phone is the PO's Redmi Note 8 Pro (6 GB class, D204), which does not prove the 3–4 GB memory risk R2 | AC 15 and 34 low-end column and AC 35 stay **not verified** | D204. PO supplies a low-end phone |
 | R5 | **Data age:** offline routes use the weekly graph (≤ about 7 days old), online uses the daily graph | A road closed or opened this week is wrong offline | Online first (D163), indicator (AC 27–28), data dates in Settings (NAV-022). Accepted by D166 |
 | R6 | **OSM data quality** (`surface`, `maxspeed`, one-way, countryside tracks) | ETAs and countryside routes no better offline than online | Backlog data-quality risks; human mapping via triage lane `osm-data` |
 
@@ -155,9 +155,9 @@ Every Mongolian string comes from `docs/requirements/glossary.md`. **New rows (g
 
 ## Open questions
 Non-blocking; each has a working assumption in the AC.
-1. **"Offline" indicator during guidance** (the D201 detail left to the story). Options: (a) show OF24 in the progress area while the followed route came from the pack (AC 28); (b) only on the preview, not during guidance. *Recommendation: (a).* A driver who rerouted offline is on week-old data and should be able to see it, and a static chip needs no interaction. UX keeps it small.
+1. **Closed 2026-10-04 by [D203](../decisions.md): option (a).** OF24 is shown in the progress area during guidance as a small chip while the followed route came from the pack (AC 28).
 2. **Benchmark thresholds marked *BA proposal*** (AC 2, 15, 34). *Recommendation:* accept them as acceptance values; change them only through the BA if the mid-range phone misses them by a small margin and the PO accepts the measured values.
-3. **Benchmark phones.** The PO has one Android phone (model not recorded yet). Options: (a) the PO's phone as the mid-range or low-end class, plus a second phone of the other class borrowed or bought by the PO; (b) a remote device lab (an external service; PO decides on cost and data); (c) only the PO's phone, the other class listed as not verified. *Recommendation: (a).* A real low-end phone is the main memory risk (R2).
+3. **Closed 2026-10-04 by [D204](../decisions.md): the benchmark runs now on the PO's Redmi Note 8 Pro** (Android 11, MIUI 12.5, Helio G90T, 6 GB class), read as the mid-range column. The low-end column and AC 35 are **not verified** until the PO supplies a phone of that class. (PO action pending.)
 
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
@@ -167,9 +167,9 @@ Non-blocking; each has a working assumption in the AC.
 | AC8–AC13 | — | `postRoute` | fallback policy (mobile, TBD) | JVM tests with fake clock and mock server; device timing | D163, D199 |
 | AC14–AC21 | NAV-005 screen spec (reroute states, unchanged strings) | `postRoute` | `ReroutePolicy` integration (mobile) | GPX replays G1, G2, G5, G8, G9; device timing | NAV-005 AC 42–50, 54; NAV-012 (D118); change 7a, 7c |
 | AC22–AC26 | — | — | crash handling, pipe transport, lifecycle (mobile) | instrumented crash tests | ADR-0017 §2 |
-| AC27–AC28 | UX: offline indicator spec (TBD) | — | indicator UI (mobile) | Compose / Robolectric tests, TalkBack check | D201; glossary OF24, OF25; Open question 1 |
+| AC27–AC28 | UX: offline indicator spec (TBD) | — | indicator UI (mobile) | Compose / Robolectric tests, TalkBack check | D201, D203; glossary OF24, OF25 |
 | AC29–AC33 | — | — | allow-list, Gate 1 CI job (mobile, QA) | Gate 1 job; regression suite | ADR-0017 §4; NAV-020 AC 9–10 |
-| AC34–AC35 | — | — | benchmark entry (debug) | device benchmark report (`docs/qa/`) | Open questions 2, 3 |
+| AC34–AC35 | — | — | benchmark entry (debug) | device benchmark report (`docs/qa/`) | D204; Open question 2 |
 | AC36–AC38 | — | `postRoute` | logging, network, resources | log scan, network capture, glossary check | NAV-005 AC 61, 65, 67 |
 | AC39 | — | — | — | QA report | |
 
@@ -177,3 +177,4 @@ Non-blocking; each has a working assumption in the AC.
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-04 | Offline spike follow-up §9 item 5 (triage log 2026-10-04; PO "all as recommended", [D193](../decisions.md), [D197](../decisions.md), [D199](../decisions.md), [D201](../decisions.md)) | Story written: 39 AC in sections A–J (proof first, parity, fallback rule, reroute, crash safety, offline indicator, Gate 1, device benchmark, privacy and strings, verification). Absorbs Gate 1. Glossary OF24 / OF25 used. Status `ready` | Launch-blocking (D159); largest technical risk of the offline epic, so it goes first on the mobile side |
+| 2026-10-04 | Open questions 1 and 3 decided by the orchestrator on the PO's standing instruction ([D203](../decisions.md), [D204](../decisions.md)) | OQ1 closed, option (a): OF24 shown during guidance (AC 28 now cites D203). OQ3 closed: benchmark on the PO's Redmi Note 8 Pro, read as the mid-range column; AC 1, 34, 39, R4 and the traceability row updated; the low-end column of AC 15 and 34 and all of AC 35 are **not verified** until the PO supplies a low-end phone. No threshold changed | Recommended option for OQ1; for OQ3 the second phone does not exist yet, so only the PO's phone is used |

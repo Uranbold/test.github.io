@@ -76,7 +76,7 @@ Every Mongolian string comes from `docs/requirements/glossary.md`, **section 2.7
 ### A. Entry points: first-launch offer and Settings (D169)
 1. **Given** the app starts with no installed pack, the offer flag not set, and Wi-Fi, **When** the browse map (S1) has rendered, **Then** within **10 s** the manifest is fetched and the offer is shown: heading OF2, body OF3, OF6 with `total_download_bytes`, OF7 with the required space, and the buttons «Татах» (OF4) and «Дараа» (OF5). The offer is never shown while guidance runs, and it never hides the OSM attribution once closed.
 2. **Given** the offer has been shown, **When** the user taps «Татах», taps «Дараа», presses Back, dismisses it, or the process dies while it is open, **Then** the offer flag is stored, and the offer is **never** shown again on that installation (also not after AC 36 delete). The download stays available in «Тохиргоо» (AC 4).
-3. **Given** the first app start has no Wi-Fi, **When** the app runs, **Then** **no** offer is shown on that start and the flag is set (D169: no offer without Wi-Fi at first launch). **Given** the manifest cannot be fetched on a first start with Wi-Fi (network error, 404, 429, or no answer within 10 s), **When** that start continues, **Then** no offer is shown and the flag is **not** set, so the offer can appear on a later start that has Wi-Fi and a manifest. **Given** an installation that existed before this feature (app update), **When** the first start of the new version runs, **Then** it counts as the first launch (BA reading of D169).
+3. **Given** the first app start has no Wi-Fi, **When** the app runs, **Then** **no** offer is shown on that start and the flag is set (D169: no offer without Wi-Fi at first launch). **Given** the manifest cannot be fetched on a first start with Wi-Fi (network error, 404, 429, or no answer within 10 s), **When** that start continues, **Then** no offer is shown and the flag is **not** set, so the offer can appear on a later start that has Wi-Fi and a manifest. **Given** an installation that existed before this feature (app update), **When** the first start of the new version runs, **Then** it counts as the first launch (BA reading of D169, confirmed by D207).
 4. **Given** «Тохиргоо», **When** it opens, **Then** it always shows the section OF1 «Офлайн газрын зураг» with:
    - no pack installed: the button OF2, and OF6 / OF7 once the manifest is known (the button works without them; sizes then show in the AC 8 dialog or AC 6 check)
    - pack installed: OF19 with one OF20 line per installed kind (AC 39), OF28 with the installed size, OF16 «Шинэчлэх» only when files to fetch exist, OF21 delete, «© OpenStreetMap contributors» and the line OF29 opening the ODbL 1.0 text (manifest `licence.url`)
@@ -190,7 +190,7 @@ Every Mongolian string comes from `docs/requirements/glossary.md`, **section 2.7
 
 ## Out of scope
 - Building and publishing the files (NAV-020); on-device routing (NAV-021); offline search (NAV-023).
-- A pause control for downloads (cancel plus automatic resume only; Open question 2).
+- A pause control for downloads (cancel plus automatic resume only; D206).
 - Per-region packs, choosing a storage location (SD card), z0–13 storage saver.
 - Delta updates (D167, D196).
 - The in-app licences screen (change on NAV-005, D195).
@@ -199,20 +199,20 @@ Every Mongolian string comes from `docs/requirements/glossary.md`, **section 2.7
 
 ## Open questions
 Non-blocking; each has a working assumption in the AC.
-1. **14-day offer during guidance.** Options: (a) never during guidance; shown at the next foreground moment outside guidance (AC 27); (b) also during guidance. *Recommendation: (a).* A driver should not answer a dialog while driving (same reasoning as the NAV-011 typing lock, D65).
-2. **Pause control for downloads.** Options: (a) no pause; cancel and automatic resume only (as written); (b) add a pause button (one more glossary term). *Recommendation: (a).* Resume after a network drop is automatic, and cancel keeps the UI simple.
-3. **App update counts as first launch** (AC 3, BA reading of D169). Options: (a) yes, existing installations get the offer once on Wi-Fi after the update; (b) no, Settings only. *Recommendation: (a).* Early testers would otherwise never learn about the pack.
+1. **Closed 2026-10-04 by [D205](../decisions.md): option (a).** The 14-day offer is never shown during guidance; it is shown at the next foreground moment outside guidance (AC 27).
+2. **Closed 2026-10-04 by [D206](../decisions.md): option (a).** No pause control; cancel and automatic resume only.
+3. **Closed 2026-10-04 by [D207](../decisions.md): option (a).** An app update counts as the first launch (AC 3); existing installations get the offer once on Wi-Fi after the update.
 
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
 |---|---|---|---|---|---|
-| AC1–AC4 | UX: offline map screen spec (TBD): first-launch offer, Settings section | `getOfflinePackManifest` | PackManager, Settings section (mobile, TBD) | Robolectric UI tests | D169; Open question 3 |
+| AC1–AC4 | UX: offline map screen spec (TBD): first-launch offer, Settings section | `getOfflinePackManifest` | PackManager, Settings section (mobile, TBD) | Robolectric UI tests | D169, D207 |
 | AC5–AC7 | UX spec (sizes, OF15) | `getOfflinePackManifest` | storage check (mobile) | JVM tests with fake allocatable bytes | ADR-0017 §5 |
 | AC8–AC11 | UX spec (OF13 dialog, OF9) | `getOfflinePackFile` | network rules (WorkManager) | Robolectric with network-type fakes; device OF13 path | D164 |
 | AC12–AC15 | UX spec (progress, notification) | `getOfflinePackFile` (200, 206, 404, 416, 429) | downloader (mobile) | MockWebServer tests; device resume check | openapi 0.6.0 |
 | AC16–AC20 | — | — | verifier, installer, consumer switch (mobile) | corruption and kill tests | ADR-0017 §5; NAV-021 AC 17, 29 |
 | AC21–AC26 | — | `getOfflinePackManifest` (304), `getOfflinePackFile` | periodic worker (mobile) | WorkManager test harness | D165, D166, D167; NAV-020 AC 28 |
-| AC27–AC30 | UX spec (14-day offer) | `getOfflinePackFile` | offer logic (mobile) | JVM tests with fake clock and network | D165, D200; Open question 1 |
+| AC27–AC30 | UX spec (14-day offer) | `getOfflinePackFile` | offer logic (mobile) | JVM tests with fake clock and network | D165, D200, D205 |
 | AC31–AC35 | map-style (unchanged tokens); NAV-005 screen spec | — (no `getBasemapPmtiles` while installed) | map source (mobile; ADR-0016 `pmtiles://file://`) | network capture; device airplane-mode check | D163, D170; item 4 merged |
 | AC36–AC38 | UX spec (delete dialog) | — | delete (mobile) | Robolectric tests | |
 | AC39–AC40 | UX spec (data dates) | — | Settings section (mobile) | Robolectric tests | D166, D201 |
@@ -225,3 +225,4 @@ Non-blocking; each has a working assumption in the AC.
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-04 | Offline spike follow-up §9 items 3 and 4 (triage log 2026-10-04; PO "all as recommended", [D192](../decisions.md), [D197](../decisions.md), [D200](../decisions.md), [D201](../decisions.md)) | Story written: 47 AC in sections A–N (entry points, storage, network rules, download and resume, integrity and atomic install, automatic updates, 14-day offer, map from the pack, delete, data dates, notifications, privacy, strings, verification). Item 4 merged as section H. Glossary section 2.7 (OF1–OF29) added with this story. Status `ready` | Launch-blocking (D159): without an installed pack there is no offline map, routing or search |
+| 2026-10-04 | Open questions 1–3 decided by the orchestrator on the PO's standing instruction ([D205](../decisions.md), [D206](../decisions.md), [D207](../decisions.md)) | All three closed with option (a), as the AC were already written: no 14-day offer during guidance (AC 27), no pause control (Out of scope), an app update counts as first launch (AC 3). Wording of AC 3 and Out of scope now cites the decisions; no AC meaning changed | Recommended options, per the PO's standing instruction |

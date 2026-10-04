@@ -18,6 +18,7 @@ import mn.navmn.app.log.DebugLog
 import mn.navmn.app.net.NetworkMonitor
 import mn.navmn.app.route.ParsedRoute
 import mn.navmn.app.route.RouteRequester
+import mn.navmn.app.routing.OnDeviceRouting
 import mn.navmn.app.service.GuidanceForegroundService
 import mn.navmn.app.settings.SettingsRepository
 import mn.navmn.app.variant.ReplayVariant
@@ -42,6 +43,8 @@ class GuidanceSession @Inject constructor(
     private val calls: AudioModeCallSignals,
     /** ADR-0016 §3, §6: a replay build: its clock drives the engine and no restore record is ever written. */
     replayVariant: Optional<ReplayVariant>,
+    /** NAV-021: the routing-file version is pinned per session (AC 17) and `:routing` bound important while guiding. */
+    private val onDeviceRouting: OnDeviceRouting,
 ) {
     private val replay: ReplayVariant? = replayVariant.orElse(null)
 
@@ -53,6 +56,7 @@ class GuidanceSession @Inject constructor(
     /** «Эхлэх» (AC 15): the previewed route is navigated with 0 additional requests. */
     fun start(route: ParsedRoute, trip: Trip, firstFix: Fix) {
         _engine.value?.end()
+        onDeviceRouting.onGuidanceStarted()
         val e = newEngine(route, trip, firstFix, showResumedNotice = false)
         _engine.value = e
         if (replay == null) restoreRecords.onGuidanceStarted(trip, route, settings.lang.value) // AC 16: written within 2 s
@@ -67,6 +71,7 @@ class GuidanceSession @Inject constructor(
      */
     fun restore(loaded: LoadedRecord, showNotice: Boolean): Boolean {
         if (_engine.value != null) return false
+        onDeviceRouting.onGuidanceStarted()
         val e = newEngine(loaded.route, loaded.trip, null, showNotice)
         _engine.value = e
         val now = System.currentTimeMillis()
@@ -88,6 +93,7 @@ class GuidanceSession @Inject constructor(
                         if (replay == null) restoreRecords.onNormalEnd()
                         stopService()
                         _engine.value = null
+                        onDeviceRouting.onGuidanceEnded()
                     }
                 }
             },
@@ -95,6 +101,7 @@ class GuidanceSession @Inject constructor(
             showResumedNotice = showResumedNotice,
             onNewRoute = { r -> if (replay == null) restoreRecords.onNewRoute(r, settings.lang.value) },
             clock = replay?.clock ?: SystemClocks,
+            onDeviceAvailable = onDeviceRouting::available,
         )
 
     /** «Дуусгах» on screen or in the notification, «Хаах» on the arrival panel (AC 19, 55; swipe-away no longer ends, NAV-012 AC 13). */

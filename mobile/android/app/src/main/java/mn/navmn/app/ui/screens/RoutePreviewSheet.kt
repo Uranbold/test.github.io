@@ -95,6 +95,7 @@ import mn.navmn.app.route.TravelMode
 import mn.navmn.app.search.PlaceDisplay
 import mn.navmn.app.search.reverse.ReverseView
 import mn.navmn.app.typinglock.TypingLockState
+import mn.navmn.app.ui.components.OfflineIndicator
 import mn.navmn.app.ui.screens.preview.PointsBlock
 import mn.navmn.app.ui.screens.preview.StartHint
 import mn.navmn.app.ui.screens.preview.turnListItem
@@ -403,7 +404,18 @@ private fun RouteOptions(r: PreviewResult.Route, strings: Strings, lang: Lang, a
     val t = LocalTokens.current
     val groupName = stringResource(R.string.route_options)
     val alternative = stringResource(R.string.route_alternative)
-    Text(groupName, style = NavType.label, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).semantics { heading() })
+    if (r.route.onDevice) {
+        // NAV-021 AC 27 (screen spec F8): once after the group heading when every option came from the device.
+        FlowRow(
+            itemVerticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).semantics(mergeDescendants = true) { heading() },
+        ) {
+            Text(groupName, style = NavType.label, color = t.uiOnSurfaceVariant.c())
+            OfflineIndicator(strings, Modifier.padding(start = 8.dp))
+        }
+    } else {
+        Text(groupName, style = NavType.label, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).semantics { heading() })
+    }
     Column(Modifier.selectableGroup().semantics { contentDescription = groupName }.testTag("route-options")) {
         r.routes.forEachIndexed { i, route ->
             val selected = i == r.selected
