@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.5.5
+  version: 0.6.0
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
@@ -16,7 +16,28 @@ info:
     and ADR-0012 (Android NAV-011: ADR-0006 query assistance ported to Kotlin, reverse on the coordinate card,
     route alternatives handed to guidance as a single-route slice, on-device typing lock)
     and ADR-0015 (Android NAV-018: start and destination as one typed point model, swap, guidance only from a
-    device start, field search on the shared 429 cooldown, turn list built on the client from the parsed steps).
+    device start, field search on the shared 429 cooldown, turn list built on the client from the parsed steps)
+    and ADR-0017 (offline Mongolia pack for Android: static, per-file versioned pack files and manifest under
+    `/packs/`, on-device routing and search as fallback when the online request fails).
+
+    **Changes in 0.6.0 (2026-10-04, offline Mongolia pack for Android, ADR-0017 accepted by the PO).** Backward
+    compatible, additive only. No existing path, parameter, status code, header or schema changes. Backend implements
+    the new static location and extends `contract_check.py`; existing clients are unaffected:
+    - New tag `packs` and two operations, served as **static files** by the gateway (or any static host that meets
+      the same guarantees):
+      - `GET /packs/{region}/manifest.json` (`getOfflinePackManifest`): the current pack manifest, `ETag`,
+        `Cache-Control: no-cache`, 304 on `If-None-Match`, 404 when no pack is published.
+      - `GET /packs/{region}/{fileVersion}/{file}` (`getOfflinePackFile`): one immutable gzip file of the pack, with
+        HTTP Range resume (200/206/304/404/416, `If-Range`), `Cache-Control: public, max-age=31536000, immutable`.
+    - **Per-file versioning.** A pack has three files (`tiles` monthly, `routing` and `search` weekly, PO 2026-10-04).
+      Each file has its own `version` (the NAV-006 slot ID it was cut from) and its own path; `routing` and `search`
+      always share a version, and `tiles` may be older. `pack_version` identifies the publication only. Clients
+      download each file whose `sha256` differs from the installed one, using the `path` from the manifest.
+    - New schemas `OfflinePackManifest` and `OfflinePackFile`, new parameters `PackRegion`, `PackFileVersion`,
+      `PackFile`, `IfRange`, new headers `CacheControlNoCache`, `CacheControlImmutable`.
+    - **429 `RateLimited`** may also be returned on both `packs` operations (a new path group "packs" with its own
+      per-IP limit). `/health`, `/tiles/basemap.pmtiles` and `OPTIONS` preflights stay unlimited.
+    - No personal data: pack requests carry no coordinates, no identifiers and no auth.
 
     **Changes in 0.5.5 (2026-10-04, documentation tidy-up after the NAV-011 D140 change landed).** Wording only. No
     path, parameter, status code, header, schema, example or gateway behaviour change; nothing for backend to
@@ -167,8 +188,8 @@ info:
     `{message}` / validation map). 404/405/413/416/429/502/503/504 produced by the gateway itself use
     `GatewayError` `{code,message}` with `Content-Type: application/json`. A 500 from an upstream is a bug, not a contract case.
 
-    **Rate limits (since 0.4.0).** Where limits are enabled (staging: yes), `postRoute`, `getRoute`, `search`
-    and `reverse` may return **429** `RateLimited` with `Retry-After`. Client rules: do not repeat the request
+    **Rate limits (since 0.4.0).** Where limits are enabled (staging: yes), `postRoute`, `getRoute`, `search`,
+    `reverse` and (since 0.6.0) the two `packs` operations may return **429** `RateLimited` with `Retry-After`. Client rules: do not repeat the request
     before `Retry-After` seconds have passed; never retry in a tight loop; for search-as-you-type, drop the
     pending request and let the next keystroke (after the delay) search again; for a route or reroute, show the
     retryable state and retry at most once after the delay. Localised text is keyed on the code or HTTP status.
@@ -190,7 +211,8 @@ info:
     reroute profile, `search`, tiles from MapLibre Native), NAV-008 (staging server, 429), NAV-011 (Android
     `search` assisted variants, `reverse`, `postRoute` preview with `alternates: 2` and `bicycle`), NAV-018
     (Android route preview with a chosen start, swap and the client-side turn list; `postRoute`, `search`,
-    `reverse` profiles unchanged on the wire).
+    `reverse` profiles unchanged on the wire). The `packs` operations (0.6.0) trace to ADR-0017 and the spike
+    `offline-android` follow-up stories, which have no story IDs yet (`x-stories: []` until triage assigns them).
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -214,6 +236,8 @@ tags:
     description: Valhalla route, OSRM-compatible output for Ferrostar
   - name: search
     description: Photon forward search / autocomplete and reverse geocoding
+  - name: packs
+    description: Offline pack manifest and immutable pack files, static (ADR-0017, since 0.6.0)
 
 paths:
   /health:
@@ -371,6 +395,207 @@ paths:
       operationId: preflightTiles
       summary: CORS preflight (answered by the gateway)
       parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/AccessControlRequestMethod"
+        - $ref: "#/components/parameters/AccessControlRequestHeaders"
+      responses:
+        "204":
+          $ref: "#/components/responses/CorsPreflight"
+
+  /packs/{region}/manifest.json:
+    get:
+      tags: [packs]
+      operationId: getOfflinePackManifest
+      summary: Current offline pack manifest for a region (ADR-0017)
+      description: |
+        Static JSON file written by the NAV-006 `pack-publish` step (ADR-0017 §5) and replaced atomically
+        (`rename(2)`) when a new pack is published. It lists the three files of the region's offline pack, each with
+        its own `version`, `path`, sizes and SHA-256 checksums.
+
+        **Per-file versioning (since 0.6.0).** `tiles` is re-cut monthly; `routing` and `search` weekly and always
+        together (same `version`). A manifest may therefore combine an older `tiles` file with newer `routing` and
+        `search` files. Clients compare each file's `sha256` with the installed one and download only the files that
+        differ. They take the file URL from `path` (relative to `/packs/{region}/`) and never build it from
+        `pack_version`.
+
+        **Client profile (Android pack manager, ADR-0017 §5).** A periodic check (24 h) with `If-None-Match` set to
+        the last `ETag`; the manifest is a few KB and may be fetched on any validated network. File downloads follow
+        the network rules of ADR-0017 §5 (unmetered by default, mobile data only after a confirmation that shows the
+        size). A client rejects (does not offer) a manifest whose `pack_schema` it does not know, or whose
+        `routing.format.graph_builder` is not on its compiled-in allow-list, and keeps the installed files.
+
+        Served with `Cache-Control: no-cache` (revalidate every time) and a strong `ETag`. No auth, no personal data.
+        429 under the per-IP "packs" limit (client: wait `Retry-After`, then retry on the next periodic check).
+      x-stories: []
+      parameters:
+        - $ref: "#/components/parameters/PackRegion"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/Origin"
+      responses:
+        "200":
+          description: Current manifest
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Cache-Control: { $ref: "#/components/headers/CacheControlNoCache" }
+            Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+            Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OfflinePackManifest" }
+              examples:
+                weeklyWithOlderTiles:
+                  summary: Weekly publication that keeps the previous month's tiles (illustrative sizes and checksums)
+                  value:
+                    pack_schema: 1
+                    region: mn
+                    pack_version: "20261004T193412Z"
+                    published_at: "2026-10-04T20:05:11Z"
+                    attribution: "© OpenStreetMap contributors"
+                    licence:
+                      name: ODbL-1.0
+                      url: "https://opendatacommons.org/licenses/odbl/1-0/"
+                      method_url: "https://example.org/osm-navigation/pipeline"
+                    total_bytes: 201697378
+                    total_download_bytes: 119300000
+                    files:
+                      - kind: tiles
+                        version: "20260927T193105Z"
+                        path: "20260927T193105Z/basemap.pmtiles.gz"
+                        encoding: gzip
+                        download_bytes: 86400000
+                        download_sha256: d1807863a724ee96295f0b88d53bbfaae3559be6cd19316ffe18a49167a2456f
+                        bytes: 117536866
+                        sha256: ad9243fa6fb22714f45277ba907cb9383a18674fbcdb7b4b05a86929b2d853cd
+                        data_timestamp: "2026-09-26T20:21:03Z"
+                        format: { pmtiles: 3, minzoom: 0, maxzoom: 14 }
+                      - kind: routing
+                        version: "20261004T193412Z"
+                        path: "20261004T193412Z/routing.tar.gz"
+                        encoding: gzip
+                        download_bytes: 25900000
+                        download_sha256: 619b3fdf93a46db82c8bd3111bf2bd8079795a27241f9d98e5603b3c50148090
+                        bytes: 63713280
+                        sha256: fc6672ade6fd208a2c9659f88884ecf3a5bf7b8841194261506ad9cc4570e286
+                        data_timestamp: "2026-10-03T20:21:02Z"
+                        format: { graph_builder: "valhalla 3.9.0" }
+                      - kind: search
+                        version: "20261004T193412Z"
+                        path: "20261004T193412Z/search.sqlite.gz"
+                        encoding: gzip
+                        download_bytes: 7000000
+                        download_sha256: f20962f758f531a741726e628c5c0cd92e1a72d52e33e7a87c783e663537dfea
+                        bytes: 20447232
+                        sha256: 2419329067823cab5b4e5ac5dd18a6abf1f57f45e753f5fc934292f3085a3717
+                        data_timestamp: "2026-10-03T00:00:00Z"
+                        format: { search_schema: 1 }
+                    self_test:
+                      route:
+                        from: { lat: 47.9189, lon: 106.9176 }
+                        to: { lat: 49.4867, lon: 105.9228 }
+                        costing: auto
+                      search: { q: "Сүхбаатар" }
+        "304":
+          description: Not modified (`If-None-Match` matched the current `ETag`)
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+        "404":
+          $ref: "#/components/responses/GatewayNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    options:
+      tags: [gateway]
+      operationId: preflightPackManifest
+      summary: CORS preflight (answered by the gateway)
+      parameters:
+        - $ref: "#/components/parameters/PackRegion"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/AccessControlRequestMethod"
+        - $ref: "#/components/parameters/AccessControlRequestHeaders"
+      responses:
+        "204":
+          $ref: "#/components/responses/CorsPreflight"
+
+  /packs/{region}/{fileVersion}/{file}:
+    get:
+      tags: [packs]
+      operationId: getOfflinePackFile
+      summary: One immutable, gzip-compressed file of an offline pack (ADR-0017)
+      description: |
+        A static file of the region's offline pack. The bytes are the **gzip file itself** (`.gz`), not an HTTP
+        content coding: there is **no** `Content-Encoding` header, `Content-Length` equals the manifest's
+        `download_bytes`, and the SHA-256 of the body equals `download_sha256`. After decompression the file has
+        `bytes` bytes and SHA-256 `sha256`. `Content-Type` is `application/gzip` or `application/octet-stream`;
+        clients do not branch on it.
+
+        **Immutable.** A file never changes under its URL (`fileVersion` is the NAV-006 slot ID it was cut from), so
+        it is served with `Cache-Control: public, max-age=31536000, immutable` and a strong `ETag`. The server keeps
+        every file referenced by one of the last 3 published manifests, so a download that started before a new
+        publication can still resume. A 404 for a file the client found in an older manifest means it was retired:
+        re-read the manifest.
+
+        **Resume (client profile, ADR-0017 §5).** `Range: bytes=<have>-` with `If-Range: <ETag of the first
+        response>`. 206 with `Content-Range` continues the file; a 200 (the validator did not match) restarts it from
+        byte 0. A Range start at or beyond the file size returns 416 (`Content-Range: bytes */<size>`, JSON
+        `GatewayError`, `Cache-Control: no-store`), which tells the client its partial file is complete or wrong:
+        verify the checksum and restart on mismatch.
+
+        **Static host.** The same guarantees as `getBasemapPmtiles` on a static host apply (200/206 with
+        `Content-Range`, no `Content-Encoding`); the 416 JSON body, the `Access-Control-*` headers and the
+        `Cache-Control` values are gateway-only. No auth, no personal data. 429 under the per-IP "packs" limit
+        (client: wait `Retry-After`, then resume).
+      x-stories: []
+      parameters:
+        - $ref: "#/components/parameters/PackRegion"
+        - $ref: "#/components/parameters/PackFileVersion"
+        - $ref: "#/components/parameters/PackFile"
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/IfRange"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/Origin"
+      responses:
+        "200":
+          description: Whole file (no `Range`, or `If-Range` did not match)
+          headers:
+            Content-Length: { $ref: "#/components/headers/ContentLength" }
+            ETag: { $ref: "#/components/headers/ETag" }
+            Accept-Ranges: { $ref: "#/components/headers/AcceptRanges" }
+            Cache-Control: { $ref: "#/components/headers/CacheControlImmutable" }
+            Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+            Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "206":
+          description: Requested byte range
+          headers:
+            Content-Range:
+              description: "`bytes <start>-<end>/<total>`"
+              schema: { type: string, example: "bytes 10485760-25899999/25900000" }
+            Content-Length: { $ref: "#/components/headers/ContentLength" }
+            ETag: { $ref: "#/components/headers/ETag" }
+            Accept-Ranges: { $ref: "#/components/headers/AcceptRanges" }
+            Cache-Control: { $ref: "#/components/headers/CacheControlImmutable" }
+            Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+            Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "304":
+          description: Not modified (`If-None-Match` matched)
+        "404":
+          $ref: "#/components/responses/GatewayNotFound"
+        "416":
+          $ref: "#/components/responses/RangeNotSatisfiable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    options:
+      tags: [gateway]
+      operationId: preflightPackFile
+      summary: CORS preflight (answered by the gateway)
+      parameters:
+        - $ref: "#/components/parameters/PackRegion"
+        - $ref: "#/components/parameters/PackFileVersion"
+        - $ref: "#/components/parameters/PackFile"
         - $ref: "#/components/parameters/Origin"
         - $ref: "#/components/parameters/AccessControlRequestMethod"
         - $ref: "#/components/parameters/AccessControlRequestHeaders"
@@ -1028,6 +1253,31 @@ components:
         type: array
         items: { type: string, example: "amenity:pharmacy" }
 
+    IfRange:
+      name: If-Range
+      in: header
+      required: false
+      description: Strong `ETag` of the file from the first response. Used with `Range` to resume a pack file download (since 0.6.0).
+      schema: { type: string }
+    PackRegion:
+      name: region
+      in: path
+      required: true
+      description: Offline pack region. Only `mn` (all of Mongolia, ADR-0017 §1). Since 0.6.0.
+      schema: { type: string, enum: [mn] }
+    PackFileVersion:
+      name: fileVersion
+      in: path
+      required: true
+      description: The file's `version` from the manifest, the NAV-006 slot ID it was cut from (UTC `YYYYMMDDTHHMMSSZ`, ADR-0014). Since 0.6.0.
+      schema: { type: string, pattern: "^[0-9]{8}T[0-9]{6}Z$", example: "20261004T193412Z" }
+    PackFile:
+      name: file
+      in: path
+      required: true
+      description: File name inside the version directory. Since 0.6.0.
+      schema: { type: string, enum: [basemap.pmtiles.gz, routing.tar.gz, search.sqlite.gz] }
+
   headers:
     AccessControlAllowOrigin:
       description: Present only for allowed origins. Either the echoed origin or `*`.
@@ -1057,6 +1307,13 @@ components:
         may send the same kind of request again. Exactly one header. Server-chosen (staging: 1). Since 0.4.0.
       required: true
       schema: { type: integer, minimum: 1, example: 1 }
+
+    CacheControlNoCache:
+      description: Exactly one header with this value. Used on the offline pack manifest, which clients revalidate every time (since 0.6.0).
+      schema: { type: string, const: no-cache }
+    CacheControlImmutable:
+      description: Exactly one header with this value. Used on immutable offline pack files (since 0.6.0).
+      schema: { type: string, const: "public, max-age=31536000, immutable" }
 
   responses:
     CorsPreflight:
@@ -1184,7 +1441,7 @@ components:
     RateLimited:
       description: |
         Since 0.4.0 (NAV-008 AC 13). The client IP exceeded the gateway's per-IP rate limit for this path group
-        (routing: `/v1/route`; search: `/v1/search` and `/v1/reverse`). Answered by the gateway without contacting
+        (routing: `/v1/route`; search: `/v1/search` and `/v1/reverse`; packs: `/packs/`, since 0.6.0). Answered by the gateway without contacting
         the upstream. Each CORS header appears exactly once, so a browser `fetch` sees status 429 and can read
         `Retry-After` (it is in `Access-Control-Expose-Headers`). Must not be cached. Limits are set loosely because
         many phones share one carrier-grade NAT address: a normal session (<= 10 requests/s to these paths) is never
@@ -1567,6 +1824,122 @@ components:
               directions: { type: array, items: { type: string } }
               active: { type: boolean }
               active_direction: { type: string }
+
+    OfflinePackManifest:
+      type: object
+      description: |
+        Offline pack manifest (ADR-0017 §6, since 0.6.0). Written by the NAV-006 `pack-publish` step. Clients ignore
+        unknown fields. A change that old clients cannot read safely (for example a new file kind or a new
+        encoding) increments `pack_schema`.
+      required: [pack_schema, region, pack_version, published_at, attribution, licence, files, total_bytes, total_download_bytes]
+      additionalProperties: true
+      properties:
+        pack_schema:
+          type: integer
+          const: 1
+          description: Manifest and pack layout version. A client that does not know the value does not offer the pack.
+        region: { type: string, enum: [mn] }
+        pack_version:
+          type: string
+          pattern: "^[0-9]{8}T[0-9]{6}Z$"
+          description: |
+            Slot ID of this publication (the slot of the newest `routing` and `search` files). Identifies the manifest
+            only. Downloads are decided per file (`files[].version`, `files[].sha256`).
+        published_at: { type: string, format: date-time }
+        attribution:
+          type: string
+          description: Contains `OpenStreetMap`. Clients show «© OpenStreetMap contributors» from their own resource files.
+        licence:
+          type: object
+          required: [name, url, method_url]
+          properties:
+            name: { type: string, const: ODbL-1.0 }
+            url: { type: string, format: uri, description: ODbL 1.0 text }
+            method_url: { type: string, format: uri, description: Public repository of the pipeline that makes the pack (ODbL §4.6) }
+        total_bytes:
+          type: integer
+          minimum: 1
+          description: Sum of `files[].bytes` (installed size of a complete pack).
+        total_download_bytes:
+          type: integer
+          minimum: 1
+          description: Sum of `files[].download_bytes` (size of a first, complete download).
+        files:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: |
+            Exactly one file of each kind (`tiles`, `routing`, `search`). `routing` and `search` have the same
+            `version`; `tiles.version` is equal or older (tiles are re-cut monthly, routing and search weekly).
+          items: { $ref: "#/components/schemas/OfflinePackFile" }
+        self_test:
+          type: object
+          description: Checks the client runs on the installed files before activating them (ADR-0017 §5).
+          properties:
+            route:
+              type: object
+              required: [from, to, costing]
+              properties:
+                from: { $ref: "#/components/schemas/LatLon" }
+                to: { $ref: "#/components/schemas/LatLon" }
+                costing: { type: string, enum: [auto, pedestrian, bicycle] }
+            search:
+              type: object
+              required: [q]
+              properties:
+                q: { type: string, description: A query that must return at least one row }
+
+    OfflinePackFile:
+      type: object
+      description: One file of an offline pack (since 0.6.0).
+      required: [kind, version, path, encoding, download_bytes, download_sha256, bytes, sha256, data_timestamp]
+      additionalProperties: true
+      properties:
+        kind:
+          type: string
+          enum: [tiles, routing, search]
+          description: "`tiles` = `basemap.pmtiles` (PMTiles v3), `routing` = `routing.tar` (Valhalla tile extract), `search` = `search.sqlite` (SQLite FTS5 + R*Tree)"
+        version:
+          type: string
+          pattern: "^[0-9]{8}T[0-9]{6}Z$"
+          description: NAV-006 slot ID the file was cut from. Also the directory in `path`.
+        path:
+          type: string
+          pattern: "^[0-9]{8}T[0-9]{6}Z/(basemap\\.pmtiles|routing\\.tar|search\\.sqlite)\\.gz$"
+          description: Relative to `/packs/{region}/`, for example `20261004T193412Z/routing.tar.gz` (`getOfflinePackFile`).
+        encoding:
+          type: string
+          enum: [gzip]
+          description: How the downloaded bytes are compressed (a gzip file, not an HTTP content coding).
+        download_bytes: { type: integer, minimum: 1, description: Size of the downloaded (compressed) file }
+        download_sha256: { type: string, pattern: "^[0-9a-f]{64}$", description: SHA-256 of the downloaded (compressed) file }
+        bytes: { type: integer, minimum: 1, description: Size of the installed (decompressed) file }
+        sha256: { type: string, pattern: "^[0-9a-f]{64}$", description: SHA-256 of the installed (decompressed) file }
+        data_timestamp:
+          type: string
+          format: date-time
+          description: OSM data date of the source extract (`tiles`, `routing`) or the Photon dump date (`search`). Shown to the user as the data date.
+        format:
+          type: object
+          additionalProperties: true
+          description: |
+            Kind-specific compatibility facts. `tiles`: `{pmtiles: 3, minzoom, maxzoom}`. `routing`:
+            `{graph_builder: "valhalla 3.9.0"}` (checked against the app's allow-list, ADR-0017 §4). `search`:
+            `{search_schema: 1}`.
+          properties:
+            pmtiles: { type: integer }
+            minzoom: { type: integer, minimum: 0 }
+            maxzoom: { type: integer, minimum: 0 }
+            graph_builder: { type: string }
+            search_schema: { type: integer, minimum: 1 }
+
+    LatLon:
+      type: object
+      description: A WGS84 point as `{lat, lon}` (the Valhalla request convention).
+      required: [lat, lon]
+      properties:
+        lat: { type: number, format: double, minimum: -90, maximum: 90 }
+        lon: { type: number, format: double, minimum: -180, maximum: 180 }
 
     LonLat:
       type: array

@@ -10,9 +10,9 @@
   6. offline data is **refreshed weekly over Wi-Fi**; the server keeps the NAV-006 daily rebuild
   7. **Android first** (D24); iOS later
 - **Related:** ADR-0001 (Consequences: "offline navigation is a later phase … revisit if offline becomes a launch requirement"; this spike is that revisit), ADR-0006 and ADR-0012 (query assistance), ADR-0008 (client-side instruction text), ADR-0009 (app-owned `RouteClient`, reroute policy, keyed text), ADR-0014 (NAV-006 slots and pointer switch), ADR-0016 (`pmtiles://file://` with MapLibre 13.6.1), NAV-003, NAV-005, NAV-006, NAV-011, NAV-012, NAV-019.
-- **Companion ADR:** [ADR-0017](../adr/0017-offline-mongolia-pack-android.md), status **proposed**. It becomes accepted only after the PO's decision on this spike.
+- **Companion ADR:** [ADR-0017](../adr/0017-offline-mongolia-pack-android.md), status **accepted** (PO 2026-10-04). Where this spike and ADR-0017 differ, ADR-0017 wins.
 - **Owner:** architect. **Date:** 2026-10-04.
-- **Status:** a recommendation for the PO. It does not decide.
+- **Status:** **decided by the PO, 2026-10-04** ("All as recommended" to eight questions: the seven in §10 plus a per-file cadence question). Applied in ADR-0017 (accepted) and openapi 0.6.0. Changes from this spike's recommendation: **reroute is online first** with on-device fallback within about 3 s, like preview and search (§4.2 and §10 Q1 had reroute on-device first); **map tiles are refreshed monthly**, routing and search weekly, so the manifest versions each file (amends scoping answer 6 for the map file); a **mobile-data update of routing + search only** (about 33 MB gzip) is offered when they are older than 14 days and there is no Wi-Fi. Skeptic mitigations adopted in ADR-0017: the parity gate runs the shipped `valhalla-mobile` library, the engine runs in a separate process, and the schedule is 6–9 calendar weeks. The body below is the original recommendation, kept as the record.
 - **Scope rule followed.** All measurements ran on **copies** of the dev-stack artefacts in a scratch directory, in throwaway containers without published ports. The shared dev stack (gateway on the loopback port 8080) was **not queried, restarted or modified**. No code or configuration outside `docs/architecture/` was changed. No account, key or paid service was used.
 - **Evidence labels:**
   - **M:** measured by us in this container on 2026-10-04 (Intel Xeon 2.8 GHz, 4 vCPU, Linux x86-64). §11 has the commands.
@@ -47,7 +47,7 @@
 - **Search and reverse:** an SQLite FTS5 + R*Tree database built by the NAV-006 pipeline from the Photon dump, read with `androidx.sqlite:sqlite-bundled` (FTS5, R*Tree and the trigram tokenizer are compiled in, checked in the published binary). The existing ADR-0012 query assistance is reused.
 - **Delivery:** WorkManager download over unmetered networks, HTTP Range resume, SHA-256 checks, atomic install, a weekly check, full-file updates (deltas only after measurement)
 
-**Effort:** about **45–65 person-days** in total (§8). With backend and mobile working in parallel, that is about 5–7 calendar weeks. It is on the launch critical path because the PO made offline a launch requirement. There are four product questions for the PO (§10), each with a recommendation.
+**Effort:** about **45–67 person-days** in total (§8). With backend and mobile working in parallel, that is about 5–7 calendar weeks (ADR-0017 replans this as 6–9 calendar weeks, including the skeptic mitigations). It is on the launch critical path because the PO made offline a launch requirement. There are seven product questions for the PO (§10), each with a recommendation.
 
 ---
 
@@ -319,7 +319,7 @@ This would be a minor version bump (0.6.0), and backend extends `contract_check.
 | R8 | **Bandwidth cost** at production hosting (≈ 0.5 GB per user per month) | Medium / medium | Per-file skip, deltas after measurement (follow-up 9), CDN or static host. NAV-009 input |
 | R9 | **Interrupted downloads** on unstable Wi-Fi | High / low | Range resume at immutable URLs, checksums, retained previous versions |
 | R10 | **Pack and app incompatibility** after app or pack changes | Low / medium | `pack_schema` and allow-list. The old pack is kept until a compatible one verifies |
-| R11 | Launch timeline: +45–65 person-days on the critical path | Certain / high | Parallel backend and mobile lanes (§8). Stories are sliced so that map + routing can ship before search polish if the PO accepts that order |
+| R11 | Launch timeline: +45–67 person-days on the critical path | Certain / high | Parallel backend and mobile lanes (§8). Stories are sliced so that map + routing can ship before search polish if the PO accepts that order |
 
 ---
 

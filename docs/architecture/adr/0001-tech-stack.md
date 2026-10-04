@@ -1,6 +1,6 @@
 # ADR-0001: Build on open-source components instead of forking a full app
 
-- **Status:** accepted
+- **Status:** accepted (Consequences amended 2026-10-04 by ADR-0017: offline is a launch requirement)
 - **Date:** 2026-09-29
 - **Stories:** all
 
@@ -35,5 +35,5 @@ Starter references: the Headway docker stack (backend layout), and the Ferrostar
 ## Consequences
 - We write the app UI, the gateway and the traffic pipeline. The core engines are dependencies we upgrade.
 - Ferrostar is pre-1.0, so we pin versions and budget for API changes.
-- Offline navigation is a later phase (on-device Valhalla + PMTiles). Revisit if offline becomes a launch requirement.
+- Offline navigation is a later phase (on-device Valhalla + PMTiles). Revisit if offline becomes a launch requirement. **Amended 2026-10-04:** offline is now a **launch requirement** (PO, backlog owed decision 3 = yes): map, new route and reroute, search and reverse geocoding work without internet on Android from a downloaded Mongolia pack, iOS later. The design is [ADR-0017](0017-offline-mongolia-pack-android.md) (accepted): upstream `valhalla-mobile` (MIT, not forked) and `sqlite-bundled` (Apache-2.0), so the stack stays permissive.
 - The whole stack except Nominatim (GPL, server-side) is permissive, so a closed-source commercial product is possible.
