@@ -44,8 +44,19 @@ interface ReplayVariant {
 
     fun retryTiles()
 
-    /** NavApplication.onCreate: MapLibre's HTTP client, the tile copy, the picker catalogue (§7, §9). */
+    /**
+     * NavApplication.onCreate: the tile copy and the picker catalogue (§9). Must not touch MapLibre: nothing has called
+     * `MapLibre.getInstance` yet, and MapLibre's HTTP classes throw in their static initialiser before it (bug
+     * B-NAV019-01, the demo crashed on open).
+     */
     fun onApplicationCreate(app: Application)
+
+    /**
+     * Called by the map right after `MapLibre.getInstance(context)` and before the first `MapView` is created, on every
+     * map creation (implementations make it idempotent). The demo gives MapLibre its own HTTP client here (§7): no
+     * MapLibre request can precede this point.
+     */
+    fun onMapLibreInitialised() {}
 
     /** The idle screen (route picker, UX P1) in place of the browse overlay. */
     @Composable

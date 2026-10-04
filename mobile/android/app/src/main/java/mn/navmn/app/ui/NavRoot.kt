@@ -118,7 +118,8 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     val preview by vm.preview.state.collectAsState()
     val searchView by vm.search.view.collectAsState()
     val guidance by vm.guidance.collectAsState()
-    val me by vm.myLocation.collectAsState()
+    // NAV-005 section N (AC 74–78): the map, its follow camera and the fit draw the shown position, never a raw fix.
+    val shown by vm.displayLocation.collectAsState()
     val reverseView by vm.reverse.view.collectAsState()
     val lock by vm.typingLock.state.collectAsState()
     val points by vm.points.collectAsState() // NAV-018
@@ -205,7 +206,9 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
             MapContent(
                 route = r?.route?.plan?.geometry ?: emptyList(),
                 destination = preview!!.destination.point,
-                myLocation = me?.latLon,
+                myLocation = shown?.latLon,
+                myLocationAccuracyM = shown?.accuracyM,
+                myLocationStale = shown?.stale ?: false,
                 routeIndex = r?.selected ?: 0,
                 alternatives = r?.routes?.mapIndexedNotNull { i, x -> if (i == r.selected) null else i to x.plan.geometry } ?: emptyList(),
                 // NAV-018 map-style §7.7: chosen-start marker, candidate pin while the card is open, manoeuvre point.
@@ -214,7 +217,12 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                 step = points.step?.takeIf { r != null && it.route === r.route }?.location,
             )
         }
-        else -> MapContent(candidate = ui.card, myLocation = if (ui.followingMe || me != null) me?.latLon else null)
+        else -> MapContent(
+            candidate = ui.card,
+            myLocation = shown?.latLon,
+            myLocationAccuracyM = shown?.accuracyM,
+            myLocationStale = shown?.stale ?: false,
+        )
     }
 
     // Camera: S1 follow, S3 fit, S5 follow per navigation-ux §8 (reduced motion → no easing).
@@ -255,7 +263,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
         delay(FIT_SETTLE_MS) // the sheet re-measures for the new result first
         val pad = with(density) { 40.dp.roundToPx() }
         // NAV-018 PO answer 7: with a chosen start the live device position is not part of the fit.
-        val markers = preview?.let { PointRules.fitMarkers(it.origin, it.destination, me?.latLon) }.orEmpty()
+        val markers = preview?.let { PointRules.fitMarkers(it.origin, it.destination, shown?.latLon) }.orEmpty()
         val points = routes.flatMap { it.plan.geometry } + markers
         val left = pad + currentSheetStartPx
         val top = pad + currentTopBarPx
@@ -276,12 +284,15 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
         val pad = StepCamera.padding(with(density) { StepCamera.PADDING_DP.dp.roundToPx() }, currentSheetStartPx, currentTopBarPx, currentSheetPx)
         c.focus(f.location, StepCamera.zoom(c.zoom), pad.left, pad.top, pad.right, pad.bottom, if (reducedMotion) 0 else StepCamera.EASE_MS)
     }
-    LaunchedEffect(controller, me, ui.followingMe) {
+    // NAV-005 AC 75: keyed on the shown position only, so a held dot (and a stale switch) moves the camera 0 m; a new
+    // shown position eases within 1 s (reduced motion: jump, map-style §7.8).
+    val shownAt = shown?.latLon
+    LaunchedEffect(controller, shownAt, ui.followingMe) {
         val c = controller ?: return@LaunchedEffect
-        val f = me ?: return@LaunchedEffect
+        val p = shownAt ?: return@LaunchedEffect
         // Zero padding: MapLibre keeps the padding of an earlier focus move (C1, NAV-018 step focus) on the camera, which
         // would otherwise offset «Миний байршил» (ADR-0012 Amendment A4).
-        if (ui.followingMe && !guiding) c.focus(f.latLon, maxOf(c.zoom, 15.0), 0, 0, 0, 0, 300)
+        if (ui.followingMe && !guiding) c.focus(p, maxOf(c.zoom, 15.0), 0, 0, 0, 0, if (reducedMotion) 0 else 300)
     }
     // NAV-011 AC 7a, C1 (D142): the typed-coordinate option centres the point once, after the card's first layout, at
     // zoom max(current, 16), clear of the top group and the card. One-shot: handled in the ViewModel, so a rotation does
@@ -401,6 +412,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                 BrowseOverlay(
                     m = BrowseModel(
                         lang, ui.query, searchView, ui.card, preview, ui.mapProblem, ui.tilesFailed, offline, bearing, ui.followingMe,
+                        locating = ui.locating,
                         reverse = reverseView, lock = lock, sheetExpanded = ui.sheetExpanded, focusSearch = ui.focusSearch,
                         points = points, fieldView = fieldView, cardTitleFocus = ui.cardTitleFocus,
                     ),

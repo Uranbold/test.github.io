@@ -4,6 +4,9 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -11,10 +14,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -22,12 +27,16 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import mn.navmn.app.engine.GuidanceSession
 import mn.navmn.app.engine.GuidanceState
 import mn.navmn.app.engine.Trip
 import mn.navmn.app.geo.LatLon
 import mn.navmn.app.i18n.Lang
+import mn.navmn.app.location.BrowseDotRules
+import mn.navmn.app.location.DisplayLocation
 import mn.navmn.app.location.Fix
+import mn.navmn.app.location.LocationDisplayFilter
 import mn.navmn.app.location.LocationSource
 import mn.navmn.app.net.NetworkMonitor
 import mn.navmn.app.permission.LocationAccess
@@ -83,6 +92,11 @@ data class UiState(
     val tilesFailed: Boolean = false,
     /** S1 following my location (NAV-002 behaviour). */
     val followingMe: Boolean = false,
+    /**
+     * NAV-005 AC 76 (D172): a my-location press is waiting (≤ 10 s) for the first showable fix; the button shows
+     * `location_searching` (screen spec › Location dot on the browse map).
+     */
+    val locating: Boolean = false,
     val settingsOpen: Boolean = false,
     /** Guidance session-only UI state (navigation-ux §8): orientation and camera follow. */
     val orientation: Orientation = Orientation.HEADING_UP,
@@ -125,8 +139,26 @@ class AppViewModel @Inject constructor(
     val lang: StateFlow<Lang> = settings.lang
     val muted: StateFlow<Boolean> = settings.muted
 
+    /**
+     * Raw latest map fix (ADR-0009 Amendment 7 §9.4): the input of the route-preview origin / guidance start
+     * ([freshFix], D177), the NAV-018 device start and the NAV-012 sun theme. Never drawn directly.
+     */
     private val _myLocation = MutableStateFlow<Fix?>(null)
     val myLocation: StateFlow<Fix?> = _myLocation.asStateFlow()
+
+    /**
+     * NAV-005 section N (AC 74–78): the shown position after [LocationDisplayFilter]. It drives the browse dot, the
+     * accuracy circle, the browse follow camera, the my-location centring and the D30 search bias (D174). Memory only.
+     */
+    private val displayFilter = LocationDisplayFilter()
+    private val _display = MutableStateFlow<DisplayLocation?>(null)
+    val displayLocation: StateFlow<DisplayLocation?> = _display.asStateFlow()
+
+    /** AC 76 (D172): the running 10 s wait after a my-location press with no shown position. */
+    private var locateJob: Job? = null
+
+    /** AC 76: the «10 s» card is the my-location timeout's (it closes by itself when a showable fix arrives). */
+    private var locateCardShown = false
 
     /** Set once a location action proceeded (permission and services OK): the map may show «Миний байршил». */
     private val mapLocationWanted = MutableStateFlow(false)
@@ -205,10 +237,56 @@ class AppViewModel @Inject constructor(
     val mapLocation: Flow<Fix> = combine(mapLocationWanted, session.engine.map { it != null }) { wanted, guiding -> wanted && !guiding }
         .distinctUntilChanged()
         .flatMapLatest { active -> if (active) location.mapUpdates().catch { } else emptyFlow() }
-        .onEach { _myLocation.value = it }
+        .onEach {
+            _myLocation.value = it
+            onDisplay(displayFilter.onFix(it, SystemClock.elapsedRealtime()))
+        }
 
-    /** Called by the Activity from `repeatOnLifecycle(Lifecycle.State.STARTED)`; returns when the Activity stops. */
-    suspend fun collectMapLocation() = mapLocation.collect()
+    /**
+     * Called by the Activity from `repeatOnLifecycle(Lifecycle.State.STARTED)`; returns when the Activity stops. The
+     * AC 76 stale timer runs only while this is collected (Amendment 7 §9.2 step 7), so it costs nothing in the
+     * background or during guidance.
+     */
+    suspend fun collectMapLocation() = coroutineScope {
+        launch { runStaleTimer() }
+        mapLocation.collect()
+    }
+
+    /**
+     * AC 76: the shown position turns stale 10 s after the last showable fix. Instead of a fixed 1 s ticker it sleeps
+     * until that deadline (+1 ms) and re-evaluates; every new output restarts the wait, so the switch lands within 1 s.
+     */
+    private suspend fun runStaleTimer() {
+        _display.collectLatest { d ->
+            var cur = d
+            while (cur != null && !cur.stale) {
+                val wait = cur.lastShowableElapsedMs + BrowseDotRules.STALE_MS - SystemClock.elapsedRealtime() + 1
+                delay(wait.coerceAtLeast(1))
+                cur = displayFilter.tick(SystemClock.elapsedRealtime())
+                _display.value = cur
+            }
+        }
+    }
+
+    private fun onDisplay(d: DisplayLocation?) {
+        _display.value = d
+        if (d == null) return
+        // AC 76: a showable fix during the wait ends it; on the «10 s» card the pending action continues (F3).
+        if (locateJob?.isActive == true) {
+            locateJob?.cancel()
+            _ui.update { it.copy(locating = false) }
+        }
+        if (locateCardShown) {
+            locateCardShown = false
+            if (_ui.value.mapProblem == LocationProblem.UNAVAILABLE) _ui.update { it.copy(mapProblem = null, followingMe = true) }
+        }
+    }
+
+    /** Amendment 7 §9.3: back to "no shown position" (guidance start; location permission or services lost). */
+    private fun resetDisplay() {
+        displayFilter.reset()
+        _display.value = null
+    }
 
     private var pending: LocationAction? = null
     private var askedLocation = false
@@ -224,6 +302,10 @@ class AppViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { settings.lang.drop(1).collect { voice.onLanguageChanged() } }
+        // Amendment 7 §9.3: guidance takes over the position (puck); afterwards the browse map starts from "no fix yet".
+        viewModelScope.launch {
+            session.engine.map { it != null }.distinctUntilChanged().collect { guiding -> if (guiding) resetDisplay() }
+        }
         // ADR-0016 §3 (NAV-019 AC 23, 25): in a replay build every end of guidance (screen, notification, lock screen,
         // end of the recorded track) returns to the start screen, so the recorded preview is closed with it.
         if (replay != null) {
@@ -233,9 +315,14 @@ class AppViewModel @Inject constructor(
         }
     }
 
+    /**
+     * D30 search bias, NAV-005 AC 78 (D174): the shown position when my location is on, the camera follows and the last
+     * showable fix (a held one counts) is ≤ 60 s old; otherwise the map centre. Rounded to 3 decimals by the client.
+     */
     private fun biasPoint(): LatLon {
-        val f = _myLocation.value
-        return if (f != null && _ui.value.followingMe && SystemClock.elapsedRealtime() - f.elapsedMs <= Fix.PREVIEW_FRESH_MS) f.latLon else mapCenter
+        val d = _display.value
+        val fresh = d != null && SystemClock.elapsedRealtime() - d.lastShowableElapsedMs <= Fix.PREVIEW_FRESH_MS
+        return if (d != null && fresh && _ui.value.followingMe) d.latLon else mapCenter
     }
 
     // ------------------------------------------------------------------------------------------- search, card
@@ -539,6 +626,9 @@ class AppViewModel @Inject constructor(
 
     /** AC 11–12: back from the system settings with the permission / location on → the pending action continues. */
     fun onResume() {
+        // Amendment 7 §9.3: permission or location services lost while away → no shown position (AC 76).
+        val (st, on) = currentStatus()
+        if (!on || (st != PermissionStatus.PRECISE && st != PermissionStatus.APPROXIMATE)) resetDisplay()
         val action = pending ?: return
         val (status, services) = currentStatus()
         val d = LocationAccess.decide(action, status, services)
@@ -546,6 +636,8 @@ class AppViewModel @Inject constructor(
     }
 
     fun dismissMapProblem() {
+        // AC 76: «Хаах» on the «10 s» card ends the wait; a later showable fix shows the dot without moving the camera.
+        locateCardShown = false
         _ui.update { it.copy(mapProblem = null) }
         pending = null
     }
@@ -571,8 +663,36 @@ class AppViewModel @Inject constructor(
                 }
             }
             LocationAction.START_GUIDANCE -> viewModelScope.launch { startGuidanceWithFix() }
-            LocationAction.MY_LOCATION -> _ui.update { it.copy(followingMe = true) }
+            LocationAction.MY_LOCATION -> {
+                _ui.update { it.copy(followingMe = true) }
+                // AC 76 (D172): with no shown position yet, wait up to 10 s for the first showable fix (no new request:
+                // the map listener above is the only one); a shown (also stale) dot is centred at once, no message.
+                if (_display.value == null) startLocateWait()
+            }
         }
+    }
+
+    /** AC 76 / screen spec: `location_searching` up to 10 s, then «Байршил тодорхойлж чадсангүй»; 0 route requests. */
+    private fun startLocateWait() {
+        locateJob?.cancel()
+        locateCardShown = false
+        _ui.update { it.copy(locating = true) }
+        locateJob = viewModelScope.launch {
+            val got = withTimeoutOrNull(BrowseDotRules.LOCATE_TIMEOUT_MS) { _display.first { it != null } }
+            if (got != null) return@launch // onDisplay() already ended the wait
+            _ui.update { it.copy(locating = false, followingMe = false) }
+            // The S1 message only (the button lives on S1/S2); an open route preview keeps its own location states.
+            if (preview.state.value == null && session.engine.value == null) {
+                locateCardShown = true
+                _ui.update { it.copy(mapProblem = LocationProblem.UNAVAILABLE) }
+            }
+        }
+    }
+
+    private fun cancelLocateWait() {
+        locateJob?.cancel()
+        locateJob = null
+        if (_ui.value.locating) _ui.update { it.copy(locating = false) }
     }
 
     private suspend fun freshFix(maxAgeMs: Long): Fix? {
@@ -586,11 +706,17 @@ class AppViewModel @Inject constructor(
     }
 
     fun onMyLocation() {
-        if (_ui.value.followingMe) return
+        // Already following a shown dot, or already waiting for the first one (screen spec: a second press does nothing).
+        // Following with no dot and no wait (e.g. the dot was reset) arms the AC 76 wait again (Amendment 7 §9.5).
+        if (_ui.value.followingMe && (_display.value != null || _ui.value.locating)) return
         requireLocation(LocationAction.MY_LOCATION)
     }
 
-    fun stopFollowingMe() = _ui.update { it.copy(followingMe = false) }
+    /** A map gesture on S1–S3: following stops; a running AC 76 wait ends with no card later (screen spec). */
+    fun stopFollowingMe() {
+        cancelLocateWait()
+        _ui.update { it.copy(followingMe = false) }
+    }
 
     // ------------------------------------------------------------------------------------------- guidance
 

@@ -167,6 +167,8 @@ data class BrowseModel(
     val fieldView: SearchView = SearchView.Closed,
     /** NAV-011 AC 7a: move focus to the coordinate card title once (the card opened from the typed option). */
     val cardTitleFocus: Boolean = false,
+    /** NAV-005 AC 76: waiting for the first showable fix after a my-location press (`location_searching`). */
+    val locating: Boolean = false,
 )
 
 @Composable
@@ -383,7 +385,13 @@ private fun MapControls(m: BrowseModel, a: BrowseActions, modifier: Modifier = M
         MapIconButton(R.drawable.ic_add, stringResource(R.string.control_zoom_in), a.onZoomIn)
         MapIconButton(R.drawable.ic_remove, stringResource(R.string.control_zoom_out), a.onZoomOut)
         if (Math.abs(m.bearing) > 0.5) MapIconButton(R.drawable.ic_compass_north, stringResource(R.string.control_north_up), a.onNorthUp)
-        MapIconButton(R.drawable.ic_my_location, stringResource(R.string.marker_my_location), a.onMyLocation, highlighted = m.followingMe)
+        // NAV-005 AC 76 (screen spec): `location_searching` in the following colours while waiting; same description.
+        MapIconButton(
+            if (m.locating) R.drawable.ic_location_searching else R.drawable.ic_my_location,
+            stringResource(R.string.marker_my_location),
+            a.onMyLocation,
+            highlighted = m.followingMe,
+        )
     }
 }
 

@@ -233,6 +233,7 @@ Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s 
 > - Rollback = `make rollback` (start the previous lane, rename the pointer). Downtime expected and measured: **0 s** (NAV-008 AC 15).
 > - The Uptime Kuma maintenance window of §9 is removed after installation. The rebuild heartbeat is sent after `success` or a healthy `skipped: unchanged` only.
 > - Disk and memory budget: ADR-0014 §7. The peak is 6.5 GB, because the build and the two-lane window never overlap.
+> - **Offline pack step (NAV-020, designed 2026-10-04, not built yet):** it runs inside the same `nav-rebuild.service` run, after a `success` (old lane stopped, slots cleaned). It publishes `NAV_DATA_ROOT/packs/mn/` (manifest + immutable `.gz` files), served by the gateway as `/packs/` (openapi 0.6.x, per-IP "packs" limit, Caddy keeps no `encode`). It never changes the NAV-006 result or exit code. Disk: ≤ 0.4 GB retained, ≤ 0.3 GB per run, plus a Gate 2 engine image of about 0.3–0.6 GB. Building that image once per pin change needs 6–12 GB transient. Timing: ≤ 15 min, so a run ends before the 21:30 UTC reboot window. Details: `tasks/NAV-020-offline-pack-build-publication.md` §2 B16, ADR-0017 A1.
 
 *History (NAV-008 interim design, superseded by the block above):*
 - **Schedule:** `nav-rebuild.timer`, `OnCalendar=*-*-* 19:30:00 UTC` (03:30 Asia/Ulaanbaatar), `Persistent=true`, `RandomizedDelaySec=15min`. The service holds a `flock` so two runs never overlap.

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.6.0
+  version: 0.6.1
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
@@ -19,6 +19,18 @@ info:
     device start, field search on the shared 429 cooldown, turn list built on the client from the parsed steps)
     and ADR-0017 (offline Mongolia pack for Android: static, per-file versioned pack files and manifest under
     `/packs/`, on-device routing and search as fallback when the online request fails).
+
+    **Changes in 0.6.1 (2026-10-04, NAV-020 design, ADR-0017 Amendment A1).** Documentation only. No path,
+    parameter, status code, header, schema or gateway behaviour change; nothing new for backend to implement beyond
+    0.6.0:
+    - `getOfflinePackManifest`, `getOfflinePackFile`: `x-stories` now name the stories (NAV-020 publishes and serves
+      the files; NAV-022 is the Android client). NAV-021 and NAV-023 use the installed files, not these operations.
+    - `OfflinePackManifest.pack_version` / `published_at`: stated explicitly that both **can go backwards**. After a
+      server data rollback (NAV-020 AC 28) the gateway serves an older retained manifest again. Clients must not
+      ignore a manifest because its `pack_version` is lower than the installed one; they compare each file's
+      `sha256` (NAV-022 AC 25).
+    - `getOfflinePackManifest`: the `ETag` changes whenever the manifest file is replaced, including the rollback
+      case (ADR-0017 A1 item 11).
 
     **Changes in 0.6.0 (2026-10-04, offline Mongolia pack for Android, ADR-0017 accepted by the PO).** Backward
     compatible, additive only. No existing path, parameter, status code, header or schema changes. Backend implements
@@ -211,8 +223,8 @@ info:
     reroute profile, `search`, tiles from MapLibre Native), NAV-008 (staging server, 429), NAV-011 (Android
     `search` assisted variants, `reverse`, `postRoute` preview with `alternates: 2` and `bicycle`), NAV-018
     (Android route preview with a chosen start, swap and the client-side turn list; `postRoute`, `search`,
-    `reverse` profiles unchanged on the wire). The `packs` operations (0.6.0) trace to ADR-0017 and the spike
-    `offline-android` follow-up stories, which have no story IDs yet (`x-stories: []` until triage assigns them).
+    `reverse` profiles unchanged on the wire). The `packs` operations (0.6.0) trace to ADR-0017: NAV-020 (server
+    pack build, publication and static serving) and NAV-022 (Android download and update client).
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -426,7 +438,11 @@ paths:
 
         Served with `Cache-Control: no-cache` (revalidate every time) and a strong `ETag`. No auth, no personal data.
         429 under the per-IP "packs" limit (client: wait `Retry-After`, then retry on the next periodic check).
-      x-stories: []
+
+        **Rollback (since 0.6.1, NAV-020 AC 28).** After a server data rollback the gateway may serve an older
+        retained manifest again (lower `pack_version`, older `published_at`, new `ETag`). Clients treat it like any
+        other manifest and fetch every file whose `sha256` differs from the installed one.
+      x-stories: [NAV-020, NAV-022]
       parameters:
         - $ref: "#/components/parameters/PackRegion"
         - $ref: "#/components/parameters/IfNoneMatch"
@@ -543,7 +559,7 @@ paths:
         `Content-Range`, no `Content-Encoding`); the 416 JSON body, the `Access-Control-*` headers and the
         `Cache-Control` values are gateway-only. No auth, no personal data. 429 under the per-IP "packs" limit
         (client: wait `Retry-After`, then resume).
-      x-stories: []
+      x-stories: [NAV-020, NAV-022]
       parameters:
         - $ref: "#/components/parameters/PackRegion"
         - $ref: "#/components/parameters/PackFileVersion"
@@ -1844,8 +1860,13 @@ components:
           pattern: "^[0-9]{8}T[0-9]{6}Z$"
           description: |
             Slot ID of this publication (the slot of the newest `routing` and `search` files). Identifies the manifest
-            only. Downloads are decided per file (`files[].version`, `files[].sha256`).
-        published_at: { type: string, format: date-time }
+            only. Downloads are decided per file (`files[].version`, `files[].sha256`). Not monotonic: after a server
+            data rollback an older manifest is served again (since 0.6.1), so clients never skip a manifest because
+            its `pack_version` is lower than the installed one.
+        published_at:
+          type: string
+          format: date-time
+          description: When this manifest was first published. Like `pack_version`, it can go backwards after a rollback republish (since 0.6.1).
         attribution:
           type: string
           description: Contains `OpenStreetMap`. Clients show «© OpenStreetMap contributors» from their own resource files.

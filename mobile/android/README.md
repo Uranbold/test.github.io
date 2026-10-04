@@ -292,6 +292,11 @@ It validates the manifest, the routes and the tracks. Nothing is copied under `m
 
 Debug and release APKs contain no `mn.navmn.app.demo` class, no `demo/` asset, no GPX file and no `.pmtiles` file.
 
+**Tests.** The replay code is tested in `testDebugUnitTest`. The demo build type has a unit-test variant only when
+`nav.demoTilesFile` is set, so `./gradlew test`, `check` and `build` need no demo property. With it,
+`./gradlew :app:testDemoUnitTest -Pnav.demoTilesFile=<path-to>.pmtiles` runs only the demo-specific tests in
+`app/src/testDemo` (the NAV-019 startup regression test), not the whole `src/test` suite.
+
 ### 7.2 Install on the PO's phone
 
 1. Copy `app-demo.apk` to the phone by direct file transfer (USB cable to the phone's Download folder). Alternatively,

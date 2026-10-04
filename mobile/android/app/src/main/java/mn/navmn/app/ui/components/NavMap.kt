@@ -21,14 +21,19 @@ import mn.navmn.app.map.MapContent
 import mn.navmn.app.map.MapSurface
 import mn.navmn.app.map.NavMapController
 import mn.navmn.app.ui.theme.TokenColours
+import mn.navmn.app.variant.ReplayVariant
 import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
+import java.util.Optional
 import javax.inject.Inject
 
 /** ADR-0009 §6 / §10: the app's [MapSurface] is MapLibre Native through [NavMap]. */
-class MapLibreSurface @Inject constructor() : MapSurface {
+class MapLibreSurface @Inject constructor(
+    /** ADR-0016 §7: a replay build configures MapLibre's HTTP client once MapLibre is initialised (B-NAV019-01). */
+    private val replay: Optional<ReplayVariant>,
+) : MapSurface {
     @Composable
     override fun Map(
         modifier: Modifier,
@@ -43,7 +48,10 @@ class MapLibreSurface @Inject constructor() : MapSurface {
         onCameraIdle: (center: LatLon, bearing: Double, zoom: Double) -> Unit,
         onFailed: () -> Unit,
         onTap: ((LatLon, List<Int>) -> Unit)?,
-    ) = NavMap(modifier, description, night, colours, pmtilesUrl, content, onReady, onLongPress, onGesture, onCameraIdle, onFailed, onTap)
+    ) = NavMap(
+        modifier, description, night, colours, pmtilesUrl, content, onReady, onLongPress, onGesture, onCameraIdle, onFailed, onTap,
+        afterMapLibreInit = { replay.ifPresent { it.onMapLibreInitialised() } },
+    )
 }
 
 /**
@@ -64,6 +72,8 @@ fun NavMap(
     onCameraIdle: (center: LatLon, bearing: Double, zoom: Double) -> Unit,
     onFailed: () -> Unit,
     onTap: ((LatLon, List<Int>) -> Unit)? = null,
+    /** Runs right after `MapLibre.getInstance` and before the `MapView` exists (MapLibre-global configuration). */
+    afterMapLibreInit: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -75,6 +85,7 @@ fun NavMap(
     val density = LocalDensity.current.density
     val controller = remember {
         MapLibre.getInstance(context)
+        afterMapLibreInit()
         val options = MapLibreMapOptions.createFromAttributes(context).attributionEnabled(false).logoEnabled(false).compassEnabled(false)
         val view = MapView(context, options)
         view.onCreate(Bundle())

@@ -74,13 +74,24 @@ class DemoVariant @Inject constructor(
 
     override fun retryTiles() = demoTiles.prepare(scope)
 
+    /** Main thread (the map's first composition); set once per process. */
+    private var mapLibreClientSet = false
+
     override fun onApplicationCreate(app: Application) {
-        // ADR-0016 §7: MapLibre's own HTTP client refuses every request (file mode) or allows only the archive URL.
+        // B-NAV019-01: no MapLibre call here. Before MapLibre.getInstance, HttpRequestUtil's static initialiser throws
+        // (MapLibreConfigurationException → ExceptionInInitializerError: the demo crashed on open). See onMapLibreInitialised.
+        demoTiles.prepare(scope)
+        picker.load()
+    }
+
+    override fun onMapLibreInitialised() {
+        if (mapLibreClientSet) return
+        mapLibreClientSet = true
+        // ADR-0016 §7: MapLibre's own HTTP client refuses every request (file mode) or allows only the archive URL. The map
+        // calls this right after MapLibre.getInstance and before its first MapView, so no MapLibre request precedes it.
         HttpRequestUtil.setOkHttpClient(
             OkHttpClient.Builder().cache(null).addInterceptor(TileRequestPolicy(tilesUrl.ifBlank { null })).build(),
         )
-        demoTiles.prepare(scope)
-        picker.load()
     }
 
     /** «Түр зогсоох» (AC 22): the replay clock stops, emission stops, the utterance stops, the wake lock is released. */

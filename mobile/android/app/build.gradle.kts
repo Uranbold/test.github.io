@@ -73,12 +73,15 @@ android {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "GATEWAY_BASE_URL", quoted(configuredGateway ?: debugDefaultGateway))
             buildConfigField("boolean", "DEBUG_LOGS", "true")
+            // B-NAV019-01: the last crash's stack trace is stored app-private and shown on the next launch (no adb needed).
+            buildConfigField("boolean", "CRASH_DIAGNOSTICS", "true")
         }
         release {
             // Not minified in this slice (no store upload, D17); R8 rules for JNA/UniFFI come with NAV-012.
             isMinifyEnabled = false
             buildConfigField("String", "GATEWAY_BASE_URL", quoted(configuredGateway ?: ""))
             buildConfigField("boolean", "DEBUG_LOGS", "false")
+            buildConfigField("boolean", "CRASH_DIAGNOSTICS", "false")
         }
         // NAV-019 (ADR-0016 §2): the demo build for the PO's phone. Installs next to the debug app (.demo), signed with the
         // local debug key (nothing signing-related is committed), not debuggable, not minified (ADR-0013 B-A8 still open).
@@ -94,6 +97,7 @@ android {
             matchingFallbacks += listOf("release")
             buildConfigField("String", "GATEWAY_BASE_URL", quoted("https://127.0.0.1:9"))
             buildConfigField("boolean", "DEBUG_LOGS", "false")
+            buildConfigField("boolean", "CRASH_DIAGNOSTICS", "true") // B-NAV019-01: the PO's phone has no adb
             buildConfigField("String", "DEMO_TILES_URL", quoted(if (demoTilesFile.isNullOrBlank()) demoTilesUrl.orEmpty() else ""))
         }
     }
@@ -108,6 +112,9 @@ android {
             // The Gradle guard (AC 3) is the same source file the build script runs (DemoTilesGuardTest).
             java.srcDir(rootProject.file("buildSrc/src/main/java"))
         }
+        // NAV-019 TC-B19-01/02: testDemoUnitTest (only enabled with nav.demoTilesFile, see androidComponents below) also
+        // compiles src/test, whose DemoBuildTest needs the buildSrc guard. src/replay is already in the demo main sources.
+        getByName("testDemo") { java.srcDir(rootProject.file("buildSrc/src/main/java")) }
     }
 
     compileOptions {
@@ -350,7 +357,26 @@ val syncDemoAssets by tasks.registering(SyncDemoAssets::class) {
     dependsOn(checkDemoTiles)
 }
 
+// NAV-019 review housekeeping (ADR-0016 known gap 8) with the NAV-019 bug-lane regression test kept runnable
+// (NAV-005 test plan §8 Q9, option a). Without nav.demoTilesFile the demo build type has no unit-test variant, so
+// ./gradlew test, check and build work with no demo properties (the replay code is tested in testDebugUnitTest). With
+// nav.demoTilesFile (file mode, which TC-B19-02 asserts) testDemoUnitTest exists and runs only the demo-specific tests
+// in src/testDemo (QaNav019DemoStartupTest), not the whole src/test suite against the demo bindings.
+val demoUnitTestsEnabled: Boolean = !demoTilesFile.isNullOrBlank()
+val demoOnlyTestRoot: File = file("src/testDemo/java")
+val demoOnlyTestPatterns: List<String> = fileTree(demoOnlyTestRoot) { include("**/*.kt", "**/*.java") }.files
+    .map { it.relativeTo(demoOnlyTestRoot).invariantSeparatorsPath.substringBeforeLast('.').replace('/', '.') + "*" }
+    .sorted()
+tasks.withType<Test>().matching { it.name == "testDemoUnitTest" }.configureEach {
+    enabled = demoOnlyTestPatterns.isNotEmpty() // never fall back to running all of src/test under the demo bindings
+    filter {
+        isFailOnNoMatchingTests = true
+        demoOnlyTestPatterns.forEach { includeTestsMatching(it) }
+    }
+}
+
 androidComponents {
+    beforeVariants(selector().withBuildType("demo")) { it.enableUnitTest = demoUnitTestsEnabled }
     onVariants { variant ->
         variant.sources.java?.addGeneratedSourceDirectory(generateTokenColours, GenerateTokenColours::outputDir)
         variant.sources.assets?.addGeneratedSourceDirectory(syncBasemapAssets, SyncBasemapAssets::outputDir)

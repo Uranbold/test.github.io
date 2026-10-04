@@ -1,6 +1,7 @@
 package mn.navmn.app.map
 
 import android.content.Context
+import mn.navmn.app.geo.AccuracyCircle
 import mn.navmn.app.geo.LatLon
 import mn.navmn.app.ui.theme.TokenColours
 import org.maplibre.android.camera.CameraPosition
@@ -12,6 +13,7 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -22,6 +24,7 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import org.maplibre.geojson.Polygon
 
 /** What the map shows; set by the UI, re-applied after every style load (day/night switch, AC 59). */
 data class MapContent(
@@ -35,8 +38,14 @@ data class MapContent(
     val puck: LatLon? = null,
     val puckBearing: Double = 0.0,
     val puckStale: Boolean = false,
-    /** S1 location dot (§7), not during guidance. */
+    /**
+     * NAV-005 section N (map-style §7.8): the browse dot at the shown position (S1–S3), not during guidance. The filter
+     * in `LocationDisplayFilter` decides it; the map only draws it.
+     */
     val myLocation: LatLon? = null,
+    /** AC 74: accuracy in m of the fix the dot shows (circle radius); null or ≤ 0 = no circle. */
+    val myLocationAccuracyM: Double? = null,
+    /** AC 76: stale variant (hollow grey ring, grey dashed circle). */
     val myLocationStale: Boolean = false,
     /**
      * NAV-011 preview (map-style §7.6): position of [route] (the selected line) in the parsed routes list
@@ -63,6 +72,10 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
     private var colours: TokenColours? = null
     private var content = MapContent()
     private var loadedKey: String? = null
+    /** Section N: the circle last written (centre, accuracy) and the dot state last painted; null = write on next apply. */
+    private var circleKey: Pair<LatLon, Double>? = null
+    private var circleWritten = false
+    private var dotStale: Boolean? = null
 
     fun attach(map: MapLibreMap) {
         this.map = map
@@ -121,13 +134,13 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         visible(s, L_OLD, c.routeDimmed)
         s.getSourceAs<GeoJsonSource>(SRC_PIN)?.setGeoJson(points(listOfNotNull(c.destination)))
         s.getSourceAs<GeoJsonSource>(SRC_CANDIDATE)?.setGeoJson(points(listOfNotNull(c.candidate)))
-        s.getSourceAs<GeoJsonSource>(SRC_DOT)?.setGeoJson(points(listOfNotNull(c.myLocation)))
+        val me = c.myLocation.takeIf { !c.guidance }
+        s.getSourceAs<GeoJsonSource>(SRC_DOT)?.setGeoJson(points(listOfNotNull(me)))
+        applyAccuracy(s, me, c.myLocationAccuracyM)
+        applyDotState(s, c.myLocationStale)
         // NAV-018 §7.7: chosen-start marker and manoeuvre point (preview only).
         s.getSourceAs<GeoJsonSource>(SRC_ORIGIN)?.setGeoJson(points(listOfNotNull(c.origin.takeIf { !c.guidance })))
         s.getSourceAs<GeoJsonSource>(SRC_STEP)?.setGeoJson(points(listOfNotNull(c.step.takeIf { !c.guidance })))
-        s.getLayer(L_DOT)?.setProperties(
-            PropertyFactory.circleColor(argb(if (c.myLocationStale) colours?.locationStaleDot else colours?.locationDot)),
-        )
         val puck = c.puck
         s.getSourceAs<GeoJsonSource>(SRC_PUCK)?.setGeoJson(
             if (puck == null) {
@@ -139,6 +152,53 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
             },
         )
         s.getLayer(L_PUCK)?.setProperties(PropertyFactory.iconImage(if (c.puckStale) IMG_PUCK_STALE else IMG_PUCK))
+    }
+
+    /**
+     * AC 74 / map-style §7.8: the accuracy polygon is rebuilt only when the shown fix changes (a held dot costs 0 source
+     * writes); the layers' minzoom hides the circle while it is smaller than the dot.
+     */
+    private fun applyAccuracy(s: Style, me: LatLon?, accuracyM: Double?) {
+        val acc = accuracyM?.takeIf { it.isFinite() && it > 0.0 }
+        val key = if (me != null && acc != null) me to acc else null
+        if (circleWritten && key == circleKey) return
+        circleKey = key
+        circleWritten = true
+        val src = s.getSourceAs<GeoJsonSource>(SRC_ACCURACY) ?: return
+        if (key == null) {
+            src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            return
+        }
+        val ring = AccuracyCircle.ring(key.first, key.second).map { Point.fromLngLat(it.lon, it.lat) }
+        src.setGeoJson(FeatureCollection.fromFeature(Feature.fromGeometry(Polygon.fromLngLats(listOf(ring)))))
+        val z = AccuracyCircle.minZoom(DOT_OUTER_RADIUS_DP.toDouble(), key.first.lat, key.second).toFloat()
+        s.getLayer(L_ACCURACY_FILL)?.minZoom = z
+        s.getLayer(L_ACCURACY_LINE)?.minZoom = z
+    }
+
+    /**
+     * AC 76 / D173 (map-style §7.8): normal = filled dot and solid circle line; stale = grey hollow ring (see-through
+     * centre, 4 dp `location.stale-ring` stroke, same outer size) and a grey dashed circle. Paint properties only.
+     */
+    private fun applyDotState(s: Style, stale: Boolean) {
+        if (dotStale == stale) return
+        val c = colours ?: return
+        dotStale = stale
+        s.getLayer(L_DOT)?.setProperties(
+            PropertyFactory.circleRadius(if (stale) DOT_OUTER_RADIUS_DP - STALE_RING_DP else DOT_RADIUS_DP),
+            PropertyFactory.circleColor(argb(if (stale) c.locationStaleDot else c.locationDot)),
+            PropertyFactory.circleOpacity(if (stale) 0f else 1f),
+            PropertyFactory.circleStrokeWidth(if (stale) STALE_RING_DP else DOT_STROKE_DP),
+            PropertyFactory.circleStrokeColor(argb(if (stale) c.locationStaleRing else c.locationDotStroke)),
+        )
+        s.getLayer(L_ACCURACY_FILL)?.setProperties(
+            PropertyFactory.fillColor(argb(if (stale) c.locationStaleAccuracyFill else c.locationAccuracyFill)),
+        )
+        s.getLayer(L_ACCURACY_LINE)?.setProperties(
+            PropertyFactory.lineColor(argb(if (stale) c.locationStaleAccuracyStroke else c.locationAccuracyStroke)),
+            // null resets line-dasharray to its default (solid).
+            PropertyFactory.lineDasharray(if (stale) arrayOf(4f, 3f) else null),
+        )
     }
 
     private fun points(list: List<LatLon>) = FeatureCollection.fromFeatures(list.map { Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat)) })
@@ -187,7 +247,11 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
     private fun addOverlay(s: Style) {
         val c = colours ?: return
         val d = context.resources.displayMetrics.density
-        listOf(SRC_ROUTE, SRC_ALT, SRC_PIN, SRC_CANDIDATE, SRC_DOT, SRC_PUCK, SRC_ORIGIN, SRC_STEP).forEach { s.addSource(GeoJsonSource(it)) }
+        // A new style has none of our data: the next apply() writes the circle and paints the dot state again (AC 74).
+        circleWritten = false
+        circleKey = null
+        dotStale = null
+        listOf(SRC_ROUTE, SRC_ALT, SRC_PIN, SRC_CANDIDATE, SRC_DOT, SRC_PUCK, SRC_ORIGIN, SRC_STEP, SRC_ACCURACY).forEach { s.addSource(GeoJsonSource(it)) }
         s.addImage(IMG_PUCK, MapBitmaps.puck(d, c, stale = false))
         s.addImage(IMG_PUCK_STALE, MapBitmaps.puck(d, c, stale = true))
         s.addImage(IMG_PIN, MapBitmaps.pin(d, c, candidate = false))
@@ -204,6 +268,14 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         below(line(L_SEL, c.routeSelected, widths(5f to 4f, 10f to 6f, 14f to 8f, 18f to 12f)))
         below(line(L_GUIDE_CASING, c.routeSelectedCasing, widths(12f to 10f, 15f to 14f, 18f to 18f)))
         below(line(L_GUIDE, c.routeSelected, widths(12f to 6f, 15f to 9f, 18f to 13f)))
+        // NAV-005 section N, map-style §7.8: accuracy circle above the route lines, below nav-route-step and the labels.
+        below(FillLayer(L_ACCURACY_FILL, SRC_ACCURACY).withProperties(PropertyFactory.fillColor(argb(c.locationAccuracyFill))))
+        below(
+            LineLayer(L_ACCURACY_LINE, SRC_ACCURACY).withProperties(
+                PropertyFactory.lineColor(argb(c.locationAccuracyStroke)),
+                PropertyFactory.lineWidth(1f),
+            ),
+        )
         // NAV-018 §7.7: manoeuvre point above the selected line, below the first symbol layer (radius 6 dp, 3 dp ring).
         below(
             CircleLayer(L_STEP, SRC_STEP).withProperties(
@@ -216,9 +288,9 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         // Markers and puck above everything (map-style §7.1, §7.4).
         s.addLayer(
             CircleLayer(L_DOT, SRC_DOT).withProperties(
-                PropertyFactory.circleRadius(7.5f),
+                PropertyFactory.circleRadius(DOT_RADIUS_DP),
                 PropertyFactory.circleColor(argb(c.locationDot)),
-                PropertyFactory.circleStrokeWidth(3f),
+                PropertyFactory.circleStrokeWidth(DOT_STROKE_DP),
                 PropertyFactory.circleStrokeColor(argb(c.locationDotStroke)),
             ),
         )
@@ -347,6 +419,15 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         const val L_OLD_CASING = "nav-route-old-casing"
         const val L_OLD = "nav-route-old"
         const val L_DOT = "nav-location-dot"
+        /** NAV-005 section N, map-style §7.8. */
+        const val SRC_ACCURACY = "nav-location-accuracy"
+        const val L_ACCURACY_FILL = "nav-location-accuracy-fill"
+        const val L_ACCURACY_LINE = "nav-location-accuracy-line"
+        /** map-style §7.8: dot `circle-radius` 7.5 dp + 3 dp stroke = outer radius 10.5 dp; stale ring 4 dp, same outer size. */
+        const val DOT_RADIUS_DP = 7.5f
+        const val DOT_STROKE_DP = 3f
+        const val DOT_OUTER_RADIUS_DP = DOT_RADIUS_DP + DOT_STROKE_DP
+        const val STALE_RING_DP = 4f
         const val L_PIN = "nav-pin"
         const val L_CANDIDATE = "nav-candidate"
         const val L_PUCK = "nav-puck"
