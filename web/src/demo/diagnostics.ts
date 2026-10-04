@@ -147,6 +147,7 @@ export function buildReport(s: DiagSnapshot): string {
     "",
     "[Audio]",
     `AudioContext state: ${s.audio.context}; silent-buffer unlock ran: ${yesNo(s.audio.unlockRan)}${s.audio.unlockError ? ` (error ${s.audio.unlockError})` : ""}; speech primed: ${yesNo(s.audio.speechPrimed)}`,
+    `Chime keep-alive running: ${yesNo(s.audio.keepAlive)}; chime element fallback: ${s.audio.element}`,
     "",
     `[Speech events] last ${s.events.length}, oldest first`,
     ...(s.events.length ? s.events.map(formatSpeechEvent) : ["(none yet)"]),

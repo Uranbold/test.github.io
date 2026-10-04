@@ -79,7 +79,7 @@ function files(dir: string, base = dir): string[] {
 }
 
 /** Strings that only the voice diagnostics panel has (triage item F1). */
-const DIAG_MARKERS = ["Voice diagnostics", "Test default speech (no voice set)", "silent-buffer unlock"];
+const DIAG_MARKERS = ["Voice diagnostics", "Test default speech (no voice set)", "silent-buffer unlock", "silent keep-alive", "data:audio/wav;base64,"];
 
 describe("NAV-017 AC 1, 3, 4 build outputs", () => {
   const out = mkdtempSync(join(tmpdir(), "nav017-build-"));
