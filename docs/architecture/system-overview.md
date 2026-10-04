@@ -272,6 +272,36 @@ flowchart TD
   | Cold first run (empty `data/`, includes about 2.5 GB auxiliary downloads) | 530 s | **462 s** measured 2026-09-29 (AC 1, ≤ 30 min; images already pulled). Downloads 149 s, graph 22 s, Photon 33 s, Maven 101 s + Planetiler 208 s; peak build memory 5.5 GB |
   | Source switch (`make rebuild-data`, auxiliaries cached) | - | 336 s |
 
+## 3a. Daily rebuild with slots and a pointer switch (NAV-006, ADR-0014)
+Slot mode (`backend/compose.slots.yaml`; staging, and the NAV-006 test project) replaces the one-shot flow of §3 for serving hosts. The dev stack in §3 is unchanged.
+
+```mermaid
+flowchart LR
+  T["nav-rebuild.timer 19:30 UTC<br/>or make rebuild"] --> L{"flock<br/>NAV_LOCK_FILE"}
+  L --> G["guards: disk, MemAvailable"]
+  G --> F["fetch: OSM_SOURCES in order<br/>.md5, 1 download/day"]
+  F --> VAL["validate 3(a)-(f)<br/>full PBF read, P1-P6, size, dates"]
+  VAL --> B["builders -> slots/{run-id}.partial<br/>tiles, valhalla, photon (pristine cache reuse)"]
+  B --> C["rename -> slots/{run-id}"]
+  C --> LN["free lane (blue|green)<br/>repoint + recreate"]
+  LN --> VG["gateway-verify 127.0.0.1:NAV_VERIFY_PORT<br/>smoke, contract, ref routes, sizes"]
+  VG -->|pass| SW["rename pointer/public/active.json<br/>(the switch)"]
+  VG -->|fail| FX["slot .failed, lane stopped,<br/>alert hook, exit != 0"]
+  SW --> PS["post-switch smoke (public)"]
+  PS -->|pass| GR["grace >= 30 s, stop old lane,<br/>keep 2 slots"]
+  PS -->|fail| RB["pointer back (old lane still up),<br/>rolled back, alert"]
+
+  subgraph Serving["Serving (unchanged paths)"]
+    GW["gateway (nginx)<br/>njs reads active.json per request"] --> LB["valhalla-{lane} / photon-{lane}"]
+    GW --> TF[("/srv/slots/{slot}/tiles/basemap.pmtiles<br/>strong ETag")]
+  end
+  SW -.-> GW
+```
+
+- The switch is one atomic `rename(2)`: each request reads either the old or the new pointer completely. No nginx reload, no container change, no closed keep-alive connection (spike in ADR-0014).
+- Web PMTiles clients (`pmtiles` 4.5.0) detect the `ETag` change, reload the header and retry once (AC 16). MapLibre Native: not verified yet (NAV-006 R6).
+- Status is local only (`make status`). There is no HTTP data-version field (ADR-0014 §9); `openapi.yaml` is unchanged.
+
 ## 4. Request flow: route with Mongolian guidance (NAV-004/005 preview)
 
 ```mermaid
@@ -302,6 +332,8 @@ sequenceDiagram
 | NFR-A1 | Fault isolation | one upstream down does not affect the other endpoints or the gateway | NAV-001 AC 34 | QA |
 | NFR-A2 | Restart from existing data | all services healthy ≤ 120 s, nothing rebuilt | NAV-001 AC 2 | QA |
 | NFR-A3 | Clean first run | all services healthy ≤ 30 min, including downloads, on the default Mongolia source | NAV-001 AC 1 | QA |
+| NFR-A4 | Data replacement without failures | daily rebuild switch and `make rollback`: **0** failed requests in a ≥ 10 requests/s mixed loop (keep-alive and new connections); p95 in the switch window ≤ 2 × the p95 before it; a failed build never switches | NAV-006 AC 14–18, 33; ADR-0014 | QA light set |
+| NFR-D1 | Data freshness | active OSM data ≤ 48 h old, otherwise `stale: true` + alert; run start to end of switch ≤ 30 min on staging | NAV-006 AC 3(f), 10, 29; NAV-008 AC 15 | QA (dev: recorded only), staging |
 | NFR-R1 | Resources | steady-state memory ≤ 6 GB total; build peak ≤ 12 GB; `data/` ≤ 10 GB; PMTiles max zoom exactly 14 on the default build and ≤ 200 MB, with a ≤ 400 MB fallback for the Mongolia dev extract (PO decision D1). Measured z14: 117,536,866 bytes, so the primary limit holds | NAV-001 AC 12, 39 | QA |
 | NFR-P1 | **No PII in logs.** Coordinates, search text and route bodies are location data | Gateway logs path without query string. No request bodies are logged by gateway, Valhalla or Photon | Project NFR | Architect review |
 | NFR-P2 | GPS traces anonymised | N/A in NAV-001 (the backend stores no traces). Applies from the traffic phase | Project NFR | - |

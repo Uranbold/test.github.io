@@ -4,6 +4,8 @@
 #   fetch (default)  OSM PBF, Photon dump, Planetiler auxiliary files, pinned tool downloads
 #   clean            delete built artefacts and the resolved OSM/Photon inputs, keep the
 #                    auxiliary files and tools (used by `make rebuild-data`)
+#   aux              NAV-006 pipeline (ADR-0014 §1): only the Planetiler auxiliary files and every pinned
+#                    tool, into /data/sources and /data/tools of the shared cache. No OSM or Photon input.
 #
 # Local file keys win: when OSM_PBF_FILE / PHOTON_DUMP_FILE is set, the file is copied and the URL
 # is never requested (AC 4). Everything already present and matching the configured key is reused
@@ -137,8 +139,27 @@ fetch_all() {
     log info "data-fetch finished" seconds="$(( $(now_s) - t0 ))"
 }
 
+# NAV-006: fill the shared auxiliary cache (files already present are reused without a request).
+fetch_aux_cache() {
+    local t0
+    t0=$(now_s)
+    mkdir -p "$SRC" "$TOOLS"
+    setup_curl_ca
+    ensure_tool photon.jar "${PHOTON_JAR_URL:-}" 256 "${PHOTON_JAR_SHA256:-}"
+    ensure_tool aircompressor.jar "${AIRCOMPRESSOR_URL:-}" 256 "${AIRCOMPRESSOR_SHA256:-}"
+    resolve_aux
+    if [[ -s "$(protomaps_jar)" ]]; then
+        log info "reused" tool="$(basename "$(protomaps_jar)")"
+    else
+        ensure_tool "protomaps-basemaps-${PROTOMAPS_COMMIT}.tar.gz" "${PROTOMAPS_SRC_URL:-}" 256 "${PROTOMAPS_SRC_SHA256:-}"
+        ensure_tool maven-bin.tar.gz "${MAVEN_DIST_URL:-}" 512 "${MAVEN_DIST_SHA512:-}"
+    fi
+    log info "auxiliary cache ready" seconds="$(( $(now_s) - t0 ))"
+}
+
 case "${1:-fetch}" in
     fetch) fetch_all ;;
     clean) clean ;;
-    *) die "unknown mode (use fetch or clean)" mode="$1" ;;
+    aux) fetch_aux_cache ;;
+    *) die "unknown mode (use fetch, clean or aux)" mode="$1" ;;
 esac

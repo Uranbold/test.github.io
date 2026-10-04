@@ -4,8 +4,15 @@
 Stdlib only, so it runs in the Valhalla image (python3, no osmium). Equivalent to the
 header part of `osmium fileinfo`. Usage: pbfinfo.py <file.osm.pbf>  -> JSON on stdout.
 Story: NAV-001 (AC 5, README bbox).
+
+    pbfinfo.py --full <file.osm.pbf>
+NAV-006 check 3(a) (ADR-0014 §8): additionally reads EVERY blob to the end of the file (BlobHeader and
+datasize consistency, zlib decompression and raw_size of each blob) and adds "full_read" to the JSON.
+A truncated file, an HTML error page or a corrupt blob exits non-zero with the byte offset of the problem.
+The node-scan bbox (header without bbox) is computed in the same pass.
 """
 import json
+import os
 import struct
 import sys
 import zlib
@@ -52,7 +59,13 @@ def zigzag(n):
 
 def read_header(path):
     with open(path, "rb") as f:
-        (hlen,) = struct.unpack(">I", f.read(4))
+        head = f.read(4)
+        if len(head) < 4:
+            raise ValueError(f"file too short ({len(head)} bytes)")
+        (hlen,) = struct.unpack(">I", head)
+        if hlen == 0 or hlen > 64 * 1024:
+            start = head.decode("ascii", "replace")
+            raise ValueError(f"not an OSM PBF: first BlobHeader length {hlen} (file starts with {start!r}; HTML error page?)")
         blob_header = f.read(hlen)
         btype, dsize = None, None
         for num, _, val in fields(blob_header):
@@ -192,15 +205,151 @@ def scan_bbox(path):
     return [round(min_lon, 7), round(min_lat, 7), round(max_lon, 7), round(max_lat, 7)]
 
 
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit("usage: pbfinfo.py <file.osm.pbf>")
-    try:
-        info = read_header(sys.argv[1])
-        info["bbox_source"] = "header"
-        if not info["bbox"] or None in info["bbox"]:
-            info["bbox"] = scan_bbox(sys.argv[1])
+MAX_BLOB_HEADER = 64 * 1024          # PBF spec: BlobHeader < 64 KiB
+MAX_BLOB = 32 * 1024 * 1024          # PBF spec: Blob <= 32 MiB
+
+
+class PbfError(ValueError):
+    """Structural problem, with the byte offset where it was found."""
+
+
+def iter_blobs(path):
+    """Yield (offset, type, decompressed data) for every blob, checking the framing to the last byte."""
+    size = os.path.getsize(path)
+    with open(path, "rb") as f:
+        offset = 0
+        while offset < size:
+            h = f.read(4)
+            if len(h) < 4:
+                raise PbfError(f"truncated: {len(h)} stray byte(s) at offset {offset} of {size}")
+            (hlen,) = struct.unpack(">I", h)
+            if hlen == 0 or hlen > MAX_BLOB_HEADER:
+                raise PbfError(f"invalid BlobHeader length {hlen} at offset {offset} (not a PBF, or corrupt)")
+            raw_header = f.read(hlen)
+            if len(raw_header) < hlen:
+                raise PbfError(f"truncated: BlobHeader at offset {offset} needs {hlen} bytes, file ends after {len(raw_header)}")
+            btype, dsize = None, None
+            try:
+                for num, _, val in fields(raw_header):
+                    if num == 1:
+                        btype = val.decode()
+                    elif num == 3:
+                        dsize = val
+            except (IndexError, UnicodeDecodeError, ValueError) as e:
+                raise PbfError(f"unreadable BlobHeader at offset {offset}: {e}") from None
+            if btype is None or dsize is None or dsize > MAX_BLOB:
+                raise PbfError(f"invalid BlobHeader at offset {offset} (type={btype!r}, datasize={dsize})")
+            if offset == 0 and btype != "OSMHeader":
+                raise PbfError(f"first blob is {btype!r}, not OSMHeader")
+            blob = f.read(dsize)
+            if len(blob) < dsize:
+                raise PbfError(f"truncated: blob at offset {offset} needs {dsize} bytes, file ends after {len(blob)}")
+            data, raw_size = None, None
+            try:
+                for num, _, val in fields(blob):
+                    if num == 1:
+                        data = val
+                    elif num == 2:
+                        raw_size = val
+                    elif num == 3:
+                        data = zlib.decompress(val)
+            except (IndexError, ValueError, zlib.error) as e:
+                raise PbfError(f"corrupt blob at offset {offset}: {e}") from None
+            if data is None:
+                raise PbfError(f"blob at offset {offset}: unsupported compression (only raw/zlib)")
+            if raw_size is not None and raw_size != len(data):
+                raise PbfError(f"blob at offset {offset}: raw_size {raw_size} != decompressed {len(data)}")
+            yield offset, btype, data
+            offset += 4 + hlen + dsize
+
+
+def dense_minmax(data):
+    """(min_lat, max_lat, min_lon, max_lon) in degrees of the nodes of one OSMData block, or None."""
+    gran, lat_off, lon_off, groups = 100, 0, 0, []
+    for num, _, val in fields(data):
+        if num == 2:
+            groups.append(val)
+        elif num == 17:
+            gran = val
+        elif num == 19:
+            lat_off = val
+        elif num == 20:
+            lon_off = val
+    lats, lons = [], []
+    for g in groups:
+        for num, _, val in fields(g):
+            if num == 2:  # DenseNodes
+                dl = dn = None
+                for n2, _, v2 in fields(val):
+                    if n2 == 8:
+                        dl = packed_sint(v2)
+                    elif n2 == 9:
+                        dn = packed_sint(v2)
+                if dl:
+                    acc, vals = 0, []
+                    for d in dl:
+                        acc += d
+                        vals.append(acc)
+                    lats += (min(vals), max(vals))
+                    acc, vals = 0, []
+                    for d in dn:
+                        acc += d
+                        vals.append(acc)
+                    lons += (min(vals), max(vals))
+            elif num == 1:  # plain Node
+                for n2, _, v2 in fields(val):
+                    if n2 == 8:
+                        lats.append(zigzag(v2))
+                    elif n2 == 9:
+                        lons.append(zigzag(v2))
+    if not lats:
+        return None
+    return ((lat_off + gran * min(lats)) / 1e9, (lat_off + gran * max(lats)) / 1e9,
+            (lon_off + gran * min(lons)) / 1e9, (lon_off + gran * max(lons)) / 1e9)
+
+
+def full_read(path, want_bbox):
+    """Read every blob (check 3(a)). Returns {"blocks", "bytes"} and, if want_bbox, "bbox" from a node scan."""
+    blocks = 0
+    box = [float("inf"), float("-inf"), float("inf"), float("-inf")]
+    for _, btype, data in iter_blobs(path):
+        blocks += 1
+        if want_bbox and btype == "OSMData":
+            mm = dense_minmax(data)
+            if mm:
+                box = [min(box[0], mm[0]), max(box[1], mm[1]), min(box[2], mm[2]), max(box[3], mm[3])]
+    out = {"blocks": blocks, "bytes": os.path.getsize(path)}
+    if want_bbox:
+        out["bbox"] = None if box[0] == float("inf") else [round(box[2], 7), round(box[0], 7),
+                                                           round(box[3], 7), round(box[1], 7)]
+    return out
+
+
+def describe(path, full=False):
+    """The JSON object printed by the CLI."""
+    info = read_header(path)
+    info["bbox_source"] = "header"
+    no_bbox = not info["bbox"] or None in info["bbox"]
+    if full:
+        fr = full_read(path, want_bbox=no_bbox)
+        if no_bbox:
+            info["bbox"] = fr.pop("bbox")
             info["bbox_source"] = "node scan (header has no bbox)"
-        print(json.dumps(info, ensure_ascii=False))
+        info["full_read"] = fr
+    elif no_bbox:
+        info["bbox"] = scan_bbox(path)
+        info["bbox_source"] = "node scan (header has no bbox)"
+    return info
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    full = bool(args) and args[0] == "--full"
+    if full:
+        args = args[1:]
+    if len(args) != 1:
+        sys.exit("usage: pbfinfo.py [--full] <file.osm.pbf>")
+    try:
+        print(json.dumps(describe(args[0], full), ensure_ascii=False))
     except Exception as e:  # noqa: BLE001 - report any parse failure as a clean error
-        sys.exit(f"pbfinfo: cannot read PBF {sys.argv[1]}: {e}")
+        sys.exit(f"pbfinfo: cannot read PBF {args[0]}: {e}")

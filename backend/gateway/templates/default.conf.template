@@ -2,6 +2,10 @@
 # Rendered by the nginx image's envsubst step: only ${VALHALLA_UPSTREAM}, ${PHOTON_UPSTREAM} and
 # ${GATEWAY_ERROR_LOG_LEVEL} are substituted; nginx's own $variables are left alone.
 #
+# NAV-006 (ADR-0014 §3): upstreams and the tiles file come from njs (gateway/njs/slot.js), which reads the
+# slot pointer /etc/nginx/slot/active.json on every request when that directory is mounted
+# (backend/compose.slots.yaml). Without it (backend/compose.yaml, dev) the NAV-001 values below are used.
+#
 #   GET  /health                   -> answered here
 #   GET  /tiles/basemap.pmtiles    -> static file, HTTP Range / ETag (416 = JSON RangeNotSatisfiable)
 #   POST /v1/route, GET ?json=     -> Valhalla /route   (pass-through)
@@ -20,6 +24,11 @@ error_log /dev/stderr ${GATEWAY_ERROR_LOG_LEVEL};
 # Docker's embedded DNS + variable proxy_pass: nginx starts and keeps running while an
 # upstream container is stopped, and fails fast (502) instead of hanging (AC 34).
 resolver 127.0.0.11 valid=10s ipv6=off;
+
+js_import slot from slot.js;
+js_set $valhalla_upstream slot.valhalla;
+js_set $photon_upstream   slot.photon;
+js_set $nav_tiles_path    slot.tiles;
 resolver_timeout 2s;
 
 client_max_body_size 256k;
@@ -44,8 +53,9 @@ server {
     listen 8080 default_server;
     server_name _;
 
-    set $valhalla_upstream ${VALHALLA_UPSTREAM};
-    set $photon_upstream   ${PHOTON_UPSTREAM};
+    # Dev-mode defaults, read by slot.js only when no slot pointer directory is mounted.
+    set $nav_dev_valhalla ${VALHALLA_UPSTREAM};
+    set $nav_dev_photon   ${PHOTON_UPSTREAM};
 
     error_page 404 = @not_found;
     error_page 405 = @method_not_allowed;
@@ -71,7 +81,10 @@ server {
         etag on;
         types { }
         default_type application/octet-stream;
-        alias /srv/data/tiles/basemap.pmtiles;
+        # Dev: /srv/data/tiles/basemap.pmtiles. Slot mode: /srv/slots/<slot>/tiles/basemap.pmtiles of the
+        # active pointer. The ETag ("<mtime>-<size>") changes with the archive, so pmtiles clients re-read
+        # the header after a switch (ADR-0014 §5). No open_file_cache: every request opens the current file.
+        alias $nav_tiles_path;
         # NAV-001 AC 43 (ADR-0002 Amendment 2). An unsatisfiable Range makes the range filter turn
         # the 200 into a 416 *after* the header filter has already added the CORS headers above,
         # so the 416 target must not add them again. A location that declares any error_page stops

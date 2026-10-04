@@ -201,7 +201,7 @@ The alert receiver is the named PO-side operator (D7). The channel (email, Teleg
 | Disk usage | `nav-diskcheck.timer` on the host, every 5 min | Pushes a heartbeat to an Uptime Kuma **push monitor** only while `/` usage is < 85 %. No push for 15 min (disk ≥ 85 %, or host down) raises the alert | AC 18 |
 | Daily rebuild | `nav-rebuild.service` | Pushes a heartbeat only after a successful rebuild **and** smoke run. Push monitor interval 26 h | AC 15 |
 | Host metrics history | `sysstat` on the host (§3) | CPU, RAM and disk kept 28 days | AC 18 |
-| Maintenance window | Uptime Kuma | Daily window around the rebuild (§11) so the planned stop does not page the operator. The rebuild heartbeat still catches a failed rebuild | AC 17 |
+| Maintenance window | Uptime Kuma | Daily window around the rebuild (§11) so the planned stop does not page the operator. The rebuild heartbeat still catches a failed rebuild. **Removed once NAV-006 is installed**: the switch has no downtime (ADR-0014) | AC 17 |
 
 ~~The ops VM exposes no extra ports.~~ *(Corrected in review round 2, §17.4: this contradicted the push heartbeats above, which the staging host must be able to reach.)* The Uptime Kuma **UI** binds to `127.0.0.1`, and the operator reaches it through an SSH tunnel. The ops VM also runs a small Caddy (same pinned image and log include-list as staging) on TCP 80/443 that forwards **only** `/api/push/*` to Uptime Kuma. Every other path gets `404`. There is no access log, because push tokens are in the path. The ops VM gets the same SSH hardening as the staging host. It holds no personal data (only `/health` results, heartbeat times and encrypted configuration backups).
 
@@ -217,6 +217,22 @@ Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s 
 - **Restore drill (AC 20):** a new empty VM of the same plan, then bootstrap script, git checkout of the pinned tag, `restic restore` of the latest snapshot, `docker compose up`, a first data build (about 8 minutes on 4 vCPU, NAV-001 measurement) and the smoke suite. Target ≤ 2 hours; the measured time goes in the runbook. Because the ACME account and certificates are restored, no extra Let's Encrypt issuance is needed if DNS still points to the old IP. After a DNS change, Caddy obtains a new certificate on its own.
 
 ## 11. Daily data rebuild (interim until NAV-006)
+> **NAV-006 target path ([ADR-0014](adr/0014-daily-rebuild-slots-and-pointer-switch.md), accepted 2026-10-04).** Once NAV-006 is installed on staging (RUNBOOK checklist, executed with NAV-008), this is the **only** rebuild path (NAV-006 AC 43). The interim text below remains only as history until then.
+> - The same `nav-rebuild.timer` (19:30 UTC, `RandomizedDelaySec=15min`, `Persistent=true`) runs the NAV-006 pipeline (`make rebuild` entry point). `nav-rollback-data.sh` is removed. `nav-rebuild.sh` is removed or becomes a thin wrapper.
+> - Data lives under `NAV_DATA_ROOT` (default `/var/lib/nav/data`). It holds immutable slots named by run ID, a shared auxiliary cache, and two service lanes, `blue` and `green` (Valhalla + Photon each), from `backend/compose.slots.yaml` + this overlay.
+> - Steps:
+>   1. Guards: lock, disk, memory.
+>   2. Fetch from the ordered source list and validate.
+>   3. Build into `<slot>.partial`.
+>   4. Start the free lane and verify it through the private `gateway-verify` on `127.0.0.1` (smoke, contract, reference routes, sizes).
+>   5. **Switch** by one atomic rename of `pointer/public/active.json`. The gateway's njs reads it on every request: no reload, no restart.
+>   6. Post-switch smoke through Caddy.
+>   7. Grace period, then stop the old lane.
+>   8. Keep exactly 2 slots.
+> - Rollback = `make rollback` (start the previous lane, rename the pointer). Downtime expected and measured: **0 s** (NAV-008 AC 15).
+> - The Uptime Kuma maintenance window of §9 is removed after installation. The rebuild heartbeat is sent after `success` or a healthy `skipped: unchanged` only.
+> - Disk and memory budget: ADR-0014 §7. The peak is 6.5 GB, because the build and the two-lane window never overlap.
+
 - **Schedule:** `nav-rebuild.timer`, `OnCalendar=*-*-* 19:30:00 UTC` (03:30 Asia/Ulaanbaatar), `Persistent=true`, `RandomizedDelaySec=15min`. The service holds a `flock` so two runs never overlap.
 - **Steps (proposed):**
   1. Preflight: `HEAD` on the Geofabrik URL returns 200; free disk ≥ 50 GB; stack healthy. If a preflight fails, skip the run and do **not** stop the stack (the old data keeps serving). No heartbeat is sent, so the operator is alerted.
@@ -248,6 +264,7 @@ Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s 
 | trusted proxy CIDR | Subnet of the Compose network that Caddy uses (§7) | no |
 | `UPTIME_PUSH_URL_REBUILD`, `UPTIME_PUSH_URL_DISK` | Uptime Kuma push URLs (they contain tokens) | **yes**, only in `.env` on the host |
 | `RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE` | Backup target and the path to the password file | repository no; the password file is a secret outside git |
+| NAV-006 pipeline keys | `NAV_DATA_ROOT`, `NAV_VERIFY_PORT`, `OSM_SOURCES`, `REBUILD_*` guards, grace, retention, `REBUILD_ALERT_CMD` (proposed names and staging defaults: ADR-0014 §6–§8). `REBUILD_ALLOW_TEST_FAULTS` / `REBUILD_TEST_FAULT` are test-only and **not** in the staging `.env.example` | no (`REBUILD_ALERT_CMD` may embed a token: then it lives only in `.env` on the host, like the push URLs) |
 
 ## 14. Access roles (role names only, no personal data; AC 21)
 | Role | Holds | Held by |
