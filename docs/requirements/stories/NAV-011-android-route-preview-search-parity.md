@@ -7,7 +7,7 @@ size: L                # was M in the backlog draft; L because the typing lock a
 needs_design: true
 needs_backend: false   # true only if the architect's ADR (ADR-0006 R11) picks server-side query assistance (contract change, gateway/Photon work)
 needs_mobile: true     # Android only (mobile/android); iOS is NAV-015
-status: ready
+status: done           # accepted by the PO 2026-10-04 in light-QA mode (D141): code 1c2bf4f, light QA 0 defects; real-device checks (AC 47) stay not verified, full QA before any public release (D108). The D140 typed-coordinate change (AC 7, 7a, 8, 9, 12, 13, 20, 33, 39, 40) is delivered in change-request run 2 and verified by its own light QA
 ---
 
 # NAV-011: Android route preview and search parity
@@ -27,14 +27,15 @@ Secondary personas:
 - **Parity means the web behaviour, already specified and verified, on Android:**
   - alternatives and «Дугуй»: [NAV-004](NAV-004-route-preview-web.md) AC 10–13, 16–21, 35 (web);
   - query assistance: [NAV-003](NAV-003-search-cyrillic-latin-autocomplete.md) AC 14–16 and ADR-0006 §2–§6 (web);
-  - reverse on the coordinate card: NAV-003 AC 27–30, 36–38 (web).
+  - reverse on the coordinate card: NAV-003 AC 27–30, 36–38 (web);
+  - typed coordinates open the coordinate card: NAV-003 AC 26 (web), added to this story by the D140 change (2026-10-04).
   Where Android needs a different rule (touch targets, sheet, TalkBack, foreground location), this story states it.
 - **Architect decision first (ADR-0006 R11):** before native search assistance is built, a **new ADR** decides between (a) porting the ADR-0006 pure functions to Kotlin, tested against the same vectors, and (b) moving assistance server-side (Photon synonyms/analyser or a gateway endpoint). ADR-0006 R11 says a spike on Photon 1.3.0 synonym support should come first, raised through triage. That is the architect's call. **Section A is written so that it holds for either option.** Option (b) is a contract change (`openapi.yaml`, owner architect) plus backend work, and it must not change NAV-003 web behaviour unless that is its own change request.
 - **Relation to NAV-005 (first slice, D58).** When NAV-011 ships, these NAV-005 AC are replaced on Android. NAV-005 itself is **not edited now** (mid-flight rule, the D104 pattern). The QA handoff lists every NAV-005 test that is adapted for this reason:
 
   | NAV-005 AC | First-slice behaviour | After NAV-011 |
   |---|---|---|
-  | AC 3 | query sent **as typed** | assistance per section A |
+  | AC 3 | query sent **as typed** | assistance per section A; a recognised coordinate pair sends **0** `search` requests and shows the «Сонгосон цэг» option (AC 7, [D140](../decisions.md); NAV-005 sent it as typed) |
   | AC 4 | coordinate card sends **0** `reverse` requests | exactly 1 `reverse` per card (section B) |
   | AC 5 | preview request `alternates: 0`; tabs «Машин» / «Явган» | preview request `alternates: 2` (section C); tabs «Машин» / «Явган» / «Дугуй» (section D). **Reroutes keep `alternates: 0`** (NAV-005 AC 43 unchanged) |
   | AC 6 | one route line | 1–3 route lines with selection (section C) |
@@ -54,7 +55,8 @@ Secondary personas:
   - [D62](../decisions.md): no Google Play services, so platform `LocationManager` only, also for the typing lock.
   - [D9](../decisions.md) / [D26](../decisions.md): team-only use of staging.
   - [D38](../decisions.md): no Hamuga search here.
-  - **2026-10-04, PO "All as recommended":** [D110](../decisions.md) passenger override for the rest of the app session, never stored (AC 34); [D111](../decisions.md) «Эхлэх» works on «Дугуй» with a UX «Дугуй» prompt column (AC 25–26); [D112](../decisions.md) origin choice and the turn list are a separate follow-up (Out of scope); [D113](../decisions.md) the lock reads location whenever permission is already granted, on the device only (AC 27–28); [D114](../decisions.md) «Би зорчигч» stays the K2 label for now, and the NAV-007 panel decides later (alternative «Зорчигчоор үргэлжлүүлэх»); [D115](../decisions.md) typed coordinates are sent as typed, and the coordinate-card web parity is a follow-up (AC 7, AC 39); [D124](../decisions.md) priority must re-confirmed.
+  - **2026-10-04, PO "All as recommended":** [D110](../decisions.md) passenger override for the rest of the app session, never stored (AC 34); [D111](../decisions.md) «Эхлэх» works on «Дугуй» with a UX «Дугуй» prompt column (AC 25–26); [D112](../decisions.md) origin choice and the turn list are a separate follow-up (Out of scope); [D113](../decisions.md) the lock reads location whenever permission is already granted, on the device only (AC 27–28); [D114](../decisions.md) «Би зорчигч» stays the K2 label for now, and the NAV-007 panel decides later (alternative «Зорчигчоор үргэлжлүүлэх»); [D115](../decisions.md) typed coordinates are sent as typed, and the coordinate-card web parity is a follow-up (AC 7, AC 39; **superseded in part by D140**, see below); [D124](../decisions.md) priority must re-confirmed.
+  - **2026-10-04, typed-coordinate change (triage [D137](../decisions.md); impact approved by the PO "All as recommended"):** [D140](../decisions.md) typed coordinates show the «Сонгосон цэг» option and open the coordinate card, as on the web; it **supersedes the "sent as typed / no card" part of D115** (AC 7, 7a, 8, 39); [D141](../decisions.md) NAV-011 accepted in light-QA mode, so the D137 "after acceptance" gate is met; [D142](../decisions.md) selecting the option centres the camera at zoom 16, or the current zoom if higher, with the point clear of the card and the top bar (AC 7a); [D143](../decisions.md) the shared ADR-0006 rule is kept, so two plain integers such as "47 106" count as a coordinate pair (AC 7, web parity); [D144](../decisions.md) this change lands before the parallel NAV-018 build, and ADR-0012 §3 defines the coordinate state of the search controller so NAV-018 can reuse it; [D145](../decisions.md) the NAV-018 start and destination fields get the same option (NAV-018 AC 5, built by NAV-018); [D146](../decisions.md) after selection the search field closes as after a normal result, and the existing crosshair icon is used (AC 7a).
 - **Light-QA mode ([D108](../decisions.md), PO 2026-10-03), as set for this run:**
   - QA writes the test plan. It runs only the JVM/Robolectric unit tests and the replay tests for the changed areas, plus the NAV-005 suite as regression (`./gradlew :app:testDebugUnitTest -Pnav.hostFerrostar=required`). No long browser suites.
   - Each QA and review step does the minimum needed to show each AC.
@@ -87,6 +89,7 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
 | Route options group, option, alternative description | N20, N6, "Alternative route" | «Маршрут сонгох», «Маршрут {n}», «Өөр маршрут» |
 | Too far on foot or by bike | N11 | «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» |
 | Reverse result label, empty, pending | T7, "No results", G1 | «Ойролцоох газар», «Илэрц олдсонгүй», «Ачаалж байна…» |
+| Typed-coordinate option (AC 7, D140) and card heading | T6 | «Сонгосон цэг» (existing `place_selected_point`; line 2 is the coordinates, not text) |
 | Reverse/search failures | T4, T5, No connection, Generic error, Try again | «Хайлт түр ажиллахгүй байна», «Түр хүлээгээд дахин оролдоно уу», «Интернэт холболт алга», «Алдаа гарлаа», «Дахин оролдох» |
 | Type labels | section 4.1 | as the Android `place_type_*` resources (already glossary-matched) |
 
@@ -135,17 +138,31 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
    - the states «Илэрц олдсонгүй», «Хайлт түр ажиллахгүй байна» with «Дахин оролдох», and «Интернэт холболт алга»;
    - the client timeout is **8 s** (NAV-003 AC 33);
    - when both requests of a pair fail, the failure state is shown; when one fails and the other returns, the list shows the returned results;
-   - an older response never replaces the list of a newer settled query;
-   - a settled query that is a coordinate pair (for example "47.9189, 106.9176") is sent **as typed** in exactly **1** `search` request, with no assistance variant, and **no** coordinate card opens ([D115](../decisions.md); ADR-0012 §3; NAV-005 behaviour). Opening the coordinate card from typed coordinates (web parity, NAV-003 AC 26) is a follow-up (Out of scope).
+   - an older response never replaces the list of a newer settled query.
+
+   **Given** a settled query that matches the ADR-0006 §2.2 coordinate rule (shared fixture `web/src/search/queryPlan.vectors.json`, unchanged; web parity with NAV-003 AC 26, [D140](../decisions.md)): `<lat>, <lon>`, `<lat>,<lon>` or `<lat> <lon>`, lat −90…90, lon −180…180, for example "47.9189, 106.9176", "47.9189,106.9176", "47.9189 106.9176" and "-45.5 -170"; two plain integers such as "47 106" also match ([D143](../decisions.md), same rule as the web), **When** it settles, **Then**:
+   - **0** `search` requests are sent, and no loading row «Ачаалж байна…» is shown;
+   - the list shows exactly **one** option: line 1 «Сонгосон цэг» (glossary T6), line 2 the normalised coordinates with **5** decimals and a point separator (for "47.9189, 106.9176": «47.91890, 106.91760»), with the existing crosshair icon `ic_location_searching` (no new icon, [D146](../decisions.md));
+   - the option row is ≥ **48 dp** tall, and its TalkBack description is built from «Сонгосон цэг» and the coordinates (existing strings only, no new glossary row);
+   - the option also shows **offline** and while a `search` 429 `Retry-After` cooldown is running, still with **0** requests: the coordinate check runs before the offline and cooldown checks (web order, ADR-0012 §3). «Дахин оролдох» and a network resume send **0** requests for it;
+   - the generation rule applies: a response to an older text query never replaces the option, and a newer settled text query replaces it;
+   - a pair the rule rejects is user text and is searched under the rules above: an out-of-range pair ("106.9176, 47.9189") or a decimal-comma pair ("47,9189, 106,9176") sends exactly **1** `search` request as typed, with no assistance variant. Other forms the rule does not recognise (DMS such as 47°55'08"N, a full-width comma, a pair with other words) follow section A like any other text.
+7a. **Given** the coordinate option of AC 7 is shown, **When** the user selects it, **Then** ([D140](../decisions.md), [D142](../decisions.md), [D146](../decisions.md)):
+   - within **500 ms** the list closes, the keyboard is hidden and the search field closes as after selecting a normal result (web parity);
+   - the camera centres on the point at zoom **16**, or the current zoom if it is higher, so that the point lies inside the map area **not** covered by the card or the top bar; if the camera was following the device position, following stops, so the camera does not jump back to the device (the recenter button «Байршил руу буцах» brings it back);
+   - the pin and the card «Сонгосон цэг» with the coordinates open exactly as for a long-press (AC 8–13), including the one `reverse` request of AC 8;
+   - «Маршрут гаргах» on that card opens the route preview with the destination text «Сонгосон цэг» (AC 9);
+   - **0** `search` requests are sent by the selection.
+   The centring applies only to this entry point: a long-press still does not move the camera (NAV-005 AC 4, AC 9).
 
 ### B. Reverse geocoding on the coordinate card
-8. **Given** the user long-presses the map (NAV-005 AC 4) and the card «Сонгосон цэг» opens, **When** it opens, **Then**:
-   - exactly **one** `GET {gateway}/v1/reverse` request is sent with the point's `lat`/`lon` (≥ 5 decimals, **not** rounded: the user chose the point), `lang` = UI language, `limit=1` and `radius=0.5`;
+8. **Given** the user long-presses the map (NAV-005 AC 4) **or selects the typed-coordinate option (AC 7a)** and the card «Сонгосон цэг» opens, **When** it opens, **Then**:
+   - exactly **one** `GET {gateway}/v1/reverse` request is sent with the point's `lat`/`lon` (≥ 5 decimals, **not** rounded: the user chose the point; for a typed pair, the typed values, so "47.9189, 106.9176" gives `lat` 47.9189 and `lon` 106.9176, not 47.919 / 106.918), `lang` = UI language, `limit=1` and `radius=0.5`;
    - while it is pending for more than **300 ms**, the nearest-place area shows «Ачаалж байна…»;
    - «Маршрут гаргах» is usable at once and does **not** wait for the reverse response.
 9. **Given** the `reverse` response has a feature, **When** it arrives, **Then**:
    - the card shows «Ойролцоох газар» followed by the feature's name, type label and context line, using the same Android display rules as the search results list (D34/D45 labels included);
-   - the pin, heading «Сонгосон цэг», coordinates and camera do not move;
+   - the pin, heading «Сонгосон цэг», coordinates and camera do not move **after the card has opened** (for a typed coordinate the AC 7a centring happens before the card opens);
    - at P1 the nearest place is ≤ **300 m** from P1;
    - the route-preview destination text stays «Сонгосон цэг» (the nearest place is not the address of the point, NAV-001 R9).
 10. **Given** the `reverse` response is 200 with **0** features (X2, an empty steppe point), **When** it arrives, **Then** the nearest-place area shows «Илэрц олдсонгүй». No error state is shown, and the rest of the card is unchanged.
@@ -158,8 +175,8 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
 12. **Given** a `reverse` request is pending, **When** the user long-presses another point or closes the card, **Then**:
     - the older request is cancelled or its response ignored, and it never fills a newer card;
     - at most **1** `reverse` request is in flight;
-    - **0** `reverse` requests are sent for map pans, zooms, the device position or search results.
-13. **Given** an open card with a nearest place, **When** the UI language is switched, **Then** the labels switch within **1 s**, the place name already shown is kept, and **0** new `reverse` requests are sent (NAV-003 AC 38).
+    - **0** `reverse` requests are sent for map pans, zooms, the device position or search results. The typed-coordinate option (AC 7) is not a search result: selecting it opens a coordinate card, and that card sends its one `reverse` (AC 8). Showing the option sends **0** `reverse` requests.
+13. **Given** an open card with a nearest place, **When** the UI language is switched, **Then** the labels switch within **1 s**, the place name already shown is kept, and **0** new `reverse` requests are sent (NAV-003 AC 38). **Given** the typed-coordinate option of AC 7 is shown, **When** the UI language is switched or the phone is rotated, **Then** the option label changes («Сонгосон цэг» / "Selected point") within **1 s**, the option and coordinates stay, and **0** `search` and **0** `reverse` requests are sent.
 
 ### C. Alternatives on the map
 14. **Given** a route-preview request (first request, a mode change, an avoid-toggle change or a destination change), **When** it is sent, **Then**:
@@ -234,7 +251,7 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
     - location permission is revoked;
     - location services are turned off.
 33. **Given** the lock is engaged, **When** the user does anything other than typing, **Then** it is allowed:
-    - selecting a result already shown;
+    - selecting a result already shown, **including the typed-coordinate option «Сонгосон цэг»** (AC 7, 7a: the card, its `reverse` and the camera centring work as when unlocked);
     - the clear button «Хайлтыг арилгах»;
     - long-press and the coordinate card;
     - «Маршрут гаргах», the mode tabs, route options, the avoid toggle and «Эхлэх»;
@@ -269,11 +286,14 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
     - every `mn` value matches a glossary term exactly. K1–K3 match section 2.4. N1, N6, N11, N19, N20, "Alternative route", T7 and the reused rows match their rows.
 39. **Given** a full session (assisted search, reverse on 3 cards, preview in all three modes with alternatives, guidance on «Дугуй», the typing lock and its override), **When** all requests are captured, **Then**:
     - every request goes to the configured gateway, with **0** to other hosts (NAV-005 AC 65);
-    - coordinates appear only in route POST bodies, the D30-rounded search bias, the user-chosen `reverse` point (NAV-005 AC 68 extended to `reverse`) and, as text in `q`, a coordinate the user typed into the search field ([D115](../decisions.md)). The device position never appears in a `search` or `reverse` request.
+    - coordinates appear only in route POST bodies, the D30-rounded search bias and the user-chosen `reverse` point (NAV-005 AC 68 extended to `reverse`). The device position never appears in a `search` or `reverse` request;
+    - a coordinate pair the AC 7 rule recognises **never** appears in a `search` `q` ([D140](../decisions.md); the D115 exception is removed). A typed point leaves the device only as the user-chosen `reverse` point and, after «Маршрут гаргах», in the route POST body;
+    - text the AC 7 rule does **not** recognise as a coordinate pair (decimal comma, DMS, out of range such as "106.9176, 47.9189", a pair with other words) is user query text and may appear in `q` as typed. The privacy scan treats it as user text, not as a coordinate leak.
 40. **Given** the NAV-005 regression suite, **When** `./gradlew :app:testDebugUnitTest -Pnav.hostFerrostar=required` runs in `mobile/android`, **Then**:
     - it passes;
     - the only NAV-005 tests changed are those asserting behaviour this story replaces (Context table: NAV-005 AC 3, 4, 5, 6), each listed in the QA handoff with the reason;
-    - no other NAV-005 assertion is weakened.
+    - no other NAV-005 assertion is weakened;
+    - for the D140 change (2026-10-04), the only existing test whose assertion is inverted is the NAV-011 test `AssistedSearchTest.typedCoordinateIsStillSentAsTyped` (AC 7: it asserted 1 request as typed, now 0 requests and the coordinate option); this is listed in the QA handoff with the reason. No NAV-005 test asserts typed coordinates, so no NAV-005 test changes for it.
 41. **Given** the shared fixtures (manoeuvres, ADR-0006 vectors), **When** NAV-011 is done, **Then** `npm test` in `web/` passes unchanged, and NAV-003/NAV-004 web behaviour is unchanged.
 42. **Given** the repository after this story, **When** it is inspected, **Then**:
     - NAV-011 code is in its own packages where possible;
@@ -312,14 +332,18 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
 - **No network:** search and reverse show «Интернэт холболт алга» with 0 requests (AC 7, 11); the card still offers «Маршрут гаргах»; the preview shows NAV-005 AC 7 offline state.
 - **Rate limits (429):** search, reverse and route each respect `Retry-After`; nothing auto-retries in search/reverse (AC 11).
 - **No result:** search «Илэрц олдсонгүй»; reverse «Илэрц олдсонгүй» (AC 10); no route «Маршрут олдсонгүй»; «Дугуй»/«Явган» too far → N11 (AC 24).
-- **Cyrillic/Latin:** "Sukhbaatar" vs «Сүхбаатар», "suhbaatar", Russian-layout «Сухбаатар», «БЗД 4-р хороо» (AC 2–6). Mixed-script or digits-only queries are sent as typed. Typed coordinates are sent as typed and do not open the coordinate card on Android (AC 7, D115).
+- **Cyrillic/Latin:** "Sukhbaatar" vs «Сүхбаатар», "suhbaatar", Russian-layout «Сухбаатар», «БЗД 4-р хороо» (AC 2–6). Mixed-script or digits-only queries are sent as typed, except a recognised coordinate pair (next item).
+- **Typed coordinates (D140):** a recognised pair shows one option «Сонгосон цэг» with **0** `search` requests; selecting it centres the camera and opens the coordinate card with 1 `reverse` (AC 7, 7a, 8). The common case is a **taxi / delivery driver** pasting a pair a customer sent in a messenger: settle trims the text and normalises no-break spaces (U+00A0, U+202F), so "47.9189, 106.9176" pasted with those spaces still matches; a full-width comma or a pair inside other words is not recognised and is searched as text (AC 7, accepted).
+- **Typed coordinates offline or rate-limited:** the option still shows, with 0 requests; the card then shows «Интернэт холболт алга» or the 429 state in its nearest-place area (AC 7, AC 11), and «Маршрут гаргах» still works.
+- **Typed coordinates swapped or out of range** ("106.9176, 47.9189"): searched as text in 1 request, usually «Илэрц олдсонгүй». Decimal comma ("47,9189, 106,9176") the same (AC 7). Two plain integers such as "47 106" become the option, not a search (D143, as on the web): a user who meant a number-only search sees «Сонгосон цэг» instead (accepted).
+- **Typed coordinates outside Mongolia** (for example X2 Beijing): the card opens with «Илэрц олдсонгүй» or a far place, and the preview then shows the NAV-005 outside-area state. Expected, not a defect.
 - **Only one route returned** (common on UB's grid or intercity): no route options group (AC 18), behaviour as NAV-005.
 - **Overlapping alternative lines:** tap picks the unselected one (AC 17).
 - **Unpaved roads:** avoid toggle on «Машин» only; «Дугуй» routes may use unpaved roads (R6).
 - **Off-route on «Дугуй»:** reroute with `bicycle` and `alternates: 0` (AC 25, 19).
 - **Destination far from any road:** snap notice per D51 for the selected route (AC 17).
 - **Winter:** cycling routes are still offered (no seasonal rule; R6); gloves: 48 dp targets and the 24 dp line hit margin (AC 17, 44); cold GPS starts can delay good fixes, so the lock may engage late (accepted).
-- **Language switch** with an open card or list (AC 13, AC 7); **rotation** in preview (AC 20).
+- **Language switch** with an open card, list or coordinate option (AC 13, AC 7); **rotation** with the coordinate option shown (AC 13) or in preview (AC 20).
 - **App restarted:** passenger override is gone (AC 34); mode returns to «Машин» (AC 22).
 
 ## Data dependencies & risks
@@ -340,7 +364,8 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
 ## Out of scope
 - iOS (NAV-015).
 - Choosing an origin other than «Миний байршил» on Android (search or map as origin, the swap button), and the turn list «Маршрутын заавар» in the Android preview (web NAV-004 has both). Separate follow-up through triage ([D112](../decisions.md); backlog draft row).
-- Opening the coordinate card from coordinates typed into the Android search field (web parity, NAV-003 AC 26, D29). Small follow-up through triage ([D115](../decisions.md); backlog draft row). Until then, AC 7 applies.
+- Coordinate formats other than the ADR-0006 §2.2 rule: degrees-minutes-seconds (47°55'08"N), `geo:` URIs, Google Plus codes, decimal commas. They are searched as text (AC 7). Any change to the shared rule goes to both clients together through a NAV-003 change request (ADR-0012 §2, [D143](../decisions.md)).
+- The typed-coordinate option in the NAV-018 start and destination fields: NAV-018 AC 5 builds it on the ADR-0012 §3 coordinate state ([D145](../decisions.md)).
 - Switching to an alternative route during guidance.
 - Search history, favourites, voice search, offline search.
 - Hamuga search (D38).
@@ -356,21 +381,24 @@ Every Mongolian string comes from the glossary. **Reused, no new wording:**
 3. **Origin choice and turn list in the Android preview** (Out of scope). Options: (a) separate follow-up through triage; (b) add to NAV-011 (+M). *Recommendation: (a).* **Decided: (a), [D112](../decisions.md).** Backlog draft row added.
 4. **Location for the lock without "my location"** (AC 27). Options: (a) read fixes on S1/S3 whenever permission is already granted, on-device only (BA default); (b) only after the user has activated my location or the preview origin, so the lock is inactive before that. *Recommendation: (a).* Otherwise the lock rarely works on the screen where people type. **Decided: (a), [D113](../decisions.md).**
 
-Also decided on 2026-10-04 (not story open questions): the K2 label «Би зорчигч» stays for now ([D114](../decisions.md)), and typed coordinates are sent as typed, with web parity as a follow-up ([D115](../decisions.md), AC 7).
+Also decided on 2026-10-04 (not story open questions): the K2 label «Би зорчигч» stays for now ([D114](../decisions.md)), and typed coordinates are sent as typed, with web parity as a follow-up ([D115](../decisions.md), AC 7). **Later on 2026-10-04** the follow-up was approved as a change on this story: typed coordinates open the card ([D140](../decisions.md), superseding that part of D115), with the change-run questions decided as recommended ([D141–D146](../decisions.md)).
 
 ## Traceability
 | AC | Screen spec / flow | API operation | ADR | Code | Test | Issues |
 |---|---|---|---|---|---|---|
-| AC1–7 | `docs/design/screens/NAV-011-android-route-preview-search-parity.md`; NAV-003 screen spec (reference) | `search` | ADR-0006; ADR-0012 (accepted 2026-10-03, option (a) Kotlin port; §3 typed coordinates sent as typed) | TBD | JVM vectors, golden-set JVM test (TBD) | D28, D30, D33, D42, D48, D115; NAV-005 AC 3 replaced |
-| AC8–13 | coordinate card (TBD) | `reverse` | — | TBD | JVM / Robolectric (TBD) | T7; NAV-001 R9; NAV-005 AC 4 replaced |
+| AC1–7 | `docs/design/screens/NAV-011-android-route-preview-search-parity.md` (S2 search; "Coordinate typed" state added by the D140 change, UX); flow F1 coordinate branch (UX); NAV-003 screen spec (reference) | `search` (0 calls for a recognised coordinate pair) | ADR-0006 §2.2; ADR-0012 (accepted 2026-10-03, option (a) Kotlin port; §3 coordinate input revised by the architect for D140: coordinate state before the offline and cooldown checks, reusable by NAV-018) | `mobile/android/…/search/SearchController.kt`, `…/search/assist/QueryPlan.kt` (1c2bf4f; D140 change in run 2) | `QueryPlanVectorsTest` (shared fixture), `AssistedSearchTest` (`typedCoordinateIsStillSentAsTyped` inverted for D140, plus offline, 429, rejected-pair and generation cases), golden-set JVM test; test plan rows 1–7 | D28, D30, D33, D42, D48, D115 (superseded in part), D140, D143, D146; NAV-003 AC 26 (reference); NAV-005 AC 3 replaced |
+| AC7a | S2 coordinate option selection and camera rule (UX); flow F1 → F2 | `reverse` (via AC 8) | ADR-0012 §3–§4 | `…/ui/screens/BrowseOverlay.kt`, `…/ui/AppViewModel.kt`, `…/ui/NavRoot.kt` (D140 change, run 2) | `Nav011ActivityTest` / `QaNav011ActivityTest` TC-A12 (option, 0 `search`, card, 1 `reverse`, camera zoom ≥ 16), `Nav011OverlayTest` (option row mn/en, ≥ 48 dp) | D140, D142, D146; NAV-003 AC 26 |
+| AC8–13 | coordinate card (S2 coordinate card; entry from long-press or the typed-coordinate option) | `reverse` | ADR-0012 §4 | `…/search/reverse/` (1c2bf4f) | `ReverseTest`, `Nav011ActivityTest.coordinateCardSendsExactlyOneReverseAndNoneOnRotation`, TC-A12 (typed entry) | T6, T7; NAV-001 R9; NAV-005 AC 4 replaced; D140 (AC 8, 9, 12, 13 wording) |
 | AC14–21 | route preview sheet, map-style route section (TBD) | `postRoute` (`alternates`) | ADR-0008, ADR-0009 | TBD | JVM, replay AC 19 (TBD) | D51, D55; NAV-005 AC 5, 6 replaced |
 | AC22–26 | tabs; navigation-ux «Дугуй» column (UX) | `postRoute` (`bicycle`) | ADR-0009 | TBD | replay G10 (TBD) | N1, N11, N19; D60, D111 |
 | AC27–37 | typing lock states (NAV-011 screen spec and flow) | — | ADR-0012 (typing lock) | TBD | JVM sequences, Robolectric (TBD) | D62, D65, D110, D113, D114; K1–K3; NAV-005 L1 |
-| AC38–47 | — | all | — | `mobile/android/**` | NAV-005 suite, test plan `docs/qa/test-plans/NAV-011.md` | D108, D115 (AC 39); NAV-012 coordination |
-| Out of scope | — | — | — | — | — | D112, D115 (follow-ups, backlog draft rows) |
+| AC33 (typed-coordinate option while locked) | typing lock states (NAV-011 screen spec) | `reverse` (via AC 8) | ADR-0012 | `…/ui/screens/BrowseOverlay.kt` (D140 change) | TC-A12 locked case, `Nav011OverlayTest` | D140 |
+| AC38–47 | — | all | — | `mobile/android/**` | NAV-005 suite, test plan `docs/qa/test-plans/NAV-011.md` (row 39 / TC-P39: recognised pair never in `q`; row 40: changed `AssistedSearchTest` case) | D108, D140 (AC 39 exception removed, AC 40 test list), D141 (accepted); NAV-012 and NAV-018 coordination |
+| Out of scope | — | — | — | — | — | D112 (now NAV-018), D143 (coordinate formats), D145 (NAV-018 fields) |
 
 ## Change log
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-03 | NAV-011 feature request (orchestrator, feature-delivery; PO "go ahead" 2026-10-03) | Created from the backlog draft row: 47 AC in sections A–F (query assistance written for the port or the server-side option, reverse on the coordinate card, alternatives with a draggable sheet, «Дугуй» including guidance with a UX prompt column, typing lock speed rule with the passenger override, strings, privacy, regression, light-QA verification). Priority **must** (Phase 1 beta), D106. Size M → L. Glossary rows K1–K3 added (`needs native review`). GPX track G10 added. Relation to NAV-005 AC 3–6 recorded without editing NAV-005 (mid-flight rule). Four non-blocking open questions | Refine NAV-011 to `ready` for UX and the architect |
 | 2026-10-04 | PO answer "All as recommended" in chat to the NAV-011 questions, items 1–7 ([D110–D116](../decisions.md)); item 15 re-confirms priority must (D124); QA open wording items | Open questions 1–4 marked decided (D110–D113), and the AC already matched them (AC 25, 27 and 34 now cite them). K2 note: «Би зорчигч» kept, the panel decides later (D114). **AC 7:** new bullet, a typed coordinate pair is sent as typed in 1 request with no coordinate card (D115). **AC 39:** a coordinate the user typed may appear as text in `q` (D115). Out of scope: origin choice / turn list and the coordinate-card web parity are follow-ups through triage (D112, D115; backlog draft rows). **QA wording:** AC 30 states that only good fixes with a fix speed count, so the first fix without `hasSpeed()` does not count, and the rule "3 consecutive fixes, each ≥ 15 km/h, spanning ≥ 2 s" is confirmed as intended; AC 36 (ii) says "with `hasSpeed()`", and **AC 36 (ix)** now says "engaged after the 4th fix (3 derived speeds)". Context lists the new decisions; Traceability names ADR-0012, the screen spec and the test plan. D116 (NAV-017, D17 scope) does not change this story | Record the PO decisions and close the QA wording items without changing the agreed behaviour. (ix) said "after 3 fixes", which contradicted AC 30, because a derived speed needs a previous fix |
+| 2026-10-04 | Change request "typed coordinates open the «Сонгосон цэг» coordinate card on Android" (D115 follow-up; triage P2 / standard, [D137](../decisions.md)); run 1 impact approved by the PO in chat, "All as recommended" ([D140–D146](../decisions.md)) | **Status:** NAV-011 accepted in light-QA mode (code 1c2bf4f, light QA 0 defects), `ready` → `done` ([D141](../decisions.md)); the D137 "after acceptance" gate is met. **AC 7:** the D115 "sent as typed, no card" bullet is replaced by a Given/When/Then for a recognised ADR-0006 §2.2 pair: 0 `search` requests, no loading row, one option «Сонгосон цэг» plus 5-decimal coordinates with the existing `ic_location_searching` icon, ≥ 48 dp, also offline and during a 429 cooldown (coordinate check before those checks), «Дахин оролдох» and network resume send 0, generation rule; integer pairs count ([D143](../decisions.md)); rejected pairs (out of range, decimal comma) are 1 request as typed. **New AC 7a:** selection closes the list, keyboard and search field within 500 ms ([D146](../decisions.md)), centres the camera at zoom 16 or the current zoom if higher with the point clear of the card and top bar, stops following the device ([D142](../decisions.md)), and opens the long-press card. **AC 8:** the card also opens from the typed option; `reverse` uses the typed values, not rounded. **AC 9:** the camera does not move *after the card has opened*. **AC 12:** the option is not a search result; its card sends its one `reverse`. **AC 13:** language switch or rotation with the option shown: label within 1 s, 0 `search` / 0 `reverse` (AC 20 unchanged: it covers drawn routes only). **AC 33:** the option is selectable while the lock is engaged. **AC 39:** the D115 exception is removed; a recognised pair never appears in `q`; unrecognised text stays user text. **AC 40:** `AssistedSearchTest.typedCoordinateIsStillSentAsTyped` is the one inverted test; no NAV-005 test changes for it. Context (parity list, NAV-005 AC 3 row, decision list), Edge cases (typed coordinates, messenger paste, offline, 429, swapped/out of range, integer pairs, outside Mongolia), Out of scope (coordinate-card item removed; DMS, `geo:` URIs, Plus codes and decimal commas stay out; NAV-018 fields built by NAV-018, [D145](../decisions.md)) and Traceability (AC 1–7, new AC 7a and AC 33 rows, AC 8–13, AC 38–47) updated. Sequencing: this change lands before the parallel NAV-018 build, and ADR-0012 §3 defines the reusable coordinate state ([D144](../decisions.md)). No new Mongolian text, no glossary or contract change | Web parity with NAV-003 AC 26 on the keyboard path. Taxi and delivery drivers get coordinates from customers in messengers. Typed coordinates also stop reaching the gateway in `q`, so AC 39 is tighter again |
