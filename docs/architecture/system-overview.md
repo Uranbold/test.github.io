@@ -16,6 +16,7 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0014: daily rebuild slots and pointer switch (NAV-006)
 - ADR-0015: Android route preview points (chosen start, swap) and turn list (NAV-018)
 - ADR-0016: Android demo build (offline replay through the real guidance engine, NAV-019)
+- ADR-0017: offline Mongolia pack for Android (weekly PMTiles + Valhalla graph + SQLite search DB, on-device routing and search). **Proposed**, pending the PO decision on the spike `spikes/offline-android.md`
 
 HTTP contract: `api/openapi.yaml` 0.5.5.
 
