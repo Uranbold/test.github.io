@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import mn.navmn.app.R
+import mn.navmn.app.geo.LatLon
 import mn.navmn.app.i18n.Strings
 import mn.navmn.app.preview.PreviewState
 import mn.navmn.app.preview.points.PointRules
@@ -62,6 +63,8 @@ class PointActions(
     val onEditorQuery: (String) -> Unit = {},
     val onEditorResult: (PlaceDisplay.Info, String) -> Unit = { _, _ -> },
     val onEditorRetry: () -> Unit = {},
+    /** AC 5 (D140/D145, ADR-0012 A3): the typed-coordinate option «Сонгосон цэг» in the editor's list. */
+    val onEditorCoordinate: (LatLon) -> Unit = {},
     /** «Миний байршил» option (AC 3). */
     val onEditorMyLocation: () -> Unit = {},
     /** Back / map tap / lock-card «Хаах» path: the editor closes, nothing changes (AC 7). */

@@ -21,12 +21,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -38,6 +43,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import mn.navmn.app.R
 import mn.navmn.app.background.BackgroundUi
 import mn.navmn.app.background.LocalBackgroundUi
@@ -47,6 +55,7 @@ import mn.navmn.app.config.AppConfig
 import mn.navmn.app.engine.GuidancePhase
 import mn.navmn.app.engine.GuidanceState
 import mn.navmn.app.map.CameraRules
+import mn.navmn.app.map.CoordinateCamera
 import mn.navmn.app.map.MapCamera
 import mn.navmn.app.map.MapContent
 import mn.navmn.app.map.MapSurface
@@ -124,6 +133,12 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     var topBarPx by remember { mutableIntStateOf(0) }
     var mapHeightPx by remember { mutableIntStateOf(0) }
     var followZoom by remember { mutableStateOf<Double?>(null) }
+    // NAV-011 C1 (typed-coordinate camera): overlay geometry in root px.
+    var mapRect by remember { mutableStateOf(Rect.Zero) }
+    var topGroupBottom by remember { mutableFloatStateOf(0f) }
+    var cardRect by remember { mutableStateOf<Rect?>(null) }
+    var cardWide by remember { mutableStateOf(false) }
+    var laneStart by remember { mutableStateOf<Float?>(null) }
 
     val g: GuidanceState? = guidance
     val guiding = g != null && g.phase != GuidancePhase.ENDED
@@ -248,7 +263,33 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     LaunchedEffect(controller, me, ui.followingMe) {
         val c = controller ?: return@LaunchedEffect
         val f = me ?: return@LaunchedEffect
-        if (ui.followingMe && !guiding) c.easeTo(f.latLon, maxOf(c.zoom, 15.0))
+        // Zero padding: MapLibre keeps the padding of an earlier focus move (C1, NAV-018 step focus) on the camera, which
+        // would otherwise offset «Миний байршил» (ADR-0012 Amendment A4).
+        if (ui.followingMe && !guiding) c.focus(f.latLon, maxOf(c.zoom, 15.0), 0, 0, 0, 0, 300)
+    }
+    // NAV-011 AC 7a, C1 (D142): the typed-coordinate option centres the point once, after the card's first layout, at
+    // zoom max(current, 16), clear of the top group and the card. One-shot: handled in the ViewModel, so a rotation does
+    // not repeat it; a long-press never sets it (AC 9).
+    val coordinateFocus = ui.coordinateFocus
+    LaunchedEffect(controller, coordinateFocus?.seq) {
+        val c = controller ?: return@LaunchedEffect
+        val f = coordinateFocus ?: return@LaunchedEffect
+        val card = withTimeoutOrNull(COORDINATE_CARD_LAYOUT_MS) { snapshotFlow { cardRect }.filterNotNull().first() }
+        vm.onCoordinateFocusHandled(f.seq)
+        val m = mapRect
+        // The map view fills the measured map box; the camera's own size is the fallback before the first layout.
+        val w = m.width.toInt().takeIf { it > 0 } ?: c.widthPx
+        val h = m.height.toInt().takeIf { it > 0 } ?: c.heightPx
+        val box = card?.let { CoordinateCamera.Box((it.left - m.left).toInt(), (it.top - m.top).toInt(), (it.right - m.left).toInt(), (it.bottom - m.top).toInt()) }
+        val pad = CoordinateCamera.padding(
+            mapWidth = w, mapHeight = h,
+            topGroupBottom = (topGroupBottom - m.top).toInt(),
+            card = box,
+            laneStart = laneStart?.let { (it - m.left).toInt() },
+            wide = cardWide,
+            density = density.density,
+        )
+        c.focus(f.point, CoordinateCamera.zoom(c.zoom), pad.left, pad.top, pad.right, pad.bottom, if (reducedMotion) 0 else CoordinateCamera.EASE_MS)
     }
     // NAV-012 Layout rule 9: while restoring (no position yet) the camera fits the stored route; no puck, no recenter.
     LaunchedEffect(controller, g?.restoring) {
@@ -266,7 +307,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     }
 
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { mapRect = it.boundsInRoot() }) {
             mapSurface.Map(
                 modifier = Modifier.fillMaxSize().testTag("map"),
                 description = stringResource(R.string.map_content_description),
@@ -321,7 +362,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     m = BrowseModel(
                         lang, ui.query, searchView, ui.card, preview, ui.mapProblem, ui.tilesFailed, !online, bearing, ui.followingMe,
                         reverse = reverseView, lock = lock, sheetExpanded = ui.sheetExpanded, focusSearch = ui.focusSearch,
-                        points = points, fieldView = fieldView,
+                        points = points, fieldView = fieldView, cardTitleFocus = ui.cardTitleFocus,
                     ),
                     strings = strings,
                     a = BrowseActions(
@@ -361,12 +402,21 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                         onPassenger = vm::onPassenger,
                         onSheetStart = { sheetStartPx = it },
                         onTopBar = { topBarPx = it },
+                        onCoordinateOption = vm::onCoordinateOption,
+                        onTopGroup = { topGroupBottom = it },
+                        onCardBounds = { r, wide ->
+                            cardRect = r
+                            cardWide = wide
+                        },
+                        onControlLane = { laneStart = it },
+                        onCardTitleFocused = vm::onCardTitleFocused,
                         points = PointActions(
                             onField = vm::openPointEditor,
                             onSwap = vm::swapPoints,
                             onEditorQuery = vm::onPointQuery,
                             onEditorResult = vm::onPointResult,
                             onEditorRetry = vm.fieldSearch::retry,
+                            onEditorCoordinate = vm::onPointTypedCoordinate,
                             onEditorMyLocation = vm::onPointMyLocation,
                             onEditorClose = vm::closePointEditor,
                             onEditorFieldTap = vm::onSearchFieldTap,
@@ -419,6 +469,9 @@ fun KeepScreenOn(enabled: Boolean) {
 
 /** NAV-011 AC 16: wait for the sheet to re-measure for a new response before the one camera fit (well inside 1 s). */
 private const val FIT_SETTLE_MS = 150L
+
+/** NAV-011 C1: the longest wait for the coordinate card's first layout before the camera moves anyway. */
+private const val COORDINATE_CARD_LAYOUT_MS = 500L
 
 /** NAV-018 Q8: the collapse (250 ms) settles before the step camera move; both finish within 1 s. */
 private const val STEP_COLLAPSE_SETTLE_MS = 260L

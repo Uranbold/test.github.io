@@ -17,6 +17,10 @@
 //   - route band above the collapsed sheet (portrait): >= 160dp at font scale 1 and >= 96dp above it, on >= 360x640
 //     (AC 16: room to fit the routes with 40dp padding); INFO for all
 //   - coordinate card: «Маршрут гаргах» does not move between the reverse states (loading → place/empty/error) (AC 8)
+//   - typed-coordinate option (D140, AC 7): the option row is a >= 48dp control, alone, offline and under the lock card
+//   - card opened from the typed option (entry=typed, AC 7a, camera rule C1): the pin (28x40dp, tip on the point) is
+//     placed by C1 from the card-loading layout, then must stay clear of the top group, the card, every control and
+//     the attribution strip in ALL 7 reverse states (the camera does not move after the card opens, AC 9)
 //   - no horizontal page overflow
 // 320x568 above font scale 1 is outside the design target (D66, NAV-005 Known limitations 7): reported as INFO.
 import { createRequire } from "node:module";
@@ -31,7 +35,7 @@ const font = process.argv.includes("--wide") ? "wide" : "narrow";
 const url = pathToFileURL(join(here, "NAV-011-android-preview.html")).href;
 const viewports = [[360, 640], [412, 915], [320, 568], [640, 360]];
 const cardStates = ["card-loading", "card-place", "card-empty", "card-offline", "card-unavailable", "card-ratelimited", "card-error"];
-const states = [...cardStates, "lock-tap", "lock-results",
+const states = [...cardStates, "lock-tap", "lock-results", "coord-option", "coord-option-offline", "coord-option-locked",
   "preview-3", "preview-1", "preview-expanded", "preview-bike", "preview-snap", "preview-toofar", "preview-unavailable", "preview-noroute-avoid"];
 const scales = [1, 1.3, 2];
 
@@ -40,12 +44,17 @@ const page = await browser.newPage();
 await page.goto(`${url}#toolbar=0`);
 let runs = 0;
 const failures = [], outside = [];
-const bandInfo = new Map(), goTop = new Map(), sheetInfo = new Map();
+const bandInfo = new Map(), goTop = new Map(), sheetInfo = new Map(), pinAt = new Map(), pinClear = new Map();
 
 for (const [w, h] of viewports) {
   await page.setViewportSize({ width: w, height: h });
-  for (const state of states) for (const theme of ["day", "night"]) for (const lang of ["mn", "en"]) for (const scale of scales) {
-    const hash = `state=${state}&theme=${theme}&lang=${lang}&scale=${scale}&font=${font}&toolbar=0`;
+  for (const state of states) for (const entry of cardStates.includes(state) ? ["longpress", "typed"] : ["longpress"])
+  for (const theme of ["day", "night"]) for (const lang of ["mn", "en"]) for (const scale of scales) {
+    const combo = `${w}x${h} ${theme} ${lang} scale=${scale}`;
+    // the camera moves once, at the selection, from the card-loading layout; offline at selection = its own layout
+    // (the S1 offline message is part of the top group then)
+    const pinParam = entry === "typed" && state !== "card-loading" && state !== "card-offline" && pinAt.has(combo) ? `&pin=${pinAt.get(combo)}` : "";
+    const hash = `state=${state}&theme=${theme}&lang=${lang}&scale=${scale}&font=${font}&toolbar=0&entry=${entry}${pinParam}`;
     await page.evaluate((hsh) => { location.hash = hsh; }, hash);
     await page.waitForFunction((hsh) => location.hash.slice(1) === hsh, hash);
     await page.evaluate((sc) => { window.__scale = sc; return document.fonts.ready; }, scale);
@@ -143,17 +152,37 @@ for (const [w, h] of viewports) {
         }
         info.sheetH = Math.round(sheet.getBoundingClientRect().height);
       }
+      // typed point: the pin must be clear of every box and control, inside the map area above the attribution strip
+      const pin = document.getElementById("pin");
+      if (pin) {
+        info.pin = pin.dataset.pin;
+        const [px, py] = pin.dataset.pin.split(",").map(Number);
+        const pr = { left: px - 14, right: px + 14, top: py - 40, bottom: py };
+        const app = document.getElementById("app").getBoundingClientRect();
+        if (pr.top < app.top || pr.left < 0 || pr.right > vw || pr.bottom > ar.top) out.push("typed-point pin outside the map area");
+        let clear = 1e9;
+        for (const el of [...boxes, ...controls]) {
+          if (el === attr) continue;
+          const b = rect(el);
+          if (b.width < 0.5 || b.height < 0.5) continue;
+          if (inter(pr, b)) out.push(`typed-point pin covered by ${name(el)}`);
+          else if (Math.min(b.right, pr.right) > Math.max(b.left, pr.left)) clear = Math.min(clear, b.top >= pr.bottom ? b.top - pr.bottom : pr.top - b.bottom);
+        }
+        info.pinClear = Math.round(clear);
+      }
       const go = document.querySelector("[data-go]");
       if (go) info.goTop = Math.round(go.getBoundingClientRect().top);
       if (document.documentElement.scrollWidth > vw + 0.5) out.push("horizontal overflow");
       return { out, info };
     });
     const target = !(w < 360 && scale > 1);
+    if (r.info.pin && state === "card-loading") pinAt.set(combo, r.info.pin);
+    if (r.info.pinClear != null) pinClear.set(`${w}x${h} scale ${scale}`, Math.min(pinClear.get(`${w}x${h} scale ${scale}`) ?? 1e9, r.info.pinClear));
     for (const p of r.out) (target ? failures : outside).push(`${w}x${h} ${state} ${theme} ${lang} scale=${scale}: ${p}`);
     if (r.info.band != null) { const k = `${w}x${h} scale ${scale}`; bandInfo.set(k, Math.min(bandInfo.get(k) ?? 1e9, r.info.band)); }
     if (r.info.sheetH != null && state === "preview-3") sheetInfo.set(`${w}x${h} scale ${scale} ${lang}`, r.info.sheetH);
     if (r.info.goTop != null && cardStates.includes(state)) {
-      const k = `${w}x${h} ${theme} ${lang} scale=${scale}`;
+      const k = `${w}x${h} ${theme} ${lang} scale=${scale} ${entry}`;
       const g = goTop.get(k) ?? new Map(); g.set(state, r.info.goTop); goTop.set(k, g);
     }
   }
@@ -163,10 +192,11 @@ for (const [k, g] of goTop) {
   const vals = [...g.values()];
   if (Math.max(...vals) - Math.min(...vals) > 1) {
     const msg = `${k}: «Маршрут гаргах» moves between reverse states (${[...g].map(([s, v]) => `${s}=${v}`).join(", ")})`;
-    (/^320x/.test(k) && !/scale=1$/.test(k) ? outside : failures).push(msg);
+    (/^320x/.test(k) && !/scale=1 /.test(k) ? outside : failures).push(msg);
   }
 }
 for (const [k, v] of bandInfo) console.log(`INFO  min route band above the collapsed sheet ${k}: ${v}dp`);
+for (const [k, v] of pinClear) console.log(`INFO  typed-point pin: min vertical clearance to the nearest box/control ${k}: ${v}dp`);
 for (const [k, v] of sheetInfo) console.log(`INFO  collapsed sheet height (preview-3) ${k}: ${v}dp`);
 for (const f of outside) console.log(`INFO  outside target: ${f}`);
 for (const f of failures) console.log(`FAIL  ${f}`);

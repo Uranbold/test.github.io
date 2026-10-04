@@ -12,6 +12,7 @@ import mn.navmn.app.i18n.Lang
 import mn.navmn.app.search.PhotonFeature
 import mn.navmn.app.search.SearchClient
 import mn.navmn.app.search.SearchController
+import mn.navmn.app.search.SearchCooldown
 import mn.navmn.app.search.SearchOutcome
 import mn.navmn.app.search.SearchView
 import mockwebserver3.Dispatcher
@@ -33,9 +34,13 @@ import java.util.Collections
 class AssistedSearchTest {
     private fun f(key: String, cc: String = "MN") = PhotonFeature(LatLon(47.9, 106.9), mapOf("osm_type" to key.take(1), "osm_id" to key.drop(1), "countrycode" to cc, "name" to key))
 
-    private fun TestScope.controller(answer: suspend (String) -> SearchOutcome): Pair<SearchController, MutableList<String>> {
+    private fun TestScope.controller(
+        online: () -> Boolean = { true },
+        cooldown: SearchCooldown = SearchCooldown(),
+        answer: suspend (String) -> SearchOutcome,
+    ): Pair<SearchController, MutableList<String>> {
         val calls = Collections.synchronizedList(ArrayList<String>())
-        val c = SearchController(this, { q, _, _ -> calls += q; answer(q) }, { Lang.MN }, { LatLon(47.9, 106.9) }, { true }, { testScheduler.currentTime })
+        val c = SearchController(this, { q, _, _ -> calls += q; answer(q) }, { Lang.MN }, { LatLon(47.9, 106.9) }, online, { testScheduler.currentTime }, cooldown)
         return c to calls
     }
 
@@ -123,11 +128,92 @@ class AssistedSearchTest {
         assertEquals(listOf("N2"), (c.view.value as SearchView.Results).items.map { it.name })
     }
 
+    /**
+     * NAV-011 AC 7 (D140, supersedes the D115 "sent as typed" part; ADR-0012 Amendment A2/A5). Replaces
+     * `typedCoordinateIsStillSentAsTyped`: a recognised pair is the coordinate option with 0 `search` requests, never `q`.
+     */
     @Test
-    fun typedCoordinateIsStillSentAsTyped() = runTest {
+    fun typedCoordinateBecomesTheOptionWithNoRequest() = runTest {
+        for (q in listOf("47.9189, 106.9176", "47.9189,106.9176", "47.9189 106.9176")) {
+            val (c, calls) = controller { SearchOutcome.Ok(listOf(f("N1"))) }
+            settle(c, q)
+            advanceTimeBy(SearchController.LOADING_DELAY_MS + 1)
+            runCurrent()
+            assertEquals("«$q»: 0 search requests", emptyList<String>(), calls.toList())
+            assertEquals("«$q»", SearchView.Coordinate(LatLon(47.9189, 106.9176)), c.view.value)
+        }
+        // The shared ADR-0006 fixture row and the integer pair (D143: kept for web parity).
+        val (c, calls) = controller { SearchOutcome.Ok(emptyList()) }
+        settle(c, "-45.5 -170")
+        assertEquals(SearchView.Coordinate(LatLon(-45.5, -170.0)), c.view.value)
+        settle(c, "47 106")
+        assertEquals(SearchView.Coordinate(LatLon(47.0, 106.0)), c.view.value)
+        assertEquals(0, calls.size)
+    }
+
+    /** AC 7, 39: pairs the rule rejects are ordinary text and are searched as typed (1 request each). */
+    @Test
+    fun rejectedPairsAreStillSearchedAsTyped() = runTest {
+        for (q in listOf("106.9176, 47.9189", "47,9189, 106,9176")) {
+            val (c, calls) = controller { SearchOutcome.Ok(emptyList()) }
+            settle(c, q)
+            assertEquals(listOf(q), calls.toList())
+            assertEquals(SearchView.NoResults, c.view.value)
+        }
+    }
+
+    /** Web order (searchController.ts settle()): the coordinate is decided before the offline check. */
+    @Test
+    fun offlineStillShowsTheCoordinateOption() = runTest {
+        val (c, calls) = controller(online = { false }) { SearchOutcome.Ok(emptyList()) }
+        settle(c, "47.9189, 106.9176")
+        assertEquals(SearchView.Coordinate(LatLon(47.9189, 106.9176)), c.view.value)
+        settle(c, "Зайсан")
+        assertEquals("text offline: «Интернэт холболт алга»", SearchView.Offline, c.view.value)
+        assertEquals(0, calls.size)
+    }
+
+    /** …and before the 429 cooldown, also one started by the other instance through the shared [SearchCooldown]. */
+    @Test
+    fun cooldownStillShowsTheCoordinateOption() = runTest {
+        val shared = SearchCooldown()
+        shared.start(testScheduler.currentTime + 10_000)
+        val (c, calls) = controller(cooldown = shared) { SearchOutcome.Ok(emptyList()) }
+        settle(c, "47.9189 106.9176")
+        assertEquals(SearchView.Coordinate(LatLon(47.9189, 106.9176)), c.view.value)
+        settle(c, "Зайсан")
+        assertEquals(SearchView.RateLimited(false), c.view.value)
+        settle(c, "47.9189,106.9176")
+        assertEquals(SearchView.Coordinate(LatLon(47.9189, 106.9176)), c.view.value)
+        assertEquals(0, calls.size)
+    }
+
+    /** «Дахин оролдох» (or a repeated settle of the same text) on a coordinate sends nothing. */
+    @Test
+    fun retryAndRepeatOnACoordinateSendNothing() = runTest {
         val (c, calls) = controller { SearchOutcome.Ok(emptyList()) }
         settle(c, "47.9189, 106.9176")
-        assertEquals(listOf("47.9189, 106.9176"), calls.toList())
+        c.retry()
+        advanceTimeBy(SearchController.LOADING_DELAY_MS + 1)
+        runCurrent()
+        settle(c, "47.9189, 106.9176 ")
+        assertEquals(SearchView.Coordinate(LatLon(47.9189, 106.9176)), c.view.value)
+        assertEquals(0, calls.size)
+    }
+
+    /** Generation: a text response still on its way never replaces the option; a newer text query does. */
+    @Test
+    fun aCoordinateSupersedesAnOlderTextResponseAndNewerTextReplacesIt() = runTest {
+        val slow = CompletableDeferred<SearchOutcome>()
+        val (c, calls) = controller { q -> if (q.startsWith("Зайс")) slow.await() else SearchOutcome.Ok(listOf(f("N2"))) }
+        settle(c, "Зайсан")
+        settle(c, "47.9189, 106.9176")
+        slow.complete(SearchOutcome.Ok(listOf(f("N1"))))
+        runCurrent()
+        assertEquals(SearchView.Coordinate(LatLon(47.9189, 106.9176)), c.view.value)
+        settle(c, "Гандан")
+        assertEquals(listOf("N2"), (c.view.value as SearchView.Results).items.map { it.name })
+        assertEquals("no coordinate ever reaches q", listOf("Зайсан", "Гандан"), calls.toList())
     }
 
     /** AC 2 / AC 7 on the wire: 2 requests, each with the NAV-005 profile (lang, limit 8, bias to 3 decimals). */

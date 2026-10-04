@@ -6,23 +6,29 @@
 - **Rules:** [`navigation-ux.md`](../navigation-ux.md) §4.2, §4.4 and §8 (the new «Дугуй» column, AC 26). Map layers: [`map-style.md` §7.6](../map-style.md) (Android alternatives).
 - **Prototype:** [`prototypes/NAV-011-android-preview.html`](../prototypes/NAV-011-android-preview.html).
 - **API:** `openapi.yaml` 0.5.2 `search`, `reverse`, `postRoute` (`alternates` 0–2, `costing` `bicycle`). No contract change for the design. Query assistance (A) is the same on screen for either ADR option (Kotlin port or server-side).
+- **Change 2026-10-04 (D140–D146, change request run 2):** a typed coordinate pair now gives one option «Сонгосон цэг» with 0 `search` requests, and selecting it opens the coordinate card (web parity with NAV-003 AC 26). F1 gets the coordinate branch **before** the online and cooldown checks; F2 gets the second entry point and the one-shot camera move (AC 7, 7a, 8, 9, 13, 33). This replaces the D115 "sent as typed" path.
 
 Copy is quoted by its `mn` value in «»; every string is a glossary term (K1–K3 are `needs native review`); keys are in the screen spec › Copy.
 
-## F1. Assisted search (AC 1–7)
+## F1. Assisted search and typed coordinates (AC 1–7, 7a)
 
-Nothing new is visible. The assistance happens behind the field (Tesler's law: the system absorbs the script and keyboard-layout problem). The field always shows what the user typed (AC 4). There is no "Did you mean" line and no "Showing results for" line.
+The assistance happens behind the field (Tesler's law: the system absorbs the script and keyboard-layout problem). The field always shows what the user typed (AC 4). There is no "Did you mean" line and no "Showing results for" line. The only new visible element is the **coordinate option** for a recognised pair (AC 7).
 
 ```mermaid
 flowchart TD
-    T["User types in «Газар, хаяг хайх»<br/>(typing lock released or overridden, F4)"] --> D{"Online?"}
+    T["User types in «Газар, хаяг хайх»<br/>(typing lock released or overridden, F4)"] --> DB["Debounce 250 ms → settled query"]
+    DB --> C{"ADR-0006 §2.2 coordinate pair?<br/>lat, lon / lat,lon / lat lon<br/>lat −90…90, lon −180…180<br/>(checked first: before Online? and the 429 cooldown)"}
+    C -- "yes, e.g. 47.9189, 106.9176<br/>or 47 106 (D143)" --> CO["One option: icon ic_location_searching,<br/>«Сонгосон цэг» / «47.91890, 106.91760»<br/>0 search requests, no loading row<br/>also offline and during a 429 cooldown — AC 7"]
+    CO -- "tap the option<br/>(also while the lock is engaged — AC 33)" --> SEL(["F2 via the typed option:<br/>list, keyboard and field close ≤ 500 ms,<br/>camera centres once, card opens — AC 7a"])
+    CO -. "«Дахин оролдох» / network back" .-> CO0["Nothing to do: 0 requests"]
+    CO -. "newer settled text query" .-> DB
+    C -- "no (text, swapped / out-of-range pair,<br/>decimal comma, DMS)" --> D{"Online?"}
     D -- no --> OFF["Row «Интернэт холболт алга»<br/>0 requests — AC 7"]
-    D -- yes --> DB["Debounce 250 ms → settled query"]
-    DB --> K{"Query kind<br/>(option (a); option (b): server decides, ≤ 2 requests)"}
+    D -- yes --> K{"Query kind<br/>(option (a); option (b): server decides, ≤ 2 requests)"}
     K -- "Latin, ≥ 2 letters<br/>e.g. Sukhbaatar" --> LA["2 requests in parallel:<br/>as typed + 1 Cyrillic transliteration — AC 2"]
     K -- "district abbreviation word<br/>«БЗД 4-р хороо»" --> AB["2 requests in parallel:<br/>expanded + as typed — AC 4"]
     K -- "Cyrillic with у/о (Russian layout)<br/>«Сухбаатар»" --> RU["1 request as typed — AC 3"]
-    K -- "other (mixed script, digits, «Улаанбаатар»)" --> ONE["1 request as typed"]
+    K -- "other (mixed script, digits, «Улаанбаатар»,<br/>a pair the rule rejects: 106.9176, 47.9189)" --> ONE["1 request as typed"]
     RU --> R0{"200 with 0 features?"}
     R0 -- yes --> RU2["1 more request with ү/ө<br/>list shows that response"]
     R0 -- no --> LIST
@@ -38,16 +44,21 @@ flowchart TD
     FAIL -- "«Дахин оролдох»" --> DB
 ```
 
-- An older response never replaces the list of a newer settled query (AC 7). Loading row «Ачаалж байна…» only after 300 ms (NAV-005 S2).
+- An older response never replaces the list of a newer settled query (AC 7), and never replaces the coordinate option; a newer settled text query does. Loading row «Ачаалж байна…» only after 300 ms (NAV-005 S2).
+- The coordinate check runs on the settled query, so a pair pasted from a messenger (with U+00A0 / U+202F spaces, normalised by `Settle`) is recognised like a typed one. A recognised pair never appears in a `search` `q` (AC 39); it leaves the device only as the user-chosen `reverse` point and, after «Маршрут гаргах», in the route request.
+- Language switch or rotation with the option shown: the label changes («Сонгосон цэг» / "Selected point") within 1 s; the option and the coordinates stay; 0 `search`, 0 `reverse` (AC 13).
 
-## F2. Coordinate card with the nearest place (AC 8–13)
+## F2. Coordinate card with the nearest place (AC 7a, 8–13)
 
-The card is bottom-anchored and «Маршрут гаргах» is its last row, so the nearest-place area can grow upwards without moving the button under the user's finger.
+The card is bottom-anchored and «Маршрут гаргах» is its last row, so the nearest-place area can grow upwards without moving the button under the user's finger. It has **two entry points**: a long-press (the camera stays where it is) and the typed-coordinate option of F1 (the camera centres once, before the card's content can change; screen spec › camera rule C1).
 
 ```mermaid
 stateDiagram-v2
     direction TB
-    [*] --> Open: long-press 600 ms (NAV-005 AC 4)
+    [*] --> Open: long-press 600 ms (NAV-005 AC 4)<br/>camera does not move
+    [*] --> Centre: typed-coordinate option selected (AC 7a)
+    Centre: List, keyboard and field close ≤ 500 ms<br/>pin + card at the typed point (typed values, not rounded)<br/>following my location stops<br/>camera eases once to zoom max(current, 16), point clear of<br/>the top group and the card (C1), 700 ms; reduced motion: jump
+    Centre --> Open: card laid out, camera move started
     state Open {
         direction TB
         [*] --> CheckNet
@@ -80,9 +91,10 @@ stateDiagram-v2
     Preview --> [*]: F3, destination text stays «Сонгосон цэг» — AC 9
 ```
 
-- In **every** state the heading «Сонгосон цэг», the coordinates, the pin and «Маршрут гаргах» stay; the camera never moves (AC 9, 11).
+- In **every** state the heading «Сонгосон цэг», the coordinates, the pin and «Маршрут гаргах» stay. **After the card has opened** the camera does not move (AC 9, 11): not on a reverse result, a retry, a language switch or a rotation. The only camera move is the one-shot centring of the typed entry point; a long-press never moves the camera.
+- Both entry points send exactly 1 `reverse` for the card (AC 8, 12); for the typed entry the point is the typed values (`lat` 47.9189, `lon` 106.9176), not the 5-decimal display and not the 3-decimal bias rounding.
 - Language switch with a place shown: labels switch ≤ 1 s, name kept, 0 new requests (AC 13).
-- 0 `reverse` requests for pans, zooms, the device position or search results (AC 12).
+- 0 `reverse` requests for pans, zooms, the device position or search results (AC 12). The typed-coordinate option is not a search result: showing it sends nothing; selecting it opens a card, and that card sends its one `reverse`.
 
 ## F3. Route preview with alternatives and three modes (AC 14–24)
 
@@ -149,7 +161,7 @@ flowchart TD
     LC -- "«Би зорчигч»" --> OV["Field focused, keyboard opens ≤ 500 ms<br/>override for the session — AC 34"]
     LC -- "«Хаах» / Back / tap the map" --> S1(["S1 / S2 as before (no keyboard)"])
     LC -- "lock releases (stopped ≥ 10 s)" --> GONE["Lock card removed ≤ 1 s<br/>keyboard does NOT open by itself"]
-    LC -- "tap a result already shown,<br/>«Хайлтыг арилгах», long-press" --> OK["Allowed as usual — AC 33"]
+    LC -- "tap a result or the coordinate option<br/>already shown, «Хайлтыг арилгах», long-press" --> OK["Allowed as usual — AC 33<br/>(the coordinate option: card, reverse and<br/>camera centring as when unlocked)"]
 
     TYPING["Keyboard open, user typing"] --> ENG{"Lock engages"}
     ENG --> HIDE["Keyboard hidden ≤ 1 s; typed text kept;<br/>in-flight search completes; results stay selectable;<br/>lock card appears between the field and the results;<br/>TalkBack: K1 politely, once — AC 31"]
@@ -175,9 +187,10 @@ QA's G10 replay (P4 → P5 at 4.5 m/s) checks the column with the NAV-005 AC 34 
 ## AC coverage
 | AC | Flow step |
 |---|---|
-| 1–7 | F1 |
+| 1–7 | F1 (AC 7 coordinate branch: before Online? and the cooldown) |
+| 7a | F1 → F2 typed entry (Centre state) |
 | 8–13 | F2 |
 | 14–24 | F3 |
 | 25–26 | F5 (rules: navigation-ux §4.2, §4.4, §8) |
-| 27–37 | F4, F4a |
+| 27–37 | F4, F4a (AC 33: the coordinate option stays selectable while locked, F1) |
 | 38–47 | No flow (strings, privacy, regression, verification); screen spec › Copy and Evidence |

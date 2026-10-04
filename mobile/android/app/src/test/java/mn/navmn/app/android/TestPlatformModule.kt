@@ -87,9 +87,17 @@ object FakeLocation : LocationSource {
     }
 }
 
-/** No-op camera behind the recording surface. */
+/** No-op camera behind the recording surface; records [focus] moves (NAV-011 C1). */
 object FakeCamera : MapCamera {
     val styles = AtomicInteger(0)
+
+    data class Focus(val p: LatLon, val zoom: Double, val left: Int, val top: Int, val right: Int, val bottom: Int, val durationMs: Int)
+
+    val focuses: MutableList<Focus> = Collections.synchronizedList(ArrayList())
+
+    override fun focus(p: LatLon, zoom: Double, left: Int, top: Int, right: Int, bottom: Int, durationMs: Int) {
+        focuses += Focus(p, zoom, left, top, right, bottom, durationMs)
+    }
     override fun setStyle(night: Boolean, colours: TokenColours, pmtilesUrl: String) {
         styles.incrementAndGet()
     }

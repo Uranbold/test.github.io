@@ -109,6 +109,7 @@ internal fun PointEditor(
             SearchResults(
                 m = null, strings = strings, a = a, view = fieldView,
                 onResult = pa.onEditorResult, onRetry = pa.onEditorRetry, tag = "point-results",
+                onCoordinate = pa.onEditorCoordinate, // D145: the field's typed pair sets the edited point
                 modifier = Modifier.weight(1f, fill = false),
                 sidePadding = 0.dp,
             )

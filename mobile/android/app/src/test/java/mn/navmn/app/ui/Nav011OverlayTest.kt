@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsSelected
@@ -89,15 +90,18 @@ class Nav011OverlayTest {
         onSelectRoute = { log += "select:$it" }, onSheetExpanded = { log += "expanded:$it" }, onReverseRetry = { log += "reverseRetry" },
         onSearchFieldTap = { log += "fieldTap"; tapAllowed }, onLockedWhileTyping = { log += "lockedWhileTyping" },
         onDismissLock = { log += "dismissLock" }, onPassenger = { log += "passenger" },
+        onCoordinateOption = { log += "coordinate:${it.lat},${it.lon}" },
+        onCardBounds = { r, wide -> cardBounds = r to wide },
     )
+    private var cardBounds: Pair<Rect?, Boolean>? = null
 
-    private fun show() {
+    private fun show(lang: Lang = Lang.MN) {
         rule.setContent {
             val d = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(d.density, scale.value)) {
                 NavTheme(false) {
                     Column(Modifier.fillMaxSize()) {
-                        Box(Modifier.weight(1f).fillMaxWidth()) { BrowseOverlay(model.value, TestStrings.of(Lang.MN), actions) }
+                        Box(Modifier.weight(1f).fillMaxWidth()) { BrowseOverlay(model.value, TestStrings.of(lang), actions) }
                         AttributionStrip(showEsa = false)
                     }
                 }
@@ -117,7 +121,10 @@ class Nav011OverlayTest {
         show()
         val sheet = rule.onNodeWithTag("route-preview").fetchSemanticsNode()
         assertEquals("collapsed", sheet.config.getOrNull(SheetStateKey))
-        for (t in listOf("Маршрут харах", "Машин", "Явган", "Дугуй", "Маршрут 1", "Эхлэх")) assertTrue("missing «$t»", exists(t))
+        // NAV-018 (AC 35, screen spec Q1/Q4): the visible header row is replaced by the points block; «Маршрут харах» is
+        // the sheet's pane title only.
+        assertEquals("Маршрут харах", sheet.config.getOrNull(SemanticsProperties.PaneTitle))
+        for (t in listOf("Машин", "Явган", "Дугуй", "Маршрут 1", "Эхлэх")) assertTrue("missing «$t»", exists(t))
         assertFalse("«Маршрут сонгох» is in the expanded part only", exists("Маршрут сонгох"))
         // AC 18: at 360×640 / 100 % the summary and «Эхлэх» are fully visible without dragging, above the attribution.
         val att = root()
@@ -264,5 +271,55 @@ class Nav011OverlayTest {
         // «Маршрут гаргах» is usable in every state (AC 8).
         rule.onNodeWithText("Маршрут гаргах").performClick()
         assertEquals("directions", log.last())
+    }
+
+    /** NAV-011 AC 7, 33 (D140, D146): the typed-coordinate option row (one merged button, ≥ 48 dp, no loading row). */
+    @Test
+    fun typedCoordinateOptionRowIsOneButtonSelectableAlsoWhileLocked() {
+        val p = LatLon(47.9189, 106.9176)
+        model.value = m(search = SearchView.Coordinate(p), query = "47.9189, 106.9176")
+        show()
+        assertEquals(1, rule.onAllNodesWithTag("search-coordinate-option").fetchSemanticsNodes().size)
+        val row = rule.onNodeWithTag("search-coordinate-option").fetchSemanticsNode()
+        assertEquals(listOf("Сонгосон цэг, 47.91890, 106.91760"), row.config.getOrNull(SemanticsProperties.ContentDescription))
+        assertEquals(Role.Button, row.config.getOrNull(SemanticsProperties.Role))
+        assertTrue("≥ 48 dp (56 dp row)", row.size.height / rule.density.density >= 55.5f)
+        assertTrue(exists("Сонгосон цэг"))
+        assertTrue(exists("47.91890, 106.91760"))
+        assertFalse("no loading row", exists("Ачаалж байна…"))
+        rule.onNodeWithTag("search-coordinate-option").performClick()
+        assertEquals("coordinate:47.9189,106.9176", log.last())
+        // AC 33: with the lock engaged and its card shown, the option is still there and selectable.
+        model.value = m(search = SearchView.Coordinate(p), query = "47.9189, 106.9176", lock = TypingLockState(engaged = true, overridden = false, cardVisible = true, engagement = 1))
+        rule.waitForIdle()
+        assertTrue(exists("Хөдөлж байх үед бичих боломжгүй"))
+        rule.onNodeWithTag("search-coordinate-option").performClick()
+        assertEquals(2, log.count { it == "coordinate:47.9189,106.9176" })
+    }
+
+    /** AC 7, 13: the same option in English (line 1 from resources, coordinates unchanged). */
+    @Test
+    @Config(qualifiers = "en-w360dp-h640dp")
+    fun typedCoordinateOptionInEnglish() {
+        model.value = m(search = SearchView.Coordinate(LatLon(47.9189, 106.9176))).copy(lang = Lang.EN)
+        show(Lang.EN)
+        val row = rule.onNodeWithTag("search-coordinate-option").fetchSemanticsNode()
+        assertEquals(listOf("Selected point, 47.91890, 106.91760"), row.config.getOrNull(SemanticsProperties.ContentDescription))
+        assertTrue(exists("Selected point"))
+    }
+
+    /** P8 (D140): on wide windows the coordinate card is a start-edge column of the side-sheet width (both entry points). */
+    @Test
+    @Config(qualifiers = "mn-w640dp-h360dp-land")
+    fun coordinateCardIsAStartColumnOnWideWindows() {
+        model.value = m(card = LatLon(47.9189, 106.9176), reverse = ReverseView.Loading)
+        show()
+        val d = rule.density.density
+        val card = rule.onNodeWithTag("coordinate-card").fetchSemanticsNode().boundsInRoot
+        // clamp(320 dp, 40 % of 640 dp, 400 dp) = 320 dp column, 8 dp start margin.
+        assertEquals(8f, card.left / d, 1f)
+        assertEquals(320f, card.right / d, 1f)
+        assertEquals(true, cardBounds?.second)
+        assertTrue(exists("Маршрут гаргах"))
     }
 }

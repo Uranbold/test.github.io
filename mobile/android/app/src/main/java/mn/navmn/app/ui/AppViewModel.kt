@@ -62,11 +62,14 @@ import javax.inject.Inject
 
 enum class Orientation { HEADING_UP, NORTH_UP }
 
+/** NAV-011 C1 (D142): a one-shot camera request for the typed-coordinate option; [seq] tells requests apart. */
+data class CoordinateFocus(val point: LatLon, val seq: Int)
+
 /** UI-only state (everything else comes from the controllers, the session and the settings). */
 data class UiState(
     val query: String = "",
     val searchActive: Boolean = false,
-    /** S2 coordinate card from a long-press («Сонгосон цэг»). */
+    /** S2 coordinate card from a long-press or the typed-coordinate option (NAV-011 D140) («Сонгосон цэг»). */
     val card: LatLon? = null,
     /** S4 rationale dialog. */
     val rationale: Boolean = false,
@@ -88,6 +91,10 @@ data class UiState(
     val sheetExpanded: Boolean = false,
     /** NAV-011 AC 34: bumped by «Би зорчигч» so the search field takes focus and opens the keyboard. */
     val focusSearch: Int = 0,
+    /** NAV-011 AC 7a (D140, D142): pending one-shot C1 camera move; cleared once NavRoot has run it (not repeated on rotation). */
+    val coordinateFocus: CoordinateFocus? = null,
+    /** NAV-011 AC 7a (screen spec › Accessibility): focus moves to the card title once after the typed option. */
+    val cardTitleFocus: Boolean = false,
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -238,12 +245,38 @@ class AppViewModel @Inject constructor(
     }
 
     fun onLongPress(p: LatLon) {
-        _ui.update { it.copy(card = p, searchActive = false) }
+        // AC 9: a long-press never moves the camera, also not a typed option's C1 move that has not run yet.
+        _ui.update { it.copy(card = p, searchActive = false, coordinateFocus = null, cardTitleFocus = false) }
         reverse.open(p) // NAV-011 AC 8: exactly one `reverse` per card
     }
 
+    /**
+     * NAV-011 AC 7a, 8 (D140, D142, D146; ADR-0012 Amendment A3): the typed-coordinate option. The list closes as after a
+     * result (the field keeps the typed text), the card opens exactly as for a long-press (one `reverse` at the typed
+     * point), following stops so the follow effect does not pull the camera back, and NavRoot centres the point once
+     * (camera rule C1). 0 `search` requests.
+     */
+    fun onCoordinateOption(p: LatLon) {
+        search.close()
+        coordinateFocusSeq++
+        _ui.update {
+            it.copy(
+                card = p, searchActive = false, followingMe = false,
+                coordinateFocus = CoordinateFocus(p, coordinateFocusSeq), cardTitleFocus = true,
+            )
+        }
+        reverse.open(p) // NAV-011 AC 8: exactly one `reverse` per card
+    }
+
+    private var coordinateFocusSeq = 0
+
+    /** NavRoot ran (or dropped) the C1 move [seq]: a rotation does not repeat it. */
+    fun onCoordinateFocusHandled(seq: Int) = _ui.update { if (it.coordinateFocus?.seq == seq) it.copy(coordinateFocus = null) else it }
+
+    fun onCardTitleFocused() = _ui.update { it.copy(cardTitleFocus = false) }
+
     fun closeCard() {
-        _ui.update { it.copy(card = null) }
+        _ui.update { it.copy(card = null, coordinateFocus = null, cardTitleFocus = false) }
         reverse.close()
     }
 
@@ -325,8 +358,10 @@ class AppViewModel @Inject constructor(
     /** Back, a map tap or «Хаах»: the editor closes, the field shows its previous text, 0 requests (AC 7). */
     fun closePointEditor() {
         val e = _points.value.editor ?: return
-        // A «Миний байршил» wait started from the editor ends with it; the preview-open attempt (no start yet) goes on.
-        if (e.myLocation == MyLocationOption.Waiting && preview.state.value?.origin != null) {
+        // A «Миний байршил» attempt started from the editor (waiting, or failed with a PREVIEW_ORIGIN action still pending,
+        // e.g. services off) ends with it, so a later onResume never replaces the start (ADR-0015 §4, AC 10). The
+        // preview-open attempt (no start yet) goes on.
+        if (e.myLocation != MyLocationOption.Idle && preview.state.value?.origin != null) {
             originAttempts.cancel()
             if (pending == LocationAction.PREVIEW_ORIGIN) pending = null
         }
@@ -343,6 +378,19 @@ class AppViewModel @Inject constructor(
         _points.update { it.copy(editor = null) }
         fieldSearch.close()
         val p = RoutePoint.Place(info.point, name)
+        if (e.side == PointSide.ORIGIN) setChosenOrigin(p) else preview.setDestination(p)
+    }
+
+    /**
+     * AC 5, second bullet (D140/D145, ADR-0012 Amendment A3): choosing the typed-coordinate option in a field sets that
+     * point to the coordinate («Сонгосон цэг»), with no coordinate card, 0 `reverse` and 0 `search` requests; one route
+     * request once both points are set (PreviewController).
+     */
+    fun onPointTypedCoordinate(point: LatLon) {
+        val e = _points.value.editor ?: return
+        _points.update { it.copy(editor = null) }
+        fieldSearch.close()
+        val p = RoutePoint.TypedCoordinate(point)
         if (e.side == PointSide.ORIGIN) setChosenOrigin(p) else preview.setDestination(p)
     }
 

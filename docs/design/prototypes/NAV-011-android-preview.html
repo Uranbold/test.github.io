@@ -7,7 +7,9 @@
 <!--
   Static wireframe of the NAV-011 Android screens (owner: ux-designer). Checks the DESIGN, not the app.
   1 CSS px = 1 dp. Hash parameters: state, theme (day|night), lang (mn|en), scale (1|1.3|2 = Android font scale),
-  font (narrow|wide), toolbar (0|1). Example: #state=preview-expanded&theme=night&lang=mn&scale=2
+  font (narrow|wide), toolbar (0|1), entry (longpress|typed: card states only; typed = opened from the typed-coordinate
+  option, D140), pin (x,y in dp: where the typed point sits; omitted = computed from the current layout by camera rule C1).
+  Example: #state=preview-expanded&theme=night&lang=mn&scale=2
   Screen spec: docs/design/screens/NAV-011-android-route-preview-search-parity.md (delta on the NAV-005 spec).
   Colours are copied from docs/design/tokens.json v0.5.0 for this wireframe only (tokens.json wins).
   Window classes as NAV-005 D5: wide = width >= 600, or landscape with width >= 480.
@@ -83,6 +85,9 @@
   :root[data-wide="0"] #topgroup { order: 1; } :root[data-wide="0"] #spacer { order: 2; }
   :root[data-wide="0"] #controls { order: 3; } :root[data-wide="0"] #cardwrap { order: 4; }
   :root[data-wide="1"] #controls { align-self: flex-end; padding: 0 16px 16px 8px; }
+  /* wide windows: the coordinate card is a start-edge column of the NAV-011 P5 side-sheet width (Layout rule P8), so
+     the map right of it stays free for the typed point (camera rule C1) */
+  :root[data-wide="1"] #cardwrap > .card { flex: 0 1 auto; width: clamp(320px, 40vw, 400px); }
 
   /* lock card (K1, K3, K2): NAV-002 message look */
   .lock { background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 12px; padding: 12px 8px 4px 16px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 12px; flex: none; }
@@ -94,6 +99,14 @@
   .results .r { min-height: 56px; padding: 8px 16px; border-bottom: 1px solid var(--outline-variant); }
   .results .r .n { font-size: calc(16px * var(--fs)); }
   .results .r .m { color: var(--on-surface-variant); }
+  /* typed-coordinate option (D140): leading 24 dp ic_location_searching, two lines, same row height as a result */
+  .results .r.co { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 0 16px; align-items: center; border-bottom: 0; }
+  .results .r.co .ico { color: var(--on-surface-variant); }
+  .results .r.co .m { font-variant-numeric: tabular-nums; }
+  .msg { background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 12px; padding: 12px 16px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; flex: none; }
+  /* pin of the typed point (map-style §7.1 shape, 28x40 dp, anchor bottom: the tip is on the point) */
+  #pin { position: absolute; z-index: 1; width: 28px; height: 40px; pointer-events: none; }
+  #pin i { position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50% 50% 50% 0; transform: translate(0, 2px) rotate(-45deg); transform-origin: 50% 50%; background: var(--pin); outline: 2px solid var(--surface); }
 
   /* coordinate card */
   #cardwrap > .card { flex: 1 1 auto; min-width: 0; }
@@ -183,6 +196,7 @@ const T = {
     r: [["Сүхбаатарын талбай", "Талбай · Сүхбаатар дүүрэг, Улаанбаатар"], ["Сүхбаатар дүүрэг", "Дүүрэг · Улаанбаатар"], ["Д. Сүхбаатарын хөшөө", "Дурсгалт газар · Сүхбаатар дүүрэг, 1-р хороо"]],
     k1: "Хөдөлж байх үед бичих боломжгүй", k3: "Жолооч бол зогсоод хайна уу", k2: "Би зорчигч", close: "Хаах",
     point: "Сонгосон цэг", coord: "47.88580, 106.91730", near: "Ойролцоох газар",
+    typedCoord: "47.9189, 106.9176", coordNorm: "47.91890, 106.91760",
     place: "Зайсангийн дурсгалт цогцолбор", placeMeta: "Дурсгалт газар · Хан-Уул дүүрэг, 11-р хороо, Улаанбаатар",
     loading: "Ачаалж байна…", noRes: "Илэрц олдсонгүй", offline: "Интернэт холболт алга", unavailable: "Хайлт түр ажиллахгүй байна",
     rate: "Түр хүлээгээд дахин оролдоно уу", error: "Алдаа гарлаа", retry: "Дахин оролдох", go: "Маршрут гаргах",
@@ -199,6 +213,7 @@ const T = {
     r: [["Sukhbaatar Square", "Square · Sukhbaatar District, Ulaanbaatar"], ["Sukhbaatar District", "District · Ulaanbaatar"], ["Д. Сүхбаатарын хөшөө", "Monument or historic site · Sukhbaatar District, 1st khoroo"]],
     k1: "You can't type while moving", k3: "If you are driving, stop before you search", k2: "I'm a passenger", close: "Close",
     point: "Selected point", coord: "47.88580, 106.91730", near: "Nearest place",
+    typedCoord: "47.9189, 106.9176", coordNorm: "47.91890, 106.91760",
     place: "Zaisan Memorial", placeMeta: "Monument or historic site · Khan-Uul District, 11th khoroo, Ulaanbaatar",
     loading: "Loading…", noRes: "No results found", offline: "No internet connection", unavailable: "Search is temporarily unavailable",
     rate: "Too many searches. Wait a moment and try again", error: "Something went wrong", retry: "Try again", go: "Directions",
@@ -211,7 +226,7 @@ const T = {
   },
 };
 const CARD_STATES = ["card-loading", "card-place", "card-empty", "card-offline", "card-unavailable", "card-ratelimited", "card-error"];
-const STATES = [...CARD_STATES, "lock-tap", "lock-results",
+const STATES = [...CARD_STATES, "lock-tap", "lock-results", "coord-option", "coord-option-offline", "coord-option-locked",
   "preview-3", "preview-1", "preview-expanded", "preview-bike", "preview-snap", "preview-toofar", "preview-unavailable", "preview-noroute-avoid"];
 const I = {
   search: '<svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M15 15l6 6"/></svg>',
@@ -222,6 +237,7 @@ const I = {
   loc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
   lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg>',
+  target: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>',
   wifi: '<svg viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5 13a10 10 0 0 1 14 0M8.5 16.5a5 5 0 0 1 7 0M3 3l18 18"/></svg>',
   dir: '<svg viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9z"/><path d="M9 14v-2h5"/><path d="M12 9l3 3-3 3"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>',
@@ -232,16 +248,26 @@ const I = {
 function params() {
   const p = new URLSearchParams(location.hash.slice(1));
   return { state: STATES.includes(p.get("state")) ? p.get("state") : "preview-3", theme: p.get("theme") === "night" ? "night" : "day",
-    lang: p.get("lang") === "en" ? "en" : "mn", scale: Number(p.get("scale")) || 1, font: p.get("font") || "narrow", toolbar: p.get("toolbar") !== "0" };
+    lang: p.get("lang") === "en" ? "en" : "mn", scale: Number(p.get("scale")) || 1, font: p.get("font") || "narrow", toolbar: p.get("toolbar") !== "0",
+    entry: p.get("entry") === "typed" ? "typed" : "longpress", pin: p.get("pin") || "" };
 }
 const $ = (id) => document.getElementById(id);
 const esc = (s) => s;
 
-function browse(t, st) {
-  const lockShown = st.startsWith("lock");
-  const typed = st === "lock-results";
-  const results = typed ? `<div class="results elev" data-box="results" role="list" aria-label="${t.results}">${t.r.map(([n, m]) =>
-    `<div class="r" role="listitem" data-control><div class="n name">${n}</div><div class="m wrap">${m}</div></div>`).join("")}</div>` : "";
+function browse(t, st, entry) {
+  const coordOpt = st.startsWith("coord-option");
+  const lockShown = st.startsWith("lock") || st === "coord-option-locked";
+  const typedCard = st.startsWith("card") && entry === "typed";
+  const typed = st === "lock-results" || coordOpt || typedCard;
+  const barText = coordOpt || typedCard ? t.typedCoord : t.typed;
+  // D140: a recognised pair shows exactly one option (0 requests), also offline and in a 429 cooldown; content
+  // description = «Сонгосон цэг», coordinates (existing strings only)
+  const results = st === "lock-results" ? `<div class="results elev" data-box="results" role="list" aria-label="${t.results}">${t.r.map(([n, m]) =>
+    `<div class="r" role="listitem" data-control><div class="n name">${n}</div><div class="m wrap">${m}</div></div>`).join("")}</div>`
+    : coordOpt ? `<div class="results elev" data-box="results" role="list" aria-label="${t.results}"><div class="r co" role="listitem" data-control data-coordopt aria-label="${t.point}, ${t.coordNorm}">
+      <span class="ico" aria-hidden="true">${I.target}</span><div><div class="n wrap">${t.point}</div><div class="m wrap">${t.coordNorm}</div></div></div></div>` : "";
+  // S1 offline message (NAV-005 S1, shown whenever offline): with the option, and with a card opened offline from it
+  const offlineMsg = st === "coord-option-offline" || (typedCard && st === "card-offline") ? `<div class="msg elev" data-box="message" role="status"><span class="ico" aria-hidden="true">${I.wifi}</span><div class="wrap">${t.offline}</div></div>` : "";
   const lock = lockShown ? `<div class="lock elev" data-box="lock" role="status"><span class="ico" aria-hidden="true">${I.lock}</span>
     <div class="t wrap">${t.k1}</div><div class="h wrap">${t.k3}</div>
     <div class="acts"><button class="btn msgtext" data-control data-lockact>${t.close}</button><button class="btn tonal" data-control data-lockact>${t.k2}</button></div></div>` : "";
@@ -258,16 +284,16 @@ function browse(t, st) {
     if (st === "card-error") near = stateRow(I.info, t.error);
     card = `<div id="cardwrap"><div class="card elev" data-box="card"><div class="scroll">
       <div class="head"><span class="wrap">${t.point}</span><button class="iconbtn flat" data-control aria-label="${t.close}">${I.x}</button></div>
-      <div class="coord">${t.coord}</div>
+      <div class="coord">${typedCard ? t.coordNorm : t.coord}</div>
       <div class="near" data-box-near aria-live="polite">${near}</div></div>
       <div class="go"><button class="btn filled" data-control data-go>${I.dir}<span>${t.go}</span></button></div></div></div>`;
   }
   const controls = `<div id="controls">${[["plus", t.zoomIn], ["minus", t.zoomOut], ["loc", t.myLoc]].map(([i, n]) =>
     `<button class="iconbtn elev" data-control aria-label="${n}">${I[i]}</button>`).join("")}</div>`;
   return `<div id="browse"><div id="searchrow">
-      <div id="searchbar" class="elev ${typed ? "typed" : ""}" data-box="search" data-control>${I.search}<span class="name" style="flex:1">${typed ? t.typed : t.search}</span>${typed ? `<button class="iconbtn flat" data-control aria-label="${t.clear}">${I.x}</button>` : ""}</div>
+      <div id="searchbar" class="elev ${typed ? "typed" : ""}" data-box="search" data-control>${I.search}<span class="name" style="flex:1">${typed ? barText : t.search}</span>${typed ? `<button class="iconbtn flat" data-control aria-label="${t.clear}">${I.x}</button>` : ""}</div>
       <button class="iconbtn elev" data-control aria-label="${t.settings}" style="background:var(--primary-container);color:var(--on-primary-container)">${I.gear}</button></div>
-    <div id="below"><div id="leftcol"><div id="topgroup">${lock}${results}</div><div id="spacer"></div>${card}</div>${controls}</div></div>`;
+    <div id="below"><div id="leftcol"><div id="topgroup">${lock}${results}${offlineMsg}</div><div id="spacer"></div>${card}</div>${controls}</div></div>`;
 }
 
 function preview(t, st, wide) {
@@ -323,7 +349,17 @@ function render() {
     <path d="M30 100 V0 M0 45 H100 M75 0 V100" stroke="var(--major-casing)" stroke-width="3"/><path d="M30 100 V0 M0 45 H100 M75 0 V100" stroke="var(--major)" stroke-width="2.2"/>
     ${lines.map((d, i) => i === sel ? "" : `<path d="${d}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--alt-casing)" style="stroke-width:8px"/><path d="${d}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--alt)" style="stroke-width:6px"/>`).join("")}
     ${lines[sel] ? `<path d="${lines[sel]}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--route-casing)" style="stroke-width:12px"/><path d="${lines[sel]}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--route)" style="stroke-width:8px"/>` : ""}</svg>`;
-  $("layer").innerHTML = isPreview ? preview(t, st, root.dataset.wide === "1") : browse(t, st);
+  $("layer").innerHTML = isPreview ? preview(t, st, root.dataset.wide === "1") : browse(t, st, P.entry);
+  const oldPin = $("pin"); if (oldPin) oldPin.remove();
+  if (st.startsWith("card") && P.entry === "typed") {
+    const pt = P.pin ? P.pin.split(",").map(Number) : typedPoint();
+    const app = $("app").getBoundingClientRect();
+    const pin = document.createElement("div");
+    pin.id = "pin"; pin.dataset.pin = `${pt[0]},${pt[1]}`; pin.setAttribute("role", "img"); pin.setAttribute("aria-label", t.point);
+    pin.style.left = (pt[0] - app.left - 14) + "px"; pin.style.top = (pt[1] - app.top - 40) + "px";
+    pin.innerHTML = "<i></i>";
+    $("app").appendChild(pin);
+  }
   // Collapsed sheet cap (Layout rule P3): header + tabs get what is left of 60 % of the area after the summary and
   // «Эхлэх»; they scroll (and may scroll out entirely) before the summary or «Эхлэх» would.
   const ts = $("topscroll");
@@ -334,10 +370,26 @@ function render() {
   }
   renderToolbar(P);
 }
+// Camera rule C1 (screen spec): where the typed point lands after the selection. The free rectangle is
+//   narrow windows: full width, from the bottom of the top group (search row + any S1 message) to the card top;
+//   wide windows:   from the card column's end edge to the control lane, from the top group to the attribution strip.
+// Padding inside it: top 16 dp + 40 dp (pin height), bottom/start/end 16 dp. The point (pin tip) is centred in what
+// is left, so the whole pin is clear of the top group, the card and the controls.
+function typedPoint() {
+  const card = document.querySelector('[data-box="card"]').getBoundingClientRect();
+  const tops = [...document.querySelectorAll('#searchrow, #topgroup > *')].map((e) => e.getBoundingClientRect().bottom);
+  const top = Math.max(...tops), wide = document.documentElement.dataset.wide === "1";
+  const app = $("app").getBoundingClientRect(), attr = $("attr").getBoundingClientRect(), lane = $("controls").getBoundingClientRect();
+  const r = wide ? { left: card.right, right: lane.left, top, bottom: attr.top } : { left: app.left, right: app.right, top, bottom: card.top };
+  const y0 = r.top + 16 + 40, y1 = r.bottom - 16;
+  // fallback (never needed in the design target, measured): centre the pin in the rectangle without the margins
+  const y = y1 >= y0 ? (y0 + y1) / 2 : Math.max(r.top + 40, (r.top + 40 + r.bottom) / 2);
+  return [Math.round((r.left + 16 + r.right - 16) / 2), Math.round(y)];
+}
 function renderToolbar(P) {
   const tb = $("toolbar"); tb.hidden = !P.toolbar; if (!P.toolbar) return;
   const sel = (k, vals) => `<select data-k="${k}">${vals.map((v) => `<option ${String(P[k]) === String(v) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
-  tb.innerHTML = sel("state", STATES) + sel("theme", ["day", "night"]) + sel("lang", ["mn", "en"]) + sel("scale", [1, 1.3, 2]) + sel("font", ["narrow", "wide"]);
+  tb.innerHTML = sel("state", STATES) + sel("theme", ["day", "night"]) + sel("lang", ["mn", "en"]) + sel("scale", [1, 1.3, 2]) + sel("font", ["narrow", "wide"]) + sel("entry", ["longpress", "typed"]);
   tb.querySelectorAll("select").forEach((s) => s.onchange = () => {
     const p = params(); p[s.dataset.k] = s.value;
     location.hash = Object.entries(p).map(([k, v]) => `${k}=${k === "toolbar" ? (v ? 1 : 0) : v}`).join("&");

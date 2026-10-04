@@ -27,6 +27,12 @@ sealed interface SearchView {
     data class RateLimited(val retryEnabled: Boolean) : SearchView
     data object Offline : SearchView
     data object Error : SearchView
+
+    /**
+     * NAV-011 D140 (ADR-0012 Amendment A1): the settled query is an ADR-0006 §2.2 coordinate pair. One option
+     * «Сонгосон цэг», 0 requests. [point] is the parsed value, not rounded; the state carries no strings.
+     */
+    data class Coordinate(val point: LatLon) : SearchView
 }
 
 /**
@@ -36,8 +42,12 @@ sealed interface SearchView {
  *
  * NAV-011 AC 2–4, 7 (ADR-0012 §3): each settled query is planned by [QueryPlanner] (ADR-0006 rules A–D) into 1 or 2
  * requests: `parallel` sends both at once and merges them ([CombineOutcomes.parallel]); `ifEmpty` sends the second only
- * after an empty 200 for the first. A typed coordinate is still sent as typed (ADR-0012 §3, NAV-005 behaviour). The
- * field always shows what the user typed; planned variants never reach the UI.
+ * after an empty 200 for the first. The field always shows what the user typed; planned variants never reach the UI.
+ *
+ * NAV-011 D140 (ADR-0012 §3, Amendment A2; web parity with `searchController.ts` `settle()`): a recognised coordinate
+ * pair becomes [SearchView.Coordinate] with 0 `search` requests. It is planned before the offline and 429-cooldown
+ * checks, so the option also shows offline and during a cooldown; retry sends 0 requests for it. Pairs the rule
+ * rejects (out of range, decimal comma, …) are text and are searched as typed.
  */
 class SearchController(
     private val scope: CoroutineScope,
@@ -64,10 +74,13 @@ class SearchController(
         /** NAV-011 / ADR-0012 §1: the ported settle (JS whitespace set, surrogate-safe cap) replaces the NAV-005 one. */
         fun settle(raw: String): String = Settle.settle(raw)
 
-        /** The requests a settled query sends: a typed coordinate is sent as typed (ADR-0012 §3). */
-        fun requestsFor(q: String): QueryPlan.Text = when (val p = QueryPlanner.plan(q)) {
-            is QueryPlan.Text -> p
-            else -> QueryPlan.Text(q, null, PlanMode.NONE, 'D')
+        /**
+         * What a settled query becomes (ADR-0012 Amendment A2): [QueryPlan.Coordinate] (0 requests) or the
+         * [QueryPlan.Text] requests. A query too short to plan (never reached after [MIN_LENGTH]) is sent as typed.
+         */
+        fun planFor(q: String): QueryPlan = when (val p = QueryPlanner.plan(q)) {
+            is QueryPlan.Coordinate, is QueryPlan.Text -> p
+            QueryPlan.Skip -> QueryPlan.Text(q, null, PlanMode.NONE, 'D')
         }
     }
 
@@ -104,8 +117,19 @@ class SearchController(
     }
 
     private suspend fun run(q: String, force: Boolean = false) {
-        if (!force && q == lastSettled && _view.value is SearchView.Results) return
+        if (!force && q == lastSettled && (_view.value is SearchView.Results || _view.value is SearchView.Coordinate)) return
         lastSettled = q
+        // D140 (Amendment A2 step 3): a coordinate needs no request, so it is decided before the offline and cooldown
+        // checks. The generation bump discards any older response still on its way.
+        val plan = when (val p = planFor(q)) {
+            is QueryPlan.Coordinate -> {
+                generation++
+                _view.value = SearchView.Coordinate(p.point)
+                return
+            }
+            is QueryPlan.Text -> p
+            QueryPlan.Skip -> return
+        }
         if (!isOnline()) {
             _view.value = SearchView.Offline
             return
@@ -129,7 +153,7 @@ class SearchController(
                 if (g == generation) _view.value = SearchView.Loading
             }
             try {
-                fetch(q, g)
+                fetch(plan, g)
             } finally {
                 loading.cancel()
             }
@@ -154,9 +178,8 @@ class SearchController(
         }
     }
 
-    /** Sends the planned request(s) for [q]; `null` when superseded between the two `ifEmpty` requests. */
-    private suspend fun fetch(q: String, g: Int): SearchOutcome? {
-        val plan = requestsFor(q)
+    /** Sends the planned request(s) of [plan]; `null` when superseded between the two `ifEmpty` requests. */
+    private suspend fun fetch(plan: QueryPlan.Text, g: Int): SearchOutcome? {
         val l = lang()
         val b = bias()
         return coroutineScope {

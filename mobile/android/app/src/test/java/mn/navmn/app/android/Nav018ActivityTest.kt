@@ -7,11 +7,16 @@ import android.net.NetworkCapabilities
 import android.os.Looper
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -21,10 +26,12 @@ import dagger.hilt.android.testing.HiltTestApplication
 import kotlinx.coroutines.CompletableDeferred
 import mn.navmn.app.geo.LatLon
 import mn.navmn.app.preview.PreviewResult
+import mn.navmn.app.preview.points.MyLocationOption
 import mn.navmn.app.preview.points.PointSide
 import mn.navmn.app.preview.points.RoutePoint
 import mn.navmn.app.search.PhotonFeature
 import mn.navmn.app.search.PlaceDisplay
+import mn.navmn.app.search.SearchView
 import mn.navmn.app.ui.AppViewModel
 import mn.navmn.app.ui.MainActivity
 import org.junit.After
@@ -206,5 +213,85 @@ class Nav018ActivityTest {
         openPreviewTo(zaisan)
         waitFor { FakeGateway.routeRequests.get() == 3 && vm().preview.state.value?.result is PreviewResult.Route }
         assertTrue(vm().preview.state.value!!.origin is RoutePoint.MyLocation)
+    }
+
+    private fun searches() = FakeGateway.paths.count { it == "/v1/search" }
+    private fun reverses() = FakeGateway.paths.count { it == "/v1/reverse" }
+
+    /** Simulates leaving to the system Settings and coming back (onPause/onStop → onStart/onResume). */
+    private fun leaveAndResume() {
+        scenario!!.moveToState(Lifecycle.State.CREATED)
+        idle()
+        scenario!!.moveToState(Lifecycle.State.RESUMED)
+        idle(500)
+    }
+
+    /**
+     * Review fix (AC 10, ADR-0015 §4): «Миний байршил» in the start editor fails with location services off, so the
+     * PREVIEW_ORIGIN action stays pending. Leaving the editor (Back) must end that attempt: after services are switched
+     * on and the app resumes, the chosen start stays and 0 route requests are sent.
+     */
+    @Test
+    fun aFailedMyLocationAttemptLeftWithBackNeverReplacesTheStartOnResume() {
+        launch()
+        openPreviewTo(zaisan)
+        waitFor { FakeGateway.routeRequests.get() == 1 && vm().preview.state.value?.result is PreviewResult.Route }
+        longPress(pickup)
+        compose.onNodeWithTag("coord-set-origin").performClick()
+        waitFor { FakeGateway.routeRequests.get() == 2 && vm().preview.state.value?.result is PreviewResult.Route }
+        assertEquals(RoutePoint.MapPoint(pickup), vm().preview.state.value!!.origin)
+
+        FakeLocation.servicesOn = false
+        FakeLocation.freshFix = { FakeLocation.goodFix(47.9300, 106.9500) }
+        compose.onNodeWithTag("route-origin").performClick()
+        idle()
+        compose.onNodeWithTag("point-option-my-location").performClick()
+        idle(300)
+        assertTrue("AC 3: failure in the option card", vm().points.value.editor?.myLocation is MyLocationOption.Failed)
+        assertEquals(2, FakeGateway.routeRequests.get())
+
+        val v = vm()
+        scenario!!.onActivity { v.closePointEditor() } // Back
+        idle()
+        assertNull(vm().points.value.editor)
+
+        FakeLocation.servicesOn = true
+        leaveAndResume()
+        idle(1_000)
+        assertEquals("the chosen start stays", RoutePoint.MapPoint(pickup), vm().preview.state.value!!.origin)
+        assertEquals("0 route requests after resume", 2, FakeGateway.routeRequests.get())
+    }
+
+    /**
+     * AC 5 second bullet (D140/D145, ADR-0012 Amendment A3): a typed pair in the start editor shows the «Сонгосон цэг»
+     * option; choosing it sets the start to the coordinate, closes the editor, opens no card, and sends 0 `search`,
+     * 0 `reverse` and exactly 1 route request.
+     */
+    @Test
+    fun typedCoordinateInTheStartFieldSetsTheStartWithNoSearchAndNoCard() {
+        launch()
+        openPreviewTo(zaisan)
+        waitFor { FakeGateway.routeRequests.get() == 1 && vm().preview.state.value?.result is PreviewResult.Route }
+        val reversesBefore = reverses()
+        compose.onNodeWithTag("route-origin").performClick()
+        idle()
+        assertTrue(tagged("point-editor"))
+        compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("point-editor"))).performTextReplacement("47.9213, 106.8948")
+        waitFor { vm().fieldSearch.view.value is SearchView.Coordinate }
+        idle(500)
+        assertEquals("one option in the field list", 1, compose.onAllNodesWithTag("search-coordinate-option").fetchSemanticsNodes().size)
+        assertEquals("0 search requests for the pair", 0, searches())
+        compose.onNodeWithTag("search-coordinate-option").performClick()
+        waitFor { FakeGateway.routeRequests.get() == 2 && vm().preview.state.value?.result is PreviewResult.Route }
+        assertEquals(RoutePoint.TypedCoordinate(pickup), vm().preview.state.value!!.origin)
+        assertNull("the editor closed", vm().points.value.editor)
+        assertEquals(SearchView.Closed, vm().fieldSearch.view.value)
+        assertNull("no coordinate card", vm().ui.value.card)
+        assertFalse(tagged("coordinate-card"))
+        assertEquals("0 search", 0, searches())
+        assertEquals("0 reverse", reversesBefore, reverses())
+        assertEquals("Сонгосон цэг", compose.onNodeWithTag("route-origin").fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription))
+        idle(500)
+        assertEquals("exactly one route request", 2, FakeGateway.routeRequests.get())
     }
 }
