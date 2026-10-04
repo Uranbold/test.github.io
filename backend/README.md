@@ -91,11 +91,38 @@ with limits on (staging, or an isolated test gateway), never against the shared 
 |---|---|
 | Base URL | **`https://<staging-host>`**: placeholder until the PO names the company subdomain (D6, AC 23). The real host name lives only in `infra/staging/.env` on the server; it is set in `openapi.yaml` `servers` by the architect and here once known |
 | Host | Hostinger VPS KVM 4, Singapore (ADR-0005), Ubuntu 24.04; any KVM VPS works, nothing in `infra/` is provider-specific |
-| What differs from dev | Caddy in front (TLS 1.2/1.3, Let's Encrypt, HTTP to HTTPS redirect, no access log), rate limits on, CORS allowlist (never `*`), Geofabrik `mongolia-latest` as the OSM source, daily rebuild at 19:30 UTC with the gateway kept up |
+| What differs from dev | Caddy in front (TLS 1.2/1.3, Let's Encrypt, HTTP to HTTPS redirect, no access log), rate limits on, CORS allowlist (never `*`), Geofabrik `mongolia-latest` as the OSM source, `compose.slots.yaml` with the NAV-006 daily rebuild at 19:30 UTC (slots, pointer switch, 0 s downtime) |
 | Code and runbook | [`infra/staging/`](../infra/staging/) and [`infra/staging/RUNBOOK.md`](../infra/staging/RUNBOOK.md): bootstrap, deploy by git tag, rebuild, certificates, backups/restore, monitoring, incidents |
 | Design | [deployment-staging.md](../docs/architecture/deployment-staging.md), [ADR-0005](../docs/architecture/adr/0005-backend-hosting-staging.md) |
 
 Tester-only and unlisted; not for real users (D26). `data/` is not backed up on staging: it is rebuilt from OSM.
+
+## Daily rebuild pipeline (NAV-006, ADR-0014)
+
+Fresh OSM data every day without downtime: each build goes into a new immutable **slot**, is verified privately on the free **lane** (blue/green: one Valhalla + one Photon each), and goes live with one `rename(2)` of a small pointer file that the gateway reads on every request (`gateway/njs/slot.js`; no nginx reload, no container restart). One-step rollback, a shared lock, disk/memory guards, structured logs and an alert hook. Contract unchanged (`openapi.yaml` 0.5.3).
+
+| File | What |
+|---|---|
+| [`compose.slots.yaml`](compose.slots.yaml) | slot runtime: `gateway`, private `gateway-verify` (127.0.0.1), lanes `valhalla-/photon-{blue,green}`, builders (profile `build`). Staging base file; **not** used by the dev stack |
+| [`pipeline/nav_pipeline.py`](pipeline/nav_pipeline.py) | the pipeline (stdlib Python): `rebuild`, `rollback`, `status`, `checksums`; exit codes in its docstring and RUNBOOK 7.5 |
+| [`gateway/njs/slot.js`](gateway/njs/slot.js) | per-request pointer read; dev mode (no `/etc/nginx/slot`) keeps the NAV-001 upstreams |
+| [`pipeline/request_loop.py`](pipeline/request_loop.py) | AC 15 request loop (keep-alive + new connections, no retries, ETag log) |
+| [`pipeline/test-setup.sh`](pipeline/test-setup.sh), [`test-teardown.sh`](pipeline/test-teardown.sh), [`nav006-test.env.template`](pipeline/nav006-test.env.template) | dev-container test project `navmn-nav006` (D126) |
+| [`pipeline/tests/`](pipeline/tests/) | unit tests (`make pipeline-test`): checks 3(a)-(f), source fallback, lock, rollback refusal, alert hook, config guards |
+
+Dev-container test (separate project `navmn-nav006`, ports 18080/18089, root `/var/tmp/nav006-test`; the shared dev stack on :8080 and `data/` are never touched; `data/` is only read: aux files and tools hard-linked, extract and dump copied):
+```sh
+make nav006-test-setup                 # test root + config /var/tmp/nav006-test/nav006.env
+make nav006-up                         # test gateway on 127.0.0.1:18080 (502/404 until the first slot)
+make rebuild                           # first slot (about 6 min); later: make rebuild FORCE=1 (same extract)
+make status                            # JSON: active/previous slot, data dates, last run, stale
+python3 pipeline/request_loop.py --base-url http://127.0.0.1:18080 --duration 400 --out /tmp/loop.jsonl &
+make rebuild FORCE=1                   # second slot on the other lane, switch under load
+make rollback                          # previous slot back within 60 s
+REBUILD_TEST_FAULT=verify make rebuild FORCE=1   # forced failure: never switches (test project only)
+make nav006-test-teardown              # 0 containers/networks/volumes, root deleted
+```
+`make` targets pick the config automatically: `infra/staging/.env` on staging, else `/var/tmp/nav006-test/nav006.env` if it exists, else `NAV_ENV_FILE=...`. The pipeline refuses a Compose project whose containers were created from `compose.yaml` (the dev stack), and test faults only work with `REBUILD_ALLOW_TEST_FAULTS=1` outside `navmn`. Operator guide: [RUNBOOK section 7](../infra/staging/RUNBOOK.md).
 
 ## How the stack starts
 

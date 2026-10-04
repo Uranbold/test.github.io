@@ -12,7 +12,8 @@
 # Config (infra/staging/.env): RESTIC_REPOSITORY (e.g. sftp:nav-backup@<ops-host>:/srv/restic/nav-staging),
 # RESTIC_PASSWORD_FILE (root-only file OUTSIDE git, default /root/.config/nav/restic-password),
 # optional UPTIME_PUSH_URL_BACKUP. SSH for the sftp: backend comes from /root/.ssh/config (RUNBOOK.md).
-# NOT backed up: backend/data/ (rebuildable from OSM, AC 15), and inside /var/lib/nav the rollback copy, a leftover
+# NOT backed up: backend/data/ and the NAV-006 data root NAV_DATA_ROOT (default /var/lib/nav/data: slots, cache,
+# pointer; rebuildable from OSM by the first build of a deploy), and inside /var/lib/nav the rollback copy, a leftover
 # aux-cache.aside (about 2.3 GB of public downloads), the AC 16 sampler output (stats/) and the AC 15 measurement
 # logs (ac15-*.log): all rebuildable or already copied into the runbook log. Also not: container logs, the git
 # checkout (it is in git), and the restic password and SSH private keys themselves.
@@ -68,6 +69,7 @@ backup_paths() {
 backup_excludes() {
     printf '%s\n' \
         "$NAV_ROOT/backend/data" \
+        "$(nav_data_root)" \
         "$NAV_STATE_DIR/rollback" \
         "$NAV_STATE_DIR/rollback.new" \
         "$NAV_STATE_DIR/aux-cache.aside" \

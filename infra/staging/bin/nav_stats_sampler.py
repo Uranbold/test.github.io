@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 
-BUILDERS = {"data-fetch", "tiles-build", "valhalla-build", "photon-import", "build-info"}
+BUILDERS = {"data-fetch", "aux-fetch", "tiles-build", "valhalla-build", "photon-import", "build-info"}
 LIMIT_RATIO = 0.70
 LIMIT_FREE_GB = 50
 LIMIT_GAP_S = 3.0

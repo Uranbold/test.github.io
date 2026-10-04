@@ -234,6 +234,19 @@ Steps, under the lock:
 7. Remove `nav-rollback-data.sh` and the interim logic.
 8. Delete the old `backend/data/{tiles,valhalla,photon}`.
 
+### 13. Implementation notes and measured values (backend, dev container, 2026-10-04; recorded in the integration review)
+These confirm or refine the decisions above. None changes the contract or the switch mechanism.
+- **Lane start** (Valhalla + Photon healthy on a 27 MB index): about 6 s. `make rollback` reached the pointer rename in 5.9 s, well inside the 60 s of AC 18 (§3 budget confirmed).
+- **Planetiler temporary disk** at z14: about 0.8 GB (estimate in §7 was ≤ 3 GB). **Peak memory** in the dev container: 3.6 GB building + 0.7 GB serving.
+- **`valhalla_service` ignores SIGTERM** (also behind docker-init). The lanes use `init: true` and `stop_signal: SIGINT`; a lane stops in < 0.2 s. Lanes are stopped only after the grace period, so no request is affected.
+- **Photon writes runtime state into its index directory while serving** (OpenSearch logs, translog, `_state`). The AC 7 checksum listing (`make slot-checksums`) therefore excludes `photon/photon_data`; the pristine-index rule of §1 is unchanged.
+- **Docker reports a bind source as the `lanes/<lane>` symlink**, not its resolved target. The pipeline records each lane's slot in `state.json.lanes` when it (re)creates the lane and trusts that record only while the symlink still points at it; otherwise rollback recreates the lane.
+- **`compose.slots.yaml` is standalone** (no `extends`). `infra/ci/backend-static-checks.sh` checks that its image pins equal `compose.yaml`'s.
+- **Lane profiles** (`lane-blue`, `lane-green`, `verify`, `build`): a plain `up -d` (for example `deploy.sh`) never starts or recreates a lane. Checked in this review: `up -d --remove-orphans` does not treat a profile-disabled lane container as an orphan (Compose v5.1.1).
+- **`FORCE=1` reuses the day's validated download** (stricter than AC 1 allows; kinder to Geofabrik). **`REFRESH_AUX=1`** is the manual auxiliary refresh (NAV-006 Open question 4, option (a), pending PO confirmation); it replaces NAV-008's `--empty-aux-cache` measurement path.
+- **Exit codes** are as in §8. `make` itself exits 2 and prints the pipeline's code as `Error <n>`; the timer and `make status` keep the real code.
+- **Interrupt after the switch:** a SIGTERM that arrives during the post-switch smoke ends the run as `interrupted` (40) with the new slot active and the AC 21 check not completed; the next run's reconciliation stops the old lane. The alert hook fires (40 is an alert code), and the next run's `skipped: unchanged` health check runs smoke against the active slot.
+
 ## Alternatives considered
 | Option | Pros | Cons |
 |---|---|---|

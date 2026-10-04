@@ -1,13 +1,15 @@
 # NAV-008 staging overlay (deployment-staging.md §2, §4, §5, §7; ADR-0005). Owner: backend-engineer.
 #
-# Always used through infra/staging/bin/nav-compose, which runs:
-#   docker compose --project-directory backend -f backend/compose.yaml -f infra/staging/compose.staging.yaml \
+# Always used through infra/staging/bin/nav-compose (and the NAV-006 pipeline via bin/nav-pipeline), which run:
+#   docker compose --project-directory backend -f backend/compose.slots.yaml -f infra/staging/compose.staging.yaml \
 #                  [-f infra/staging/compose.staging.ipv6.yaml] --env-file infra/staging/.env <command>
-# Relative paths resolve against backend/ (the project directory), so NAV-001 paths keep working.
+# Base file since NAV-006: backend/compose.slots.yaml (ADR-0014: gateway, private gateway-verify, lanes blue/green,
+# builders). Relative paths resolve against backend/ (the project directory), so NAV-001 paths keep working.
 #
 # Publishing rules: ONLY caddy publishes ports (80 and 443, TCP only, IPv4 and IPv6). The gateway stays on
 # 127.0.0.1 (forced below, whatever GATEWAY_BIND says) so operators can still curl it on the host.
-# Valhalla and Photon publish nothing (unchanged from backend/compose.yaml).
+# The Valhalla/Photon lanes publish nothing; gateway-verify publishes on 127.0.0.1 only and is NOT on the edge
+# network, so Caddy can never reach an unverified slot.
 
 services:
   caddy:

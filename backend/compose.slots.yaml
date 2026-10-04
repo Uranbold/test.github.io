@@ -63,6 +63,10 @@ x-extra-ca: &extra-ca
 x-valhalla-lane: &valhalla-lane
   image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
   entrypoint: ["/bin/bash", "/scripts/valhalla-serve.sh"]
+  # valhalla_service ignores SIGTERM (measured: killed after the 10 s timeout, also behind docker-init) but exits
+  # on SIGINT in < 0.2 s. A lane is stopped only after the grace period, when no request is routed to it.
+  init: true
+  stop_signal: SIGINT
   environment:
     VALHALLA_THREADS: ${VALHALLA_THREADS:-}
   healthcheck:

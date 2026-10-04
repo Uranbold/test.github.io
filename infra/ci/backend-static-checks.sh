@@ -7,15 +7,19 @@
 #    AC 43: 416 with single CORS headers + JSON + Cache-Control: no-store, missing archive -> JSON 404)
 # 5. NAV-008 rate limits (entrypoint/16-rate-limits.sh): off by default; with GATEWAY_RATE_LIMIT=on a JSON 429
 #    RateLimited with Retry-After/Cache-Control/CORS once; /health, tiles and OPTIONS never limited; bad values refused
+# 6. NAV-006 (ADR-0014): compose.slots.yaml renders, publishes only on 127.0.0.1, same image pins as compose.yaml;
+#    gateway slot mode (njs/slot.js): missing/invalid pointer -> JSON 502/404, valid pointer -> slot archive, a
+#    pointer rename switches the archive (new ETag) without reload; pipeline unit tests
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 B=$ROOT/backend
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 echo "== syntax"
-for f in "$B"/scripts/*.sh "$B"/gateway/entrypoint/*.sh; do bash -n "$f" || fail "bash -n $f"; done
-python3 -m py_compile "$B"/scripts/*.py && rm -rf "$B/scripts/__pycache__"
-if command -v shellcheck >/dev/null; then shellcheck -x -P SCRIPTDIR -S warning "$B"/scripts/*.sh "$B"/gateway/entrypoint/*.sh; fi
+for f in "$B"/scripts/*.sh "$B"/gateway/entrypoint/*.sh "$B"/pipeline/*.sh; do bash -n "$f" || fail "bash -n $f"; done
+python3 -m py_compile "$B"/scripts/*.py "$B"/pipeline/*.py "$B"/pipeline/tests/*.py \
+    && rm -rf "$B/scripts/__pycache__" "$B/pipeline/__pycache__" "$B/pipeline/tests/__pycache__"
+if command -v shellcheck >/dev/null; then shellcheck -x -P SCRIPTDIR -S warning "$B"/scripts/*.sh "$B"/gateway/entrypoint/*.sh "$B"/pipeline/*.sh; fi
 
 echo "== compose config (defaults only)"
 ( cd "$B" && docker compose --env-file /dev/null config --quiet ) || fail "compose config"
@@ -23,7 +27,7 @@ if ( cd "$B" && docker compose --env-file /dev/null config --images ) | grep -q 
 
 echo "== gateway (nginx -t and behaviour without upstreams)"
 IMG=$(cd "$B" && docker compose --env-file /dev/null config --images | grep nginx | head -1)
-TMP=$(mktemp -d); trap 'docker rm -f navmn-ci-gw navmn-ci-gw-rl navmn-ci-gw-bad >/dev/null 2>&1 || true; docker network rm navmn-ci-net >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); trap 'docker rm -f navmn-ci-gw navmn-ci-gw-rl navmn-ci-gw-bad navmn-ci-gw-slot >/dev/null 2>&1 || true; docker network rm navmn-ci-net >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 chmod 755 "$TMP"; mkdir -p "$TMP/tiles"; printf 'PMTiles\003' > "$TMP/tiles/basemap.pmtiles"; head -c 1024 /dev/zero >> "$TMP/tiles/basemap.pmtiles"; chmod -R a+rX "$TMP"
 docker run -d --name navmn-ci-gw -p 127.0.0.1:18089:8080 \
   -e CORS_ALLOWED_ORIGINS=http://localhost:5173 -e GATEWAY_ERROR_LOG_LEVEL=crit \
@@ -116,10 +120,97 @@ DUP=$(echo "$H" | grep -i '^access-control-[a-z-]*:' | cut -d: -f1 | tr 'A-Z' 'a
 [[ $(echo "$H" | grep -ci '^access-control-allow-origin: http://localhost:5173') == 1 ]] || fail "429 ACAO"
 echo "$H" | grep -qi '^access-control-expose-headers: .*Retry-After' || fail "429 does not expose Retry-After"
 docker logs navmn-ci-gw-rl 2>&1 | grep -qiE 'limiting requests|client: ' && fail "limit_req lines reached the log"
+# the access log reaches `docker logs` asynchronously: wait up to 5 s for the 429 line (was flaky without this)
+for _ in $(seq 25); do docker logs navmn-ci-gw-rl 2>&1 | grep -qE '"status":429' && break; sleep 0.2; done
 docker logs navmn-ci-gw-rl 2>&1 | grep -qE '"status":429' || fail "429 not in the access log"
 docker logs navmn-ci-gw-rl 2>&1 | grep -qE '([0-9]{1,3}\.){3}[0-9]{1,3}' && fail "an IPv4 address reached the gateway log"
 # invalid values are refused at start (the container exits instead of running unlimited)
 rl_run navmn-ci-gw-bad 18091 -e GATEWAY_RATE_LIMIT=on -e GATEWAY_RATE_ROUTE=lots
 for _ in $(seq 20); do [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] && break; sleep 0.5; done
 [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] || fail "invalid GATEWAY_RATE_ROUTE was accepted"
+echo "== NAV-006 compose.slots.yaml (ADR-0014)"
+printf 'NAV_COMPOSE_PROJECT=ci-slots\nNAV_DATA_ROOT=/nonexistent/nav-data\n' > "$TMP/slots.env"
+( cd "$B" && docker compose -f compose.slots.yaml --env-file "$TMP/slots.env" --profile '*' config ) > "$TMP/slots.yaml" \
+    || fail "compose.slots.yaml config"
+( cd "$B" && docker compose -f compose.slots.yaml --env-file /dev/null config --quiet >/dev/null 2>&1 ) \
+    && fail "compose.slots.yaml must require NAV_COMPOSE_PROJECT (no default: navmn would hit the dev stack)"
+( cd "$B" && docker compose --env-file /dev/null config ) > "$TMP/dev.yaml"
+python3 - "$TMP/slots.yaml" "$TMP/dev.yaml" <<'PY' || fail "compose.slots.yaml assertions"
+import sys, yaml
+s = yaml.safe_load(open(sys.argv[1]))["services"]; d = yaml.safe_load(open(sys.argv[2]))["services"]
+want = {"gateway", "gateway-verify", "valhalla-blue", "photon-blue", "valhalla-green", "photon-green",
+        "aux-fetch", "tiles-build", "valhalla-build", "photon-import", "build-info"}
+assert set(s) == want, sorted(set(s) ^ want)
+pub = {n: x["ports"] for n, x in s.items() if x.get("ports")}
+assert set(pub) == {"gateway", "gateway-verify"}, sorted(pub)
+for n, ports in pub.items():
+    assert all(p["host_ip"] == "127.0.0.1" for p in ports), (n, ports)
+for n, x in s.items():
+    assert not x["image"].endswith(":latest"), n
+# same pinned images as the dev stack
+pins = {d[k]["image"] for k in ("valhalla", "photon", "gateway")}
+for n, x in s.items():
+    assert x["image"] in pins, f"{n}: {x['image']} not pinned like compose.yaml"
+for lane in ("blue", "green"):
+    assert s[f"valhalla-{lane}"]["profiles"] == [f"lane-{lane}"] and s[f"photon-{lane}"]["profiles"] == [f"lane-{lane}"]
+    vm = [v for v in s[f"valhalla-{lane}"]["volumes"] if v["target"] == "/data"][0]
+    assert vm["source"].endswith(f"/lanes/{lane}") and vm["read_only"], vm
+assert s["gateway-verify"]["profiles"] == ["verify"] and s["gateway-verify"]["environment"]["GATEWAY_RATE_LIMIT"] == "off"
+mounts = {v["target"]: v for v in s["gateway"]["volumes"]}
+assert mounts["/etc/nginx/slot"]["source"].endswith("/pointer/public") and mounts["/etc/nginx/slot"]["read_only"]
+assert {v["target"]: v for v in s["gateway-verify"]["volumes"]}["/etc/nginx/slot"]["source"].endswith("/pointer/verify")
+for b in ("tiles-build", "valhalla-build", "photon-import", "build-info"):
+    assert s[b]["profiles"] == ["build"] and s[b]["restart"] == "no"
+    assert [v for v in s[b]["volumes"] if v["target"] == "/data"][0]["source"].endswith("/lanes/build")
+print("   compose.slots.yaml: 11 services, only gateway + gateway-verify publish (127.0.0.1), pins = compose.yaml")
+PY
+
+echo "== NAV-006 gateway slot mode (njs/slot.js, pointer read per request)"
+SL=$TMP/slotroot; A=20261004T000000Z; Bs=20261004T000001Z
+mkdir -p "$SL/pointer" "$SL/slots/$A/tiles" "$SL/slots/$Bs/tiles"
+printf 'PMTiles\003' > "$SL/slots/$A/tiles/basemap.pmtiles"; head -c 1000 /dev/zero >> "$SL/slots/$A/tiles/basemap.pmtiles"
+printf 'PMTiles\003' > "$SL/slots/$Bs/tiles/basemap.pmtiles"; head -c 2000 /dev/zero >> "$SL/slots/$Bs/tiles/basemap.pmtiles"
+chmod -R a+rX "$SL"
+docker run -d --name navmn-ci-gw-slot --network navmn-ci-net -p 127.0.0.1:18092:8080 \
+  -e CORS_ALLOWED_ORIGINS='*' -e GATEWAY_ERROR_LOG_LEVEL=crit -e VALHALLA_UPSTREAM=127.0.0.1:9 \
+  -e PHOTON_UPSTREAM=127.0.0.1:9 -e NGINX_ENTRYPOINT_QUIET_LOGS=1 \
+  -v "$B/gateway/nginx.conf:/etc/nginx/nginx.conf:ro" -v "$B/gateway/templates:/etc/nginx/templates:ro" \
+  -v "$B/gateway/snippets:/etc/nginx/snippets:ro" -v "$B/gateway/njs:/etc/nginx/njs:ro" \
+  -v "$B/gateway/entrypoint/15-cors-origins.sh:/docker-entrypoint.d/15-cors-origins.sh:ro" \
+  -v "$B/gateway/entrypoint/16-rate-limits.sh:/docker-entrypoint.d/16-rate-limits.sh:ro" \
+  -v "$SL/pointer:/etc/nginx/slot:ro" -v "$SL/slots:/srv/slots:ro" "$IMG" >/dev/null
+for _ in $(seq 30); do curl -fs localhost:18092/health >/dev/null && break; sleep 1; done
+S=http://127.0.0.1:18092
+slot_errors() {  # $1 = label: route/search/reverse -> JSON 502, tiles -> JSON 404, health 200
+  [[ $(code $S/health) == 200 ]] || fail "slot mode ($1): health"
+  curl -s -X POST -d '{}' $S/v1/route | grep -q '"code":"UpstreamUnavailable"' || fail "slot mode ($1): route not JSON 502"
+  [[ $(code "$S/v1/search?q=a") == 502 && $(code "$S/v1/reverse?lat=47.9&lon=106.9") == 502 ]] || fail "slot mode ($1): search/reverse 502"
+  [[ $(code -H 'Range: bytes=0-7' $S/tiles/basemap.pmtiles) == 404 ]] || fail "slot mode ($1): tiles 404"
+  curl -s $S/tiles/basemap.pmtiles | grep -q '"code":"NotFound"' || fail "slot mode ($1): tiles 404 not JSON"
+}
+slot_errors "no pointer"
+echo '{not json' > "$SL/pointer/active.json"; chmod a+r "$SL/pointer/active.json"; slot_errors "invalid JSON"
+printf '{"slot":"%s","lane":"blue","valhalla":"evil.example.invalid:80","photon":"photon-red:2322","tiles":"/etc/passwd"}' "$A" \
+    > "$SL/pointer/active.json"; slot_errors "foreign upstream and path"
+printf '{"slot":"%s","lane":"blue","valhalla":"valhalla-blue:8002","photon":"photon-blue:2322","tiles":"/srv/slots/%s/tiles/basemap.pmtiles"}' "$A" "$A" \
+    > "$SL/pointer/.tmp"; chmod a+r "$SL/pointer/.tmp"; mv "$SL/pointer/.tmp" "$SL/pointer/active.json"
+H1=$(curl -s -D - -o /dev/null -H 'Range: bytes=0-7' $S/tiles/basemap.pmtiles | tr -d '\r')
+echo "$H1" | head -1 | grep -q ' 206' && echo "$H1" | grep -qi '^content-range: bytes 0-7/1008$' || fail "slot A archive: $H1"
+[[ $(code -X POST -d '{}' $S/v1/route) == 502 ]] || fail "valid pointer, absent lane must be 502"
+E1=$(echo "$H1" | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')
+printf '{"slot":"%s","lane":"green","valhalla":"valhalla-green:8002","photon":"photon-green:2322","tiles":"/srv/slots/%s/tiles/basemap.pmtiles"}' "$Bs" "$Bs" \
+    > "$SL/pointer/.tmp"; chmod a+r "$SL/pointer/.tmp"; mv "$SL/pointer/.tmp" "$SL/pointer/active.json"
+H2=$(curl -s -D - -o /dev/null -H 'Range: bytes=0-7' $S/tiles/basemap.pmtiles | tr -d '\r')
+echo "$H2" | grep -qi '^content-range: bytes 0-7/2008$' || fail "rename did not switch the archive: $H2"
+E2=$(echo "$H2" | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')
+[[ -n "$E1" && -n "$E2" && "$E1" != "$E2" ]] || fail "ETag must change with the archive ($E1 -> $E2)"
+[[ $(docker inspect -f '{{.RestartCount}} {{.State.Running}}' navmn-ci-gw-slot) == "0 true" ]] || fail "gateway restarted"
+docker logs navmn-ci-gw-slot 2>&1 | grep -qiE 'reload|signal process started' && fail "switch must not reload nginx"
+echo "   slot mode: no/invalid/foreign pointer -> JSON 502/404; rename switched the archive (ETag $E1 -> $E2), no reload"
+
+echo "== NAV-006 pipeline unit tests"
+python3 -m unittest discover -s "$B/pipeline/tests" 2>&1 | tail -n 3
+python3 -m unittest discover -s "$B/pipeline/tests" >/dev/null 2>&1 || fail "pipeline unit tests"
+rm -rf "$B/pipeline/__pycache__" "$B/pipeline/tests/__pycache__"
+
 echo "OK: backend static checks passed"

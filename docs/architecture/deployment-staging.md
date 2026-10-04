@@ -216,9 +216,10 @@ Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s 
 - **Provider backups and snapshots:** keep Hostinger's weekly automatic backup on. Take a manual snapshot (the plan's snapshot slot) before risky changes: OS release upgrade, Docker major upgrade, data layout change. These are on-provider copies and **complement** the off-host backup. They do not replace it.
 - **Restore drill (AC 20):** a new empty VM of the same plan, then bootstrap script, git checkout of the pinned tag, `restic restore` of the latest snapshot, `docker compose up`, a first data build (about 8 minutes on 4 vCPU, NAV-001 measurement) and the smoke suite. Target ≤ 2 hours; the measured time goes in the runbook. Because the ACME account and certificates are restored, no extra Let's Encrypt issuance is needed if DNS still points to the old IP. After a DNS change, Caddy obtains a new certificate on its own.
 
-## 11. Daily data rebuild (interim until NAV-006)
-> **NAV-006 target path ([ADR-0014](adr/0014-daily-rebuild-slots-and-pointer-switch.md), accepted 2026-10-04).** Once NAV-006 is installed on staging (RUNBOOK checklist, executed with NAV-008), this is the **only** rebuild path (NAV-006 AC 43). The interim text below remains only as history until then.
-> - The same `nav-rebuild.timer` (19:30 UTC, `RandomizedDelaySec=15min`, `Persistent=true`) runs the NAV-006 pipeline (`make rebuild` entry point). `nav-rollback-data.sh` is removed. `nav-rebuild.sh` is removed or becomes a thin wrapper.
+## 11. Daily data rebuild (NAV-006)
+> **The rebuild path is NAV-006 ([ADR-0014](adr/0014-daily-rebuild-slots-and-pointer-switch.md), accepted 2026-10-04; implemented 2026-10-04, staging installation pending with NAV-008, RUNBOOK §7.9).** It is the **only** rebuild path (NAV-006 AC 43), and RUNBOOK §7 is its operator view. The "interim" bullets further below are **history only** (the NAV-008 in-place rebuild); they no longer describe the code.
+> - The same `nav-rebuild.timer` (19:30 UTC, `RandomizedDelaySec=15min`, `Persistent=true`) runs `nav-rebuild.service` → `infra/staging/bin/nav-rebuild.sh`, now a thin wrapper that calls the pipeline's scheduled entry point (`nav-pipeline rebuild --scheduled`, overrides refused). `nav-rollback-data.sh` is removed.
+> - Manual commands on the host: `sudo make -C /opt/nav/backend rebuild [FORCE=1] [ACCEPT_SIZE_DROP=1] [ACCEPT_ROUTE_CHANGE=1] [REFRESH_AUX=1]`, `rollback`, `status` (RUNBOOK §7.3). `nav-rebuild.sh` takes no arguments any more.
 > - Data lives under `NAV_DATA_ROOT` (default `/var/lib/nav/data`). It holds immutable slots named by run ID, a shared auxiliary cache, and two service lanes, `blue` and `green` (Valhalla + Photon each), from `backend/compose.slots.yaml` + this overlay.
 > - Steps:
 >   1. Guards: lock, disk, memory.
@@ -233,8 +234,9 @@ Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s 
 > - The Uptime Kuma maintenance window of §9 is removed after installation. The rebuild heartbeat is sent after `success` or a healthy `skipped: unchanged` only.
 > - Disk and memory budget: ADR-0014 §7. The peak is 6.5 GB, because the build and the two-lane window never overlap.
 
+*History (NAV-008 interim design, superseded by the block above):*
 - **Schedule:** `nav-rebuild.timer`, `OnCalendar=*-*-* 19:30:00 UTC` (03:30 Asia/Ulaanbaatar), `Persistent=true`, `RandomizedDelaySec=15min`. The service holds a `flock` so two runs never overlap.
-- **Steps (proposed):**
+- **Steps (interim, historical):**
   1. Preflight: `HEAD` on the Geofabrik URL returns 200; free disk ≥ 50 GB; stack healthy. If a preflight fails, skip the run and do **not** stop the stack (the old data keeps serving). No heartbeat is sent, so the operator is alerted.
   2. Optional: compare Geofabrik's `mongolia-latest.osm.pbf.md5` with the value in `data/build-info.json` and skip the rebuild if unchanged (Geofabrik publishes once a day; this avoids needless downloads).
   3. `make rebuild-data` (NAV-001). Today it stops `gateway`, `valhalla` and `photon`, rebuilds and restarts them. The measured rebuild time on 4 CPU is 336 s with cached auxiliary files.
@@ -330,6 +332,8 @@ AC 15 names `make rebuild-data`, which is the **dev** command. On the staging ho
 2. Start the memory sampler (every ≤ 3 s, the `make stats` equivalent through `nav-compose`) as described in the runbook.
 3. Run `sudo infra/staging/bin/nav-rebuild.sh --force`. Its `last-rebuild.json` gives the build time and the downtime per service. Free disk comes from `df -h /` afterwards.
 The runbook must give these commands explicitly (review issue to backend-engineer). *Resolved in review round 2: RUNBOOK.md section 7 gives the single command `nav-stats-sampler.sh -- nav-rebuild.sh --empty-aux-cache` and the record steps.*
+
+**Superseded by NAV-006 (2026-10-04).** Steps 1 and 3 above are now one command: `sudo nav-stats-sampler.sh -- make -C /opt/nav/backend rebuild REFRESH_AUX=1` (RUNBOOK §7.8). `REFRESH_AUX=1` sets `cache/sources` and `cache/tools` aside, downloads everything again, builds a new slot and restores the old cache if the run fails. Build time and step durations come from the run's summary line (`runs/<run-id>.jsonl`, `duration_s`, `builder_seconds`) and `make status`. `last-rebuild.json`, `nav-rebuild.sh --force` and `--empty-aux-cache` no longer exist. Rollback is `make rollback`. Expected downtime per service: **0 s** (NAV-006 AC 15 loop is the evidence).
 
 ### 17.3 Still open (not decided here)
 - The staging host itself (a KVM VPS, not shared web hosting), the domain, the ops VM, and whether the repository is private. `openapi.yaml` `servers` keeps its placeholder until the domain is known (AC 23).

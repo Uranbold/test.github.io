@@ -2,7 +2,7 @@
 # NAV-008 staging: `docker compose` with the staging files and config. Owner: backend-engineer.
 #   sudo infra/staging/bin/nav-compose ps
 #   sudo infra/staging/bin/nav-compose logs --tail=50 caddy gateway
-# Equivalent to: docker compose --project-directory backend -f backend/compose.yaml \
+# Equivalent to: docker compose --project-directory backend -f backend/compose.slots.yaml \
 #   -f infra/staging/compose.staging.yaml [-f infra/staging/compose.staging.ipv6.yaml] --env-file infra/staging/.env "$@"
 # shellcheck source=nav-env.sh
 source "$(dirname "$(readlink -f "$0")")/nav-env.sh"

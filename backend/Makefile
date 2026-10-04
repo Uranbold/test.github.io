@@ -11,7 +11,7 @@ CONTRACT_ARGS ?=
 # staging gateway off the edge network (Caddy -> 502) and delete the live data. Staging uses infra/staging/bin/*
 # (RUNBOOK.md). Read-only targets (help, ps, logs, smoke, perf, contract, stats, build-info, tiles-info) still work.
 STAGING_ENV_FILE ?= ../infra/staging/.env
-STAGING_REFUSED  := .env up down restart cors-check rebuild-data clean-data
+STAGING_REFUSED  := .env up down restart cors-check rebuild-data clean-data nav006-up nav006-test-setup nav006-test-teardown
 ifneq ($(wildcard $(STAGING_ENV_FILE)),)
 ifneq ($(filter $(STAGING_REFUSED),$(MAKECMDGOALS)),)
 ifneq ($(NAV_DEV_TARGETS_ON_STAGING),yes)
@@ -24,10 +24,11 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help up down restart ps logs smoke smoke-backend perf contract rate-limit-check cors-check rebuild-data \
-        clean-data stats tiles-info build-info
+        clean-data stats tiles-info build-info rebuild rollback status slot-checksums nav006-up nav006-ps \
+        nav006-test-setup nav006-test-teardown pipeline-test
 
 help: ## Show this help
-	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z_-]+:.*## /{printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .env:
 	cp .env.example .env
@@ -95,3 +96,44 @@ build-info: ## Print data/build-info.json (sources, dates, versions)
 
 tiles-info: ## pmtiles show on the built archive (go-pmtiles image)
 	docker run --rm -v "$(CURDIR)/data/tiles:/t:ro" $${PMTILES_IMAGE:-ghcr.io/protomaps/go-pmtiles:v1.31.2} show /t/basemap.pmtiles
+
+# ---------------------------------------------------------------- NAV-006 daily rebuild pipeline (ADR-0014)
+# Config file: staging = ../infra/staging/.env (automatic); dev-container test = $(NAV006_TEST_ROOT)/nav006.env
+# (make nav006-test-setup). The dev .env is never used: it has no NAV_DATA_ROOT and its project is navmn.
+# make passes the pipeline's exit code on as "Error <code>" (make itself exits 2); `make status` shows it too.
+NAV006_TEST_ROOT ?= /var/tmp/nav006-test
+NAV_ENV_FILE ?= $(if $(wildcard $(STAGING_ENV_FILE)),$(STAGING_ENV_FILE),$(wildcard $(NAV006_TEST_ROOT)/nav006.env))
+PIPELINE = $(if $(wildcard $(STAGING_ENV_FILE)),../infra/staging/bin/nav-pipeline,$(PYTHON) pipeline/nav_pipeline.py --env-file $(NAV_ENV_FILE))
+SLOTS_COMPOSE = $(COMPOSE) --project-directory . -f compose.slots.yaml --env-file $(NAV_ENV_FILE)
+REBUILD_FLAGS = $(if $(filter 1,$(FORCE)),--force) $(if $(filter 1,$(ACCEPT_SIZE_DROP)),--accept-size-drop) \
+                $(if $(filter 1,$(ACCEPT_ROUTE_CHANGE)),--accept-route-change) $(if $(filter 1,$(REFRESH_AUX)),--refresh-aux)
+
+nav006-env-check:
+	@test -n "$(NAV_ENV_FILE)" || { echo "no pipeline config: set NAV_ENV_FILE=<file> (staging: infra/staging/.env; test: make nav006-test-setup)"; exit 2; }
+
+rebuild: nav006-env-check ## NAV-006: fetch, validate, build a new slot, verify, switch (FORCE=1 ACCEPT_SIZE_DROP=1 ACCEPT_ROUTE_CHANGE=1 REFRESH_AUX=1)
+	$(PIPELINE) rebuild $(REBUILD_FLAGS)
+
+rollback: nav006-env-check ## NAV-006: serve the previous slot again (one step)
+	$(PIPELINE) rollback
+
+status: nav006-env-check ## NAV-006: JSON status (active/previous slot, data dates, last run, stale)
+	@$(PIPELINE) status
+
+slot-checksums: nav006-env-check ## NAV-006 AC 7: sha256 listing of slot SLOT=<id> (Photon runtime state excluded)
+	@$(PIPELINE) checksums $(SLOT)
+
+nav006-test-setup: ## NAV-006 dev-container test root (hard links + copies of data/, never changes it)
+	pipeline/test-setup.sh $(NAV006_TEST_ROOT)
+
+nav006-up: nav006-env-check ## NAV-006 test: start the test project's public gateway (port from NAV_ENV_FILE)
+	$(SLOTS_COMPOSE) up -d --wait gateway
+
+nav006-ps: nav006-env-check ## NAV-006 test: containers of the test project
+	$(SLOTS_COMPOSE) ps -a --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'
+
+nav006-test-teardown: ## NAV-006 test: remove the test project (containers, volumes, networks) and its root
+	pipeline/test-teardown.sh $(NAV006_TEST_ROOT)
+
+pipeline-test: ## NAV-006 pipeline unit tests (no Docker, a few seconds)
+	$(PYTHON) -m unittest discover -s pipeline/tests -v

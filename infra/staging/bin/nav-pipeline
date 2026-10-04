@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# NAV-006 staging: run the daily-rebuild pipeline (backend/pipeline/nav_pipeline.py, ADR-0014) with the staging
+# config and the same compose files as deploy.sh. Owner: backend-engineer. Used by nav-rebuild.sh (timer),
+# deploy.sh (first build) and `sudo make -C backend rebuild | rollback | status` on the host.
+#   sudo infra/staging/bin/nav-pipeline status
+#   sudo infra/staging/bin/nav-pipeline rebuild [--force] [--accept-size-drop] [--accept-route-change]
+#   sudo infra/staging/bin/nav-pipeline rollback
+# The pipeline takes the shared lock (NAV_LOCK_FILE, default /run/lock/nav-stack.lock) itself; status takes none.
+# shellcheck source=nav-env.sh
+source "$(dirname "$(readlink -f "$0")")/nav-env.sh"
+nav_require_root
+nav_validate_env
+NAV_COMPOSE_OVERLAYS=$(nav_overlays)
+export NAV_COMPOSE_OVERLAYS
+exec python3 "$NAV_ROOT/backend/pipeline/nav_pipeline.py" --env-file "$NAV_ENV_FILE" "$@"

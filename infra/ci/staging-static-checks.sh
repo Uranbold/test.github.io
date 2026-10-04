@@ -15,22 +15,38 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 echo "== shell scripts"
-scripts=("$ST"/bin/*.sh "$ST"/bin/nav-compose "$ST"/bootstrap/*.sh "$ST"/monitoring/ops-vm/*.sh "$ROOT"/infra/ci/*.sh)
+scripts=("$ST"/bin/*.sh "$ST"/bin/nav-compose "$ST"/bin/nav-pipeline "$ST"/bootstrap/*.sh "$ST"/monitoring/ops-vm/*.sh "$ROOT"/infra/ci/*.sh)
 for f in "${scripts[@]}"; do bash -n "$f" || fail "bash -n $f"; done
 if command -v shellcheck >/dev/null; then
     shellcheck -x -P "$ST/bin" -S warning "${scripts[@]}" || fail shellcheck
 else
     echo "   (shellcheck not installed: bash -n only)"
 fi
-for f in "$ST"/bin/*.sh "$ST"/bin/nav-compose "$ST"/bootstrap/bootstrap.sh "$ST"/monitoring/ops-vm/setup-backup-account.sh; do
+for f in "$ST"/bin/*.sh "$ST"/bin/nav-compose "$ST"/bin/nav-pipeline "$ST"/bootstrap/bootstrap.sh "$ST"/monitoring/ops-vm/setup-backup-account.sh; do
     [[ "$(basename "$f")" == nav-env.sh || -x "$f" ]] || fail "not executable: $f"
 done
 
 echo "== compose config (overlay with .env.example values)"
 cp "$ST/.env.example" "$TMP/stg.env"
 echo "GATEWAY_BIND=0.0.0.0" >> "$TMP/stg.env"   # must NOT widen the gateway binding on staging
-compose() { docker compose -p navmn --project-directory "$ROOT/backend" -f "$ROOT/backend/compose.yaml" -f "$ST/compose.staging.yaml" "$@"; }
+compose() { docker compose -p navmn --project-directory "$ROOT/backend" -f "$ROOT/backend/compose.slots.yaml" -f "$ST/compose.staging.yaml" "$@"; }
 compose --env-file "$TMP/stg.env" config > "$TMP/v4.yaml" || fail "compose config (IPv4)"
+compose --env-file "$TMP/stg.env" --profile '*' config > "$TMP/all.yaml" || fail "compose config (all profiles)"
+python3 - "$TMP/all.yaml" <<'PY' || fail "NAV-006 lanes / verify gateway assertions"
+import sys, yaml
+s = yaml.safe_load(open(sys.argv[1]))["services"]
+pub = {n: x.get("ports") for n, x in s.items() if x.get("ports")}
+assert set(pub) == {"caddy", "gateway", "gateway-verify"}, sorted(pub)
+gv = pub["gateway-verify"]
+assert len(gv) == 1 and gv[0]["host_ip"] == "127.0.0.1", f"gateway-verify ports {gv}"
+assert "edge" not in (s["gateway-verify"].get("networks") or {}), "gateway-verify must never be on the edge network"
+for lane in ("blue", "green"):
+    for svc in (f"valhalla-{lane}", f"photon-{lane}"):
+        assert "edge" not in (s[svc].get("networks") or {}), svc
+data = [v["source"] for v in s["gateway"]["volumes"] if v["target"] in ("/etc/nginx/slot", "/srv/slots")]
+assert all(d.startswith("/var/lib/nav/data/") for d in data) and len(data) == 2, data
+print("   NAV-006: lanes and gateway-verify not on edge; gateway-verify on 127.0.0.1 only; slot root /var/lib/nav/data")
+PY
 compose -f "$ST/compose.staging.ipv6.yaml" --env-file "$TMP/stg.env" config > "$TMP/v6.yaml" || fail "compose config (IPv6)"
 for v in v4 v6; do
     python3 - "$TMP/$v.yaml" "$v" <<'PY' || fail "compose assertions ($v)"
@@ -152,6 +168,15 @@ else
     echo "   (systemd-analyze not installed: skipped)"
 fi
 grep -q 'OnCalendar=\*-\*-\* 19:30:00 UTC' "$ST/systemd/nav-rebuild.timer" || fail "rebuild timer must run 19:30 UTC"
+# NAV-006 AC 23/43: exactly one rebuild path (timer -> nav-rebuild.sh -> pipeline), interim scripts gone
+grep -q 'RandomizedDelaySec=15min' "$ST/systemd/nav-rebuild.timer" && grep -q 'Persistent=true' "$ST/systemd/nav-rebuild.timer" \
+    || fail "rebuild timer: RandomizedDelaySec=15min and Persistent=true"
+grep -q '^ExecStart=@NAV_ROOT@/infra/staging/bin/nav-rebuild.sh$' "$ST/systemd/nav-rebuild.service" \
+    && grep -q '^KillMode=mixed$' "$ST/systemd/nav-rebuild.service" && grep -q '^TimeoutStopSec=90s$' "$ST/systemd/nav-rebuild.service" \
+    || fail "nav-rebuild.service must run the NAV-006 wrapper with KillMode=mixed and TimeoutStopSec=90s"
+grep -q 'nav-pipeline" rebuild --scheduled' "$ST/bin/nav-rebuild.sh" || fail "nav-rebuild.sh must call the pipeline's scheduled entry point"
+[[ ! -e "$ST/bin/nav-rollback-data.sh" ]] || fail "nav-rollback-data.sh must be removed (NAV-006 AC 43)"
+[[ $(find "$ST/systemd" -name '*rebuild*.timer' | wc -l) == 1 ]] || fail "exactly one rebuild timer"
 grep -q 'OnCalendar=\*:0/5' "$ST/systemd/nav-diskcheck.timer" || fail "diskcheck every 5 min"
 
 echo "== .env.example and config helpers"

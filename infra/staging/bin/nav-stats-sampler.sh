@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # NAV-008 staging: memory sampler for AC 16 (the `make stats` equivalent, every <= 3 s). Owner: backend-engineer.
 #
-#   sudo infra/staging/bin/nav-stats-sampler.sh -- infra/staging/bin/nav-rebuild.sh --empty-aux-cache
+#   sudo infra/staging/bin/nav-stats-sampler.sh -- make -C /opt/nav/backend rebuild FORCE=1
 #        samples while the command runs, then 5 steady-state samples; exits with the command's exit code
 #   sudo infra/staging/bin/nav-stats-sampler.sh
 #        samples until Ctrl-C (use in a second shell during a first deploy), then prints the summary
@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 project=$(nav_project)
-data_dir="$NAV_ROOT/backend/data"
+data_dir=$(nav_data_root)
 py="$NAV_BIN/nav_stats_sampler.py"
 if [[ -n "$summary" ]]; then
     exec python3 "$py" --project "$project" --data-dir "$data_dir" --out "$summary" --summary
