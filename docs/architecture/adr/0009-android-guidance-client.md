@@ -223,6 +223,7 @@ The file is **not moved** (0 web changes). A Gradle `Sync` task copies exactly t
   - **Guidance:** platform `LocationManager.GPS_PROVIDER` at **1,000 ms**, `minDistance` 0. The last known location is not emitted, and fixes older than 10 s are dropped.
   - **Preview origin (AC 9):** first good fresh fix within 10 s from `GPS_PROVIDER` or, on API 31+, the platform `FUSED_PROVIDER`, whichever comes first.
   - **No Google Play services dependency** (AC 14; Open question 6 default (a)). A Play-services fused provider can be added later behind the same interface.
+  - **Browse map dot (S1, S2, S3):** the raw `mapUpdates()` fixes go through a pure display filter before they reach the dot, the accuracy circle, the follow camera and the search bias. Every other consumer keeps the raw fix. See Amendment 7 (NAV-005 section N, D171–D178).
 - **Foreground service.** The app's own `GuidanceForegroundService` implements Ferrostar's `ForegroundServiceManager` contract (F7):
   - Manifest: `android:foregroundServiceType="location"`, `exported="false"`. Permissions `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `POST_NOTIFICATIONS`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`. **Never** `ACCESS_BACKGROUND_LOCATION` (AC 8).
   - Started only from the foreground, by «Эхлэх» (a while-in-use permission is enough for a location FGS started from the foreground).
@@ -495,3 +496,100 @@ It also settles the R8 follow-up from Amendment 1. The Ferrostar AAR ships the J
 
 ### Amendment 6 (2026-10-04, D123): R8 follow-up owner
 The R8 follow-up of Amendments 1 and 5 is no longer a tech-debt item through triage. It stays an **open architect item** (D123): R8 keep rules and a minified smoke test before the first distributed release build. Details and status are in ADR-0013 Amendment 4. Every other part of this ADR is unchanged.
+
+### Amendment 7 (2026-10-04, D171–D178): browse location display filter (NAV-005 section N, AC 74–79)
+This amendment covers the NAV-005 change "calmer location dot near buildings" (triage row 2026-10-04 "Location position jumps or drifts inside or near buildings", P3 / standard; PO "All as recommended"). It is an improvement, not a confirmed bug. The change is client-only and easy to reverse, so it is an amendment and not a new ADR. **No contract change:** openapi 0.6.0 is unchanged. The D30 search bias still sends `lat`/`lon` rounded to 3 decimals, and only the on-device position that gets rounded changes (D174). There is no backend work. Guidance (§1, §4, §5; AC 14, 16, 23, 41, 51) is unchanged. The binding rules are NAV-005 AC 74–79. This section defines where the rules live and which consumer reads which position.
+
+**Facts (2026-10-04, read from `mobile/android` at `68d249c`, after the NAV-019 commit `763bd4e`).**
+
+| # | Fact | Consequence |
+|---|---|---|
+| F14 | `AppViewModel.mapLocation` writes every `mapUpdates()` fix into `_myLocation` unfiltered. That flow drives the browse dot (`NavRoot` → `MapContent.myLocation`), the follow camera (`c.focus` on every fix), `biasPoint()`, `freshFix()` (preview origin and the guidance start) and the NAV-012 sun theme (`MainActivity`) | The filter needs a separate output. Changing `_myLocation` would move the preview origin, the guidance start and the sun theme, and D177 keeps those on raw fixes |
+| F15 | `MapContent.myLocationStale` exists and is never set. `NavMapController` draws only the dot (`SRC_DOT` / `L_DOT`) and no accuracy circle. The tokens `locationAccuracyFill/Stroke` and `locationStaleAccuracyFill/Stroke` are already generated into `TokenColours` for both flavors | The circle and the stale variant need code changes only. `tokens.json` changes only if UX changes it |
+| F16 | `PlatformLocationSource.mapUpdates()` registers GPS and, on API 31+, the platform `FUSED_PROVIDER`, both at 1 s. NAV-019's `ReplayLocationSource` (ADR-0016 M6, `src/replay`) returns an empty `mapUpdates()`, and the replay build replaces the browse overlay (and its my-location control) with the route picker | If the filter sits downstream of `LocationSource`, it shows nothing in the demo build without any demo-specific code (NAV-019 AC 13) |
+
+**§9.1 Placement and shape.**
+```mermaid
+flowchart LR
+  LS["LocationSource.mapUpdates()<br/>(unchanged; GPS + FUSED API 31+)"] --> RAW["_myLocation (raw Fix)"]
+  RAW --> F["LocationDisplayFilter<br/>(pure Kotlin, injected clock)"]
+  T["1 s ticker (injected clock)<br/>while map location is collected"] --> F
+  F --> D["displayLocation: StateFlow&lt;DisplayLocation?&gt;"]
+  D --> DOT["dot + accuracy circle<br/>(NavMapController)"]
+  D --> CAM["browse follow camera,<br/>my-location centring (NavRoot)"]
+  D --> BIAS["biasPoint() → search lat/lon<br/>(D30, 3 decimals, D174)"]
+  RAW --> ORI["freshFix(): preview origin AC 5/9,<br/>guidance start, NAV-018 device start (D177)"]
+  RAW --> SUN["NAV-012 sun theme"]
+  LOCK["LockFixSource (NAV-011 typing lock)"] -.-> LK["TypingLockController (unchanged)"]
+```
+- **`LocationDisplayFilter`** is a new class in `mn.navmn.app.location` (mobile may rename it). It uses no Android, MapLibre or Ferrostar types. Its methods are `onFix(fix: Fix): DisplayLocation?` and `tick(nowElapsedMs: Long): DisplayLocation?`, plus `reset()`. It is fully tested on the JVM with synthetic fixes and a fake clock (AC 71).
+- **`DisplayLocation(latLon, accuracyM, stale, lastShowableElapsedMs)`**. `latLon` and `accuracyM` both come from **the same fix**, the fix the dot shows. The circle radius is that fix's accuracy, so while the dot is held the circle keeps its size (AC 74 "changes together with the dot"). `lastShowableElapsedMs` is the time of the last showable fix, including held fixes. It feeds the stale rule and the D30 60 s condition.
+- **The `LocationSource` interface, `PlatformLocationSource`, `ReplayLocationSource`, `Fix` fields and providers are unchanged** (D62: no Google Play services; GPS plus platform FUSED on API 31+ for browse; GPS only for guidance). The filter is not put inside `PlatformLocationSource`, because that would also filter `freshGoodFix()` and collide with the replay seam.
+- **All times are `Fix.elapsedMs`** (monotonic, `elapsedRealtimeNanos`), as in §5. The 5 s confirmation window and the implied speed use fix-time differences. The stale rule compares the injected clock `SystemClock.elapsedRealtime()` (same time base) with `lastShowableElapsedMs`. Wall clock is never used.
+- **Constants** live in one object (for example `BrowseDotRules`) whose KDoc cites D176: `MAX_ACCURACY_M = 100.0`, `STALE_MS = 10_000`, `HOLD_SPEED_MPS = 0.5`, `RELEASE_SPEED_MPS = 1.0`, `HOLD_MIN_RADIUS_M = 10.0`, `RELEASE_OUTSIDE_FIXES = 2`, `JUMP_MIN_M = 50.0`, `JUMP_ACCURACY_FACTOR = 2.0`, `JUMP_SPEED_MPS = 50.0`, `CONFIRM_WINDOW_MS = 5_000`, `CONFIRM_MIN_RADIUS_M = 25.0`. After the AC 73 phone check, a tuning change edits this object and the tests, through a change request on NAV-005.
+
+**§9.2 Rules (implements NAV-005 AC 75–77 with the D176 values; the AC text wins on any difference).** The filter state is: `shown` (the fix the dot shows, or none), `holding`, `outside` (count of consecutive showable fixes with *d* > *r*), `pending` (a jump candidate J, or none), `ref` (the previous showable fix that was not a pending or discarded jump, used for the implied speed) and `lastShowableElapsedMs`. *d* is the haversine distance (`Geo.distance`).
+
+1. **Gate (AC 76).** A fix whose `accuracyM` is NaN, infinite or > 100 m is not showable. It changes nothing: no output change, no stale-timer reset, and it does not count toward `outside` or the confirmation of `pending`.
+2. A showable fix F sets `lastShowableElapsedMs = F.elapsedMs`. This clears `stale` immediately, so recovery is well inside the 2 s limit.
+3. **First fix.** If `shown` is none, F becomes `shown`. Then `ref = F`, `holding = false`, `outside = 0`.
+4. **Pending jump (AC 77).** If `pending = J`: when `F.elapsedMs − J.elapsedMs ≤ 5,000` and *d*(F, J) ≤ max(F.accuracy, 25 m), F becomes `shown`, `ref = F`, `pending = none`, `holding = false`, `outside = 0`, and processing stops. Otherwise J is discarded (`pending = none`) and F continues at step 5.
+5. **Jump test (AC 77).** Let *d* = *d*(F, `shown`) and *dt* = `F.elapsedMs − ref.elapsedMs`. If *d* > max(50 m, 2 × F.accuracy) and (*dt* ≤ 0 or *d* / *dt* > 50 m/s), then `pending = F` and the output is unchanged. A non-positive *dt* (duplicate or out-of-order timestamps from two providers) counts as an infinite implied speed. Otherwise `ref = F`.
+6. **Hold (AC 75)**, with *r* = max(F.accuracy, 10 m):
+   - **Not holding.** If F reports speed < 0.5 m/s, or reports no speed and *d* ≤ *r*, then `holding = true` and `outside = (d > r ? 1 : 0)`, and the output is unchanged. Otherwise F becomes `shown`.
+   - **Holding.** If F reports speed ≥ 1.0 m/s, F becomes `shown` and `holding = false`, `outside = 0`. Else if *d* > *r*, `outside += 1`; when `outside ≥ 2`, F becomes `shown` and `holding = false`, `outside = 0`. Else (*d* ≤ *r*) `outside = 0`.
+7. **Stale (AC 76).** `stale = shown ≠ none && now − lastShowableElapsedMs > 10,000`. It is evaluated on every fix and on every 1 s tick, so the switch comes within 1 s of the 10 s mark. The ticker runs only while browse location is collected (the Amendment 1 §9 lifecycle), so it costs nothing in the background or during guidance.
+
+Two readings here go beyond the literal AC text. Both are consistent with the AC examples and AC 77's general wording. Each is recorded for the BA under "Interpretations" below:
+- (i) step 4: a K that fails to confirm J goes through the jump test (step 5) before AC 75, so a second unrelated outlier cannot be shown while the dot is moving;
+- (ii) step 6: the fix that enters the hold counts as the first "outside" fix when *d* > *r*, so AC 75 example (e) holds even when the hold started on the fix just before.
+
+**§9.3 Lifecycle and reset.** The filter instance lives in `AppViewModel`. It survives configuration changes and is in memory only. It is never saved in `SavedStateHandle`, DataStore or the NAV-012 restore record, so it is not restored after process death (AC 79). `reset()` (no dot, the AC 76 "no showable fix yet" state) is called:
+- when guidance starts (the §9 guidance provider and the puck take over, and AC 74 forbids the circle during guidance), so after guidance or arrival the browse map starts from "no fix yet" and does not show a stale pre-guidance position;
+- when location permission is lost or location services are turned off (AC 76 "since … location became available").
+
+When the app goes to the background and comes back, the state is kept. It is stale after more than 10 s, and AC 75 and AC 77(d) handle the first fixes after the gap.
+
+**§9.4 Consumers (AC 78, D174, D177).**
+
+| Consumer | Input after this amendment | Rule |
+|---|---|---|
+| Browse dot and circle on S1, S2, S3 (`MapContent.myLocation`, new `myLocationAccuracyM`, `myLocationStale`) | `displayLocation` | AC 74, 76 |
+| Browse follow camera and centring by the my-location control (`NavRoot`) | `displayLocation` | Keyed on the shown fix, not on every raw fix. A held dot moves the camera 0 m (AC 75) |
+| `biasPoint()` (D30) | `displayLocation.latLon` when my location is on, the camera is following and `now − lastShowableElapsedMs ≤ 60 s`; otherwise the map centre as today | D174. Rounding to 3 decimals stays in the search client |
+| `freshFix()`: preview origin «Миний байршил» (AC 5, 9), guidance start (F4), NAV-018 device start | raw `_myLocation` / `freshGoodFix()` | Unchanged, ≤ 25 m good fresh fix (D177). The route line may start some metres from a held dot |
+| NAV-012 «Автомат» sun theme (`MainActivity`) | raw `_myLocation` | Unchanged |
+| NAV-011 typing lock | `LockFixSource` | Unchanged (ADR-0012) |
+| Guidance puck, GPS-loss machine, reroute | `guidanceUpdates()` | Unchanged (§1, §4, §5) |
+
+**§9.5 My-location control with no showable fix (AC 76, D172).** When the user presses the my-location control on S1 with permission granted and location services on (AC 8, 11, 12 are checked first, unchanged), and `displayLocation` is null, the ViewModel arms one 10 s timeout on the injected clock. The first non-null `displayLocation` cancels it. If it expires, the existing `LocationProblem.UNAVAILABLE` is shown through the existing `mapProblem` path, which is G5 «Байршил тодорхойлж чадсангүй» (string `location_unavailable`). There is no new string, **0** route requests and **0** extra location requests (the existing map listener is the only one). A press while a stale dot is shown centres on it with no message. If the press happens while `followingMe` is already true and there is no dot, the timeout is still armed; the current early `return` in `onMyLocation()` must not skip it. Where the message shows and how it closes is UX (NAV-005 screen spec). The replay build has no browse my-location control (F16), so NAV-019 is unaffected.
+
+**§9.6 Rendering (AC 74).**
+- **Circle geometry.** A new pure helper in `mn.navmn.app.geo` is a port of `web/src/geo/circle.ts`. It builds a 64-vertex ground-true polygon on a spherical Earth with the same radius constant as the web, and may reuse `Geo.offset`. A JVM test checks the radius within ±10 % at 30 m and 100 m at UB latitude, mirroring `circle.test.ts`.
+- **Layers.** One new GeoJSON source (for example `nav-location-accuracy`) feeds a `FillLayer` and a `LineLayer`. They are added in `addOverlay` (so they are re-added on every style switch, AC 74 1 s, 0 requests), directly below `L_DOT` and above the route lines. The exact order, the line width and whether the circle hides when it is smaller than the dot come from `docs/design/map-style.md` §7 Android variant (UX). Colours come from `TokenColours` of the active flavor: `locationAccuracyFill/Stroke`, or the `locationStale*` variants when `stale` is set. The dot colour also switches to `locationStaleDot`. The non-colour stale cue is defined by UX (D173) and drawn by the same controller, with no text.
+- **Update rate.** The polygon is rebuilt and `setGeoJson` is called only when the shown fix or the stale flag changes, not on every raw fix. A held dot costs 0 map updates, which is lighter than today's update on every fix.
+- **Guidance and arrival.** The guidance `MapContent` sets no `myLocation` and no accuracy, so the source is empty (map-style §7.4 unchanged). The demo build gets `displayLocation = null` (empty `mapUpdates()`), so it shows no dot and no circle (NAV-019 AC 13).
+- MapLibre Native does not load on the JVM (§10). Robolectric tests check the `MapContent` that reaches the fake `MapSurface` (position, accuracy, stale flag, empty during guidance, re-sent after a theme switch). The rendered circle is checked only on a device (AC 73, D178).
+
+**§9.7 Privacy and NFR (AC 79, AC 65–67).** The filter never logs. No `Log`/`println` gets a `Fix` or a `DisplayLocation`, including through `toString()`. Its state is not persisted and adds no network requests. The AC 67 log scan is extended to a ≥ 2 min browse session through hold, a rejected jump, a hidden poor fix and the stale state. The cost is O(1) per fix at 1 Hz with no allocation beyond the output object, and the polygon is built only on a change. This affects no NFR in `system-overview.md`. Route p95 and the gateway do not change.
+
+**Not chosen.**
+- The run 1 architect values (jump at max(100 m, 3 × accuracy) confirmed by 3 fixes, release at 0.8 m/s, the 3 s accuracy window against GPS/FUSED interleaving, the better-accuracy snap). The PO chose the D176 values instead.
+- A Kalman or particle filter. It needs tuning data we don't have, and it can't be tested against literal AC rules.
+- A Google Play services fused provider (D62).
+- MapLibre's `LocationComponent`. It needs a `LocationEngine`, duplicates the app's own dot and puck layers (§6), and doesn't express the AC rules.
+- Filtering inside `PlatformLocationSource`. It would move the preview origin, the guidance start and the sun theme (D177) and touch the replay seam.
+
+**Residual risk (for the AC 73 phone check).** Interleaved GPS (good) and FUSED (worse) fixes can still make the dot zig-zag while the user is moving. The D176 rules only absorb it while standing (the hold) or when the step is large and fast (the jump test). Phone-reported speed near high-rises can read 1–2 m/s while standing, which releases the hold falsely. Both are measured in the AC 73 checks (i)–(iii). Any rule change after that goes through the BA as a NAV-005 change. Until a real-GPS build against the PO's own server (NAV-008) exists, real-device behaviour is **not verified** (D178).
+
+**Interpretations for the BA (non-blocking).** These are §9.2 (i) and (ii) above, plus (iii) below. If the BA prefers another reading, only the filter and its tests change.
+- (iii) **A consequence of the literal AC 77 text, kept as written.** The jump distance is measured from the shown (held) position, but the time is measured from the previous non-jump showable fix. So after a hold, a fix far from the held dot that arrives 1 s after another far fix is a jump candidate. In AC 77(d) (a 60 s gap, then fixes 500 m away, standing or with no speed), the first far fix is not a jump and is handled by AC 75, which moves the dot 0 m and counts it as the first outside fix. The second far fix becomes `pending`. The third confirms it, so the dot reaches the new place on the **third** fix (2 s after the first far fix), not the second. Example (d) states only "not a jump, handled by AC 75", so this passes. The unit test asserts the third-fix move.
+
+**Checked by hand (2026-10-04).** The §9.2 rules were simulated in a throwaway script (not committed) on AC 75 examples (a)–(e) and AC 77 examples (a)–(d). Results:
+- (a) and (b): 0 m;
+- (c): moves on the first walking fix;
+- (d): largest lag 21.0 m against the 25 m limit;
+- (e): moves on the second 5 m fix, also when the hold started one fix earlier;
+- AC 77 (a) and (b): 0 m;
+- AC 77 (c): moves on the confirming fix;
+- AC 77 (d): as (iii).
