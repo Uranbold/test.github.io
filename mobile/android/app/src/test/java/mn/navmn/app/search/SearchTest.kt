@@ -1,6 +1,7 @@
 package mn.navmn.app.search
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -108,5 +109,60 @@ class SearchTest {
         assertEquals(1, calls.size)
         advanceTimeBy(3_000)
         assertEquals(SearchView.RateLimited(true), limited.view.value)
+    }
+
+    /**
+     * NAV-011 minor: the loading timer must not outlive its query. Type, then clear the field within 300 ms while the
+     * request is in flight: the list stays Closed (no «Ачаалж байна…» with no request), also after the 300 ms loading
+     * delay and after the slow response would have arrived.
+     */
+    @Test
+    fun clearWithin300msKeepsViewClosed() = runTest {
+        val calls = ArrayList<String>()
+        val c = SearchController(
+            this,
+            { q, _, _ -> calls += q; delay(2_000); SearchOutcome.Ok(PhotonParser.parse(ok)!!) },
+            { Lang.MN }, { LatLon(47.9, 106.9) }, { true }, { testScheduler.currentTime },
+        )
+        // Cleared before the debounce ends: no request, Closed throughout.
+        c.onQuery("Зайсан")
+        advanceTimeBy(100)
+        c.onQuery("")
+        for (step in 1..30) {
+            advanceTimeBy(100)
+            assertEquals("t=+${step * 100} ms after clear (before debounce)", SearchView.Closed, c.view.value)
+        }
+        assertEquals(0, calls.size)
+        // Cleared 280 ms after typing: the debounce (250 ms) has fired and the request is in flight.
+        c.onQuery("Зайсан")
+        advanceTimeBy(280)
+        runCurrent()
+        assertEquals(1, calls.size)
+        assertEquals(SearchView.Closed, c.view.value)
+        c.onQuery("")
+        for (step in 1..30) {
+            advanceTimeBy(100)
+            assertEquals("t=+${step * 100} ms after clear (request in flight)", SearchView.Closed, c.view.value)
+        }
+        // One character left (below the 2-character minimum) behaves like a cleared field.
+        c.onQuery("Зайсан")
+        advanceTimeBy(290)
+        runCurrent()
+        assertEquals(2, calls.size)
+        c.onQuery("З")
+        advanceTimeBy(3_000)
+        assertEquals(SearchView.Closed, c.view.value)
+        // Control: a query left in place still shows the loading row after 250 + 300 ms, then the results.
+        c.onQuery("Зайсан")
+        advanceTimeBy(549)
+        runCurrent()
+        assertEquals(SearchView.Closed, c.view.value)
+        advanceTimeBy(2)
+        runCurrent()
+        assertEquals(SearchView.Loading, c.view.value)
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertTrue(c.view.value is SearchView.Results)
+        assertEquals(3, calls.size)
     }
 }

@@ -1,0 +1,37 @@
+{
+ "description": "NAV-011 QA GPX tracks («Дугуй», AC 25-26). Stand-ins (suffix s) until the BA renames the story's G10 (proposal G11) and QA records the P4 -> P5 bicycle response. Paths are relative to the repo root.",
+ "generator": "tests/gpx/nav011/make_gpx.py",
+ "tracks": [
+  {
+   "id": "G11s",
+   "file": "tests/gpx/nav011/G11s.gpx",
+   "description": "STAND-IN for the story's bicycle track: 4.5 m/s, 1 Hz, acc 5 m, jitter sd 2 m, along the recorded P1 -> P2 walk geometry",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p2-walk-mn.json",
+   "mode": "bicycle",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 291,
+   "duration_s": 290,
+   "speed_mps": 4.5,
+   "stand_in": true
+  },
+  {
+   "id": "G11sb",
+   "file": "tests/gpx/nav011/G11sb.gpx",
+   "description": "STAND-IN off-route by bicycle: as G11s, straight on for 250 m at manoeuvre 3 instead of turning",
+   "route": "mobile/android/app/src/test/resources/routes/p1-p2-walk-mn.json",
+   "mode": "bicycle",
+   "lang": "mn",
+   "reroutes": [],
+   "points": 130,
+   "duration_s": 129,
+   "speed_mps": 4.5,
+   "stand_in": true,
+   "wrong_turn_at": [
+    47.915874,
+    106.915952
+   ],
+   "wrong_turn_bearing": 192.1
+  }
+ ]
+}

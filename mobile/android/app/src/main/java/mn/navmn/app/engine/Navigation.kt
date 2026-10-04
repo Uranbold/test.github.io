@@ -39,6 +39,15 @@ data class NavSnapshot(
 interface Navigator : AutoCloseable {
     fun initial(fix: Fix): NavSnapshot
     fun update(fix: Fix): NavSnapshot
+
+    /**
+     * NAV-012 restore (ADR-0013 §3.4 step 3): the initial state for [fix], then advanced to step [stepIndex] through
+     * the same public call the NAV-005-D1 catch-up uses. The default stays on step 0 (fakes without geometry).
+     */
+    fun initialAt(fix: Fix, stepIndex: Int): NavSnapshot = initial(fix)
+
+    /** Every step's geometry in route order (the last is `arrive`); empty when the navigator has none. */
+    fun stepGeometries(): List<List<LatLon>> = emptyList()
 }
 
 fun interface NavigatorFactory {

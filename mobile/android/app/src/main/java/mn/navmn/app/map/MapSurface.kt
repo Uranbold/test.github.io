@@ -19,6 +19,8 @@ interface MapCamera {
     val zoom: Double
     /** Height of the map view in px (camera padding, navigation-ux §8). */
     val heightPx: Int
+    /** Width of the map view in px (NAV-011 camera fit: padding that leaves no room falls back to 40 dp). */
+    val widthPx: Int get() = 0
 }
 
 /**
@@ -41,5 +43,10 @@ interface MapSurface {
         onGesture: () -> Unit,
         onCameraIdle: (center: LatLon, bearing: Double, zoom: Double) -> Unit,
         onFailed: () -> Unit,
+        /**
+         * NAV-011 AC 17: a map tap (not a pan's end, not a long-press) with the Valhalla indices of the preview routes
+         * inside the 48 × 48 dp box around it (map-style §7.6). null = taps are not needed.
+         */
+        onTap: ((LatLon, List<Int>) -> Unit)? = null,
     )
 }

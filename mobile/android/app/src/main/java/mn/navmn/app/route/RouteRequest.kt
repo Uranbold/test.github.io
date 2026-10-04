@@ -5,10 +5,20 @@ import mn.navmn.app.i18n.Lang
 import mn.navmn.app.location.Fix
 import java.util.Locale
 
-/** «Машин» / «Явган» (AC 5). */
+/** «Машин» / «Явган» (AC 5) / «Дугуй» (NAV-011 AC 22, ADR-0012 §6). Only `auto` carries costing options. */
 enum class TravelMode(val costing: String) {
     CAR("auto"),
     WALK("pedestrian"),
+    BICYCLE("bicycle"),
+}
+
+/**
+ * Why a route is requested (NAV-011 AC 14, ADR-0012 §5.1): the preview asks Valhalla for 2 alternatives, a reroute
+ * never does (NAV-005 AC 43 unchanged).
+ */
+enum class RoutePurpose(val alternates: Int) {
+    PREVIEW(2),
+    REROUTE(0),
 }
 
 /** One `POST /v1/route` (openapi 0.5.1 Android guidance profile, ADR-0009 §2). */
@@ -20,10 +30,12 @@ data class RouteRequest(
     val lang: Lang,
     /** Reroute only (AC 43): integer 0–359, see [RouteBody.headingFor]. */
     val heading: Int? = null,
+    /** NAV-011: `alternates` 2 for the preview, 0 for reroutes (the default keeps every NAV-005 caller at 0). */
+    val purpose: RoutePurpose = RoutePurpose.REROUTE,
 )
 
 /**
- * The exact AC 5 / AC 43 request body. The set of fields is fixed; nothing else is ever sent (no `filters`,
+ * The exact AC 5 / AC 43 request body (NAV-011: `alternates` from [RouteRequest.purpose]). The set of fields is fixed; nothing else is ever sent (no `filters`,
  * `street_side_tolerance`, `type`, `heading_tolerance`, `radius`, `id` or toll options). Coordinates are written with
  * 6 decimals (≥ 5, AC 5). Built by hand so the field set and number format are exact.
  */
@@ -41,7 +53,7 @@ object RouteBody {
         if (req.mode == TravelMode.CAR && req.avoidUnpaved) {
             sb.append(",\"costing_options\":{\"auto\":{\"exclude_unpaved\":true}}")
         }
-        sb.append(",\"alternates\":0,\"format\":\"osrm\",\"banner_instructions\":true,\"voice_instructions\":true")
+        sb.append(",\"alternates\":").append(req.purpose.alternates).append(",\"format\":\"osrm\",\"banner_instructions\":true,\"voice_instructions\":true")
         sb.append(",\"units\":\"kilometers\",\"language\":\"").append(req.lang.routeLanguage).append("\"}")
         return sb.toString()
     }

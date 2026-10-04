@@ -2,6 +2,8 @@ package mn.navmn.app.search
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -9,7 +11,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import mn.navmn.app.geo.LatLon
 import mn.navmn.app.i18n.Lang
-import java.text.Normalizer
+import mn.navmn.app.search.assist.CombineOutcomes
+import mn.navmn.app.search.assist.PlanMode
+import mn.navmn.app.search.assist.QueryPlan
+import mn.navmn.app.search.assist.QueryPlanner
+import mn.navmn.app.search.assist.Settle
 
 /** List states of S2 (screen spec › Search results; NAV-003). */
 sealed interface SearchView {
@@ -24,9 +30,14 @@ sealed interface SearchView {
 }
 
 /**
- * Search as you type (AC 3): debounce 250 ms, settled query = NFC, trimmed, spaces collapsed, ≥ 2 characters, one
- * request per settled query (the query as typed; ADR-0006 variants come with NAV-011), loading row after 300 ms,
- * 429 cooldown for `Retry-After`, offline → no request. A response for a superseded query is discarded.
+ * Search as you type (NAV-005 AC 3 profile): debounce 250 ms, settled query ([Settle]: NFC, JS whitespace collapsed,
+ * trimmed, ≤ 200 code units), ≥ 2 characters, loading row after 300 ms, 429 cooldown for `Retry-After`, offline → no
+ * request. A response for a superseded query is discarded (generation counter).
+ *
+ * NAV-011 AC 2–4, 7 (ADR-0012 §3): each settled query is planned by [QueryPlanner] (ADR-0006 rules A–D) into 1 or 2
+ * requests: `parallel` sends both at once and merges them ([CombineOutcomes.parallel]); `ifEmpty` sends the second only
+ * after an empty 200 for the first. A typed coordinate is still sent as typed (ADR-0012 §3, NAV-005 behaviour). The
+ * field always shows what the user typed; planned variants never reach the UI.
  */
 class SearchController(
     private val scope: CoroutineScope,
@@ -41,16 +52,21 @@ class SearchController(
     private var job: Job? = null
     private var lastSettled: String? = null
     private var cooldownUntil = 0L
+    private var generation = 0
 
     companion object {
         const val DEBOUNCE_MS = 250L
         const val LOADING_DELAY_MS = 300L
-        const val MIN_LENGTH = 2
-        const val MAX_LENGTH = 200
+        const val MIN_LENGTH = Settle.MIN_LENGTH
+        const val MAX_LENGTH = Settle.MAX_LENGTH
 
-        fun settle(raw: String): String {
-            val s = Normalizer.normalize(raw, Normalizer.Form.NFC).replace(Regex("\\s+"), " ").trim()
-            return if (s.length <= MAX_LENGTH) s else s.take(MAX_LENGTH).trimEnd()
+        /** NAV-011 / ADR-0012 §1: the ported settle (JS whitespace set, surrogate-safe cap) replaces the NAV-005 one. */
+        fun settle(raw: String): String = Settle.settle(raw)
+
+        /** The requests a settled query sends: a typed coordinate is sent as typed (ADR-0012 §3). */
+        fun requestsFor(q: String): QueryPlan.Text = when (val p = QueryPlanner.plan(q)) {
+            is QueryPlan.Text -> p
+            else -> QueryPlan.Text(q, null, PlanMode.NONE, 'D')
         }
     }
 
@@ -58,6 +74,8 @@ class SearchController(
         val q = settle(raw)
         if (q.length < MIN_LENGTH) {
             job?.cancel()
+            // Supersedes a query whose request is in flight, so nothing it started can still show a state.
+            generation++
             lastSettled = null
             _view.value = SearchView.Closed
             return
@@ -79,6 +97,7 @@ class SearchController(
 
     fun close() {
         job?.cancel()
+        generation++
         _view.value = SearchView.Closed
         lastSettled = null
     }
@@ -94,13 +113,21 @@ class SearchController(
             _view.value = SearchView.RateLimited(retryEnabled = false)
             return
         }
-        val loading = scope.launch {
-            delay(LOADING_DELAY_MS)
-            _view.value = SearchView.Loading
+        val g = ++generation
+        // The loading row timer is a child of this run: cancelling the run (new query, cleared field, close) cancels it,
+        // so «Ачаалж байна…» never outlives its query (NAV-011 minor).
+        val outcome = coroutineScope {
+            val loading = launch {
+                delay(LOADING_DELAY_MS)
+                if (g == generation) _view.value = SearchView.Loading
+            }
+            try {
+                fetch(q, g)
+            } finally {
+                loading.cancel()
+            }
         }
-        val outcome = search(q, lang(), bias())
-        loading.cancel()
-        if (lastSettled != q) return
+        if (outcome == null || g != generation || lastSettled != q) return
         _view.value = when (outcome) {
             is SearchOutcome.Ok -> {
                 val items = outcome.features.map { PlaceDisplay.info(it) }
@@ -116,6 +143,28 @@ class SearchController(
                     if (_view.value is SearchView.RateLimited) _view.value = SearchView.RateLimited(retryEnabled = true)
                 }
                 SearchView.RateLimited(retryEnabled = false)
+            }
+        }
+    }
+
+    /** Sends the planned request(s) for [q]; `null` when superseded between the two `ifEmpty` requests. */
+    private suspend fun fetch(q: String, g: Int): SearchOutcome? {
+        val plan = requestsFor(q)
+        val l = lang()
+        val b = bias()
+        return coroutineScope {
+            when {
+                plan.secondary != null && plan.mode == PlanMode.PARALLEL -> {
+                    val first = async { search(plan.primary, l, b) }
+                    val second = async { search(plan.secondary, l, b) }
+                    CombineOutcomes.parallel(first.await(), second.await())
+                }
+                plan.secondary != null && plan.mode == PlanMode.IF_EMPTY -> {
+                    val first = search(plan.primary, l, b)
+                    if (g != generation) return@coroutineScope null
+                    CombineOutcomes.single(if (first is SearchOutcome.Ok && first.features.isEmpty()) search(plan.secondary, l, b) else first)
+                }
+                else -> CombineOutcomes.single(search(plan.primary, l, b))
             }
         }
     }

@@ -2,7 +2,11 @@ package mn.navmn.app.route
 
 /** ADR-0009 §2 status classification, shared by the preview (AC 7) and the reroute policy (§4). */
 sealed interface RouteOutcome {
-    data class Ok(val route: ParsedRoute) : RouteOutcome
+    /**
+     * [route] is route 1 (Valhalla's first). NAV-011 preview (ADR-0012 §5): [routes] holds every route of the response
+     * (1–3, Valhalla order), each parsed from a single-route slice; reroutes always have exactly one.
+     */
+    data class Ok(val route: ParsedRoute, val routes: List<ParsedRoute> = listOf(route)) : RouteOutcome
     /** 200 that is unparsable, `code` ≠ `Ok`, 0 routes, or a step-count mismatch with Ferrostar. */
     data object BadResponse : RouteOutcome
     data object NoRoute : RouteOutcome
@@ -63,6 +67,6 @@ class RouteProcessor(private val parser: RouteParser) {
         val rewritten = TextRewrite.rewrite(root, generation).toString().encodeToByteArray()
         val native = runCatching { parser.parse(rewritten) }.getOrElse { return RouteOutcome.BadResponse }
         if (native.stepCount != plan.steps.size) return RouteOutcome.BadResponse
-        return RouteOutcome.Ok(ParsedRoute(plan, native))
+        return RouteOutcome.Ok(ParsedRoute(plan, native, source = body)) // NAV-012: body kept for the restore record
     }
 }

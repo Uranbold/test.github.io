@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.5.2
+  version: 0.5.3
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
@@ -12,7 +12,24 @@ info:
     client: query assistance and request orchestration over `search` / `reverse`), ADR-0008 (on-screen route
     instruction text is generated on the client from OSRM manoeuvre fields, not taken from Valhalla's narrative)
     and ADR-0009 (Android guidance client: app-owned route requests and reroute policy, keyed banner and voice text)
-    and ADR-0011 (web demo mode NAV-017: offline replay of recorded routes, no backend calls).
+    and ADR-0011 (web demo mode NAV-017: offline replay of recorded routes, no backend calls)
+    and ADR-0012 (Android NAV-011: ADR-0006 query assistance ported to Kotlin, reverse on the coordinate card,
+    route alternatives handed to guidance as a single-route slice, on-device typing lock).
+
+    **Changes in 0.5.3 (2026-10-03, NAV-011 design, ADR-0012).** Documentation only. No path, parameter, status
+    code, header, schema or gateway behaviour change, so there is nothing for backend to implement (backend
+    re-runs the contract check, which now also sends the two new request examples):
+    - `search`: **Android client profile from NAV-011.** The ADR-0006 assisted variants (Latin transliteration,
+      district abbreviation expansion, ү/ө fallback after an empty result) are sent by the Android app too, at most
+      **2** requests per settled query, every `q` <= 200 UTF-16 code units. Same request profile as NAV-005 otherwise.
+    - `reverse`: the Android app now calls it, once per coordinate card (NAV-011 AC 8-13), with the NAV-003 profile.
+    - `postRoute`: **Android preview profile from NAV-011.** Preview requests carry `alternates: 2` (reroutes keep
+      `alternates: 0`) and `costing` may be `bicycle`. The client hands only the selected route to guidance, so a
+      `200` with 1-3 routes is used unchanged. New request examples `androidPreviewCarAlternates` and
+      `androidPreviewBicycleEn`.
+    - The typing lock (NAV-011 section E) is on the device only and adds no request.
+    - `getBasemapPmtiles` note: the NAV-017 demo folder is **public, without a password** (D107 supersedes the
+      password part of D74). Nothing else changes: the build still reads the archive from the origin root.
 
     **Changes in 0.5.2 (2026-10-01, NAV-017 design, ADR-0011).** Documentation only. No path, parameter, status
     code, header, schema or gateway behaviour change, so there is nothing for backend to implement:
@@ -145,7 +162,8 @@ info:
 
     Story traceability: NAV-001 (all operations), NAV-003 (`search`, `reverse` web client profile),
     NAV-004 (`postRoute` web route-preview client profile, `bicycle`), NAV-005 (`postRoute` Android guidance and
-    reroute profile, `search`, tiles from MapLibre Native), NAV-008 (staging server, 429).
+    reroute profile, `search`, tiles from MapLibre Native), NAV-008 (staging server, 429), NAV-011 (Android
+    `search` assisted variants, `reverse`, `postRoute` preview with `alternates: 2` and `bicycle`).
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -251,9 +269,10 @@ paths:
         the `Access-Control-*` headers and the gateway's `Cache-Control` values. They need only 200/206 and treat
         any other status as "tiles unavailable" (NAV-002 behaviour).
 
-        The NAV-017 demo-mode build is served from a **password-protected sub-folder** (HTTP Basic auth set in the
-        host's panel) and still reads the archive from the **origin root**, outside the protected folder. Those
-        requests carry no `Authorization` header and need none. The archive is not duplicated into the folder.
+        The NAV-017 demo-mode build is served from a **public sub-folder** with no password (D107, 2026-10-03,
+        supersedes the password part of D74; the page keeps `noindex`). It reads the archive from the **origin
+        root**, outside its folder. Those requests carry no `Authorization` header and need none. The archive is not
+        duplicated into the folder.
       x-stories: [NAV-001, NAV-002, NAV-005, NAV-017]
       parameters:
         - $ref: "#/components/parameters/Range"
@@ -436,7 +455,23 @@ paths:
           and schedules voice prompts on the device from the live distance and speed (`docs/design/navigation-ux.md`
           §4.2), not from `distanceAlongGeometry`. `voice_instructions: true` is still sent (NAV-005 AC 5). It uses
           `waypoints[].distance` for the snap notice.
-      x-stories: [NAV-001, NAV-004, NAV-005, NAV-008, NAV-017]
+
+        **Android route-preview profile (NAV-011, ADR-0012 §5-§6).** Informative for backend and QA; the binding
+        rules are the NAV-011 acceptance criteria. It changes only these points of the NAV-005 profile above:
+        - **Preview** requests (first request, mode change, avoid-toggle change, destination change) carry
+          **`alternates: 2`**. Every other field is the NAV-005 fixed set, including `voice_instructions: true`, so the
+          selected route can be navigated with **0** further requests. **Reroutes keep `alternates: 0`.**
+        - `costing` `auto` | `pedestrian` | `bicycle`. No `costing_options` for `pedestrian` or `bicycle`. Reroutes use
+          the costing of the route being followed.
+        - A `200` with 1-3 routes is used unchanged: route 1 (`routes[0]`) is selected first. The user may select
+          another route with 0 requests. On start, the client passes a copy of the response with
+          `routes = [routes[selected]]` (all other fields unchanged) to its NAV-005 guidance pipeline. Fewer routes
+          than requested is normal.
+        - 400 `DistanceExceeded` on `pedestrian` or `bicycle` → too far on foot or by bike; on `auto` → no route.
+        - Load: still one request per settled user action (mode tabs settle for 300 ms), at most 1 preview request in
+          flight. Asking for alternates costs Valhalla more time than `alternates: 0`; the web preview (NAV-004)
+          already sends the same value.
+      x-stories: [NAV-001, NAV-004, NAV-005, NAV-008, NAV-011, NAV-017]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route, docs: "https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/" }
       requestBody:
         required: true
@@ -567,6 +602,33 @@ paths:
                   voice_instructions: true
                   units: kilometers
                   language: en-US
+              androidPreviewCarAlternates:
+                summary: NAV-011 Android preview profile, RS1 P1 to P3 by car with up to 2 alternates, Mongolian UI, avoid unpaved on (not measured with this exact body; the stack was down at design time)
+                value:
+                  locations:
+                    - { lat: 47.91890, lon: 106.91760 }
+                    - { lat: 47.88580, lon: 106.91730 }
+                  costing: auto
+                  costing_options: { auto: { exclude_unpaved: true } }
+                  alternates: 2
+                  format: osrm
+                  banner_instructions: true
+                  voice_instructions: true
+                  units: kilometers
+                  language: mn-MN
+              androidPreviewBicycleEn:
+                summary: NAV-011 Android preview profile, RS4 P4 Gandan to P5 railway station by bike, English UI (no costing_options for bicycle)
+                value:
+                  locations:
+                    - { lat: 47.92150, lon: 106.89500 }
+                    - { lat: 47.90950, lon: 106.88350 }
+                  costing: bicycle
+                  alternates: 2
+                  format: osrm
+                  banner_instructions: true
+                  voice_instructions: true
+                  units: kilometers
+                  language: en-US
       responses:
         "200":
           $ref: "#/components/responses/RouteOk"
@@ -670,8 +732,17 @@ paths:
         decimals, at most 2 requests per settled query, 429 per `Retry-After`), but the query is sent **as typed**
         only. The ADR-0006 assisted variants come with NAV-011. `reverse` is not called by the Android app in NAV-005.
 
+        **NAV-011 Android client (ADR-0012, replaces the NAV-005 "as typed" rule):** the ADR-0006 §2 query plan,
+        ported to Kotlin and tested against the same vector fixture as the web (`web/src/search/queryPlan.vectors.json`).
+        Per settled query: **at most 2** requests (`parallel` for a Latin query or a district abbreviation, `ifEmpty`
+        for an all-Cyrillic query with у/о, otherwise 1). Every `q` is at most 200 UTF-16 code units. `limit=8`,
+        bias rounded to 3 decimals, client timeout 8 s, 429 cooldown per operation, nothing retried automatically
+        except one resume when the network returns. The field shows what the user typed; assisted variants are
+        never displayed. Expected load: the same as the web (worst case about 8 requests/s while typing at the
+        250 ms debounce, typically under 1/s).
+
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 36). The gateway read timeout is 5 s.
-      x-stories: [NAV-001, NAV-003, NAV-005, NAV-008]
+      x-stories: [NAV-001, NAV-003, NAV-005, NAV-008, NAV-011]
       x-upstream: { service: photon, version: "1.3.0", path: /api, docs: "https://github.com/komoot/photon/blob/1.3.0/docs/api-v1.md" }
       parameters:
         - name: q
@@ -747,8 +818,17 @@ paths:
         **NAV-003 web client profile** (ADR-0006 §4): one request per coordinate card with `lat`/`lon` to 6 decimals
         (a point the user chose), `lang`, `limit=1`, `radius=0.5`. Client timeout 8 s.
 
+        **NAV-011 Android client profile** (ADR-0012 §4): the same request (`lat`/`lon` with 6 decimals, formatted
+        with a locale-independent decimal point, `lang` `mn` | `en`, `limit=1`, `radius=0.5`, 8 s timeout). Exactly
+        **one** request per coordinate card (long-press). At most 1 in flight; an older response never fills a newer
+        card. **0** requests for map pans, zooms, the device position, search results or a language switch (the
+        shown place name is kept). Offline: 0 requests, then exactly 1 when the network returns while the card is
+        open. 429: no `reverse` request for `Retry-After` seconds (5 s if missing or invalid), then nothing until
+        the user acts. 400: no retry. 502/503/504, network error or timeout: one user-triggered retry. The
+        route-preview destination text stays the chosen point, never the reverse result.
+
         NFR: p95 <= 300 ms via the gateway (NAV-001 AC 37).
-      x-stories: [NAV-001, NAV-003, NAV-008]
+      x-stories: [NAV-001, NAV-003, NAV-008, NAV-011]
       x-upstream: { service: photon, version: "1.3.0", path: /reverse }
       parameters:
         - name: lat
@@ -1168,7 +1248,9 @@ components:
           type: integer
           minimum: 0
           maximum: 2
-          description: Number of alternative routes requested (server limit 2)
+          description: |
+            Number of alternative routes requested (server limit 2). Sent as `2` by the NAV-004 web preview and the
+            NAV-011 Android preview, and as `0` by NAV-005 Android reroutes (and NAV-005 first-slice previews).
         directions_type:
           type: string
           enum: [none, maneuvers, instructions]

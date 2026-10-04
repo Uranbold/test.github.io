@@ -1,0 +1,374 @@
+---
+id: NAV-011
+title: Android route preview and search parity with the web demo (alternatives, «Дугуй», Cyrillic/Latin query assistance, reverse geocoding on the coordinate card, typing lock while moving with a passenger override)
+phase: 1
+priority: must         # Phase 1 beta; proposed by the orchestrator, PO "go ahead" 2026-10-03, D106; re-confirmed 2026-10-04 (D124)
+size: L                # was M in the backlog draft; L because the typing lock and «Дугуй» guidance were added at refinement
+needs_design: true
+needs_backend: false   # true only if the architect's ADR (ADR-0006 R11) picks server-side query assistance (contract change, gateway/Photon work)
+needs_mobile: true     # Android only (mobile/android); iOS is NAV-015
+status: ready
+---
+
+# NAV-011: Android route preview and search parity
+
+## Story
+As a **UB commuter by car**, I want **the Android app to find a place whether I type it in Cyrillic, in Latin letters or with a district abbreviation, to show me up to two other routes next to the main one, and to stop me from typing while the car is moving unless I say I am a passenger**, so that **I find my destination on the first try, pick the route I prefer, and am not tempted to type while driving**.
+
+Secondary personas:
+- **Taxi / delivery driver**: long-presses a ger-district point and sees the nearest named place («Ойролцоох газар») on the card, so the pin can be checked against what the customer said; compares alternatives and their «Хүрэх цаг»; is blocked from typing while driving, but a passenger can unlock search with one tap.
+- **Pedestrian**: uses «Явган» as today; the lock never engages at walking speed.
+- **Tourist (English UI)**: types "Sukhbaatar" or "Gandan" in Latin letters and gets the same places as the Cyrillic query; can choose «Дугуй» to cycle in the city in summer.
+- **Intercity / countryside driver**: sees alternatives on long routes where Valhalla offers them; reverse and search show clear offline and failure states on weak signal, and the long-press card still offers «Маршрут гаргах» without waiting for reverse.
+
+## Context
+- **Origin:** backlog draft NAV-011 (2026-10-01), created as a NAV-005 follow-up. Scope confirmed by [D58](../decisions.md) (alternatives, «Дугуй» and the ADR-0006 search assistance stay out of the NAV-005 first slice), typing lock added by [D65](../decisions.md) (NAV-005 limitation L1, NAV-005 screen spec › Known limitations 1). Research `docs/osm-navigation-research.md` §2 row 5 (alternatives), §6 screen flow (place card → route preview with alternatives and mode tabs), §7 Phase 1.
+- **Started 2026-10-03:** feature request relayed by the orchestrator; the PO said "go ahead". **Priority must (Phase 1 beta), [D106](../decisions.md).**
+- **Parity means the web behaviour, already specified and verified, on Android:**
+  - alternatives and «Дугуй»: [NAV-004](NAV-004-route-preview-web.md) AC 10–13, 16–21, 35 (web);
+  - query assistance: [NAV-003](NAV-003-search-cyrillic-latin-autocomplete.md) AC 14–16 and ADR-0006 §2–§6 (web);
+  - reverse on the coordinate card: NAV-003 AC 27–30, 36–38 (web).
+  Where Android needs a different rule (touch targets, sheet, TalkBack, foreground location), this story states it.
+- **Architect decision first (ADR-0006 R11):** before native search assistance is built, a **new ADR** decides between (a) porting the ADR-0006 pure functions to Kotlin, tested against the same vectors, and (b) moving assistance server-side (Photon synonyms/analyser or a gateway endpoint). ADR-0006 R11 says a spike on Photon 1.3.0 synonym support should come first, raised through triage. That is the architect's call. **Section A is written so that it holds for either option.** Option (b) is a contract change (`openapi.yaml`, owner architect) plus backend work, and it must not change NAV-003 web behaviour unless that is its own change request.
+- **Relation to NAV-005 (first slice, D58).** When NAV-011 ships, these NAV-005 AC are replaced on Android. NAV-005 itself is **not edited now** (mid-flight rule, the D104 pattern). The QA handoff lists every NAV-005 test that is adapted for this reason:
+
+  | NAV-005 AC | First-slice behaviour | After NAV-011 |
+  |---|---|---|
+  | AC 3 | query sent **as typed** | assistance per section A |
+  | AC 4 | coordinate card sends **0** `reverse` requests | exactly 1 `reverse` per card (section B) |
+  | AC 5 | preview request `alternates: 0`; tabs «Машин» / «Явган» | preview request `alternates: 2` (section C); tabs «Машин» / «Явган» / «Дугуй» (section D). **Reroutes keep `alternates: 0`** (NAV-005 AC 43 unchanged) |
+  | AC 6 | one route line | 1–3 route lines with selection (section C) |
+  | Limitation L1 | no typing lock | typing lock with a passenger override (section E) |
+
+- **PO decisions that apply:**
+  - [D11](../decisions.md): Cyrillic map labels in the English UI.
+  - [D28](../decisions.md): English UI result names come from `lang=en`.
+  - [D30](../decisions.md): the search bias rule.
+  - [D33](../decisions.md): the 80 % tier B threshold is fixed.
+  - [D34](../decisions.md) / [D45](../decisions.md): «Сум» / «Аймаг» in both UIs (Android already has `place_type_*`).
+  - [D42](../decisions.md) / [D48](../decisions.md): golden rows A8 / B8.
+  - [D51](../decisions.md): snap notice above 500 m.
+  - [D55](../decisions.md): native apps get a **draggable sheet** for the route preview.
+  - [D58](../decisions.md), [D65](../decisions.md): scope.
+  - [D60](../decisions.md): no toll option.
+  - [D62](../decisions.md): no Google Play services, so platform `LocationManager` only, also for the typing lock.
+  - [D9](../decisions.md) / [D26](../decisions.md): team-only use of staging.
+  - [D38](../decisions.md): no Hamuga search here.
+  - **2026-10-04, PO "All as recommended":** [D110](../decisions.md) passenger override for the rest of the app session, never stored (AC 34); [D111](../decisions.md) «Эхлэх» works on «Дугуй» with a UX «Дугуй» prompt column (AC 25–26); [D112](../decisions.md) origin choice and the turn list are a separate follow-up (Out of scope); [D113](../decisions.md) the lock reads location whenever permission is already granted, on the device only (AC 27–28); [D114](../decisions.md) «Би зорчигч» stays the K2 label for now, and the NAV-007 panel decides later (alternative «Зорчигчоор үргэлжлүүлэх»); [D115](../decisions.md) typed coordinates are sent as typed, and the coordinate-card web parity is a follow-up (AC 7, AC 39); [D124](../decisions.md) priority must re-confirmed.
+- **Light-QA mode ([D108](../decisions.md), PO 2026-10-03), as set for this run:**
+  - QA writes the test plan. It runs only the JVM/Robolectric unit tests and the replay tests for the changed areas, plus the NAV-005 suite as regression (`./gradlew :app:testDebugUnitTest -Pnav.hostFerrostar=required`). No long browser suites.
+  - Each QA and review step does the minimum needed to show each AC.
+  - The live golden-set run (AC 6) runs if the shared dev stack answers `/health` 200. Otherwise it is reported as not verified.
+  - **Full QA runs before any public release.**
+  - The PO's own phone is an **iPhone**, so every real-Android-device check is reported as **not verified** until a test phone exists (AC 47).
+- **Coordination (binding for this delivery):**
+  - **NAV-012** (Android background/lock-screen polish) is built **in parallel** in `mobile/android`.
+  - Before editing a shared file (`MainActivity`, `strings.xml` in `values/` and `values-en/`, settings, the navigation service), read its latest version. Make small, targeted edits and **never revert the other story's changes**.
+  - Put NAV-011 code in its own packages where possible (for example `…/search/assist`, `…/search/reverse`, `…/route/alternatives`, `…/typinglock`; the names are the mobile engineer's choice).
+  - Never stop, restart or rebuild the shared dev stack at `http://127.0.0.1:8080`. If `/health` is not 200, wait and retry.
+  - Live requests: **at most 2 per second** from the whole test run.
+  - No secrets, hostnames or IPs in the repo (loopback for local dev is allowed).
+- **API:** `docs/architecture/api/openapi.yaml` (0.5.2 when this story was written): `search`, `reverse`, `postRoute` (`alternates` 0–2, `costing` `bicycle`, `exclude_unpaved` for `auto` only). No contract change is needed unless the ADR picks option (b).
+
+### Terms used in this story
+- **Settled query, tier A/B/C, golden set:** as NAV-003. The golden set file is the one NAV-003 QA maintains (`tests/e2e/nav003/fixtures/golden-set.json`). The Android test reads it and does not copy it.
+- **Good fix:** horizontal accuracy ≤ **25 m** and ≤ **10 s** old (as NAV-005).
+- **Fix speed:** `Location.getSpeed()` when `hasSpeed()` is true; otherwise the distance between this good fix and the previous good fix divided by the time between them (only when they are ≥ **1 s** and ≤ **10 s** apart).
+- **Moving (lock engaged)** and **stopped (lock released):** section E, AC 30 and 32.
+- **Text-entry surfaces:** the map-screen search field «Газар, хаяг хайх» and any other text field on the map or route-preview screens (S1, S3 in the NAV-005 screen spec). The guidance screen has no text input (NAV-005).
+- **Reference points and routes:** P1–P6, X1, X2 (NAV-001); RS1–RS8 (NAV-004). **G10 (new GPX track, QA):** P4 → P5 by bicycle at 4.5 m/s (about 16 km/h), 1 Hz, accuracy 5 m, with its recorded `postRoute` response.
+
+### User-facing strings
+Every Mongolian string comes from the glossary. **Reused, no new wording:**
+
+| Use | Glossary row | `mn` |
+|---|---|---|
+| Bicycle tab, tab row name | N1, N19 | «Дугуй», «Зорчих хэлбэр» |
+| Route options group, option, alternative description | N20, N6, "Alternative route" | «Маршрут сонгох», «Маршрут {n}», «Өөр маршрут» |
+| Too far on foot or by bike | N11 | «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» |
+| Reverse result label, empty, pending | T7, "No results", G1 | «Ойролцоох газар», «Илэрц олдсонгүй», «Ачаалж байна…» |
+| Reverse/search failures | T4, T5, No connection, Generic error, Try again | «Хайлт түр ажиллахгүй байна», «Түр хүлээгээд дахин оролдоно уу», «Интернэт холболт алга», «Алдаа гарлаа», «Дахин оролдох» |
+| Type labels | section 4.1 | as the Android `place_type_*` resources (already glossary-matched) |
+
+**New rows K1–K3, added 2026-10-03 to glossary section 2.4, all `needs native review`** (BA proposals. The PO may pre-review them, as in D69. The NAV-007 panel rates them):
+
+| # | English term | `mn` | `en` | Where |
+|---|---|---|---|---|
+| K1 | Typing locked while moving (message) | «Хөдөлж байх үед бичих боломжгүй» | "You can't type while moving" | AC 31 |
+| K2 | Passenger override (button) | «Би зорчигч» | "I'm a passenger" | AC 31, 34. Kept for now ([D114](../decisions.md)); the NAV-007 panel decides later (glossary alternative «Зорчигчоор үргэлжлүүлэх») |
+| K3 | Driver hint under K1 | «Жолооч бол зогсоод хайна уу» | "If you are driving, stop before you search" | AC 31 |
+
+## Acceptance criteria
+
+### A. Search: Cyrillic/Latin query assistance (ADR-0006 port or server-side)
+1. **Given** the architect's ADR on native query assistance (ADR-0006 R11 follow-up), **When** it is accepted, **Then**:
+   - its ID and the chosen option ((a) Kotlin port or (b) server-side) are recorded in this story's Traceability before section A is built;
+   - with (b), the `openapi.yaml` change is made by the architect first (contract first), and NAV-003 web behaviour and tests stay unchanged unless that is a separate change request.
+2. **Given** a settled Latin query: every letter is Latin script (diacritics such as ö, ü included) and there are ≥ 2 letters (for example "Sukhbaatar", "suhbaatar", "Ikh delguur"). **When** it is searched, **Then**:
+   - **at most 2** `search` requests are sent;
+   - with option (a), these are the query **as typed** and, in parallel, **one** Cyrillic transliteration per ADR-0006 §2.4;
+   - the results are merged with no duplicates (same `osm_type` + `osm_id`), `MN` results first, at most **10** options;
+   - with option (b), the request count is the one the ADR specifies (≤ 2), and the result conditions of AC 6 apply unchanged.
+3. **Given** a settled all-Cyrillic query that contains у, У, о or О (Russian keyboard layout, for example «Сухбаатар»), **When** it is searched, **Then** (option (a)):
+   - the query is sent as typed first;
+   - **only if** that response is 200 with **0** features, **one** more request is sent with у → ү, У → Ү, о → ө, О → Ө, and the list shows that second response;
+   - «Улаанбаатар» sends exactly **1** request;
+   - if the second request would equal the first after normalisation, only 1 is sent.
+4. **Given** a settled query with «СБД», «БЗД», «ХУД», «БГД», «ЧД» or «СХД» as a separate, whitespace-delimited word (any letter case), **When** it is searched, **Then** (option (a)):
+   - **2** requests are sent in parallel: the query with each abbreviation expanded to the full district name (for example «БЗД 4-р хороо» → «Баянзүрх дүүрэг 4-р хороо»), and the query as typed;
+   - the results are merged as in AC 2, with no third request;
+   - «БЗД-ийн» (hyphen-joined) is not expanded;
+   - **no** request carries a `q` longer than **200** characters (unit test, D33 F4);
+   - the field keeps showing what the user typed.
+5. **Given** the ADR-0006 §6 test vectors as **one shared fixture** that the web and Android tests both read (location chosen by the architect, as ADR-0008 §3 did for manoeuvres), **When** the Android JVM tests run, **Then** **100 %** of the vectors give the expected output (option (a)), and `npm test` in `web/` still passes unchanged. With option (b), the ADR names the equivalent server-side test.
+6. **Given** the NAV-003 golden set, run from a JVM test through the Android search client logic against the live dev gateway when `/health` is 200 (≤ 2 requests per second, stated bias), **When** QA runs it, **Then**:
+   - every **tier A** row passes;
+   - tier B passes when `passed × 5 ≥ counted × 4`, with the NAV-003 AC 14 counting rules (D33: the threshold is fixed);
+   - tier C is recorded;
+   - "Sukhbaatar" with the map centred on P1 returns an option ≤ **500 m** from P1 in the top **5** (this closes the item NAV-005 AC 3 recorded for NAV-011).
+   - In light-QA mode ([D108](../decisions.md)), if the stack is not healthy during the run, this AC is reported as **not verified** and runs in the full QA before any public release.
+7. **Given** any search on Android, **When** requests are sent, **Then** the rest of the NAV-005 AC 3 request profile is unchanged:
+   - debounce 250 ms;
+   - `lang` from the UI language;
+   - D30 bias rounded to 3 decimals;
+   - 429 `Retry-After` handling;
+   - the states «Илэрц олдсонгүй», «Хайлт түр ажиллахгүй байна» with «Дахин оролдох», and «Интернэт холболт алга»;
+   - the client timeout is **8 s** (NAV-003 AC 33);
+   - when both requests of a pair fail, the failure state is shown; when one fails and the other returns, the list shows the returned results;
+   - an older response never replaces the list of a newer settled query;
+   - a settled query that is a coordinate pair (for example "47.9189, 106.9176") is sent **as typed** in exactly **1** `search` request, with no assistance variant, and **no** coordinate card opens ([D115](../decisions.md); ADR-0012 §3; NAV-005 behaviour). Opening the coordinate card from typed coordinates (web parity, NAV-003 AC 26) is a follow-up (Out of scope).
+
+### B. Reverse geocoding on the coordinate card
+8. **Given** the user long-presses the map (NAV-005 AC 4) and the card «Сонгосон цэг» opens, **When** it opens, **Then**:
+   - exactly **one** `GET {gateway}/v1/reverse` request is sent with the point's `lat`/`lon` (≥ 5 decimals, **not** rounded: the user chose the point), `lang` = UI language, `limit=1` and `radius=0.5`;
+   - while it is pending for more than **300 ms**, the nearest-place area shows «Ачаалж байна…»;
+   - «Маршрут гаргах» is usable at once and does **not** wait for the reverse response.
+9. **Given** the `reverse` response has a feature, **When** it arrives, **Then**:
+   - the card shows «Ойролцоох газар» followed by the feature's name, type label and context line, using the same Android display rules as the search results list (D34/D45 labels included);
+   - the pin, heading «Сонгосон цэг», coordinates and camera do not move;
+   - at P1 the nearest place is ≤ **300 m** from P1;
+   - the route-preview destination text stays «Сонгосон цэг» (the nearest place is not the address of the point, NAV-001 R9).
+10. **Given** the `reverse` response is 200 with **0** features (X2, an empty steppe point), **When** it arrives, **Then** the nearest-place area shows «Илэрц олдсонгүй». No error state is shown, and the rest of the card is unchanged.
+11. **Given** `reverse` cannot be answered, **When** the card is open, **Then**:
+    - offline: **0** requests are sent and «Интернэт холболт алга» is shown within **500 ms**; when the network returns while the card is open, **one** request is sent within **2 s**;
+    - network error, 502/503/504 or no response within **8 s**: «Хайлт түр ажиллахгүй байна» with «Дахин оролдох», which re-sends **once**; nothing retries automatically;
+    - **429** `Retry-After: N` (5 s if missing or invalid): «Түр хүлээгээд дахин оролдоно уу», «Дахин оролдох» is disabled for N s, and **0** `reverse` requests are sent in that time; after N s nothing is sent until the user acts;
+    - **400**: «Алдаа гарлаа», no retry.
+    In every case the heading, coordinates, pin and «Маршрут гаргах» stay.
+12. **Given** a `reverse` request is pending, **When** the user long-presses another point or closes the card, **Then**:
+    - the older request is cancelled or its response ignored, and it never fills a newer card;
+    - at most **1** `reverse` request is in flight;
+    - **0** `reverse` requests are sent for map pans, zooms, the device position or search results.
+13. **Given** an open card with a nearest place, **When** the UI language is switched, **Then** the labels switch within **1 s**, the place name already shown is kept, and **0** new `reverse` requests are sent (NAV-003 AC 38).
+
+### C. Alternatives on the map
+14. **Given** a route-preview request (first request, a mode change, an avoid-toggle change or a destination change), **When** it is sent, **Then**:
+    - its body is the NAV-005 AC 5 body with **`alternates: 2`**;
+    - reroute requests during guidance keep **`alternates: 0`** (NAV-005 AC 43 unchanged, unit test);
+    - at most **1** preview request is in flight, and an older response never replaces a newer one (QA delays the first response by 1 s).
+15. **Given** a 200 response with *k* routes (1–3), **When** it renders, **Then**:
+    - *k* route lines are drawn, and route 1 (Valhalla's first) is selected;
+    - the selected line is drawn above the others with the map-style selected token, with contrast **≥ 3:1** against `earth` and major-road colours in both themes;
+    - alternatives use a different token and a line ≥ **2 dp** narrower;
+    - no route line covers the attribution, scale bar or controls (NAV-005 AC 2 holds);
+    - for RS3, QA records *k* (fewer alternatives than requested is normal).
+16. **Given** the first render of a response, **When** routes are drawn, **Then** within **1 s** the camera fits all drawn routes and both markers into the map area not covered by the sheet or the top bar, with ≥ **40 dp** padding, at zoom ≤ **17**.
+17. **Given** *k* ≥ 2, **When** the user taps an alternative line (touch hit area ≥ **24 dp** on each side of the line centre, so the target is ≥ 48 dp) or its option in «Маршрут сонгох», **Then** within **200 ms**:
+    - it becomes the selected, emphasised line;
+    - the summary (distance, duration, «Хүрэх цаг», snap notice per D51) shows that route;
+    - **0** route requests are sent, and the camera does not move.
+    When two lines overlap at the tap point, the line that is **not** selected is chosen.
+18. **Given** *k* ≥ 2, **When** the draggable sheet (D55) renders, **Then**:
+    - a group named «Маршрут сонгох» has one option per route: «Маршрут {n}» with its distance and duration (NAV-004 AC 23–24 formats);
+    - the selected option is exposed to TalkBack as selected;
+    - each non-selected option's description includes «Өөр маршрут»;
+    - with *k* = 1 the group is not shown;
+    - every option is ≥ **48 dp** tall;
+    - the sheet can be dragged between a collapsed state, where the summary and «Эхлэх» stay visible, and an expanded state;
+    - at 360×640 dp and font scale 100 %, the summary and «Эхлэх» are visible without dragging.
+19. **Given** a selected route, **When** «Эхлэх» is activated, **Then**:
+    - guidance (NAV-005 sections C–J) follows **the selected route** with **0** additional route requests;
+    - the unselected lines are removed within **1 s**;
+    - a later reroute produces one route (`alternates: 0`).
+    Replay check: with a recorded 3-route response, selecting route 2 and starting guidance gives the route 2 banner sequence.
+20. **Given** routes are drawn, **When** the theme or language changes, or the phone rotates, **Then** the lines, markers and selection stay (new colours or texts within **1 s**), and **0** route requests are sent.
+21. **Given** a mode, avoid-toggle or destination change, **When** the new response renders, **Then** route 1 of the new response is selected. The earlier selection is not carried over.
+
+### D. «Дугуй» (bicycle) mode
+22. **Given** the route preview, **When** it opens, **Then**:
+    - a tab row named «Зорчих хэлбэр» shows «Машин», «Явган», «Дугуй», with «Машин» selected by default;
+    - the tabs map to `costing` `auto`, `pedestrian`, `bicycle`;
+    - a tab that stays selected for **300 ms** sends one request; two tab changes within 300 ms send **1** request, for the final tab;
+    - the selected mode is kept for the rest of the app session.
+23. **Given** «Дугуй» or «Явган», **When** the sheet renders, **Then**:
+    - «Шороон замаас зайлсхийх» is hidden, and requests carry **no** `costing_options` (contract: `exclude_unpaved` is for `auto` only);
+    - back on «Машин», the toggle shows its kept state, and the request carries `exclude_unpaved: true` if the toggle is on.
+24. **Given** a 400 `DistanceExceeded` on «Дугуй» or «Явган» (injected if the dev server does not limit it), **When** it arrives, **Then** «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» is shown. On «Машин» the same code shows «Маршрут олдсонгүй». Every other preview state follows NAV-005 AC 7.
+25. **Given** a «Дугуй» route, **When** «Эхлэх» is activated ([D111](../decisions.md)), **Then** guidance runs as NAV-005 (banner, voice, progress, off-route, GPS loss, arrival), and every reroute carries `costing: "bicycle"` and no `costing_options` (NAV-005 AC 43: same costing).
+26. **Given** «Дугуй» guidance, **When** prompts are scheduled, **Then**:
+    - the prompt distances, chaining distance and camera zoom come from a **«Дугуй» column** that UX adds to `docs/design/navigation-ux.md` §4.2 / §4.4 / camera table;
+    - replay **G10** checks them with the NAV-005 AC 34 rules (one utterance per trigger, start within **1 s**, distance error ≤ max(**30 m**, **20 %**), drop after **3 s**);
+    - for every manoeuvre except `depart` (and the D68 `arrive` exemption), at least one prompt is spoken in the band UX defines for «Дугуй»;
+    - until UX defines the column, the walk («Явган») column applies, and G10 checks against it.
+
+### E. Typing lock while moving, with a passenger override (D65)
+27. **Given** location permission (precise) is already granted and location services are on ([D113](../decisions.md): no other precondition, such as having used my location first), **When** the map screen (S1) or the route preview (S3) is in the foreground, **Then**:
+    - the app reads platform location fixes (`LocationManager`, D62) at **1 Hz** for the lock;
+    - these updates stop within **2 s** after neither screen is in the foreground;
+    - the lock never causes a permission or settings prompt;
+    - the lock reads no location in the background.
+28. **Given** fixes for the lock, **When** they are used, **Then**:
+    - they stay **on the device**: the lock adds **0** network requests and stores nothing;
+    - the NAV-005 AC 67 log and storage scan finds **0** coordinates and **0** speeds after a lock session (Robolectric).
+29. **Given** the fix speed (Terms), **When** it is evaluated, **Then** the rule is a pure function, unit-tested with a fake clock.
+30. **Given** the lock is released, **When** **3 consecutive good fixes**, spanning ≥ **2 s**, each have a speed ≥ **4.2 m/s (15 km/h)**, **Then** the lock engages within **1 s** of the third fix. Fixes with accuracy > 25 m are ignored and never engage it. Only a good fix **with a fix speed** (Terms) counts towards the 3. A fix without `hasSpeed()` gets a derived speed only from a previous good fix 1–10 s earlier, so the first fix of such a sequence has no fix speed and does not count (AC 36 ix). *Confirmed 2026-10-04 (BA): this is the intended rule, "3 consecutive fixes, each ≥ 15 km/h, spanning ≥ 2 s".*
+31. **Given** the lock is engaged, **When** the user taps a text-entry surface, **Then**:
+    - the keyboard does **not** open;
+    - within **500 ms** the field shows «Хөдөлж байх үед бичих боломжгүй» (K1), «Жолооч бол зогсоод хайна уу» (K3) and the button «Би зорчигч» (K2).
+    **When** the lock engages while the keyboard is open, **Then**:
+    - the keyboard is hidden within **1 s**;
+    - the text typed so far is kept, any in-flight search completes, and its results list stays visible and selectable;
+    - K1 appears. TalkBack announces K1 politely, once per engagement.
+32. **Given** the lock is engaged, **When** every good fix in the last **10 s** has a speed < **1.4 m/s (5 km/h)** and there are ≥ **5** such fixes, **Then** the lock releases within **1 s**. Between 5 and 15 km/h the state does not change (hysteresis). It also releases within **1 s** when:
+    - no good fix has arrived for **30 s** (tunnel, garage, GPS loss);
+    - location permission is revoked;
+    - location services are turned off.
+33. **Given** the lock is engaged, **When** the user does anything other than typing, **Then** it is allowed:
+    - selecting a result already shown;
+    - the clear button «Хайлтыг арилгах»;
+    - long-press and the coordinate card;
+    - «Маршрут гаргах», the mode tabs, route options, the avoid toggle and «Эхлэх»;
+    - recenter, zoom, pan, theme and language.
+    The lock only blocks the keyboard.
+34. **Given** the lock is engaged, **When** «Би зорчигч» is activated, **Then** ([D110](../decisions.md)):
+    - within **500 ms** the field takes focus and the keyboard opens;
+    - the lock stays overridden for the **rest of the app session** (until the process ends or the app is removed from Recents);
+    - the override is **never** stored across app restarts and never switched on automatically;
+    - a fresh app start has no override (Robolectric: process recreation → no override).
+35. **Given** no usable fixes, **When** typing, **Then** the lock is never engaged. This covers:
+    - permission not granted, or approximate only (Android 12+, fixes usually > 25 m);
+    - location services off;
+    - no fix yet.
+    This is accepted: the lock is a safety aid, not a guarantee (R7).
+36. **Given** synthetic 1 Hz fix sequences in a JVM test, **When** the lock rule runs, **Then**:
+    - **(i)** 14 km/h steady for 120 s → never engaged;
+    - **(ii)** 16 km/h for 3 fixes with `hasSpeed()` → engaged after fix 3;
+    - **(iii)** walking 1.4 m/s for 600 s → never engaged;
+    - **(iv)** 20 km/h with 40 m accuracy for 60 s → never engaged;
+    - **(v)** engaged, then 4 km/h for 10 s with ≥ 5 good fixes → released;
+    - **(vi)** engaged, then 8 km/h for 120 s → stays engaged;
+    - **(vii)** engaged, then no fix for 30 s → released;
+    - **(viii)** one outlier fix at 60 km/h between fixes at 0 km/h → never engaged;
+    - **(ix)** fixes without `hasSpeed()`, 50 m apart at 1 s intervals → engaged after the **4th fix** (3 derived speeds; the rule stays AC 30), not earlier.
+37. **Given** guidance is active, **When** the guidance screen is shown, **Then** the lock is irrelevant, because there is no text input (NAV-005). Returning to the map screen after «Дуусгах» applies the rule from the current fixes.
+
+### F. Strings, privacy, regression and verification
+38. **Given** the Android resources, **When** the NAV-005 AC 61 checks run, **Then**:
+    - every new user-facing string comes from resources, with identical `mn` and `en` key sets;
+    - **0** hard-coded literals;
+    - every `mn` value matches a glossary term exactly. K1–K3 match section 2.4. N1, N6, N11, N19, N20, "Alternative route", T7 and the reused rows match their rows.
+39. **Given** a full session (assisted search, reverse on 3 cards, preview in all three modes with alternatives, guidance on «Дугуй», the typing lock and its override), **When** all requests are captured, **Then**:
+    - every request goes to the configured gateway, with **0** to other hosts (NAV-005 AC 65);
+    - coordinates appear only in route POST bodies, the D30-rounded search bias, the user-chosen `reverse` point (NAV-005 AC 68 extended to `reverse`) and, as text in `q`, a coordinate the user typed into the search field ([D115](../decisions.md)). The device position never appears in a `search` or `reverse` request.
+40. **Given** the NAV-005 regression suite, **When** `./gradlew :app:testDebugUnitTest -Pnav.hostFerrostar=required` runs in `mobile/android`, **Then**:
+    - it passes;
+    - the only NAV-005 tests changed are those asserting behaviour this story replaces (Context table: NAV-005 AC 3, 4, 5, 6), each listed in the QA handoff with the reason;
+    - no other NAV-005 assertion is weakened.
+41. **Given** the shared fixtures (manoeuvres, ADR-0006 vectors), **When** NAV-011 is done, **Then** `npm test` in `web/` passes unchanged, and NAV-003/NAV-004 web behaviour is unchanged.
+42. **Given** the repository after this story, **When** it is inspected, **Then**:
+    - NAV-011 code is in its own packages where possible;
+    - shared files show only additive or targeted NAV-011 edits;
+    - **no line added by NAV-012 is removed or reverted** (reviewer checks the diff of shared files);
+    - there are no secrets, hostnames or IPs other than loopback;
+    - the shared dev stack was not stopped, restarted or rebuilt.
+43. **Given** RS1–RS4 against the live dev gateway when `/health` is 200 (20 samples, ≤ 2 requests per second), **When** measured in a JVM test from the triggering action to the UI state holding the parsed routes, **Then** ≥ **19 of 20** take ≤ **1,500 ms**. On-device render time is a real-device check (AC 47).
+44. **Given** the TalkBack and size rules, **When** the new controls render (tabs, route options, K2, reverse states), **Then**:
+    - touch targets are ≥ **48 × 48 dp** and text contrast ≥ **4.5:1** in both themes;
+    - at font scale 200 % no new text is cut mid-word;
+    - the NAV-005 attribution rule (AC 2) still holds;
+    - D66 applies unchanged.
+45. **Given** light-QA mode ([D108](../decisions.md)), **When** QA reports, **Then**:
+    - the test plan maps **every** AC to a JVM/Robolectric/replay test, or to "not verified" with the reason;
+    - the runs are those listed in Context, plus G10 and the AC 19 replay;
+    - AC 6 and AC 43 run live only if `/health` is 200;
+    - everything not run is listed for the full QA before any public release.
+46. **Given** the debug APK, **When** `./gradlew :app:assembleDebug` runs, **Then** it builds, and `mobile/android/README.md` notes any new build property (none expected).
+47. **Given** the checks that need a real Android phone, **When** QA reports, **Then** these are listed as **not verified** (no Android test phone; the PO's phone is an iPhone):
+    - the typing lock in a moving car with real GPS (speed noise, urban canyon, red-light stops), and in a bus as a passenger;
+    - keyboard hiding with several OEM keyboards;
+    - the alternative-line hit area with gloves;
+    - sheet dragging;
+    - on-device render times (AC 43);
+    - «Дугуй» guidance audibility while cycling;
+    - TalkBack on a device;
+    - battery cost of 1 Hz fixes on S1/S3.
+
+## Edge cases
+- **GPS lost / tunnel:** lock releases after 30 s without a good fix (AC 32); guidance follows NAV-005 AC 51–53 on every mode, «Дугуй» included.
+- **Noisy GPS in the dense centre:** a single outlier never engages the lock (AC 36 viii); 3 consecutive fast fixes are required.
+- **UB traffic jam:** stop-and-go below 15 km/h does not engage the lock; once engaged, it stays until 10 s below 5 km/h (AC 32), so a red light longer than 10 s releases it. Accepted.
+- **Passenger in a taxi or bus:** one tap on «Би зорчигч» for the session (AC 34).
+- **No location permission or approximate only:** no lock (AC 35); search works as before.
+- **No network:** search and reverse show «Интернэт холболт алга» with 0 requests (AC 7, 11); the card still offers «Маршрут гаргах»; the preview shows NAV-005 AC 7 offline state.
+- **Rate limits (429):** search, reverse and route each respect `Retry-After`; nothing auto-retries in search/reverse (AC 11).
+- **No result:** search «Илэрц олдсонгүй»; reverse «Илэрц олдсонгүй» (AC 10); no route «Маршрут олдсонгүй»; «Дугуй»/«Явган» too far → N11 (AC 24).
+- **Cyrillic/Latin:** "Sukhbaatar" vs «Сүхбаатар», "suhbaatar", Russian-layout «Сухбаатар», «БЗД 4-р хороо» (AC 2–6). Mixed-script or digits-only queries are sent as typed. Typed coordinates are sent as typed and do not open the coordinate card on Android (AC 7, D115).
+- **Only one route returned** (common on UB's grid or intercity): no route options group (AC 18), behaviour as NAV-005.
+- **Overlapping alternative lines:** tap picks the unselected one (AC 17).
+- **Unpaved roads:** avoid toggle on «Машин» only; «Дугуй» routes may use unpaved roads (R6).
+- **Off-route on «Дугуй»:** reroute with `bicycle` and `alternates: 0` (AC 25, 19).
+- **Destination far from any road:** snap notice per D51 for the selected route (AC 17).
+- **Winter:** cycling routes are still offered (no seasonal rule; R6); gloves: 48 dp targets and the 24 dp line hit margin (AC 17, 44); cold GPS starts can delay good fixes, so the lock may engage late (accepted).
+- **Language switch** with an open card or list (AC 13, AC 7); **rotation** in preview (AC 20).
+- **App restarted:** passenger override is gone (AC 34); mode returns to «Машин» (AC 22).
+
+## Data dependencies & risks
+| # | Risk | Impact | Mitigation / owner |
+|---|---|---|---|
+| R1 | **`name:en` / Latin name coverage** (NAV-001 R6) | Latin queries depend on transliteration; tier B rows can fail on data gaps | Counted only when the Cyrillic control passes (AC 6); tier C baseline |
+| R2 | **Address coverage** (`addr:*`, khoroo, ger plots; NAV-001 R9) | Reverse often returns a POI or area, not the point's address | Label «Ойролцоох газар», never «Хаяг»; destination stays «Сонгосон цэг» (AC 9) |
+| R3 | **Port drift between Kotlin and TypeScript** (ADR-0006 R11) | Android and web assist differently | Shared vectors (AC 5), or server-side (option (b)) |
+| R4 | **Few alternatives in Valhalla output** for UB and intercity | Users rarely see a choice | Recorded *k* (AC 15); no promise of alternatives |
+| R5 | **`maxspeed` coverage, no traffic** (NAV-001 R8) | Durations of alternatives compare poorly in rush hour | Accept for Phase 1; Phase 3 traffic |
+| R6 | **Bicycle network and `surface` coverage sparse** (NAV-004 R7) | «Дугуй» routes are road routes, may include dirt roads; winter cycling unrealistic | No cycleway promise; N11 for long distances |
+| R7 | **GPS speed noise and approximate-only users** | Lock false positives (urban canyon) or no lock at all | 3-fix rule, accuracy gate, hysteresis (AC 30–32, 36); a safety aid, not a guarantee (AC 35); real-car check (AC 47) |
+| R8 | **Battery cost** of 1 Hz location on S1/S3 for the lock | Drain while browsing the map | Only in foreground, stops within 2 s (AC 27); device check (AC 47) |
+| R9 | **Personal data:** the `reverse` point and search bias go to the backend (D9, D30) | Legal gate before outside testers on Singapore staging | Team-only staging (D9/D26); NAV-008 AC 24 |
+| R10 | **Parallel NAV-012 edits in shared files** | Merge conflicts or lost changes | AC 42; own packages; latest-file reads |
+| R11 | **Server-side option (b) changes the contract** | Backend work and a web change during NAV-011 | Architect ADR first (AC 1); web unchanged unless its own change request |
+
+## Out of scope
+- iOS (NAV-015).
+- Choosing an origin other than «Миний байршил» on Android (search or map as origin, the swap button), and the turn list «Маршрутын заавар» in the Android preview (web NAV-004 has both). Separate follow-up through triage ([D112](../decisions.md); backlog draft row).
+- Opening the coordinate card from coordinates typed into the Android search field (web parity, NAV-003 AC 26, D29). Small follow-up through triage ([D115](../decisions.md); backlog draft row). Until then, AC 7 applies.
+- Switching to an alternative route during guidance.
+- Search history, favourites, voice search, offline search.
+- Hamuga search (D38).
+- Reverse geocoding of the device position.
+- A toll option (D60).
+- Any change to NAV-003/NAV-004 web behaviour.
+- Any gateway or `openapi.yaml` change unless the ADR picks option (b).
+
+## Open questions
+**None open.** All four were decided on 2026-10-04 (PO "All as recommended"), each as recommended. The AC already matched them.
+1. **How long the passenger override lasts** (AC 34). Options: (a) rest of the app session (BA default); (b) the current moving episode only, so the user is asked again after each stop; (c) 30 minutes. *Recommendation: (a).* (b) would ask a bus passenger at every red light. **Decided: (a), [D110](../decisions.md).**
+2. **«Дугуй» guidance or preview only** (AC 25–26). Options: (a) «Эхлэх» works on «Дугуй», with a UX «Дугуй» prompt column (BA default); (b) preview only, «Эхлэх» disabled on «Дугуй». *Recommendation: (a).* Parity with the other tabs, and the NAV-005 engine already supports any costing. **Decided: (a), [D111](../decisions.md).**
+3. **Origin choice and turn list in the Android preview** (Out of scope). Options: (a) separate follow-up through triage; (b) add to NAV-011 (+M). *Recommendation: (a).* **Decided: (a), [D112](../decisions.md).** Backlog draft row added.
+4. **Location for the lock without "my location"** (AC 27). Options: (a) read fixes on S1/S3 whenever permission is already granted, on-device only (BA default); (b) only after the user has activated my location or the preview origin, so the lock is inactive before that. *Recommendation: (a).* Otherwise the lock rarely works on the screen where people type. **Decided: (a), [D113](../decisions.md).**
+
+Also decided on 2026-10-04 (not story open questions): the K2 label «Би зорчигч» stays for now ([D114](../decisions.md)), and typed coordinates are sent as typed, with web parity as a follow-up ([D115](../decisions.md), AC 7).
+
+## Traceability
+| AC | Screen spec / flow | API operation | ADR | Code | Test | Issues |
+|---|---|---|---|---|---|---|
+| AC1–7 | `docs/design/screens/NAV-011-android-route-preview-search-parity.md`; NAV-003 screen spec (reference) | `search` | ADR-0006; ADR-0012 (accepted 2026-10-03, option (a) Kotlin port; §3 typed coordinates sent as typed) | TBD | JVM vectors, golden-set JVM test (TBD) | D28, D30, D33, D42, D48, D115; NAV-005 AC 3 replaced |
+| AC8–13 | coordinate card (TBD) | `reverse` | — | TBD | JVM / Robolectric (TBD) | T7; NAV-001 R9; NAV-005 AC 4 replaced |
+| AC14–21 | route preview sheet, map-style route section (TBD) | `postRoute` (`alternates`) | ADR-0008, ADR-0009 | TBD | JVM, replay AC 19 (TBD) | D51, D55; NAV-005 AC 5, 6 replaced |
+| AC22–26 | tabs; navigation-ux «Дугуй» column (UX, TBD) | `postRoute` (`bicycle`) | ADR-0009 | TBD | replay G10 (TBD) | N1, N11, N19; D60 |
+| AC27–37 | typing lock states (TBD) | — | — | TBD | JVM sequences, Robolectric (TBD) | D62, D65; K1–K3; NAV-005 L1 |
+| AC38–47 | — | all | — | `mobile/android/**` | NAV-005 suite, test plan `docs/qa/test-plans/NAV-011.md` (TBD) | D108; NAV-012 coordination |
+
+## Change log
+| Date | Issue | Change | Why |
+|---|---|---|---|
+| 2026-10-03 | NAV-011 feature request (orchestrator, feature-delivery; PO "go ahead" 2026-10-03) | Created from the backlog draft row: 47 AC in sections A–F (query assistance written for the port or the server-side option, reverse on the coordinate card, alternatives with a draggable sheet, «Дугуй» including guidance with a UX prompt column, typing lock speed rule with the passenger override, strings, privacy, regression, light-QA verification). Priority **must** (Phase 1 beta), D106. Size M → L. Glossary rows K1–K3 added (`needs native review`). GPX track G10 added. Relation to NAV-005 AC 3–6 recorded without editing NAV-005 (mid-flight rule). Four non-blocking open questions | Refine NAV-011 to `ready` for UX and the architect |

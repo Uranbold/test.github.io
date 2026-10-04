@@ -1,6 +1,7 @@
 package mn.navmn.app.route
 
 import kotlinx.coroutines.suspendCancellableCoroutine
+import mn.navmn.app.route.alternatives.PreviewRoutes
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -31,7 +32,7 @@ class RouteClient(
     private val baseUrl: String,
     private val http: OkHttpClient,
     private val isOnline: () -> Boolean,
-    private val processor: RouteProcessor,
+    val processor: RouteProcessor,
 ) : RouteRequester {
     companion object {
         const val PATH = "/v1/route"
@@ -68,7 +69,7 @@ class RouteClient(
 
                 override fun onResponse(call: Call, response: Response) {
                     val outcome = try {
-                        response.use { handle(it, generation) }
+                        response.use { handle(it, generation, request.purpose) }
                     } catch (e: IOException) {
                         if (call.isCanceled()) RouteOutcome.Cancelled else RouteOutcome.Unavailable
                     }
@@ -84,10 +85,11 @@ class RouteClient(
         cont.invokeOnCancellation { c.cancel() }
     }
 
-    private fun handle(response: Response, generation: Int): RouteOutcome {
+    private fun handle(response: Response, generation: Int, purpose: RoutePurpose): RouteOutcome {
         val bytes = response.body.bytes()
         return if (response.code == 200) {
-            processor.process(bytes, generation)
+            // NAV-011 (ADR-0012 §5.2–5.3): a preview response may hold up to 3 routes; each is parsed on its own slice.
+            if (purpose == RoutePurpose.PREVIEW) PreviewRoutes.process(processor, bytes, generation) else processor.process(bytes, generation)
         } else {
             RouteClassifier.classify(response.code, response.header("Retry-After"), bytes)
         }

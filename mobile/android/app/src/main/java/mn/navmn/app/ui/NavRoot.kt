@@ -1,6 +1,7 @@
 package mn.navmn.app.ui
 
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -22,6 +24,7 @@ import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,8 +34,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import mn.navmn.app.R
+import mn.navmn.app.background.BackgroundUi
+import mn.navmn.app.background.LocalBackgroundUi
+import mn.navmn.app.background.ProvideBatteryHint
+import mn.navmn.app.theme.sun.ThemeResolver
 import mn.navmn.app.config.AppConfig
 import mn.navmn.app.engine.GuidancePhase
 import mn.navmn.app.engine.GuidanceState
@@ -40,9 +50,10 @@ import mn.navmn.app.map.CameraRules
 import mn.navmn.app.map.MapCamera
 import mn.navmn.app.map.MapContent
 import mn.navmn.app.map.MapSurface
+import mn.navmn.app.preview.PreviewResult
 import mn.navmn.app.route.TravelMode
+import mn.navmn.app.route.alternatives.AlternativeHitTest
 import mn.navmn.app.search.SearchView
-import mn.navmn.app.settings.ThemeChoice
 import mn.navmn.app.ui.components.AttributionStrip
 import mn.navmn.app.ui.components.rememberStrings
 import mn.navmn.app.ui.screens.BrowseActions
@@ -59,17 +70,26 @@ class PlatformActions(
     val openAppSettings: () -> Unit,
     val openLocationSettings: () -> Unit,
     val moveToBack: () -> Unit,
+    /** NAV-012 AC 9: actions that leave the guidance screen ask for the OS unlock prompt first (LockScreenGate). */
+    val requireUnlocked: (() -> Unit) -> Unit = { it() },
+    /** NAV-012 AC 27: system battery-optimisation settings (fallback: the app's details page). */
+    val openBatterySettings: () -> Unit = {},
 )
 
 @Composable
-fun NavRoot(vm: AppViewModel, mapSurface: MapSurface, platform: PlatformActions) {
+fun NavRoot(vm: AppViewModel, mapSurface: MapSurface, platform: PlatformActions, background: BackgroundUi? = null) {
     val themeChoice by vm.theme.collectAsState()
-    val night = when (themeChoice) {
-        ThemeChoice.DAY -> false
-        ThemeChoice.NIGHT -> true
-        ThemeChoice.AUTO -> isSystemInDarkTheme()
+    // NAV-012 AC 41: «Автомат» follows sunrise/sunset at the current position (system dark theme only without NAV-012 wiring).
+    val systemDark = isSystemInDarkTheme()
+    val sunNight = background?.autoNight?.collectAsState()?.value ?: systemDark
+    val night = ThemeResolver.night(themeChoice, sunNight)
+    NavTheme(night) {
+        CompositionLocalProvider(LocalBackgroundUi provides background) {
+            ProvideBatteryHint(background?.battery, vm.preview.state, vm.guidance, { vm.setSheetExpanded(true) }, platform.openBatterySettings) {
+                NavScreen(vm, mapSurface, platform, night)
+            }
+        }
     }
-    NavTheme(night) { NavScreen(vm, mapSurface, platform, night) }
 }
 
 @Composable
@@ -82,6 +102,8 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     val searchView by vm.search.view.collectAsState()
     val guidance by vm.guidance.collectAsState()
     val me by vm.myLocation.collectAsState()
+    val reverseView by vm.reverse.view.collectAsState()
+    val lock by vm.typingLock.state.collectAsState()
     val strings = rememberStrings(lang)
     val tokens = LocalTokens.current
     val context = LocalContext.current
@@ -92,6 +114,8 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     var zoom by remember { mutableDoubleStateOf(AppViewModel.DEFAULT_ZOOM) }
     var covered by remember { mutableStateOf(Covered()) }
     var sheetPx by remember { mutableIntStateOf(0) }
+    var sheetStartPx by remember { mutableIntStateOf(0) }
+    var topBarPx by remember { mutableIntStateOf(0) }
     var mapHeightPx by remember { mutableIntStateOf(0) }
     var followZoom by remember { mutableStateOf<Double?>(null) }
 
@@ -101,12 +125,27 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     // AC 18: the screen stays on while guiding; cleared when guidance ends (also at arrival).
     KeepScreenOn(guiding && g?.phase != GuidancePhase.ARRIVED)
 
+    // NAV-011 AC 27 (ADR-0012 §7): the typing lock reads 1 Hz fixes only while S1/S3 are visible (Activity STARTED,
+    // no guidance); leaving them cancels the collection, which removes the platform listener.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, guiding) {
+        if (guiding) return@LaunchedEffect
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) { vm.collectTypingLock() }
+    }
+    // NAV-011 P4: with TalkBack touch exploration on, the preview sheet opens expanded.
+    LaunchedEffect(Unit) {
+        val am = context.getSystemService(AccessibilityManager::class.java)
+        vm.touchExploration = { am?.isTouchExplorationEnabled == true }
+    }
+
     // System Back (screen spec › Interactions).
-    BackHandler(enabled = guiding || preview != null || ui.card != null || searchView !is SearchView.Closed || ui.settingsOpen) {
+    BackHandler(enabled = guiding || preview != null || ui.card != null || searchView !is SearchView.Closed || ui.settingsOpen || lock.cardVisible) {
         when {
             ui.settingsOpen -> vm.openSettings(false)
             guiding && g?.phase == GuidancePhase.ARRIVED -> vm.onArrivalClose()
             guiding -> platform.moveToBack()
+            lock.cardVisible && lock.locked -> vm.dismissTypingLock() // NAV-011: Back closes the lock card
+            preview != null && ui.sheetExpanded -> vm.setSheetExpanded(false) // NAV-011: an expanded sheet collapses first
             preview != null -> vm.closePreview()
             ui.card != null -> vm.closeCard()
             else -> vm.clearSearch()
@@ -123,11 +162,17 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
             puckBearing = g.puck?.bearingDeg ?: 0.0,
             puckStale = g.puck?.stale ?: false,
         )
-        preview != null -> MapContent(
-            route = (preview!!.result as? mn.navmn.app.preview.PreviewResult.Route)?.route?.plan?.geometry ?: emptyList(),
-            destination = preview!!.destination.point,
-            myLocation = me?.latLon,
-        )
+        preview != null -> {
+            // NAV-011 map-style §7.6: the selected route on top, the other routes of the response below it.
+            val r = preview!!.result as? PreviewResult.Route
+            MapContent(
+                route = r?.route?.plan?.geometry ?: emptyList(),
+                destination = preview!!.destination.point,
+                myLocation = me?.latLon,
+                routeIndex = r?.selected ?: 0,
+                alternatives = r?.routes?.mapIndexedNotNull { i, x -> if (i == r.selected) null else i to x.plan.geometry } ?: emptyList(),
+            )
+        }
         else -> MapContent(candidate = ui.card, myLocation = if (ui.followingMe || me != null) me?.latLon else null)
     }
 
@@ -138,7 +183,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
         val puck = g?.puck ?: return@LaunchedEffect
         if (!guiding || !ui.cameraFollowing) return@LaunchedEffect
         val headingUp = ui.orientation == Orientation.HEADING_UP
-        val z = CameraRules.zoom(g.speedMps * 3.6, g.trip.mode == TravelMode.WALK, followZoom)
+        val z = CameraRules.zoom(g.speedMps * 3.6, g.trip.mode != TravelMode.CAR, followZoom)
         followZoom = z
         val pad = CameraRules.padding(mapHeightPx.toDouble(), covered.top.toDouble(), covered.bottom.toDouble(), covered.left.toDouble(), 0.0, headingUp)
         c.follow(
@@ -157,16 +202,36 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
             vm.recenter()
         }
     }
-    LaunchedEffect(controller, preview?.result, sheetPx) {
+    // NAV-011 AC 16 (ADR-0012 §5.4, P3): one fit per response (not per selection, not when the sheet is dragged) to
+    // every drawn route and both markers, above the sheet and below the top bar, 40 dp padding, zoom ≤ 17.
+    val currentSheetPx by rememberUpdatedState(sheetPx)
+    val currentSheetStartPx by rememberUpdatedState(sheetStartPx)
+    val currentTopBarPx by rememberUpdatedState(topBarPx)
+    val fitRoutes = (preview?.result as? PreviewResult.Route)?.routes
+    LaunchedEffect(controller, fitRoutes) {
         val c = controller ?: return@LaunchedEffect
-        val r = preview?.result as? mn.navmn.app.preview.PreviewResult.Route ?: return@LaunchedEffect
+        val routes = fitRoutes ?: return@LaunchedEffect
+        delay(FIT_SETTLE_MS) // the sheet re-measures for the new result first
         val pad = with(density) { 40.dp.roundToPx() }
-        c.fit(r.route.plan.geometry, pad, pad * 3, pad, sheetPx + pad)
+        val points = routes.flatMap { it.plan.geometry } + listOfNotNull(preview?.destination?.point, me?.latLon)
+        val left = pad + currentSheetStartPx
+        val top = pad + currentTopBarPx
+        val bottom = pad + currentSheetPx
+        val roomy = (c.widthPx <= 0 || left + pad < c.widthPx - 1) && (c.heightPx <= 0 || top + bottom < c.heightPx - 1)
+        if (roomy) c.fit(points, left, top, pad, bottom) else c.fit(points, pad, pad, pad, pad)
     }
     LaunchedEffect(controller, me, ui.followingMe) {
         val c = controller ?: return@LaunchedEffect
         val f = me ?: return@LaunchedEffect
         if (ui.followingMe && !guiding) c.easeTo(f.latLon, maxOf(c.zoom, 15.0))
+    }
+    // NAV-012 Layout rule 9: while restoring (no position yet) the camera fits the stored route; no puck, no recenter.
+    LaunchedEffect(controller, g?.restoring) {
+        val c = controller ?: return@LaunchedEffect
+        val r = g ?: return@LaunchedEffect
+        if (!r.restoring || r.route.isEmpty()) return@LaunchedEffect
+        val pad = with(density) { 40.dp.roundToPx() }
+        c.fit(r.route, pad, pad + covered.top, pad, pad + covered.bottom)
     }
     var wasGuiding by remember { mutableStateOf(false) }
     LaunchedEffect(guiding) {
@@ -190,6 +255,13 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     mapHeightPx = c.heightPx
                 },
                 onLongPress = if (!guiding && preview == null) ({ p -> vm.onLongPress(p) }) else null,
+                // NAV-011 AC 17: a tap on an unselected line selects it (0 requests, no camera move).
+                onTap = if (!guiding && preview != null) ({ p, hit ->
+                    val r = vm.preview.state.value?.result as? PreviewResult.Route
+                    if (r != null && r.k >= 2) {
+                        AlternativeHitTest.pick(p, hit, r.selected, r.routes.map { it.plan.geometry })?.let(vm::selectRoute)
+                    }
+                }) else null,
                 onGesture = { if (guiding) vm.onMapGesture() else vm.stopFollowingMe() },
                 onCameraIdle = { center, b, z ->
                     vm.mapCenter = center
@@ -207,7 +279,7 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     orientation = ui.orientation,
                     following = ui.cameraFollowing,
                     onEnd = vm::onEnd,
-                    onSettings = { vm.openSettings(true) },
+                    onSettings = { platform.requireUnlocked { vm.openSettings(true) } }, // NAV-012 AC 9
                     onToggleMute = vm::toggleMute,
                     onToggleOrientation = vm::toggleOrientation,
                     onRecenter = vm::recenter,
@@ -217,7 +289,10 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                 )
             } else {
                 BrowseOverlay(
-                    m = BrowseModel(lang, ui.query, searchView, ui.card, preview, ui.mapProblem, ui.tilesFailed, !online, bearing, ui.followingMe),
+                    m = BrowseModel(
+                        lang, ui.query, searchView, ui.card, preview, ui.mapProblem, ui.tilesFailed, !online, bearing, ui.followingMe,
+                        reverse = reverseView, lock = lock, sheetExpanded = ui.sheetExpanded, focusSearch = ui.focusSearch,
+                    ),
                     strings = strings,
                     a = BrowseActions(
                         onQuery = vm::onQuery,
@@ -244,6 +319,15 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                             controller?.let { c -> c.setStyle(night, tokens, AppConfig.pmtilesUrl() + "") }
                         },
                         onSheetHeight = { sheetPx = it },
+                        onSelectRoute = vm::selectRoute,
+                        onSheetExpanded = vm::setSheetExpanded,
+                        onReverseRetry = vm.reverse::retry,
+                        onSearchFieldTap = vm::onSearchFieldTap,
+                        onLockedWhileTyping = vm::onLockedWhileTyping,
+                        onDismissLock = vm::dismissTypingLock,
+                        onPassenger = vm::onPassenger,
+                        onSheetStart = { sheetStartPx = it },
+                        onTopBar = { topBarPx = it },
                     ),
                 )
             }
@@ -270,6 +354,8 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
             onLang = vm::setLanguage,
             onVoice = vm::setVoice,
             onDismiss = { vm.openSettings(false) },
+            batteryRestricted = LocalBackgroundUi.current?.battery?.restricted?.collectAsState()?.value, // NAV-012 H2
+            onOpenBatterySettings = platform.openBatterySettings,
         )
     }
 }
@@ -283,3 +369,6 @@ fun KeepScreenOn(enabled: Boolean) {
         onDispose { view.keepScreenOn = false }
     }
 }
+
+/** NAV-011 AC 16: wait for the sheet to re-measure for a new response before the one camera fit (well inside 1 s). */
+private const val FIT_SETTLE_MS = 150L

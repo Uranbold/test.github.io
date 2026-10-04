@@ -219,8 +219,9 @@ Record the iOS version used, and the result of each item:
   the prompt sequence against `tests/gpx/nav005/golden/voice-golden.tsv`. The replay clock pauses while the page is
   hidden. Zoom buttons, compass and scale bar are hidden during the replay; a map gesture stops following
   («Байршил руу буцах», or 15 s).
-- **Voice:** the browser's speech only with a voice whose `lang` matches `^mn([-_]|$)` (Mongolian UI) or `^en([-_]|$)`
-  (English UI, en-US preferred); otherwise one Web Audio chime per prompt (no sound file) and, in the Mongolian UI, the
+- **Voice:** the browser's speech only with a **local** voice (`localService === true`, PO decision D78; online voices
+  such as Edge's «Microsoft Yesui Online (Natural)» are ignored) whose `lang` matches `^mn([-_]|$)` (Mongolian UI) or
+  `^en([-_]|$)` (English UI, en-US preferred); otherwise one Web Audio chime per prompt (no sound file) and, in the Mongolian UI, the
   notice above once per replay for 8 s. The first `speak()` and the `AudioContext` unlock happen inside the «Эхлэх»
   handler. A screen wake lock is held during the replay where the browser offers it.
 - **Storage:** only the NAV-002 keys `navmn.theme`, `navmn.lang` and the voice choice **`navmn.voiceMuted`** (`"1"` =
@@ -231,10 +232,32 @@ Record the iOS version used, and the result of each item:
   `demo-nav-text`, `demo-nav-street`, `demo-badge`, `demo-nav-recenter`, `demo-nav-messages` with items
   `data-kind="voice-unavailable|offline"`, `demo-nav-progress`, `demo-nav-eta`, `demo-nav-remaining`, `demo-nav-voice`,
   `demo-nav-end`, `demo-nav-arrival`, `demo-nav-close`, `demo-nav-live`, `demo-nav-puck`, `demo-origin-marker`,
-  `demo-destination-pin`). The public and normal builds contain **0** matches of `demo-` (AC 4, checked in
+  `demo-destination-pin`, and in the voice diagnostics `demo-diag`, `demo-diag-close`, `demo-diag-note`,
+  `demo-diag-test-en|default|chime`, `demo-diag-result-en|default|chime`, `demo-diag-copy`, `demo-diag-copy-status`,
+  `demo-diag-report`). The public and normal builds contain **0** matches of `demo-` (AC 4, checked in
   `src/demo/build.test.ts`). Playwright notes: install `page.clock` **before** navigating (installing it mid-replay
   changes `performance.now()` under MapLibre's running camera animation); route data can be intercepted at
   `**/demo-routes/r1.json`.
+
+### Voice diagnostics (hidden, demo-mode build only)
+
+An internal, English-only screen for "speech is not working" reports from a real phone (triage item F1). It is not
+in the public static or normal builds (checked in `src/demo/build.test.ts`).
+
+- **Open it:** tap the «Туршилтын горим» heading of the route picker **5 times quickly** (each tap within 0.6 s of the
+  previous one), or, during a replay, tap the «Туршилтын горим» badge 5 times quickly or **press and hold it for about
+  1.5 s**. Close it with "Close" (or Esc on a keyboard). Opening it adds no URL parameter, no storage key and no request.
+- **What it shows:** the browser's user agent; whether `speechSynthesis` and `AudioContext` exist; every voice from
+  `speechSynthesis.getVoices()` (name, lang, local or online, default) with the count, refreshed on `voiceschanged`;
+  the voice the demo would pick for mn and en and the current voice decision (pending / mn voice / en voice / chime
+  fallback, with the reason); the last 10 speech events of the replay (memory only); the AudioContext state and whether
+  the silent-buffer unlock ran.
+- **Tests:** "Test English speech", "Test default speech (no voice set)" and "Test chime", each showing start / end /
+  error code, or "no onstart within 3 s". If nothing is heard: check the ring/silent switch and the volume.
+- **What to send back:** for the best evidence, start a replay first (in the UI language that fails), open the panel
+  from the badge, run the three tests, then tap **"Copy"** and paste the text into a message to the team. Add the iOS
+  version and the ring/silent switch position. The copied text never contains the page URL; if "Copy" fails, select the
+  text at the bottom of the panel by hand.
 
 ## What is bundled
 

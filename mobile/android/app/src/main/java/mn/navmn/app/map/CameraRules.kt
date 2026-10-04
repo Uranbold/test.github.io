@@ -11,7 +11,7 @@ object CameraRules {
     const val PUCK_FRACTION = 0.70
     private const val HYSTERESIS_KMH = 5.0
 
-    /** Zoom by speed: car < 20 km/h 17.5, 20–50 17, 50–80 16, ≥ 80 15; walk 17.5; hysteresis 5 km/h. */
+    /** Zoom by speed: car < 20 km/h 17.5, 20–50 17, 50–80 16, ≥ 80 15; walk and bike («Дугуй», NAV-011) 17.5 ([walk] = not car); hysteresis 5 km/h. */
     fun zoom(speedKmh: Double, walk: Boolean, previous: Double?): Double {
         if (walk) return 17.5
         val bands = listOf(0.0 to 17.5, 20.0 to 17.0, 50.0 to 16.0, 80.0 to 15.0)

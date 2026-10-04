@@ -9,8 +9,11 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0006: web search
 - ADR-0008: client-side instruction text
 - ADR-0009: Android guidance client
+- ADR-0010: Mongolian voice clip pack (proposed)
+- ADR-0011: web demo mode (offline replay)
+- ADR-0012: Android route preview and search parity (NAV-011)
 
-HTTP contract: `api/openapi.yaml` 0.5.1.
+HTTP contract: `api/openapi.yaml` 0.5.3.
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 
@@ -176,9 +179,33 @@ sequenceDiagram
   Note over A: arrival (≤ 30 m) → once, service and location stop
 ```
 
+## 1c-bis. Android route preview and search parity (NAV-011, ADR-0012)
+
+Still **no new host and no new endpoint**. Compared with NAV-005, the app now also calls `GET /v1/reverse` (one per coordinate card), sends up to 2 assisted `search` requests per settled query (ADR-0006 rules ported to Kotlin, tested against the shared fixture `web/src/search/queryPlan.vectors.json`), and asks for `alternates: 2` (and `bicycle`) in preview requests. Reroutes are unchanged (`alternates: 0`). The typing lock reads foreground-only GPS fixes on the device and sends nothing.
+
+```mermaid
+flowchart LR
+  subgraph Phone["Android app"]
+    SA["search.assist (pure)<br/>settle · planQuery · latinToCyrillic · merge"]
+    SC["SearchController (≤ 2 per settled query)"]
+    RV["search.reverse<br/>ReverseController (1 per card)"]
+    PV["PreviewController + route.alternatives<br/>k = 1–3 routes, selection, hit test ±24 dp"]
+    SL["SingleRouteSlice<br/>routes = [selected]"]
+    GE["NAV-005 guidance pipeline<br/>(GuidancePlan → tokens → Ferrostar), unchanged"]
+    TL["typinglock (pure rule + LockFixSource)<br/>GPS 1 Hz, S1/S3 foreground only, nothing stored"]
+  end
+  GW["gateway"]
+  SA --> SC -->|"GET /v1/search"| GW
+  RV -->|"GET /v1/reverse"| GW
+  PV -->|"POST /v1/route {alternates:2}"| GW
+  PV -->|"«Эхлэх», 0 requests"| SL --> GE
+  GE -->|"POST /v1/route {alternates:0} (reroute)"| GW
+  TL -. "blocks the keyboard only" .-> SC
+```
+
 ## 1d. Web demo mode (NAV-017, ADR-0011)
 
-A **separate build** of the web client (`npm run build:demo-mode` → `dist-demo-mode/`) that the PO uploads by hand into a **password-protected sub-folder** of the shared web hosting (hPanel "Password protect directories"; folder and host names are never in the repo, D35). It replays three recorded UB routes (R1–R3) with simulated turn-by-turn guidance. It sends **0** requests to `search`, `reverse` or `route` and has no backend. The public static site (D44) and its build are unchanged.
+A **separate build** of the web client (`npm run build:demo-mode` → `dist-demo-mode/`) that the PO uploads by hand into a **public sub-folder** of the shared web hosting, with no password (D107, 2026-10-03, supersedes the password part of D74; the page keeps `noindex`; folder and host names are never in the repo, D35). It replays three recorded UB routes (R1–R3) with simulated turn-by-turn guidance. It sends **0** requests to `search`, `reverse` or `route` and has no backend. The public static site (D44) and its build are unchanged.
 
 ```mermaid
 flowchart LR
@@ -292,7 +319,8 @@ sequenceDiagram
 | NFR-W2 | Web demo-mode hosts and backend calls | the demo-mode build contacts only its page origin (demo folder plus `/tiles/basemap.pmtiles`); **0** `search`/`reverse`/`route` requests; no service worker; public builds contain 0 bytes of demo code | NAV-017 AC 4, 42; ADR-0011 §1, §2 | QA e2e request log, build-output scan |
 | NFR-P5 | Web demo-mode privacy | Geolocation never called; storage holds only theme, language and voice-mute; 0 coordinates in storage, console or URL; voice names never stored or sent; password, `.htpasswd`, host names and IPs never in the repo | NAV-017 AC 6, 14, 43; D35, D74 | QA storage/console scan, repo scan |
 | NFR-L6 | Web demo-mode replay timing | simulated fix applied ± 100 ms of its track time at 1×; prompts within ± 2 s of the shared golden set; core cost ≤ 1 ms per fix on the main thread (measured 0.2–0.8 ms in Node, ADR-0011 W2) | NAV-017 AC 12, 26 | Vitest fake clock + golden test |
-| NFR-R2 | Search request budget | ≤ 2 `search` requests per settled query, 1 `reverse` per coordinate card, no automatic retry except one resume on `online`; 429 honoured per operation | NAV-003 AC 3, 15, 35, 36; openapi 0.4.0 rate-limit rules | QA e2e |
+| NFR-R2 | Search request budget (web and, from NAV-011, Android) | ≤ 2 `search` requests per settled query, 1 `reverse` per coordinate card, no automatic retry except one resume when the network returns; 429 honoured per operation | NAV-003 AC 3, 15, 35, 36; NAV-011 AC 2–4, 7, 11, 12; openapi 0.4.0 rate-limit rules | QA e2e (web); JVM/Robolectric request capture (Android) |
+| NFR-P6 | Typing-lock privacy (Android) | lock fixes only while the map or route preview is in the foreground; 0 network requests and 0 stored values from the lock; passenger override in process memory only (never restored after a restart) | NAV-011 AC 27, 28, 34; ADR-0012 §7 | Robolectric log/storage scan, process-recreation test |
 
 These targets are BA-proposed Phase 0 baselines (NAV-001 Open question 3), not production SLAs.
 

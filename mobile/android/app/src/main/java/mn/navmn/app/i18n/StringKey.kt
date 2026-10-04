@@ -50,6 +50,15 @@ enum class StringKey(val resName: String) {
     ROUTE_UNAVAILABLE("route_unavailable"),
     ROUTE_RATE_LIMITED("route_rate_limited"),
     ROUTE_SNAP_NOTICE("route_snap_notice"),
+    // NAV-011
+    ROUTE_MODE_BIKE("route_mode_bike"),
+    ROUTE_OPTIONS("route_options"),
+    ROUTE_OPTION("route_option"),
+    ROUTE_ALTERNATIVE("route_alternative"),
+    PLACE_NEAREST("place_nearest"),
+    TYPING_LOCK_TITLE("typing_lock_title"),
+    TYPING_LOCK_HINT("typing_lock_hint"),
+    TYPING_LOCK_PASSENGER("typing_lock_passenger"),
     NAV_NAME("nav_name"),
     NAV_START("nav_start"),
     NAV_END("nav_end"),
@@ -158,6 +167,12 @@ enum class StringKey(val resName: String) {
     PLACE_TYPE_ROAD("place_type_road"),
     PLACE_TYPE_ADDRESS("place_type_address"),
     PLACE_TYPE_PLACE("place_type_place"),
+    // NAV-012 (glossary 2.5 B1–B5, needs native review)
+    BATTERY_RESTRICTIONS("battery_restrictions"),
+    BATTERY_HINT("battery_hint"),
+    NAV_RESUMED("nav_resumed"),
+    NAV_INTERRUPTED_TITLE("nav_interrupted_title"),
+    NAV_INTERRUPTED_TEXT("nav_interrupted_text"),
     ;
 
     companion object {

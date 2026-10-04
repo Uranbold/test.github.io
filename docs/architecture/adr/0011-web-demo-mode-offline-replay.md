@@ -378,3 +378,10 @@ with retry; offline waits and reloads), localisation (0 hard-coded user strings 
 Carried open questions (unchanged): silent-switch override (PO, after AC 48 evidence); G5 `en` golden rows and the G8
 `en` fixture difference (BA); U1 «Сонгосон цэг» fallback (BA); manifest end names (QA verified the OSM ids in run 1
 §7); whether the unreviewed guidance strings may stay in the public bundle before NAV-007 (PO).
+
+## Amendment 2026-10-03 (D107): the demo folder is public
+The PO decided that the NAV-017 demo folder on the shared web hosting stays **public, without a password** (D107, which supersedes the password part of D74). The page keeps `noindex` (NAV-017 AC 3) and still sends no data. Consequences for this ADR:
+- Everything about the password protection (the title's "password-protected sub-folder", risk W7 on Basic-auth credentials, the `crossorigin` stripping it motivated, and §4's "outside the protected folder" wording) no longer applies as a requirement. Stripping `crossorigin` is harmless and may stay; removing it is a separate change through triage, not part of this amendment.
+- §4 still holds: the build reads the archive from the origin root, and the archive is not duplicated into the folder.
+- NFR-P5 keeps "no `.htpasswd`, host names or IPs in the repo"; with no password there is simply nothing to keep secret on the page side.
+

@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAV-012 background wireframe</title>
+<!--
+  Static wireframe of the NAV-012 Android surfaces (owner: ux-designer). Checks the DESIGN, not the app.
+  1 CSS px = 1 dp. Hash parameters: state, theme (day|night), lang (mn|en), scale (1|1.3|2 = Android font scale),
+  font (narrow|wide), toolbar (0|1). Example: #state=restoring&theme=night&lang=mn&scale=1.3
+  Spec: docs/design/screens/NAV-012-android-background-lock-screen.md (delta on the NAV-005 screen spec).
+  Guidance regions (RB, RS, RC, RP, R5) and their CSS are copied from prototypes/NAV-005-guidance.html; the route
+  preview sheet models the NAV-011 collapsed sheet (handle, title + destination, three mode tabs, summary, «Эхлэх»).
+  Notification cards approximate the Android 12+ standard template (BigTextStyle); real rendering is a device check
+  (NAV-012 AC 52). Colours are copied from docs/design/tokens.json for this wireframe only (tokens.json wins).
+-->
+<style>
+  :root {
+    --fs: 1; --fsB: 1; --fsD: 1; --fsP: 1;
+    --font: "DejaVu Sans", "Roboto", "Noto Sans", sans-serif;
+  }
+  :root[data-theme="day"] {
+    --surface: #FFFFFF; --surface-container: #F1F3F4; --on-surface: #1F1F1F; --on-surface-variant: #444746;
+    --outline: #747775; --outline-variant: #C4C7C5; --primary: #0B57D0; --on-primary: #FFFFFF;
+    --primary-container: #D3E3FD; --on-primary-container: #041E49; --error: #B3261E;
+    --message-surface: #303030; --on-message-surface: #F2F2F2; --message-outline: #303030; --message-action: #A8C7FA;
+    --banner: #0F6B45; --on-banner: #FFFFFF; --on-banner-variant: #D2EBDD; --banner-outline: #0F6B45;
+    --banner-then: #0A5234; --banner-reroute: #3C4043; --on-banner-reroute-variant: #D7DADD;
+    --earth: #F3F0EA; --water: #A8CDEE; --major: #FFFFFF; --major-casing: #C9C2B5;
+    --route: #1967D2; --route-casing: #0B3D91; --route-old: #8FA7CC; --route-old-casing: #5F7CAB;
+    --puck: #1A73E8; --puck-stroke: #FFFFFF; --puck-outline: #0B3D91; --puck-stale: #80868B; --puck-stale-stroke: #FFFFFF;
+    --pin: #C5221F; --scrim: rgba(0,0,0,.32); --disabled: rgba(31,31,31,.38);
+  }
+  :root[data-theme="night"] {
+    --surface: #1F2733; --surface-container: #27303D; --on-surface: #E3E6EA; --on-surface-variant: #B9C0CA;
+    --outline: #8B94A1; --outline-variant: #3F4957; --primary: #A8C7FA; --on-primary: #062E6F;
+    --primary-container: #0B3D8C; --on-primary-container: #D3E3FD; --error: #F2B8B5;
+    --message-surface: #2E3846; --on-message-surface: #E3E6EA; --message-outline: #6E7A8C; --message-action: #A8C7FA;
+    --banner: #123D2C; --on-banner: #E3E6EA; --on-banner-variant: #B7D3C5; --banner-outline: #3E7A5E;
+    --banner-then: #0C2D20; --banner-reroute: #2E3846; --on-banner-reroute-variant: #B9C0CA;
+    --earth: #18202B; --water: #0B2238; --major: #4A5566; --major-casing: #10151C;
+    --route: #8AB4F8; --route-casing: #10151C; --route-old: #5A7396; --route-old-casing: #10151C;
+    --puck: #E8EAED; --puck-stroke: #10151C; --puck-outline: #10151C; --puck-stale: #9AA0A6; --puck-stale-stroke: #10151C;
+    --pin: #F28B82; --scrim: rgba(0,0,0,.48); --disabled: rgba(227,230,234,.38);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: var(--font); background: var(--earth); color: var(--on-surface); font-size: calc(14px * var(--fs)); line-height: 1.43; }
+  #toolbar { position: fixed; z-index: 99; top: 0; left: 0; right: 0; font: 12px sans-serif; background: #fffd; padding: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+  #toolbar[hidden] { display: none; }
+
+  /* Screen = system bars + app. Portrait: status bar 24dp, 3-button navigation bar 48dp (worst case). */
+  #screen { position: absolute; inset: 0; display: grid; grid-template-rows: 24px minmax(0,1fr) 48px; }
+  .sysbar { background: transparent; }
+  #app { position: relative; display: grid; grid-template-rows: minmax(0,auto) minmax(0,1fr) auto auto; min-height: 0; }
+  :root[data-orient="land"] #screen { grid-template-rows: 24px minmax(0,1fr) 24px; }
+  :root[data-orient="land"] #app { grid-template-columns: clamp(320px, 40%, 400px) minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto auto; }
+
+  /* Map (drawn behind everything) */
+  #map { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+  #map svg { width: 100%; height: 100%; display: block; }
+
+  /* Top region: banner + status area + control column */
+  /* RB banner region: max 50 % of the app height, scrolls only beyond that (Layout rule 4) */
+  #top { position: relative; z-index: 2; padding: 0 8px; overflow: auto; min-height: 0; }
+  /* RS status area and RC control column float on the map band, below the banner */
+  #status { position: absolute; z-index: 2; top: 8px; left: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; }
+  /* RC: voice + orientation, a horizontal pair at the bottom-right of the map band (recenter sits bottom-left) */
+  #rc { position: absolute; z-index: 2; bottom: 16px; right: 16px; display: flex; flex-direction: row; gap: 8px; }
+  :root[data-orient="land"] #status { position: static; margin-top: 8px; }
+  :root[data-orient="land"] #top { grid-column: 1; grid-row: 1 / 3; padding-top: 8px; }
+
+  .card { border-radius: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  #banner .main { background: var(--banner); color: var(--on-banner); border: 1px solid var(--banner-outline); border-radius: 16px; padding: 16px; display: grid; grid-template-columns: 56px minmax(0,1fr); column-gap: 12px; min-height: 104px; }
+  #banner.has-then .main { border-radius: 16px 16px 0 0; }
+  #banner.reroute .main { background: var(--banner-reroute); border-color: var(--banner-reroute); }
+  :root[data-theme="night"] #banner.reroute .main { border-color: var(--message-outline); }
+  #banner .icon { width: 56px; height: 56px; }
+  #banner .icon svg { width: 56px; height: 56px; fill: none; stroke: var(--on-banner); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+  #banner .dist { font-size: calc(32px * var(--fsD)); line-height: 1.25; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #banner .dist.frozen { color: var(--on-banner-variant); }
+  #banner .instr { font-size: calc(24px * var(--fsB)); line-height: 1.25; font-weight: 500; overflow-wrap: normal; word-break: normal; hyphens: none; }
+  #banner .street { font-size: calc(18px * var(--fsB)); line-height: 1.333; color: var(--on-banner-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #banner.reroute .street { color: var(--on-banner-reroute-variant); white-space: normal; }
+  :root[data-stacked="1"] #banner .main { grid-template-columns: 56px minmax(0,1fr); grid-template-areas: "icon dist" "text text"; }
+  :root[data-stacked="1"] #banner .icon { grid-area: icon; }
+  :root[data-stacked="1"] #banner .dist { grid-area: dist; align-self: center; }
+  :root[data-stacked="1"] #banner .textcol { grid-area: text; margin-top: 8px; }
+  :root[data-stacked="1"] #banner.nodist .main { grid-template-areas: "icon ." "text text"; }
+  #banner .then { background: var(--banner-then); color: var(--on-banner); border-radius: 0 0 16px 16px; min-height: 40px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: calc(14px * var(--fsB)); font-weight: 500; }
+  #banner .then svg { width: 24px; height: 24px; fill: none; stroke: var(--on-banner); stroke-width: 2.5; }
+
+  .msg { font-size: calc(14px * var(--fsP)); background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 8px; padding: 12px 16px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  .msg .ico { width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; }
+
+  .iconbtn { width: 48px; height: 48px; border-radius: 12px; background: var(--surface); color: var(--on-surface); border: 0; display: grid; place-items: center; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15); }
+  :root[data-theme="night"] .iconbtn { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  .iconbtn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+
+  #mapband { position: relative; z-index: 1; min-height: 0; }
+  :root[data-orient="land"] #mapband { grid-column: 2; grid-row: 1; }
+  #recenter { position: absolute; left: 16px; bottom: 12px; min-height: 56px; max-width: calc(100% - 32px - 104px - 8px); border-radius: 16px; background: var(--primary-container); color: var(--on-primary-container); border: 0; padding: 8px 20px 8px 16px; display: flex; align-items: center; gap: 12px; font: inherit; font-size: calc(14px * var(--fsP)); font-weight: 500; text-align: left; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  #recenter svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+  :root[data-orient="land"] #recenter { bottom: 12px; }
+
+  #bottom { position: relative; z-index: 2; padding: 0 8px 8px 8px; }
+  :root[data-orient="land"] #bottom { grid-column: 2; grid-row: 2; padding: 8px; }
+  .panel { background: var(--surface); color: var(--on-surface); border-radius: 16px; padding: 12px 16px; min-height: 72px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  :root[data-theme="night"] .panel { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  .panel .eta { font-size: calc(22px * var(--fsP)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .panel .meta { font-size: calc(16px * var(--fsP)); line-height: 1.5; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+  .panel .txt { min-width: 0; flex: 1 1 0; }
+  .panel { flex-wrap: nowrap; }
+  .panel.notice { background: var(--message-surface); color: var(--on-message-surface); display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; font-size: calc(14px * var(--fsP)); }
+  :root[data-theme="night"] .panel.notice { outline: 1px solid var(--message-outline); }
+  .panel.notice .ico { width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; }
+  .btn { min-height: 48px; min-width: 48px; border-radius: 9999px; font: inherit; font-size: calc(14px * var(--fs)); font-weight: 500; padding: 8px 20px; display: inline-flex; align-items: center; gap: 8px; border: 0; text-align: left; }
+  .btn svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.5; }
+  .btn.outlined { background: transparent; color: var(--error); border: 1px solid var(--outline); }
+  .btn.round { width: 48px; height: 48px; padding: 0; justify-content: center; flex: none; }
+  .btn.round svg { width: 24px; height: 24px; }
+  .btn.filled { background: var(--primary); color: var(--on-primary); }
+  .btn.text { background: transparent; color: var(--primary); padding: 8px 12px; }
+  .btn.filled:disabled { background: var(--disabled); color: var(--surface); }
+
+  #attr { position: relative; z-index: 3; background: var(--surface-container); color: var(--on-surface-variant); font-size: calc(12px * var(--fs)); line-height: 1.333; padding: 4px 16px; min-height: 24px; }
+  :root[data-orient="land"] #attr { grid-column: 1 / 3; grid-row: 3; }
+
+  /* S3 preview sheet */
+  #sheet { position: relative; z-index: 2; margin: 0 8px 8px; background: var(--surface); border-radius: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); display: flex; flex-direction: column; max-height: 80vh; }
+  :root[data-theme="night"] #sheet { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  #sheet .scroll { overflow: auto; padding: 4px 0 8px; min-height: 0; }
+  #sheet .head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 4px 16px; font-size: calc(16px * var(--fs)); font-weight: 600; }
+  #sheet .row { min-height: 48px; display: flex; align-items: center; gap: 16px; padding: 4px 16px; font-size: calc(16px * var(--fs)); }
+  #sheet .row .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sheet .tabs { display: flex; border-bottom: 1px solid var(--outline-variant); margin: 4px 0; }
+  #sheet .tab { flex: 1; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); border: 0; background: none; font-family: inherit; }
+  #sheet .tab.sel { color: var(--primary); box-shadow: inset 0 -3px 0 var(--primary); }
+  #sheet .switchrow { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; font-size: calc(14px * var(--fs)); border: 0; background: none; width: 100%; color: inherit; font-family: inherit; text-align: left; }
+  #sheet .track { width: 52px; height: 32px; flex: none; border-radius: 16px; border: 2px solid var(--outline); }
+  #sheet .sum { padding: 8px 16px 4px; }
+  #sheet .sum .dur { font-size: calc(22px * var(--fs)); font-weight: 500; }
+  #sheet .state { padding: 8px 16px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; }
+  #sheet .state .acts { grid-column: 2; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  #sheet .hint { color: var(--on-surface-variant); }
+  #sheet .start { padding: 8px 16px 16px; }
+  #sheet .start .btn { width: 100%; min-height: 56px; justify-content: center; font-size: calc(16px * var(--fs)); border-radius: 9999px; }
+
+  /* S4 rationale dialog */
+  #scrim { position: absolute; inset: 0; z-index: 10; background: var(--scrim); display: grid; place-items: center; padding: 24px; }
+  #dialog { background: var(--surface); color: var(--on-surface); border-radius: 28px; padding: 24px; max-width: 312px; width: 100%; }
+  #dialog .hl { font-size: calc(24px * var(--fs)); line-height: 1.33; margin: 16px 0 24px; text-align: center; }
+  #dialog .acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  [hidden] { display: none !important; }
+  /* ---- NAV-012 additions ---- */
+  .sysbar { position: relative; }
+  .sysbar .lock { position: absolute; left: 50%; top: 4px; width: 12px; height: 16px; margin-left: -6px; }
+  .sysbar .lock svg { width: 12px; height: 16px; fill: none; stroke: var(--on-surface-variant); stroke-width: 2; }
+  /* restoring: skeleton lines in the progress panel (decorative) */
+  .skel { display: block; background: var(--surface-container); border-radius: 4px; }
+  :root[data-theme="night"] .skel { background: var(--outline-variant); }
+  /* battery hint row inside the preview sheet */
+  #sheet .hintrow { margin: 4px 16px 0; padding: 12px 12px 4px 16px; border-radius: 12px; background: var(--surface-container); font-size: calc(14px * var(--fs)); line-height: 1.43; }
+  #sheet .hintrow .acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0 8px; margin-top: 4px; }
+  #sheet .hintrow .acts svg { margin-right: auto; color: var(--on-surface-variant); }
+  #sheet .hintrow svg, .setrow svg.lead { display: block; width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+  /* NAV-011 collapsed sheet model: handle, top part (header + tabs), summary region, [NAV-012 hint], pinned «Эхлэх».
+     Height = content, capped in JS (Layout rule 10). The hint region shrinks first, then the top part (NAV-011 P2). */
+  #sheet.n11 { display: flex; flex-direction: column; max-height: none; }
+  #sheet.n11 .toppart { flex: 0 1 auto; min-height: 0; overflow: auto; }
+  #sheet.n11 .sumreg { flex: none; }
+  #sheet.n11 .hintwrap { flex: 0 1000 auto; min-height: calc(48px * var(--fs)); overflow: auto; padding-bottom: 4px; }
+  #sheet.n11 .start { flex: none; }
+  /* NAV-012 battery entry row in the collapsed sheet (one line, opens the expanded sheet at the full hint) */
+  #sheet .batrow { margin: 0; min-height: 48px; width: 100%; border: 0; border-radius: 12px; background: var(--surface-container); color: var(--on-surface); display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 16px; font: inherit; font-size: calc(14px * var(--fs)); text-align: left; }
+  #sheet .batrow span.l { flex: 1; min-width: 0; }
+  #sheet .batrow svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+  #sheet .batrow svg.warn { stroke: var(--error); }
+  #sheet.n11.expanded .scrollall { overflow: auto; min-height: 0; flex: 1 1 auto; }
+  #sheet .lower .row2 { min-height: 48px; display: flex; align-items: center; padding: 4px 16px; font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); }
+  /* sizes copied from the NAV-011 wireframe: summary region 76 dp, footer 77 dp, collapsed k=3 274 dp at 360x640 */
+  #sheet .handle { flex: none; }
+  #sheet.n11 .sumreg { padding: 4px 16px; }
+  #sheet.n11 .sumreg.entryreg { padding: 0 16px; }
+  #sheet.n11 .tabs { margin: 0; }
+  #sheet.n11 .sumreg .sum { padding: 0; line-height: 20px; }
+  #sheet.n11 .sumreg .sum .dur { line-height: 28px; }
+  #sheet.n11 .start { padding: 8px 16px 13px; }
+  #sheet .rlabel { padding: 0; line-height: 20px; font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); }
+  :root[data-orient="land"][data-kind="preview"] #bottom { position: static; padding: 0; }
+  :root[data-orient="land"] #sheet.n11 { position: absolute; z-index: 2; left: 8px; top: 8px; bottom: 32px; width: clamp(320px, 40%, 400px); margin: 0; }
+  :root[data-orient="land"] #sheet.n11 .scrollall { overflow: auto; min-height: 0; flex: 1 1 auto; }
+  #sheet .handle { height: 24px; display: grid; place-items: center; }
+  #sheet .handle span { width: 32px; height: 4px; border-radius: 2px; background: var(--outline); }
+  #sheet .head2 { display: flex; align-items: center; gap: 8px; padding: 0 4px 0 16px; }
+  #sheet .head2 .t { min-width: 0; flex: 1; }
+  #sheet .head2 .t1 { font-size: calc(16px * var(--fs)); font-weight: 600; }
+  #sheet .head2 .t2 { font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* S7 settings modal sheet */
+  #modal { position: absolute; inset: 0; z-index: 10; background: var(--scrim); display: flex; flex-direction: column; justify-content: flex-end; }
+  #set { background: var(--surface); color: var(--on-surface); border-radius: 28px 28px 0 0; max-height: calc(100% - 72px); display: flex; flex-direction: column; }
+  #set .scroll { overflow: auto; padding-bottom: 16px; min-height: 0; }
+  #set .title { font-size: calc(22px * var(--fs)); line-height: 1.27; padding: 0 24px 8px; }
+  #set .sec { font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--primary); padding: 16px 24px 4px; }
+  #set .opt { min-height: 56px; display: flex; align-items: center; gap: 16px; padding: 4px 24px; width: 100%; border: 0; background: none; color: inherit; font: inherit; font-size: calc(16px * var(--fs)); text-align: left; }
+  #set .radio { width: 20px; height: 20px; flex: none; border-radius: 50%; border: 2px solid var(--on-surface-variant); }
+  #set .radio.on { border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 10px var(--primary); }
+  #set .opt .track { width: 52px; height: 32px; flex: none; border-radius: 16px; background: var(--primary); margin-left: auto; }
+  #set hr { border: 0; border-top: 1px solid var(--outline-variant); margin: 8px 0; }
+  .setrow { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 16px; padding: 12px 24px 4px; font-size: calc(16px * var(--fs)); }
+  .setrow .sup { grid-column: 2; font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); }
+  .setrow .acts { grid-column: 2; margin-left: -12px; }
+  .setrow.warn svg.lead { stroke: var(--error); }
+  /* notification shade mock (Android 12+ standard template, approximate) */
+  #shade { position: absolute; inset: 0; z-index: 5; background: var(--surface-container); padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+  :root[data-theme="night"] #shade { background: #10151C; }
+  .ntf { border-radius: 24px; padding: 16px; background: var(--surface); color: var(--on-surface); display: grid; grid-template-columns: 24px minmax(0,1fr) auto; column-gap: 16px; align-items: start; }
+  .ntf.colorized { background: var(--banner); color: var(--on-banner); }
+  .ntf.colorized.reroute { background: var(--banner-reroute); }
+  .ntf .si { width: 24px; height: 24px; border-radius: 50%; background: currentColor; display: grid; place-items: center; }
+  .ntf .si svg { width: 16px; height: 16px; fill: none; stroke: var(--banner); stroke-width: 2.5; }
+  .ntf:not(.colorized) .si svg { stroke: var(--surface); }
+  .ntf .hdr { font-size: calc(12px * var(--fs)); line-height: 1.333; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ntf .ti { font-size: calc(16px * var(--fs)); line-height: 1.5; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .ntf .tx { font-size: calc(14px * var(--fs)); line-height: 1.43; }
+  .ntf.collapsed .tx { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ntf .li { width: 48px; height: 48px; border-radius: 8px; display: grid; place-items: center; }
+  .ntf .li svg { width: 40px; height: 40px; fill: none; stroke: currentColor; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+  .ntf .acts { grid-column: 2 / 4; display: flex; gap: 8px; margin-top: 8px; }
+  .ntf .acts .btn { color: inherit; background: transparent; padding: 8px 12px; border: 1px solid currentColor; white-space: nowrap; }
+  .ntf .cap { grid-column: 1 / 4; font-size: 11px; opacity: .7; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div id="toolbar"></div>
+<div id="screen">
+  <div class="sysbar" id="sbTop"></div>
+  <div id="app">
+    <div id="map"></div>
+    <div id="top">
+      <div id="banner"></div>
+    </div>
+    <div id="mapband"><div id="status" aria-live="polite"></div><div id="rc"></div><div id="mbx"></div></div>
+    <div id="bottom"></div>
+    <div id="attr" data-box="attribution">© OpenStreetMap contributors</div>
+  </div>
+  <div class="sysbar"></div>
+</div>
+<script>
+const T = {
+  mn: {
+    dist300: "300 м", turnR: "Баруун тийш эргэнэ үү", offRampR: "Баруун талын гарах зам руу эргэнэ үү",
+    street: "Энхтайвны өргөн чөлөө", streetLong: "Чингисийн өргөн чөлөө, Нарны замын уулзвараас урагш",
+    then: "Дараа нь", rerouting: "Маршрутыг дахин тооцоолж байна", loading: "Ачаалж байна…",
+    gpsLost: "GPS дохио тасарлаа", offline: "Интернэт холболт алга", resumed: "Замчлал сэргэлээ",
+    arriveR: "Таны очих газар баруун талд байна", arrived: "Та очих газартаа ирлээ", dest: "Зайсан толгой",
+    eta: "Хүрэх цаг 14:35", meta: "25 мин · 12,4 км",
+    end: "Дуусгах", recenter: "Байршил руу буцах", mute: "Дууг хаах", unmute: "Дууг нээх", northUp: "Хойд зүг дээшээ",
+    settings: "Тохиргоо", close: "Хаах", previewTitle: "Маршрут харах", car: "Машин", walk: "Явган", bike: "Дугуй", route1: "Маршрут 1",
+    dur: "13 мин", dist: "4,6 км", avoid: "Шороон замаас зайлсхийх", myLoc: "Миний байршил", etaP: "Хүрэх цаг 14:03", start: "Эхлэх", openSettings: "Тохиргоо нээх",
+    battery: "Батарейн хязгаарлалт",
+    batteryHint: "Батарей хэмнэх тохиргоо замчлалыг зогсоож болзошгүй. Утасны тохиргоонд батарейн хязгаарлалтыг унтраана уу.",
+    interrupted: "Замчлал тасарлаа", tapToContinue: "Үргэлжлүүлэхийн тулд дарна уу", cont: "Үргэлжлүүлэх",
+    nav: "Замчлал", app: "Газрын зураг", day: "Өдрийн горим", night: "Шөнийн горим", auto: "Автомат",
+    lang: "Хэл", voice: "Дуут заавар",
+  },
+  en: {
+    dist300: "300 m", turnR: "Turn right", offRampR: "Take the exit on the right",
+    street: "Энхтайвны өргөн чөлөө", streetLong: "Чингисийн өргөн чөлөө, Нарны замын уулзвараас урагш",
+    then: "Then", rerouting: "Recalculating route", loading: "Loading…",
+    gpsLost: "GPS signal lost", offline: "No internet connection", resumed: "Navigation resumed",
+    arriveR: "Your destination is on the right", arrived: "You have arrived at your destination", dest: "Зайсан толгой",
+    eta: "Arrive at 14:35", meta: "25 min · 12.4 km",
+    end: "End", recenter: "Back to my location", mute: "Mute", unmute: "Unmute", northUp: "North up",
+    settings: "Settings", close: "Close", previewTitle: "Route preview", car: "Car", walk: "Walk", bike: "Bike", route1: "Route 1",
+    dur: "13 min", dist: "4.6 km", avoid: "Avoid unpaved roads", myLoc: "My location", etaP: "Arrive at 14:03", start: "Start", openSettings: "Open settings",
+    battery: "Battery restrictions",
+    batteryHint: "Battery saving can stop navigation. Turn off battery restrictions in your phone settings.",
+    interrupted: "Navigation was interrupted", tapToContinue: "Tap to continue", cont: "Continue",
+    nav: "Navigation", app: "Map", day: "Day mode", night: "Night mode", auto: "Automatic",
+    lang: "Language", voice: "Voice guidance",
+  },
+};
+const GUIDE = ["lock-guidance", "restoring", "restored", "restored-worst", "restoring-gps-lost", "lock-arrival"];
+const NOTIF = ["notif-collapsed", "notif-expanded", "notif-muted", "notif-reroute", "notif-gps-lost", "notif-arrival", "notif-interrupted", "notif-public"];
+const STATES = [...GUIDE, "preview-battery", "preview-battery-expanded", "settings-restricted", "settings-exempt", ...NOTIF];
+const ICON = {
+  right: '<svg viewBox="0 0 56 56"><path d="M16 48V26a6 6 0 0 1 6-6h20"/><path d="M34 11l9 9-9 9"/></svg>',
+  ramp: '<svg viewBox="0 0 56 56"><path d="M22 48V30c0-6 4-10 10-14l8-5"/><path d="M33 7l9 3-3 9"/></svg>',
+  left: '<svg viewBox="0 0 24 24"><path d="M17 21V11a3 3 0 0 0-3-3H6"/><path d="M10 4L6 8l4 4"/></svg>',
+  search: '<svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="10"/><path d="M28 6v8M28 42v8M6 28h8M42 28h8"/></svg>',
+  flag: '<svg viewBox="0 0 56 56"><path d="M16 50V8"/><path d="M16 10h24l-6 8 6 8H16"/></svg>',
+  vol: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8a5 5 0 0 1 0 8"/></svg>',
+  compass: '<svg viewBox="0 0 24 24"><path d="M12 3l4 9-4 9-4-9z"/></svg>',
+  gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/></svg>',
+  loc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>',
+  nav: '<svg viewBox="0 0 24 24"><path d="M12 3l7 18-7-4-7 4z"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>',
+  battery: '<svg viewBox="0 0 24 24"><rect x="7" y="4" width="10" height="17" rx="2"/><path d="M10 2h4M12 9v5M12 17v.5"/></svg>',
+  lock: '<svg viewBox="0 0 12 16"><rect x="1" y="7" width="10" height="8" rx="1"/><path d="M3 7V4a3 3 0 0 1 6 0v3"/></svg>',
+};
+function params() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  return { state: STATES.includes(p.get("state")) ? p.get("state") : "restoring", theme: p.get("theme") === "night" ? "night" : "day",
+    lang: p.get("lang") === "en" ? "en" : "mn", scale: Number(p.get("scale")) || 1, font: p.get("font") || "narrow", toolbar: p.get("toolbar") !== "0" };
+}
+const $ = (id) => document.getElementById(id);
+const puckHtml = (stale) => `<div id="puck" style="position:absolute;left:50%;top:70%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;background:${stale ? "var(--puck-stale)" : "var(--puck)"};border:3px solid ${stale ? "var(--puck-stale-stroke)" : "var(--puck-stroke)"};outline:1px solid var(--puck-outline)"></div>`;
+
+function render() {
+  const P = params(), t = T[P.lang], root = document.documentElement;
+  root.lang = P.lang; root.dataset.theme = P.theme;
+  root.dataset.orient = innerWidth > innerHeight ? "land" : "port";
+  const fsB = Math.min(P.scale, 1.3), fsD = Math.min(P.scale, 1.2), fsP = Math.min(P.scale, 1.3);
+  root.style.setProperty("--fs", P.scale); root.style.setProperty("--fsB", fsB); root.style.setProperty("--fsD", fsD); root.style.setProperty("--fsP", fsP);
+  root.dataset.stacked = fsB >= 1.15 ? "1" : "0";
+  root.style.setProperty("--font", P.font === "narrow" ? '"Liberation Sans", Roboto, sans-serif' : '"DejaVu Sans", Roboto, sans-serif');
+  const st = P.state, guidance = GUIDE.includes(st), notif = NOTIF.includes(st);
+  root.dataset.kind = guidance ? "guidance" : notif ? "notif" : st.startsWith("settings") ? "settings" : "preview";
+
+  $("map").innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><rect width="100" height="100" fill="var(--earth)"/>
+    <path d="M0 62 C30 58 60 70 100 66" stroke="var(--water)" stroke-width="3" fill="none"/>
+    <path d="M50 100 V0 M0 40 H100" stroke="var(--major-casing)" stroke-width="3.2"/><path d="M50 100 V0 M0 40 H100" stroke="var(--major)" stroke-width="2.4"/>
+    <path d="M50 100 V40 H100" stroke="var(--route-casing)" fill="none" vector-effect="non-scaling-stroke" style="stroke-width:14px"/>
+    <path d="M50 100 V40 H100" stroke="var(--route)" fill="none" vector-effect="non-scaling-stroke" style="stroke-width:9px"/></svg>`;
+  const b = $("banner"); b.className = ""; b.innerHTML = ""; b.removeAttribute("data-box");
+  const status = $("status"); status.innerHTML = "";
+  $("rc").innerHTML = ""; $("mbx").innerHTML = ""; $("bottom").innerHTML = "";
+  document.querySelectorAll("#modal, #shade").forEach((e) => e.remove());
+  $("sbTop").innerHTML = st.startsWith("lock") || st === "notif-public" ? `<span class="lock" aria-hidden="true">${ICON.lock}</span>` : "";
+
+  if (guidance) renderGuidance(st, t, root);
+  else if (st.startsWith("preview")) renderPreview(t, st === "preview-battery-expanded");
+  else if (st.startsWith("settings")) renderSettings(st, t);
+  else renderNotif(st, t, P);
+
+  const land = root.dataset.orient === "land";
+  (land ? $("top") : $("mapband")).prepend(status);
+  if (land) $("top").appendChild(status);
+  enforceBand();
+  capSheet();
+  renderToolbar(P);
+}
+
+function renderGuidance(st, t, root) {
+  const b = $("banner"), status = $("status");
+  b.dataset.box = "banner";
+  const restoring = st === "restoring" || st === "restoring-gps-lost";
+  let icon = ICON.right, dist = t.dist300, instr = t.turnR, street = t.street, cls = "";
+  if (st === "restored" || st === "restored-worst") { instr = t.offRampR; icon = ICON.ramp; }
+  if (st === "restored-worst") { street = t.streetLong; cls = "has-then"; }
+  if (restoring) { cls = "reroute nodist"; icon = ICON.search; dist = ""; instr = t.loading; street = ""; }
+  if (st === "lock-arrival") { cls = "nodist"; icon = ICON.flag; dist = ""; instr = t.arriveR; }
+  b.className = cls.trim();
+  b.innerHTML = `<div class="main card"><div class="icon" aria-hidden="true">${icon}</div><div class="textcol">
+    ${dist ? `<div class="dist" data-box-text="distance">${dist}</div>` : ""}
+    <div class="instr" data-check="instruction">${instr}</div>${street ? `<div class="street" data-check="street">${street}</div>` : ""}</div></div>
+    ${cls.includes("has-then") ? `<div class="then">${t.then}${ICON.left}</div>` : ""}`;
+  if (dist && root.dataset.stacked === "1") { const d = b.querySelector(".dist"); b.querySelector(".main").insertBefore(d, b.querySelector(".textcol")); }
+  // RS priority (NAV-012 spec): (1) GPS lost / restored, (2) «Замчлал сэргэлээ», (3) offline; at most 2 visible.
+  const msgs = [];
+  if (st === "restoring-gps-lost") msgs.push(["gps-lost", t.gpsLost]);
+  if (st === "restoring" || st === "restored" || st === "restored-worst") msgs.push(["resumed", t.resumed]);
+  if (st === "restored-worst") msgs.push(["offline", t.offline]);
+  status.innerHTML = msgs.map(([k, m], i) => `<div class="msg" data-box="status-${i}" data-kind="${k}"><span class="ico" aria-hidden="true"></span><span>${m}</span></div>`).join("");
+  if (st !== "lock-arrival") $("rc").innerHTML = [["vol", t.mute], ["compass", t.northUp]].map(([i, n]) => `<button class="iconbtn" data-control aria-label="${n}">${ICON[i]}</button>`).join("");
+  // Restoring: no puck until the first good fix (camera shows the stored route); the restored worst case shows recenter.
+  $("mbx").innerHTML = (st === "restored-worst" ? `<button id="recenter" data-control data-box="recenter">${ICON.loc}<span>${t.recenter}</span></button>` : "")
+    + (restoring ? "" : puckHtml(false));
+  const panelTxt = restoring
+    ? `<div class="txt" aria-hidden="true"><span class="skel" style="width:70%;height:22px;margin:4px 0 8px"></span><span class="skel" style="width:45%;height:16px"></span></div>`
+    : `<div class="txt"><div class="eta">${t.eta}</div><div class="meta">${t.meta}</div></div>`;
+  $("bottom").innerHTML = st === "lock-arrival"
+    ? `<div class="panel" data-box="progress"><div class="txt"><div class="eta">${t.dest}</div></div><button class="btn filled" data-control>${t.close}</button></div>`
+    : `<div class="panel" data-box="progress">${panelTxt}<button class="iconbtn" style="box-shadow:none;outline:0;flex:none" data-control aria-label="${t.settings}">${ICON.gear}</button><button class="btn outlined round" data-control aria-label="${t.end}" title="${t.end}">${ICON.x}</button></div>`;
+}
+
+function renderPreview(t, expanded) {
+  $("mbx").innerHTML = "";
+  const land = document.documentElement.dataset.orient === "land";
+  const top = `${land ? "" : `<div class="handle" aria-hidden="true"><span></span></div>`}
+    <div class="toppart"><div class="head2"><div class="t"><div class="t1">${t.previewTitle}</div><div class="t2">${t.dest}</div></div><button class="iconbtn" style="box-shadow:none;outline:0;flex:none" data-control aria-label="${t.close}">${ICON.x}</button></div>
+    <div class="tabs" role="tablist"><button class="tab sel" data-control>${t.car}</button><button class="tab" data-control>${t.walk}</button><button class="tab" data-control>${t.bike}</button></div></div>`;
+  const sum = `<div class="sumreg" data-check="summary"><div class="rlabel">${t.route1}</div><div class="sum"><div><span class="dur">${t.dur}</span> · ${t.dist}</div><div>${t.etaP}</div></div></div>`;
+  // Collapsed: one-line entry row (B1). Expanded and wide windows: the full hint (B2) first in the lower part.
+  const entry = `<div class="sumreg entryreg"><button class="batrow" data-control data-check="battery-entry">${ICON.battery.replace("<svg", '<svg class="warn" aria-hidden="true"')}<span class="l">${t.battery}</span>${ICON.up.replace("<svg", '<svg aria-hidden="true"')}</button></div>`;
+  const hint = `<div class="hintrow" data-check="battery-hint" role="note"><div>${t.batteryHint}</div><div class="acts"><span aria-hidden="true">${ICON.battery}</span><button class="btn text" data-control>${t.close}</button><button class="btn text" data-control>${t.openSettings}</button></div></div>`;
+  const lower = `<div class="lower">${hint}<div class="row2">${t.route1} · ${t.dur} · ${t.dist}</div><div class="row2">${t.avoid}</div><div class="row2">${t.myLoc}</div><div class="row2">${t.dest}</div></div>`;
+  const startBtn = `<div class="start" data-check="start"><button class="btn filled" data-control>${ICON.play}<span>${t.start}</span></button></div>`;
+  let html;
+  if (land) html = `<div id="sheet" class="n11 expanded" data-box="sheet"><div class="scrollall">${top}${sum}${lower}</div>${startBtn}</div>`; // NAV-011 P5 side sheet
+  else if (expanded) html = `<div id="sheet" class="n11 expanded" data-box="sheet" data-state="expanded">${land ? "" : `<div class="handle" aria-hidden="true"><span></span></div>`}<div class="scrollall">${top.replace(/<div class="handle"[^]*?<\/div>/, "")}${sum}${lower}</div>${startBtn}</div>`;
+  else html = `<div id="sheet" class="n11" data-box="sheet" data-state="collapsed">${top}${sum}${entry}${startBtn}</div>`;
+  $("bottom").innerHTML = html;
+}
+// NAV-011 P3, unchanged by NAV-012: collapsed = content height, at most 60 % of the area above R5; expanded at most 80 %.
+// The sheet bottom is 16 dp above R5 (8 dp container padding + 8 dp margin, NAV-005).
+function capSheet() {
+  const sh = document.getElementById("sheet");
+  if (!sh) return;
+  if (document.documentElement.dataset.orient === "land") { sh.style.bottom = $("attr").offsetHeight + 8 + "px"; return; }
+  const area = $("app").clientHeight - $("attr").offsetHeight; // not the attr's position: a tall sheet pushes it down
+  sh.style.maxHeight = Math.floor(area * (sh.dataset.state === "expanded" ? 0.8 : 0.6)) + "px";
+}
+function renderSettings(st, t) {
+  const restricted = st === "settings-restricted";
+  const m = document.createElement("div"); m.id = "modal";
+  const opt = (label, on) => `<button class="opt" data-control role="radio" aria-checked="${on}"><span class="radio${on ? " on" : ""}"></span><span>${label}</span></button>`;
+  m.innerHTML = `<div id="set" data-box="settings" role="dialog"><div class="scroll">
+    <div class="handle" style="height:24px;display:grid;place-items:center" aria-hidden="true"><span style="width:32px;height:4px;border-radius:2px;background:var(--outline)"></span></div>
+    <div class="title">${t.settings}</div>
+    <div role="radiogroup">${opt(t.day, false)}${opt(t.night, false)}${opt(t.auto, true)}</div>
+    <div class="sec">${t.lang}</div><div role="radiogroup">${opt("Монгол", t === T.mn)}${opt("English", t === T.en)}</div>
+    <hr><button class="opt" data-control role="switch" aria-checked="true"><span>${t.voice}</span><span class="track"></span></button>
+    <hr><div class="setrow${restricted ? " warn" : ""}" data-check="battery-row"><svg class="lead" viewBox="0 0 24 24" aria-hidden="true">${ICON.battery.replace(/<\/?svg[^>]*>/g, "")}</svg>
+      <div>${t.battery}</div>${restricted ? `<div class="sup" data-check="battery-hint">${t.batteryHint}</div>` : ""}
+      <div class="acts"><button class="btn text" data-control>${t.openSettings}</button></div></div>
+    </div></div>`;
+  $("screen").appendChild(m);
+}
+
+function renderNotif(st, t, P) {
+  const s = document.createElement("div"); s.id = "shade";
+  const instr = t.offRampR, card = (o) => {
+    const cls = ["ntf", o.collapsed ? "collapsed" : "", o.colorized ? "colorized" : "", o.reroute ? "reroute" : ""].join(" ");
+    return `<div class="${cls}" data-box="notification" data-check="${o.check || ""}">
+      <span class="si" aria-hidden="true">${ICON.nav}</span>
+      <div style="min-width:0">${o.collapsed ? "" : `<div class="hdr">${[t.app, o.sub].filter(Boolean).join(" · ")}</div>`}
+        ${o.title ? `<div class="ti" data-check="ntf-title">${o.title}</div>` : ""}${o.text ? `<div class="tx" data-check="ntf-text">${o.text}</div>` : ""}</div>
+      ${o.icon ? `<span class="li" aria-hidden="true">${o.icon}</span>` : "<span></span>"}
+      ${!o.collapsed && o.acts ? `<div class="acts">${o.acts.map((a) => `<button class="btn" data-control>${a}</button>`).join("")}</div>` : ""}</div>`;
+  };
+  let html = "";
+  if (st === "notif-collapsed") html = card({ collapsed: true, colorized: true, title: t.dist300, text: instr, icon: ICON.ramp, check: "collapsed" });
+  if (st === "notif-expanded") html = card({ colorized: true, title: t.dist300, text: `${instr}<br>${t.street}`, sub: t.eta, icon: ICON.ramp, acts: [t.mute, t.end] });
+  if (st === "notif-muted") html = card({ colorized: true, title: t.dist300, text: `${instr}<br>${t.street}`, sub: t.eta, icon: ICON.ramp, acts: [t.unmute, t.end] });
+  // Title = distance or a short status (NAV-012 AC 2 names the recalculating title); the arrival sentence goes in the
+  // text line, which wraps in the expanded card (spec › Notification content per state).
+  if (st === "notif-reroute") html = card({ collapsed: true, colorized: true, reroute: true, title: t.rerouting, check: "collapsed-title" });
+  if (st === "notif-gps-lost") html = card({ colorized: true, title: t.gpsLost, text: instr, acts: [t.mute, t.end] });
+  if (st === "notif-arrival") html = card({ collapsed: true, colorized: true, text: t.arriveR, icon: ICON.flag, check: "collapsed" });
+  if (st === "notif-interrupted") html = card({ title: t.interrupted, text: t.tapToContinue, acts: [t.cont, t.end] });
+  if (st === "notif-public") html = card({ title: t.nav });
+  s.innerHTML = html;
+  $("screen").appendChild(s);
+}
+
+function enforceBand() {
+  const top = $("top"), root = document.documentElement;
+  top.style.maxHeight = root.dataset.orient === "port" ? Math.floor($("app").clientHeight * 0.5) + "px" : "";
+  if (root.dataset.orient !== "port" || root.dataset.kind !== "guidance") return;
+  const msgs = [...document.querySelectorAll("#status .msg")];
+  const prog = $("bottom").getBoundingClientRect().top;
+  // Layout rule 4 (NAV-005, unchanged): if two messages leave less than the minimum band (150 dp at font scale 1, 80 dp
+  // above), only the higher-priority one shows.
+  const need = (window.__scale || params().scale) > 1 ? 80 : 150;
+  if (msgs.length > 1 && prog - msgs[msgs.length - 1].getBoundingClientRect().bottom < need) msgs.slice(1).forEach((m) => m.hidden = true);
+}
+function renderToolbar(P) {
+  const tb = $("toolbar"); tb.hidden = !P.toolbar; if (!P.toolbar) return;
+  const sel = (k, vals) => `<select data-k="${k}">${vals.map((v) => `<option ${String(P[k]) === String(v) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+  tb.innerHTML = sel("state", STATES) + sel("theme", ["day", "night"]) + sel("lang", ["mn", "en"]) + sel("scale", [1, 1.3, 2]) + sel("font", ["narrow", "wide"]);
+  tb.querySelectorAll("select").forEach((s) => s.onchange = () => {
+    const p = params(); p[s.dataset.k] = s.value;
+    location.hash = Object.entries(p).map(([k, v]) => `${k}=${k === "toolbar" ? (v ? 1 : 0) : v}`).join("&");
+  });
+}
+addEventListener("hashchange", render);
+addEventListener("resize", render);
+render();
+</script>
+</body>
+</html>

@@ -17,6 +17,8 @@ sealed interface Banner {
         val then: KeyResult?,
         /** GPS lost: the distance is frozen and drawn dimmed (navigation-ux §2.2). */
         val stale: Boolean,
+        /** NAV-012: plan step index of the manoeuvre (notification instruction identity, AC 5); -1 when unknown. */
+        val index: Int = -1,
     ) : Banner
 
     /** Recalculating variant (AC 42, 47–50), never blank. */
@@ -24,6 +26,13 @@ sealed interface Banner {
 
     /** Arrival variant (AC 55). */
     data class Arrival(val key: KeyResult, val street: String) : Banner
+
+    /**
+     * NAV-012 R1 restoring variant (screen spec › Restoring banner): a restored session before its first good fix.
+     * «Ачаалж байна…» in the recalculating look; no manoeuvre, distance or street (a stored manoeuvre may already be
+     * passed).
+     */
+    data object Restoring : Banner
 }
 
 data class Puck(val position: LatLon, val bearingDeg: Double?, val stale: Boolean, val snapped: Boolean)
@@ -54,6 +63,10 @@ data class GuidanceState(
     val voiceNoticeVisible: Boolean,
     val muted: Boolean,
     val speedMps: Double,
+    /** NAV-012 AC 18: a restored session waiting for its first good fix (no puck, progress skeleton). */
+    val restoring: Boolean = false,
+    /** NAV-012 B3 «Замчлал сэргэлээ» for 3 s after a restore opened by the user (status kind `resumed`). */
+    val resumedNoticeVisible: Boolean = false,
 )
 
 sealed interface GuidanceEvent {

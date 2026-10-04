@@ -13,6 +13,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Never declared, even by a library (AC 8). -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
+    <!-- NAV-012 AC 25, 48 (ADR-0013 §9): asserted absent so no library can merge them in. Calls are detected from the
+         audio mode, never the phone state; prompts never pick an output device; no restart after a reboot; no battery
+         exemption dialog; no overlay; no wake lock (location FGS callbacks keep guidance running). -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" tools:node="remove" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" tools:node="remove" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="remove" />
 
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
@@ -41,11 +51,18 @@
             </intent-filter>
         </activity>
 
+        <!-- NAV-012 AC 13: stopWithTask=false and onTaskRemoved keep guidance after a swipe-away; START_STICKY while
+             guiding (ADR-0013 §2). -->
         <service
             android:name=".service.GuidanceForegroundService"
             android:exported="false"
             android:foregroundServiceType="location"
             android:stopWithTask="false" />
+
+        <!-- NAV-012 AC 22: «Дуусгах» on the «Замчлал тасарлаа» notification (explicit broadcast only). -->
+        <receiver
+            android:name=".background.restore.InterruptedEndReceiver"
+            android:exported="false" />
 
         <!-- Per-app language storage for API < 33 (ADR-0009 §8). -->
         <service

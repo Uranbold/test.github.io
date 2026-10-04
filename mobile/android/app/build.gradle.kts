@@ -16,6 +16,8 @@ val webDir: File = repoRoot.resolve("web")
 val tokensFile: File = repoRoot.resolve("docs/design/tokens.json")
 val glossaryFile: File = repoRoot.resolve("docs/requirements/glossary.md")
 val maneuverFixture: File = webDir.resolve("src/route/maneuvers.fixture.json")
+// NAV-011 AC 5 / ADR-0012 §2: the shared ADR-0006 query-assistance vectors (read by web and Android tests).
+val queryPlanVectors: File = webDir.resolve("src/search/queryPlan.vectors.json")
 
 // ------------------------------------------------------------------------------------------------ gateway URL (A7)
 // ADR-0009 §11: Gradle property nav.gatewayBaseUrl → env NAV_GATEWAY_BASE_URL → uncommitted gateway.local.properties
@@ -235,6 +237,7 @@ androidComponents {
 val sharedTestResourcesDir = layout.buildDirectory.dir("generated/sharedTestResources")
 val syncSharedTestResources by tasks.registering(Sync::class) {
     from(maneuverFixture) { into("shared") }
+    from(queryPlanVectors) { into("shared") }
     from(glossaryFile) { into("shared") }
     from(tokensFile) { into("shared") }
     into(sharedTestResourcesDir)

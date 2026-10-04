@@ -204,16 +204,35 @@ class Replay(
                 } ?: ""
                 )
             is Banner.Arrival -> BannerText.text(b.key, l, strings)
+            Banner.Restoring -> strings[StringKey.STATUS_LOADING] // NAV-012 restoring banner
         }
     }
 
-    /** Starts with the first fix, then plays [fixes] (including the first) and [tailMs] more of ticks. */
-    fun run(fixes: List<Fix>, tailMs: Long = 5_000, networkChanges: Map<Long, Boolean> = emptyMap()) {
-        require(fixes.isNotEmpty())
-        clock.now = fixes.first().elapsedMs
-        core.start(fixes.first())
-        val end = fixes.last().elapsedMs + tailMs
-        var i = 1
+    /**
+     * Starts with the first fix, then plays [fixes] (including the first) and [tailMs] more of ticks. NAV-012:
+     * [restoredAt] ≠ null starts a restored session at that time instead ([GuidanceCore.startRestored]); every fix,
+     * including the first, is then delivered as an update.
+     */
+    fun run(
+        fixes: List<Fix>,
+        tailMs: Long = 5_000,
+        networkChanges: Map<Long, Boolean> = emptyMap(),
+        restoredAt: Long? = null,
+        callSignals: Map<Long, Boolean> = emptyMap(),
+    ) {
+        require(fixes.isNotEmpty() || restoredAt != null)
+        val i0: Int
+        if (restoredAt != null) {
+            clock.now = restoredAt
+            core.startRestored(showNotice = true)
+            i0 = 0
+        } else {
+            clock.now = fixes.first().elapsedMs
+            core.start(fixes.first())
+            i0 = 1
+        }
+        val end = (fixes.lastOrNull()?.elapsedMs ?: clock.now) + tailMs
+        var i = i0
         var t = clock.now
         while (t <= end) {
             clock.now = t
@@ -223,6 +242,7 @@ class Replay(
             val due = pendingResults.filter { it.first <= t }
             pendingResults.removeAll { it.first <= t }
             for ((_, id, compute) in due) callbacks.remove(id)?.invoke(compute())
+            callSignals[t]?.let { core.onCallSignal(it) }
             while (i < fixes.size && fixes[i].elapsedMs <= t) core.onFix(fixes[i++])
             if (t % 500 == 0L) core.onTick()
             t += 100

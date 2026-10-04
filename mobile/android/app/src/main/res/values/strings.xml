@@ -50,6 +50,15 @@
     <string name="route_unavailable">Маршрутын үйлчилгээ түр ажиллахгүй байна</string>
     <string name="route_rate_limited">Түр хүлээгээд дахин оролдоно уу</string>
     <string name="route_snap_notice">Хамгийн ойрын зам сонгосон цэгээс {distance} зайтай</string>
+    <!-- NAV-011 (route preview and search parity). K1–K3 (typing_lock_*) are glossary 2.4, needs native review. -->
+    <string name="route_mode_bike">Дугуй</string>
+    <string name="route_options">Маршрут сонгох</string>
+    <string name="route_option">Маршрут {n}</string>
+    <string name="route_alternative">Өөр маршрут</string>
+    <string name="place_nearest">Ойролцоох газар</string>
+    <string name="typing_lock_title">Хөдөлж байх үед бичих боломжгүй</string>
+    <string name="typing_lock_hint">Жолооч бол зогсоод хайна уу</string>
+    <string name="typing_lock_passenger">Би зорчигч</string>
     <!-- Guidance screen, notification channel and title -->
     <string name="nav_name">Замчлал</string>
     <string name="nav_start">Эхлэх</string>
@@ -188,4 +197,10 @@
     <string name="place_type_road">Зам</string>
     <string name="place_type_address">Хаяг</string>
     <string name="place_type_place">Газар</string>
+    <!-- NAV-012 (background and lock screen): glossary 2.5 B1–B5, needs native review. -->
+    <string name="battery_restrictions">Батарейн хязгаарлалт</string>
+    <string name="battery_hint">Батарей хэмнэх тохиргоо замчлалыг зогсоож болзошгүй. Утасны тохиргоонд батарейн хязгаарлалтыг унтраана уу.</string>
+    <string name="nav_resumed">Замчлал сэргэлээ</string>
+    <string name="nav_interrupted_title">Замчлал тасарлаа</string>
+    <string name="nav_interrupted_text">Үргэлжлүүлэхийн тулд дарна уу</string>
 </resources>

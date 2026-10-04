@@ -1,9 +1,9 @@
 // Voice, chime and the iOS audio unlock for the demo replay (NAV-017 AC 27–31, 15, 39; ADR-0011 §7; navigation-ux
 // §11.4–11.5). Browser objects are injected, so Vitest runs this with stubbed speechSynthesis and Web Audio.
 //  - Voice decision: a voice is usable only if speechSynthesis exists and, within 3 s (voiceschanged and a 250 ms poll,
-//    because older iOS does not fire voiceschanged reliably), getVoices() has one whose lang matches ^mn([-_]|$) for the
-//    Mongolian UI or ^en([-_]|$) for English (en-US preferred). Mongolian text is never given to another voice. The
-//    voice found is never stored or sent.
+//    because older iOS does not fire voiceschanged reliably), getVoices() has a local voice (localService === true,
+//    D78) whose lang matches ^mn([-_]|$) for the Mongolian UI or ^en([-_]|$) for English (en-US preferred). Online
+//    voices are ignored. Mongolian text is never given to another voice. The voice found is never stored or sent.
 //  - Speech: one utterance at a time with a strong reference; voice, lang, rate, pitch and volume set explicitly; a
 //    prompt not started within 3 s is cancelled and dropped; a watchdog ends an utterance that never fires end/error.
 //    An error that we did not cause switches to the chime for the rest of the replay.
@@ -11,6 +11,7 @@
 //    peak gain 0.71 ≈ −3 dBFS, ≈ 330 ms). No sound file, no licence.
 import type { Lang } from "../i18n/i18n";
 import type { Speaker, SpokenPrompt } from "../guidance/playbackQueue";
+import { SpeechEventLog } from "./speechLog";
 
 export const VOICE_WAIT_MS = 3_000;
 export const VOICE_POLL_MS = 250;
@@ -23,16 +24,20 @@ export const MUTE_KEY = "navmn.voiceMuted";
 
 const LANG_RE: Record<Lang, RegExp> = { mn: /^mn([-_]|$)/i, en: /^en([-_]|$)/i };
 
-/**
- * AC 28 in one function. D78 (only `localService === true` voices) is decided but reaches AC 28 only through triage
- * (spike follow-up F1); when it does, add `&& v.localService` here.
- */
-export function isUsableVoice(v: Pick<SpeechSynthesisVoice, "lang">, lang: Lang): boolean {
+type VoiceInfo = Pick<SpeechSynthesisVoice, "lang" | "localService">;
+
+/** The AC 28 language rule alone (the diagnostics panel counts online voices that match it). */
+export function matchesLang(v: Pick<SpeechSynthesisVoice, "lang">, lang: Lang): boolean {
   return LANG_RE[lang].test(v.lang ?? "");
 }
 
+/** AC 28 in one function, with PO decision D78 (triage item F1): only local voices (`localService === true`) count. */
+export function isUsableVoice(v: VoiceInfo, lang: Lang): boolean {
+  return matchesLang(v, lang) && v.localService === true;
+}
+
 /** The voice for a UI language, or null. English prefers en-US. */
-export function chooseVoice<V extends Pick<SpeechSynthesisVoice, "lang">>(voices: readonly V[], lang: Lang): V | null {
+export function chooseVoice<V extends VoiceInfo>(voices: readonly V[], lang: Lang): V | null {
   const usable = voices.filter((v) => isUsableVoice(v, lang));
   if (lang === "en") return usable.find((v) => /^en[-_]us$/i.test(v.lang)) ?? usable[0] ?? null;
   return usable[0] ?? null;
@@ -49,6 +54,8 @@ export interface AudioEnv {
   AudioContext?: typeof AudioContext | undefined;
   timers: Timers;
   storage?: Pick<Storage, "getItem" | "setItem"> | undefined;
+  /** Page clock for the diagnostics event log (default performance.now()). */
+  now?: () => number;
 }
 
 /** Waits up to 3 s for a non-empty voice list. Resolves with whatever is there then (maybe empty). */
@@ -108,6 +115,41 @@ export interface SpeakerCallbacks {
   fallback(): void;
 }
 
+export type VoiceDecision =
+  | { state: "pending"; reason: string }
+  | { state: "voice"; lang: Lang; voiceName: string; reason: string }
+  | { state: "chime"; reason: string };
+
+/**
+ * AC 28/29 decision of one UI language as the diagnostics panel shows it (pending / mn voice / en voice / chime
+ * fallback, with the reason). Same conditions as AudioOut.speaks(); the counts explain an empty result.
+ */
+export function describeVoiceDecision(i: {
+  lang: Lang;
+  hasSynth: boolean;
+  hasUtterance: boolean;
+  /** AudioOut.voiceFor(lang): undefined = still deciding. */
+  voice: (VoiceInfo & { name?: string }) | null | undefined;
+  failed: boolean;
+  failCode: string | null;
+  /** The current getVoices() list. */
+  voices: readonly VoiceInfo[];
+}): VoiceDecision {
+  if (!i.hasSynth) return { state: "chime", reason: "speechSynthesis is missing in this browser" };
+  if (!i.hasUtterance) return { state: "chime", reason: "SpeechSynthesisUtterance is missing in this browser" };
+  if (i.voice === undefined) return { state: "pending", reason: "voice decision not finished (waits up to 3 s for the voice list)" };
+  if (i.failed) return { state: "chime", reason: `speech error in this replay (${i.failCode ?? "unknown"}): chime for the rest of the replay` };
+  if (i.voice) return { state: "voice", lang: i.lang, voiceName: i.voice.name ?? "", reason: `local voice "${i.voice.name ?? ""}" (${i.voice.lang})` };
+  const matching = i.voices.filter((v) => matchesLang(v, i.lang));
+  const online = matching.filter((v) => v.localService !== true).length;
+  const pattern = i.lang === "mn" ? "^mn([-_]|$)" : "^en([-_]|$)";
+  if (i.voices.length === 0) return { state: "chime", reason: "the voice list was empty when the decision ended" };
+  return {
+    state: "chime",
+    reason: `no local voice with lang ${pattern}` + (online > 0 ? `; ${online} online voice(s) ignored (D78: local voices only)` : ""),
+  };
+}
+
 /**
  * Audio output of one page: the voice decisions, one AudioContext and the playback of one prompt at a time.
  * `speaker(cb)` gives the Speaker the guidance core uses for one replay.
@@ -124,8 +166,55 @@ export class AudioOut {
   private cb: SpeakerCallbacks | null = null;
   /** Counters for tests and the real-iPhone checklist (never persisted). */
   readonly stats = { utterances: 0, chimes: 0 };
+  /** Last speech and chime events, memory only (diagnostics panel, triage item F1). */
+  readonly log: SpeechEventLog;
+  /** Read-only facts for the diagnostics panel. Observing only: nothing here changes what is played. */
+  private readonly diag = { unlockRan: false, unlockError: null as string | null, failCode: null as string | null };
 
-  constructor(private readonly env: AudioEnv) {}
+  constructor(private readonly env: AudioEnv) {
+    this.log = new SpeechEventLog(env.now ?? (() => (typeof performance === "undefined" ? 0 : performance.now())));
+  }
+
+  /** Diagnostics: AudioContext state, whether the silent-buffer unlock ran, speech priming and the replay failure. */
+  diagnostics(): { context: AudioContextState | "not created" | "unavailable"; unlockRan: boolean; unlockError: string | null; speechPrimed: boolean; failed: boolean; failCode: string | null } {
+    return {
+      context: this.ctx ? this.ctx.state : this.env.AudioContext ? "not created" : "unavailable",
+      unlockRan: this.diag.unlockRan,
+      unlockError: this.diag.unlockError,
+      speechPrimed: this.speechPrimed,
+      failed: this.failed,
+      failCode: this.diag.failCode,
+    };
+  }
+
+  /** AC 28 state of `lang` for the diagnostics panel; mirrors speaks(). */
+  decision(lang: Lang, voices: readonly VoiceInfo[]): VoiceDecision {
+    return describeVoiceDecision({
+      lang,
+      hasSynth: !!this.env.speechSynthesis,
+      hasUtterance: !!this.env.SpeechSynthesisUtterance,
+      voice: this.voiceFor(lang),
+      failed: this.failed,
+      failCode: this.diag.failCode,
+      voices,
+    });
+  }
+
+  /**
+   * Diagnostics "Test chime" (inside its own tap handler): create or resume the AudioContext and play the §4.8 chime
+   * once. Not counted in `stats`, not part of a replay. Resolves when resume() settles.
+   */
+  testChime(): { played: boolean; resumed: Promise<void> } {
+    const ctx = this.context();
+    let resumed: Promise<void> = Promise.resolve();
+    try {
+      resumed = ctx?.resume ? ctx.resume().catch(() => undefined) : Promise.resolve();
+    } catch {
+      // resume() unavailable: play anyway
+    }
+    playChime(ctx);
+    return { played: !!ctx, resumed };
+  }
 
   /** AC 28: decide for both UI languages (cheap: one voice list). Re-run on a language change. */
   decide(): Promise<void> {
@@ -149,6 +238,7 @@ export class AudioOut {
   /** New replay: a speech error of an earlier replay no longer applies. */
   resetReplay(): void {
     this.failed = false;
+    this.diag.failCode = null;
   }
 
   get fallbackActive(): boolean {
@@ -173,8 +263,10 @@ export class AudioOut {
         src.buffer = buf;
         src.connect(ctx.destination);
         src.start(0);
-      } catch {
+        this.diag.unlockRan = true;
+      } catch (e) {
         // no Web Audio: speech or nothing
+        this.diag.unlockError = e instanceof Error ? e.name : "error";
       }
     }
     if (this.env.speechSynthesis) this.env.speechSynthesis.cancel();
@@ -197,6 +289,10 @@ export class AudioOut {
     if (this.speechPrimed || !this.env.SpeechSynthesisUtterance || !this.env.speechSynthesis || this.current) return;
     const u = new this.env.SpeechSynthesisUtterance("");
     u.volume = 0;
+    u.onstart = () => this.log.add({ kind: "start", prime: true });
+    u.onend = () => this.log.add({ kind: "end", prime: true });
+    u.onerror = (e: SpeechSynthesisErrorEvent) => this.log.add({ kind: "error", code: e.error, prime: true });
+    this.log.add({ kind: "speak", text: "", lang: "", voice: null, prime: true });
     this.env.speechSynthesis.speak(u);
     this.speechPrimed = true;
   }
@@ -267,17 +363,21 @@ export class AudioOut {
     let started = false;
     u.onstart = () => {
       started = true;
+      this.log.add({ kind: "start" });
     };
     u.onend = () => {
+      this.log.add({ kind: "end" });
       if (!c.cancelled) this.finish(p.id);
     };
     u.onerror = (e: SpeechSynthesisErrorEvent) => {
+      this.log.add({ kind: "error", code: e.error });
       if (c.cancelled || e.error === "interrupted" || e.error === "canceled") {
         if (!c.cancelled) this.finish(p.id);
         return;
       }
       // AC 29: the rest of the replay uses the chime; this prompt becomes a chime too.
       this.failed = true;
+      this.diag.failCode = e.error ?? "error";
       this.cb?.fallback();
       if (this.current === c) {
         this.current = null;
@@ -288,6 +388,7 @@ export class AudioOut {
     c.timers.push(
       this.env.timers.setTimeout(() => {
         if (!started && this.current === c) {
+          this.log.add({ kind: "no-start" });
           c.cancelled = true;
           synth.cancel();
           this.finish(p.id);
@@ -295,6 +396,7 @@ export class AudioOut {
       }, START_TIMEOUT_MS),
       this.env.timers.setTimeout(() => {
         if (this.current === c) {
+          this.log.add({ kind: "watchdog" });
           c.cancelled = true;
           synth.cancel();
           this.finish(p.id);
@@ -303,6 +405,7 @@ export class AudioOut {
     );
     this.speechPrimed = true;
     this.stats.utterances++;
+    this.log.add({ kind: "speak", text: p.text, lang: u.lang, voice: voice.name ?? null });
     synth.speak(u);
   }
 
@@ -311,6 +414,7 @@ export class AudioOut {
     this.current = c;
     c.chime = playChime(this.context());
     this.stats.chimes++;
+    this.log.add({ kind: "chime" });
     c.timers.push(this.env.timers.setTimeout(() => this.finish(p.id), CHIME_MS));
   }
 }

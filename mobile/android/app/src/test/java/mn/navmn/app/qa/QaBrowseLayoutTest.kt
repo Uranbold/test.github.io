@@ -66,12 +66,14 @@ class QaBrowseLayoutTest {
     }
     private val dest = Destination(P3, "Зайсан толгой")
 
-    private fun model(lang: Lang, preview: PreviewState? = null, card: LatLon? = null, search: SearchView = SearchView.Closed, query: String = "", problem: LocationProblem? = null, offline: Boolean = false) =
-        BrowseModel(lang, query, search, card, preview, problem, false, offline, 0.0, false)
+    // NAV-011 (story AC 40, Context table: NAV-005 AC 5/6 layout replaced): the preview is a draggable sheet; the
+    // points block and the avoid switch are in its expanded part, so the "preview route" case renders it expanded.
+    private fun model(lang: Lang, preview: PreviewState? = null, card: LatLon? = null, search: SearchView = SearchView.Closed, query: String = "", problem: LocationProblem? = null, offline: Boolean = false, expanded: Boolean = false) =
+        BrowseModel(lang, query, search, card, preview, problem, false, offline, 0.0, false, sheetExpanded = expanded)
 
     private fun cases(lang: Lang): List<Pair<String, BrowseModel>> {
         val info = PlaceDisplay.Info("Сүхбаатарын талбай", StringKey.entries.first { it.resName.startsWith("place_type_") }, "Чингэлтэй дүүрэг", P1)
-        fun pv(r: PreviewResult, mode: TravelMode = TravelMode.CAR, avoid: Boolean = false) = model(lang, PreviewState(dest, mode, avoid, null, r))
+        fun pv(r: PreviewResult, mode: TravelMode = TravelMode.CAR, avoid: Boolean = false, expanded: Boolean = false) = model(lang, PreviewState(dest, mode, avoid, null, r), expanded = expanded)
         return listOf(
             "map" to model(lang),
             "map offline" to model(lang, offline = true),
@@ -81,7 +83,8 @@ class QaBrowseLayoutTest {
             "search unavailable" to model(lang, search = SearchView.Unavailable, query = "Сүхбаатар"),
             "coordinate card" to model(lang, card = LatLon(47.9600123, 106.9000456)),
             "preview loading" to pv(PreviewResult.Loading),
-            "preview route" to pv(PreviewResult.Route(route, 1_790_000_000_000L)),
+            "preview route" to pv(PreviewResult.Route(route, 1_790_000_000_000L), expanded = true),
+            "preview route collapsed" to pv(PreviewResult.Route(route, 1_790_000_000_000L)),
             "preview route snap 640 m" to pv(PreviewResult.Route(farRoute, 1_790_000_000_000L)),
             "preview walk route" to pv(PreviewResult.Route(route, 1_790_000_000_000L), TravelMode.WALK),
             "preview no route avoid" to pv(PreviewResult.NoRoute(true), avoid = true),
@@ -105,6 +108,7 @@ class QaBrowseLayoutTest {
         "coordinate card" to listOf("Сонгосон цэг", "Маршрут гаргах", "47.96001", "106.90005"),
         "preview loading" to listOf("Ачаалж байна…"),
         "preview route" to listOf("Эхлэх", "Миний байршил", "Машин", "Явган", "Шороон замаас зайлсхийх", "Хүрэх цаг"),
+        "preview route collapsed" to listOf("Эхлэх", "Машин", "Явган", "Дугуй", "Хүрэх цаг", "Очих газар: Зайсан толгой"),
         "preview route snap 640 m" to listOf("Хамгийн ойрын зам сонгосон цэгээс 640 м зайтай"),
         "preview no route avoid" to listOf("Маршрут олдсонгүй"),
         "preview unavailable" to listOf("Маршрутын үйлчилгээ түр ажиллахгүй байна", "Дахин оролдох"),

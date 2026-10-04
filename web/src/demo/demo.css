@@ -732,3 +732,123 @@ body {
     border: 1px solid CanvasText;
   }
 }
+
+/* Hidden voice diagnostics (triage item F1, src/demo/diagnostics.ts): an internal full-screen sheet, not a map screen.
+   The openers (picker heading, badge) get no double-tap zoom, and the badge no text selection or callout, so the
+   5-tap burst and the 1.5 s press reach the page on iPhone Safari. Nothing else about them changes. */
+.demo-diag-trigger {
+  touch-action: manipulation;
+}
+.dn-badge.demo-diag-trigger {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.demo-diag {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  background: var(--ui-surface);
+  color: var(--ui-on-surface);
+}
+.demo-diag[hidden] {
+  display: none;
+}
+.demo-diag-inner {
+  box-sizing: border-box;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: calc(12px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom))
+    calc(16px + env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.demo-diag-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.demo-diag-title {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+.demo-diag-title:focus {
+  outline: none;
+}
+.demo-diag-note {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--ui-on-surface-variant);
+}
+.demo-diag-tests {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.demo-diag-test,
+.demo-diag-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+.demo-diag-btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 16px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--ui-outline);
+  background: var(--ui-surface);
+  color: var(--ui-primary);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.demo-diag-btn.primary {
+  background: var(--ui-primary);
+  color: var(--ui-on-primary);
+  border-color: var(--ui-primary);
+}
+.demo-diag-btn:focus-visible {
+  outline: var(--size-focus-ring-width) solid var(--ui-focus-ring);
+  outline-offset: 2px;
+}
+.demo-diag-result,
+.demo-diag-copy-status {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  overflow-wrap: anywhere;
+}
+.demo-diag-report {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--ui-outline-variant);
+  border-radius: var(--radius-md);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.demo-diag-copy-buffer {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+  opacity: 0;
+}
+@media (forced-colors: active) {
+  .demo-diag-btn {
+    border: 1px solid ButtonText;
+  }
+}

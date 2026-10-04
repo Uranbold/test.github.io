@@ -38,6 +38,13 @@ data class MapContent(
     /** S1 location dot (§7), not during guidance. */
     val myLocation: LatLon? = null,
     val myLocationStale: Boolean = false,
+    /**
+     * NAV-011 preview (map-style §7.6): position of [route] (the selected line) in the parsed routes list
+     * (`PreviewResult.Route.routes`), and the unselected routes as (position in that list, geometry). Not the Valhalla
+     * response index: the parser may drop routes, so the two can differ.
+     */
+    val routeIndex: Int = 0,
+    val alternatives: List<Pair<Int, List<LatLon>>> = emptyList(),
 )
 
 /**
@@ -90,7 +97,17 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         } else {
             FeatureCollection.fromFeatures(emptyList())
         }
+        routeFc.features()?.firstOrNull()?.addNumberProperty(PROP_INDEX, c.routeIndex)
         (s.getSourceAs<GeoJsonSource>(SRC_ROUTE))?.setGeoJson(routeFc)
+        // NAV-011 §7.6: unselected preview routes below the selected line; selecting only rewrites the sources.
+        val alts = if (c.guidance) emptyList() else c.alternatives.filter { it.second.size >= 2 }
+        s.getSourceAs<GeoJsonSource>(SRC_ALT)?.setGeoJson(
+            FeatureCollection.fromFeatures(
+                alts.map { (i, line) ->
+                    Feature.fromGeometry(LineString.fromLngLats(line.map { Point.fromLngLat(it.lon, it.lat) })).apply { addNumberProperty(PROP_INDEX, i) }
+                },
+            ),
+        )
         val showSel = !c.routeDimmed
         visible(s, L_SEL_CASING, showSel && !c.guidance)
         visible(s, L_SEL, showSel && !c.guidance)
@@ -136,11 +153,34 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         PropertyFactory.visibility(Property.NONE),
     )
 
+    private fun altLine(id: String, colour: Long, width: Expression): LineLayer = LineLayer(id, SRC_ALT).withProperties(
+        PropertyFactory.lineColor(argb(colour)),
+        PropertyFactory.lineWidth(width),
+        PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+    )
+
+    /**
+     * NAV-011 AC 17 / map-style §7.6: the [PROP_INDEX] values (positions in the parsed routes list, not Valhalla
+     * indices) of the routes drawn inside a [boxPx] × [boxPx] box centred on
+     * the screen point ([x], [y]) (alternative and selected preview layers). Empty when nothing is hit.
+     */
+    fun routeIndicesAt(x: Float, y: Float, boxPx: Float): List<Int> {
+        val m = map ?: return emptyList()
+        if (style == null) return emptyList()
+        val h = boxPx / 2
+        return runCatching {
+            m.queryRenderedFeatures(android.graphics.RectF(x - h, y - h, x + h, y + h), L_ALT, L_ALT_CASING, L_SEL, L_SEL_CASING)
+                .mapNotNull { f -> if (f.hasProperty(PROP_INDEX)) f.getNumberProperty(PROP_INDEX)?.toInt() else null }
+                .distinct()
+        }.getOrDefault(emptyList())
+    }
+
     /** Our sources and layers, below the first symbol layer (street names stay readable, §7.2/§7.4). */
     private fun addOverlay(s: Style) {
         val c = colours ?: return
         val d = context.resources.displayMetrics.density
-        listOf(SRC_ROUTE, SRC_PIN, SRC_CANDIDATE, SRC_DOT, SRC_PUCK).forEach { s.addSource(GeoJsonSource(it)) }
+        listOf(SRC_ROUTE, SRC_ALT, SRC_PIN, SRC_CANDIDATE, SRC_DOT, SRC_PUCK).forEach { s.addSource(GeoJsonSource(it)) }
         s.addImage(IMG_PUCK, MapBitmaps.puck(d, c, stale = false))
         s.addImage(IMG_PUCK_STALE, MapBitmaps.puck(d, c, stale = true))
         s.addImage(IMG_PIN, MapBitmaps.pin(d, c, candidate = false))
@@ -150,6 +190,9 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         // §7.2 preview widths (z5/10/14/18) and §7.4 guidance widths (z12/15/18).
         below(line(L_OLD_CASING, c.routeAlternativeCasing, widths(12f to 6f, 15f to 9f, 18f to 12f)))
         below(line(L_OLD, c.routeAlternative, widths(12f to 4f, 15f to 6f, 18f to 9f)))
+        // NAV-011 §7.6: alternatives (§7.2 widths in dp, ≥ 2 dp narrower than the selected line), always visible.
+        below(altLine(L_ALT_CASING, c.routeAlternativeCasing, widths(5f to 4f, 10f to 6f, 14f to 8f, 18f to 11f)))
+        below(altLine(L_ALT, c.routeAlternative, widths(5f to 2f, 10f to 4f, 14f to 6f, 18f to 9f)))
         below(line(L_SEL_CASING, c.routeSelectedCasing, widths(5f to 8f, 10f to 10f, 14f to 12f, 18f to 16f)))
         below(line(L_SEL, c.routeSelected, widths(5f to 4f, 10f to 6f, 14f to 8f, 18f to 12f)))
         below(line(L_GUIDE_CASING, c.routeSelectedCasing, widths(12f to 10f, 15f to 14f, 18f to 18f)))
@@ -198,12 +241,20 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
         m.easeCamera(CameraUpdateFactory.newCameraPosition(b.build()), durationMs)
     }
 
-    /** NAV-004 camera rule in the preview: fit the route above the sheet (padding = sheet + 40 dp). */
+    /**
+     * NAV-004 camera rule in the preview: fit the route above the sheet (padding = sheet + 40 dp). NAV-011 AC 16 /
+     * ADR-0012 §5.4: zoom at most [MAX_FIT_ZOOM]; when the padding leaves no room, the caller passes 40 dp all round.
+     */
     override fun fit(points: List<LatLon>, left: Int, top: Int, right: Int, bottom: Int) {
         val m = map ?: return
         if (points.size < 2) return
         val bounds = LatLngBounds.Builder().includes(points.map { LatLng(it.lat, it.lon) }).build()
-        m.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, left, top, right, bottom), 300)
+        val target = runCatching { m.getCameraForLatLngBounds(bounds, intArrayOf(left, top, right, bottom)) }.getOrNull()
+        if (target != null && target.zoom > MAX_FIT_ZOOM) {
+            m.easeCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(target).zoom(MAX_FIT_ZOOM).build()), 300)
+        } else {
+            m.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, left, top, right, bottom), 300)
+        }
     }
 
     /** navigation-ux §8 follow camera; [animate] false with reduced motion. */
@@ -232,9 +283,17 @@ class NavMapController(private val context: Context, val mapView: MapView) : Map
     override val center: LatLon? get() = map?.cameraPosition?.target?.let { LatLon(it.latitude, it.longitude) }
     override val zoom: Double get() = map?.cameraPosition?.zoom ?: 12.0
     override val heightPx: Int get() = mapView.height
+    override val widthPx: Int get() = mapView.width
 
     companion object {
         const val SRC_ROUTE = "nav-route"
+        /** NAV-011 §7.6: unselected preview routes (property [PROP_INDEX] = position in the parsed routes list). */
+        const val SRC_ALT = "nav-route-alt"
+        const val L_ALT_CASING = "nav-route-alt-casing"
+        const val L_ALT = "nav-route-alt"
+        /** Route feature property: the route's position in the parsed routes list (`PreviewResult.Route.routes`), not the Valhalla index. */
+        const val PROP_INDEX = "index"
+        const val MAX_FIT_ZOOM = 17.0
         const val SRC_PIN = "nav-pin"
         const val SRC_CANDIDATE = "nav-candidate"
         const val SRC_DOT = "nav-location"
