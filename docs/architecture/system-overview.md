@@ -15,6 +15,7 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0013: Android background guidance, restore and lock screen (NAV-012)
 - ADR-0014: daily rebuild slots and pointer switch (NAV-006)
 - ADR-0015: Android route preview points (chosen start, swap) and turn list (NAV-018)
+- ADR-0016: Android demo build (offline replay through the real guidance engine, NAV-019)
 
 HTTP contract: `api/openapi.yaml` 0.5.5.
 
@@ -256,6 +257,28 @@ flowchart LR
 - **Build inputs (read-only):** the recorded responses under `mobile/android/app/src/test/resources/routes/`, the GPX tracks under `tests/gpx/nav005/`, and the manifest `web/src/demo/routes.manifest.json`. The cross-platform guard is `tests/gpx/nav005/golden/voice-golden.tsv`, the same file the Android client is tested against.
 - **Hosts at runtime:** the page origin only. The demo folder serves the app and data, and the origin root serves the public tile archive. No other host is contacted, and there is no service worker.
 - **Deployment:** manual upload of the build output's contents. After every upload, three checks: 401 without credentials, 200 with them, and 206 for the archive Range request (NAV-017 AC 5). Re-uploading the public site must not delete the demo folder.
+
+## 1e. Android demo build (NAV-019, ADR-0016)
+
+A third Android build type, `demo` (`mn.navmn.app.demo`, launcher label «Туршилтын горим», signed with the local debug key, not debuggable). It is installed next to the debug app and given to the PO by direct file transfer only (D17). It replays the three NAV-017 routes (R1–R3) through the **unchanged** NAV-005 guidance engine, service, notification and lock-screen path. Only three things are replaced: the location source (recorded GPX at track time), the engine clock (replay time, frozen while paused) and the HTTP layer (blocked in-process). It has **no backend** and contacts no host.
+
+```mermaid
+flowchart LR
+  subgraph Phone["PO Android phone"]
+    A["demo APK<br/>assets: routes.manifest.json, 3 route JSON, 3 GPX, basemap.pmtiles"]
+    C["no_backup/demo-tiles/*.pmtiles<br/>(one-time copy)"]
+    E["GuidanceEngine + Ferrostar 0.57.0 (unchanged)"]
+    R["ReplayLocationSource"]
+    M["MapLibre 13.6.1<br/>pmtiles://file://"]
+  end
+  A -->|copy| C --> M
+  A --> R --> E
+  E -.->|"route / search / reverse: in-process IOException, 0 requests"| X((none))
+```
+
+- **Build inputs (read-only, copied at build time):** `web/src/demo/routes.manifest.json`, the recorded responses under `mobile/android/app/src/test/resources/routes/`, the GPX tracks under `tests/gpx/nav005/`, and a local tile archive named by `nav.demoTilesFile` (or an `https` archive URL in `nav.demoTilesUrl`). The property values are never committed.
+- **Hosts at runtime:** none with `nav.demoTilesFile`. With `nav.demoTilesUrl`, only HTTP Range requests to that archive.
+- **Contract:** none used; `openapi.yaml` unchanged.
 
 ## 2. Path map (symbolic names from NAV-001)
 

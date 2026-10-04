@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAV-019 Android demo wireframe</title>
+<!--
+  Static wireframe of the NAV-019 Android demo build deltas (owner: ux-designer). Checks the DESIGN, not the app.
+  1 CSS px = 1 dp. Hash parameters: state, theme (day|night), lang (mn|en), scale (1|1.3|2 = Android font scale),
+  font (narrow|wide), toolbar (0|1). Example: #state=paused&theme=night&lang=mn&scale=2
+  Only what NAV-019 adds is drawn in detail: the route picker (P1), the demo badge on the preview, the demo row
+  (badge + «Түр зогсоох» / «Үргэлжлүүлэх») on guidance and arrival, and the demo-mode unavailable state in the preview.
+  The preview sheet is a simplified NAV-018 collapsed sheet (NAV-018-android-points.html stays authoritative for it);
+  banner, progress panel, control pair, recenter and voice notice are copied from NAV-005-guidance.html.
+  Spec: docs/design/screens/android-demo-picker.md. Colours copied from docs/design/tokens.json v0.6.1 (tokens.json wins).
+-->
+<style>
+  :root { --fs: 1; --fsB: 1; --fsD: 1; --fsP: 1; --font: "Liberation Sans", Roboto, sans-serif; }
+  :root[data-theme="day"] {
+    --surface: #FFFFFF; --surface-container: #F1F3F4; --on-surface: #1F1F1F; --on-surface-variant: #444746;
+    --outline: #747775; --outline-variant: #C4C7C5; --primary: #0B57D0; --on-primary: #FFFFFF;
+    --primary-container: #D3E3FD; --on-primary-container: #041E49; --error: #B3261E;
+    --message-surface: #303030; --on-message-surface: #F2F2F2; --message-outline: #303030;
+    --banner: #0F6B45; --on-banner: #FFFFFF; --on-banner-variant: #D2EBDD; --banner-outline: #0F6B45;
+    --banner-then: #0A5234; --banner-reroute: #3C4043; --on-banner-reroute-variant: #D7DADD;
+    --earth: #F3F0EA; --water: #A8CDEE; --major: #FFFFFF; --major-casing: #C9C2B5;
+    --route: #1967D2; --route-casing: #0B3D91; --puck: #1A73E8; --puck-stroke: #FFFFFF; --puck-outline: #0B3D91;
+    --pin: #C5221F; --disabled: rgba(31,31,31,.38);
+    --badge: #FDE293; --on-badge: #3C2F00; --badge-outline: #8A6D00;
+  }
+  :root[data-theme="night"] {
+    --surface: #1F2733; --surface-container: #27303D; --on-surface: #E3E6EA; --on-surface-variant: #B9C0CA;
+    --outline: #8B94A1; --outline-variant: #3F4957; --primary: #A8C7FA; --on-primary: #062E6F;
+    --primary-container: #0B3D8C; --on-primary-container: #D3E3FD; --error: #F2B8B5;
+    --message-surface: #2E3846; --on-message-surface: #E3E6EA; --message-outline: #6E7A8C;
+    --banner: #123D2C; --on-banner: #E3E6EA; --on-banner-variant: #B7D3C5; --banner-outline: #3E7A5E;
+    --banner-then: #0C2D20; --banner-reroute: #2E3846; --on-banner-reroute-variant: #B9C0CA;
+    --earth: #18202B; --water: #0B2238; --major: #4A5566; --major-casing: #10151C;
+    --route: #8AB4F8; --route-casing: #10151C; --puck: #E8EAED; --puck-stroke: #10151C; --puck-outline: #10151C;
+    --pin: #F28B82; --disabled: rgba(227,230,234,.38);
+    --badge: #3D3200; --on-badge: #F5DD8C; --badge-outline: #8A7A3C;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: var(--font); background: var(--earth); color: var(--on-surface); font-size: calc(14px * var(--fs)); line-height: 1.43; }
+  #toolbar { position: fixed; z-index: 99; top: 0; left: 0; right: 0; font: 12px sans-serif; background: #fffd; padding: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+  #toolbar[hidden], [hidden] { display: none !important; }
+
+  /* Screen = system bars + app. Portrait: status bar 24dp, 3-button navigation bar 48dp (worst case). */
+  #screen { position: absolute; inset: 0; display: grid; grid-template-rows: 24px minmax(0,1fr) 48px; }
+  :root[data-orient="land"] #screen { grid-template-rows: 24px minmax(0,1fr) 24px; }
+  #app { position: relative; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,auto) minmax(0,1fr) auto auto; min-height: 0; }
+  :root[data-orient="land"] #app { grid-template-columns: clamp(320px, 40%, 400px) minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto auto; }
+  #map { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+  #map svg { width: 100%; height: 100%; display: block; }
+
+  /* LEFT = top group: banner (RB, scrolls inside beyond 50 % of the app) + demo row (RD, never scrolls away) */
+  #left { position: relative; z-index: 2; display: flex; flex-direction: column; min-height: 0; padding: 0 8px; }
+  #top { overflow: auto; min-height: 0; flex: 0 1 auto; }
+  :root[data-orient="land"] #left { grid-column: 1; grid-row: 1 / 3; padding-top: 8px; overflow: auto; }
+  :root[data-orient="land"][data-surface="preview"] #left { grid-column: 2; grid-row: 1; }
+  :root[data-orient="land"][data-surface="picker"] #left { grid-column: 2; grid-row: 1; }
+
+  .card { border-radius: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  #banner .main { background: var(--banner); color: var(--on-banner); border: 1px solid var(--banner-outline); border-radius: 16px; padding: 16px; display: grid; grid-template-columns: 56px minmax(0,1fr); column-gap: 12px; min-height: 104px; }
+  #banner.has-then .main { border-radius: 16px 16px 0 0; }
+  #banner.reroute .main { background: var(--banner-reroute); border-color: var(--banner-reroute); }
+  #banner .icon svg { width: 56px; height: 56px; fill: none; stroke: var(--on-banner); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+  #banner .dist { font-size: calc(32px * var(--fsD)); line-height: 1.25; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #banner .instr { font-size: calc(24px * var(--fsB)); line-height: 1.25; font-weight: 500; }
+  #banner .street { font-size: calc(18px * var(--fsB)); line-height: 1.333; color: var(--on-banner-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #banner.reroute .street { color: var(--on-banner-reroute-variant); white-space: normal; }
+  :root[data-stacked="1"] #banner .main { grid-template-areas: "icon dist" "text text"; }
+  :root[data-stacked="1"] #banner .icon { grid-area: icon; }
+  :root[data-stacked="1"] #banner .dist { grid-area: dist; align-self: center; }
+  :root[data-stacked="1"] #banner .textcol { grid-area: text; margin-top: 8px; }
+  :root[data-stacked="1"] #banner.nodist .main { grid-template-areas: "icon ." "text text"; }
+  #banner .then { background: var(--banner-then); color: var(--on-banner); border-radius: 0 0 16px 16px; min-height: 40px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: calc(14px * var(--fsB)); font-weight: 500; }
+  #banner .then svg { width: 24px; height: 24px; fill: none; stroke: var(--on-banner); stroke-width: 2.5; }
+
+  /* RD demo row (NEW in NAV-019): badge left, pause/resume right; one row, the badge text wraps inside the pill */
+  #rd { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; min-height: 48px; flex: none; }
+  #rd:empty { display: none; }
+  :root[data-orient="land"] #rd { flex-wrap: wrap; justify-content: flex-start; }
+  :root[data-surface="preview"] #rd, :root[data-surface="picker"] #rd { margin-top: 8px; justify-content: flex-start; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; min-width: 0; flex: 0 1 auto; min-height: 32px; padding: 4px 12px 4px 8px; border-radius: 16px; background: var(--badge); color: var(--on-badge); border: 1px solid var(--badge-outline); font-size: calc(14px * var(--fsP)); line-height: 1.43; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+  .badge svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; flex: none; }
+  .badge span { min-width: 0; }
+  .pause { flex: none; min-height: 48px; border-radius: 9999px; border: 0; padding: 8px 16px 8px 12px; display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: calc(14px * var(--fsP)); font-weight: 500; background: var(--primary-container); color: var(--on-primary-container); box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15); white-space: nowrap; }
+  .pause.paused { background: var(--primary); color: var(--on-primary); }
+  .iconbtn.pausedicon { background: var(--primary); color: var(--on-primary); }
+  .iconbtn.pausedicon svg, .iconbtn[data-check="pause"] svg { fill: currentColor; stroke: none; }
+  .pause svg { width: 18px; height: 18px; flex: none; fill: currentColor; stroke: none; }
+
+  .iconbtn { width: 48px; height: 48px; border-radius: 12px; background: var(--surface); color: var(--on-surface); border: 0; display: grid; place-items: center; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15); flex: none; }
+  :root[data-theme="night"] .iconbtn { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  .iconbtn.flat { box-shadow: none; outline: 0; background: transparent; }
+  .iconbtn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+
+  #mapband { position: relative; z-index: 1; min-height: 0; }
+  :root[data-orient="land"] #mapband { grid-column: 2; grid-row: 1; }
+  #rc { position: absolute; z-index: 2; bottom: 16px; right: 16px; display: flex; gap: 8px; }
+  #recenter { position: absolute; z-index: 2; left: 16px; bottom: 12px; min-height: 56px; max-width: calc(100% - 32px - 104px - 8px); border-radius: 16px; background: var(--primary-container); color: var(--on-primary-container); border: 0; padding: 8px 20px 8px 16px; display: flex; align-items: center; gap: 12px; font: inherit; font-size: calc(14px * var(--fsP)); font-weight: 500; text-align: left; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  #recenter svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+
+  #bottom { position: relative; z-index: 2; padding: 0 8px 8px 8px; min-height: 0; }
+  :root[data-orient="land"] #bottom { grid-column: 2; grid-row: 2; padding: 8px; }
+  :root[data-orient="land"][data-surface="preview"] #bottom, :root[data-orient="land"][data-surface="picker"] #bottom { grid-column: 1; grid-row: 1 / 3; padding: 8px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .panel { background: var(--surface); color: var(--on-surface); border-radius: 16px; padding: 12px 16px; min-height: 72px; display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 8px 12px; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  :root[data-theme="night"] .panel, :root[data-theme="night"] .sheet { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  .panel .eta { font-size: calc(22px * var(--fsP)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .panel .meta { font-size: calc(16px * var(--fsP)); line-height: 1.5; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+  .panel .txt { min-width: 0; flex: 1 1 0; }
+  .panel.notice { background: var(--message-surface); color: var(--on-message-surface); display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; font-size: calc(14px * var(--fsP)); margin-bottom: 8px; }
+  .ico { width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; flex: none; }
+  .btn { min-height: 48px; min-width: 48px; border-radius: 9999px; font: inherit; font-size: calc(14px * var(--fs)); font-weight: 500; padding: 8px 20px; display: inline-flex; align-items: center; gap: 8px; border: 0; text-align: left; }
+  .btn svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.5; }
+  .btn.outlined { background: transparent; color: var(--error); border: 1px solid var(--outline); }
+  .btn.round { width: 48px; height: 48px; padding: 0; justify-content: center; flex: none; }
+  .btn.round svg { width: 24px; height: 24px; }
+  .btn.filled { background: var(--primary); color: var(--on-primary); }
+  .btn.text { background: transparent; color: var(--primary); padding: 8px 12px; }
+  .btn.filled:disabled { background: var(--disabled); color: var(--surface); }
+
+  /* NAV-002 message / loading pill in the top region (picker) */
+  .msg { font-size: calc(14px * var(--fs)); background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 8px; padding: 8px 8px 8px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 8px 0; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  .msg .t { flex: 1 1 160px; min-width: 0; }
+  .msg .btn.text { color: #A8C7FA; margin-left: auto; }
+  .pill { align-self: center; margin: 8px auto 0; border-radius: 9999px; padding: 8px 16px; min-height: 40px; display: inline-flex; align-items: center; gap: 8px; }
+
+  /* Sheets (picker P1 and simplified NAV-018 preview) */
+  .sheet { background: var(--surface); border-radius: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); display: flex; flex-direction: column; min-height: 0; }
+  .sheet .scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
+  #picker.whole { overflow: auto; }
+  #picker.whole .scroll { overflow: visible; }
+  .pk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 4px 0 16px; flex: none; }
+  .pk-head h2 { margin: 0; font-size: calc(16px * var(--fs)); line-height: 1.5; font-weight: 600; min-width: 0; }
+  .pk-label { padding: 4px 16px 4px; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); flex: none; }
+  .pk-row { display: grid; grid-template-columns: 16px minmax(0,1fr); column-gap: 12px; width: 100%; min-height: 56px; padding: 8px 16px; border: 0; border-top: 1px solid var(--outline-variant); background: none; color: inherit; font: inherit; text-align: left; }
+  .pk-row .nm { font-size: calc(16px * var(--fs)); line-height: 1.5; grid-column: 2; }
+  .pk-row .mk { grid-column: 1; align-self: center; width: 12px; height: 12px; margin-left: 2px; border-radius: 50%; }
+  .pk-row .mk.o { border: 2px solid var(--on-surface); }
+  .pk-row .mk.d { background: var(--pin); border-radius: 50% 50% 50% 0; transform: rotate(-45deg); }
+  .pk-row .meta { grid-column: 2; font-size: calc(14px * var(--fs)); line-height: 1.43; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+  .pk-err { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; align-items: center; padding: 8px 16px 12px 44px; font-size: calc(14px * var(--fs)); }
+  .pk-err .ico { color: var(--error); }
+
+  .pv-handle { height: 24px; display: grid; place-items: center; flex: none; }
+  .pv-handle::after { content: ""; width: 32px; height: 4px; border-radius: 2px; background: var(--outline); }
+  .pv-points { display: grid; grid-template-columns: 48px minmax(0,1fr) 48px; column-gap: 4px; padding: 0 4px 4px; align-items: center; }
+  .pv-fields { background: var(--surface-container); border-radius: 12px; }
+  .pv-field { min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 12px; font-size: calc(16px * var(--fs)); width: 100%; border: 0; background: none; color: inherit; font-family: inherit; text-align: left; }
+  .pv-field + .pv-field { border-top: 1px solid var(--outline-variant); }
+  .pv-field span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pv-tabs { display: flex; border-bottom: 1px solid var(--outline-variant); }
+  .pv-tab { flex: 1; min-height: 48px; display: flex; align-items: center; justify-content: center; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); border: 0; background: none; font-family: inherit; padding: 0 4px; }
+  .pv-tab.sel { color: var(--primary); box-shadow: inset 0 -3px 0 var(--primary); }
+  .pv-sum { padding: 8px 16px 4px; }
+  .pv-sum .dur { font-size: calc(22px * var(--fs)); font-weight: 500; }
+  .pv-state { padding: 8px 16px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 12px; align-items: center; }
+  .pv-state .acts { grid-column: 2; display: flex; justify-content: flex-end; }
+  .pv-start { padding: 8px 16px 12px; flex: none; }
+  .pv-start .btn { width: 100%; min-height: 56px; justify-content: center; font-size: calc(16px * var(--fs)); }
+
+  #attr { position: relative; z-index: 3; background: var(--surface-container); color: var(--on-surface-variant); font-size: calc(12px * var(--fs)); line-height: 1.333; padding: 4px 16px; min-height: 24px; }
+  :root[data-orient="land"] #attr { grid-column: 1 / 3; grid-row: 3; }
+</style>
+</head>
+<body>
+<div id="toolbar"></div>
+<div id="screen">
+  <div></div>
+  <div id="app">
+    <div id="map"></div>
+    <div id="left"><div id="top"><div id="banner"></div></div><div id="rd"></div></div>
+    <div id="mapband"><div id="rc"></div><div id="mbx"></div></div>
+    <div id="bottom"></div>
+    <div id="attr" data-box="attribution">© OpenStreetMap contributors</div>
+  </div>
+  <div></div>
+</div>
+<script>
+// Place names are manifest data (Cyrillic in both UI languages); the R3 origin has no OSM feature -> T6 in the UI language.
+const T = {
+  mn: {
+    demo: "Туршилтын горим", choose: "Маршрут сонгох", settings: "Тохиргоо", car: "Машин", walk: "Явган", bike: "Дугуй",
+    sel: "Сонгосон цэг", m1: "Машин · 4,3 км · 5 мин", m2: "Явган · 1,3 км · 16 мин", m3: "Машин · 9,2 км · 1 ц 11 мин",
+    err: "Алдаа гарлаа", loading: "Ачаалж байна…", tiles: "Газрын зургийг ачаалж чадсангүй", retry: "Дахин оролдох",
+    pause: "Түр зогсоох", resume: "Үргэлжлүүлэх", close: "Хаах", swap: "Эхлэх цэг, очих газрыг солих",
+    dur: "5 мин", dist: "4,3 км", etaP: "Хүрэх цаг 14:08", start: "Эхлэх", unavailable: "Маршрутын үйлчилгээ түр ажиллахгүй байна",
+    dist300: "300 м", dist1: "1,2 км", turnR: "Баруун тийш эргэнэ үү", offRampR: "Баруун талын гарах зам руу эргэнэ үү",
+    street: "Энхтайвны өргөн чөлөө", streetLong: "Чингисийн өргөн чөлөө, Нарны замын уулзвараас урагш", then: "Дараа нь",
+    rerouting: "Маршрутыг дахин тооцоолж байна",
+    voiceNotice: "Энэ утсанд монгол дуут заавар ажиллахгүй байна. Заавар зөвхөн дэлгэцэнд харагдана.",
+    arriveR: "Таны очих газар баруун талд байна", eta: "Хүрэх цаг 14:35", meta: "4 мин · 3,1 км",
+    end: "Дуусгах", recenter: "Байршил руу буцах", mute: "Дууг хаах", northUp: "Хойд зүг дээшээ",
+  },
+  en: {
+    demo: "Demo mode", choose: "Choose a route", settings: "Settings", car: "Car", walk: "Walk", bike: "Bike",
+    sel: "Selected point", m1: "Car · 4.3 km · 5 min", m2: "Walk · 1.3 km · 16 min", m3: "Car · 9.2 km · 1 h 11 min",
+    err: "Something went wrong", loading: "Loading…", tiles: "The map could not be loaded", retry: "Try again",
+    pause: "Pause", resume: "Continue", close: "Close", swap: "Swap start and destination",
+    dur: "5 min", dist: "4.3 km", etaP: "Arrive at 14:08", start: "Start", unavailable: "Routing is temporarily unavailable",
+    dist300: "300 m", dist1: "1.2 km", turnR: "Turn right", offRampR: "Take the exit on the right",
+    street: "Энхтайвны өргөн чөлөө", streetLong: "Чингисийн өргөн чөлөө, Нарны замын уулзвараас урагш", then: "Then",
+    rerouting: "Recalculating route",
+    voiceNotice: "Mongolian voice guidance is not available on this phone. Instructions are shown on screen only.",
+    arriveR: "Your destination is on the right", eta: "Arrive at 14:35", meta: "4 min · 3.1 km",
+    end: "End", recenter: "Back to my location", mute: "Mute", northUp: "North up",
+  },
+};
+const STATES = ["picker", "picker-loading", "picker-tiles", "picker-error", "preview", "preview-unavailable",
+  "guidance", "worst", "paused", "notice", "reroute", "arrival"];
+const I = {
+  right: '<svg viewBox="0 0 56 56"><path d="M16 48V26a6 6 0 0 1 6-6h20"/><path d="M34 11l9 9-9 9"/></svg>',
+  ramp: '<svg viewBox="0 0 56 56"><path d="M22 48V30c0-6 4-10 10-14l8-5"/><path d="M33 7l9 3-3 9"/></svg>',
+  left: '<svg viewBox="0 0 24 24"><path d="M17 21V11a3 3 0 0 0-3-3H6"/><path d="M10 4L6 8l4 4"/></svg>',
+  reroute: '<svg viewBox="0 0 56 56"><path d="M44 28a16 16 0 1 1-5-11.6"/><path d="M40 8v9h-9"/></svg>',
+  flag: '<svg viewBox="0 0 56 56"><path d="M16 50V8"/><path d="M16 10h24l-6 8 6 8H16"/></svg>',
+  vol: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8a5 5 0 0 1 0 8"/></svg>',
+  compass: '<svg viewBox="0 0 24 24"><path d="M12 3l4 9-4 9-4-9z"/></svg>',
+  gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/></svg>',
+  loc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  swap: '<svg viewBox="0 0 24 24"><path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>',
+  flask: '<svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg>',
+};
+function params() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  return { state: STATES.includes(p.get("state")) ? p.get("state") : "picker", theme: p.get("theme") === "night" ? "night" : "day",
+    lang: p.get("lang") === "en" ? "en" : "mn", scale: Number(p.get("scale")) || 1, font: p.get("font") || "narrow", toolbar: p.get("toolbar") !== "0",
+    v: ["b", "c"].includes(p.get("v")) ? p.get("v") : "a" };
+}
+const $ = (id) => document.getElementById(id);
+function render() {
+  const P = params(), t = T[P.lang], root = document.documentElement, st = P.state;
+  root.lang = P.lang; root.dataset.theme = P.theme;
+  root.dataset.orient = innerWidth > innerHeight ? "land" : "port";
+  const surface = st.startsWith("picker") ? "picker" : st.startsWith("preview") ? "preview" : "guidance";
+  root.dataset.surface = surface;
+  const fsB = Math.min(P.scale, 1.3), fsD = Math.min(P.scale, 1.2), fsP = Math.min(P.scale, 1.3);
+  root.style.setProperty("--fs", P.scale); root.style.setProperty("--fsB", fsB); root.style.setProperty("--fsD", fsD); root.style.setProperty("--fsP", fsP);
+  root.dataset.stacked = fsB >= 1.15 ? "1" : "0";
+  root.style.setProperty("--font", P.font === "narrow" ? '"Liberation Sans", Roboto, sans-serif' : '"DejaVu Sans", Roboto, sans-serif');
+
+  const route = surface !== "picker";
+  $("map").innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><rect width="100" height="100" fill="${st === "picker-tiles" ? "var(--surface-container)" : "var(--earth)"}"/>
+    ${st === "picker-tiles" ? "" : `<path d="M0 62 C30 58 60 70 100 66" stroke="var(--water)" stroke-width="3" fill="none"/>
+    <path d="M50 100 V0 M0 40 H100" stroke="var(--major-casing)" stroke-width="3.2"/><path d="M50 100 V0 M0 40 H100" stroke="var(--major)" stroke-width="2.4"/>`}
+    ${route ? `<path d="M50 100 V40 H100" stroke="var(--route-casing)" fill="none" vector-effect="non-scaling-stroke" style="stroke-width:14px"/>
+    <path d="M50 100 V40 H100" stroke="var(--route)" fill="none" vector-effect="non-scaling-stroke" style="stroke-width:9px"/>` : ""}</svg>`;
+
+  const b = $("banner"); b.className = ""; b.innerHTML = ""; b.removeAttribute("data-box");
+  $("rd").innerHTML = ""; $("rc").innerHTML = ""; $("mbx").innerHTML = ""; $("bottom").innerHTML = "";
+  $("top").querySelectorAll(".msg").forEach((e) => e.remove());
+  const badge = `<span class="badge" data-box="badge">${I.flask}<span>${t.demo}</span></span>`;
+
+  if (surface === "picker") {
+    // P1 picker: NAV-002 message area at the top (loading pill / tiles card), picker sheet at the bottom.
+    if (st === "picker-loading") $("top").insertAdjacentHTML("beforeend", `<div class="msg pill" data-box="message" role="status"><span>${t.loading}</span></div>`);
+    if (st === "picker-tiles") $("top").insertAdjacentHTML("beforeend", `<div class="msg" data-box="message" role="status"><span class="ico" aria-hidden="true"></span><span class="t">${t.tiles}</span><button class="btn text" data-control>${t.retry}</button></div>`);
+    const row = (n, o, d, m) => `<button class="pk-row" data-control data-entry="${n}"><span class="mk o"></span><span class="nm" lang="mn">${o}</span><span class="mk d"></span><span class="nm" lang="mn">${d}</span><span class="meta">${m}</span></button>`
+      + (st === "picker-error" && n === 1 ? `<div class="pk-err" role="status" data-check="entry-error"><span class="ico" aria-hidden="true"></span><span>${t.err}</span></div>` : "");
+    $("bottom").innerHTML = `<section class="sheet" id="picker" data-box="picker">
+      <div class="pk-head"><h2 data-check="picker-heading">${t.demo}</h2><button class="iconbtn flat" data-control aria-label="${t.settings}">${I.gear}</button></div>
+      <div class="pk-label" id="pk-label">${t.choose}</div>
+      <div class="scroll" role="list" aria-labelledby="pk-label">
+        ${row(1, "Сүхбаатарын талбай", "Зайсан Голден Вилл", t.m1)}${row(2, "Сүхбаатарын талбай", "Хаан банк", t.m2)}${row(3, t.sel, "Золтамир", t.m3)}
+      </div></section>`;
+  } else if (surface === "preview") {
+    $("rd").innerHTML = badge;
+    const unavailable = st === "preview-unavailable";
+    const region = unavailable
+      ? `<div class="pv-state" role="status"><span class="ico" aria-hidden="true"></span><span>${t.unavailable}</span><div class="acts"><button class="btn text" data-control>${t.retry}</button></div></div>`
+      : `<div class="pv-sum"><div><span class="dur">${t.dur}</span> · ${t.dist}</div><div>${t.etaP}</div></div>`;
+    $("bottom").innerHTML = `<div class="sheet" data-box="sheet"><div class="pv-handle"></div><div class="scroll">
+      <div class="pv-points"><button class="iconbtn flat" data-control aria-label="${t.close}">${I.x}</button>
+        <div class="pv-fields"><button class="pv-field" data-control><span style="display:inline-block;flex:none;width:12px;height:12px;border-radius:50%;border:2px solid var(--on-surface)"></span><span lang="mn">Сүхбаатарын талбай</span></button>
+        <button class="pv-field" data-control><span style="display:inline-block;flex:none;width:12px;height:12px;background:var(--pin);border-radius:50% 50% 50% 0;transform:rotate(-45deg)"></span><span lang="mn">Зайсан Голден Вилл</span></button></div>
+        <button class="iconbtn flat" data-control aria-label="${t.swap}">${I.swap}</button></div>
+      <div class="pv-tabs" role="tablist"><button class="pv-tab ${unavailable ? "" : "sel"}" data-control>${t.car}</button><button class="pv-tab ${unavailable ? "sel" : ""}" data-control>${t.walk}</button><button class="pv-tab" data-control>${t.bike}</button></div>
+      ${region}</div>
+      <div class="pv-start"><button class="btn filled" data-control data-check="start" ${unavailable ? "disabled" : ""}>${I.play.replace('d="', 'fill="currentColor" stroke="none" d="')}<span>${t.start}</span></button></div></div>`;
+  } else {
+    b.dataset.box = "banner";
+    let icon = I.right, dist = t.dist300, instr = t.turnR, street = t.street, cls = "";
+    if (st === "worst") { instr = t.offRampR; icon = I.ramp; street = t.streetLong; cls = "has-then"; }
+    if (st === "notice") { instr = t.offRampR; icon = I.ramp; dist = t.dist1; }
+    if (st === "reroute") { cls = "reroute nodist"; icon = I.reroute; dist = ""; instr = t.rerouting; street = t.unavailable; }
+    if (st === "arrival") { cls = "nodist"; icon = I.flag; dist = ""; instr = t.arriveR; street = t.street; }
+    b.className = cls;
+    b.innerHTML = `<div class="main card"><div class="icon" aria-hidden="true">${icon}</div><div class="textcol">
+      ${dist ? `<div class="dist">${dist}</div>` : ""}<div class="instr" data-check="instruction">${instr}</div>${street ? `<div class="street">${street}</div>` : ""}</div></div>
+      ${cls.includes("has-then") ? `<div class="then">${t.then}${I.left}</div>` : ""}`;
+    if (dist && root.dataset.stacked === "1") { const d = b.querySelector(".dist"); b.querySelector(".main").insertBefore(d, b.querySelector(".textcol")); }
+    const paused = st === "paused";
+    const pauseBtn = st === "arrival" ? "" : `<button class="pause${paused ? " paused" : ""}" data-control data-check="pause">${paused ? I.play : I.pause}<span>${paused ? t.resume : t.pause}</span></button>`;
+    // v=a (chosen): demo row RD below the banner. v=b (alternative 2): badge bottom-left of the band, icon-only pause
+    // as a third button of the control pair, recenter stacked above the badge. v=c (alternative 3): RD with the badge
+    // only, pause as an icon-only third button of the control pair.
+    const pauseIcon = st === "arrival" ? "" : `<button class="iconbtn${paused ? " pausedicon" : ""}" data-control data-check="pause" aria-label="${paused ? t.resume : t.pause}">${paused ? I.play : I.pause}</button>`;
+    if (P.v === "a") $("rd").innerHTML = badge + pauseBtn;
+    if (P.v === "c") $("rd").innerHTML = badge;
+    if (st !== "arrival") $("rc").innerHTML = (P.v === "a" ? "" : pauseIcon) + [["vol", t.mute], ["compass", t.northUp]].map(([i, n]) => `<button class="iconbtn" data-control aria-label="${n}">${I[i]}</button>`).join("");
+    $("mbx").innerHTML = (P.v === "b" ? `<div id="bbadge" style="position:absolute;z-index:2;left:16px;bottom:16px;max-width:calc(100% - 32px - ${st === "arrival" ? 0 : 160}px - 8px)">${badge}</div>` : "")
+      + (st === "worst" || st === "reroute" ? `<button id="recenter" data-control data-box="recenter">${I.loc}<span>${t.recenter}</span></button>` : "")
+      + `<div id="puck" style="position:absolute;left:50%;top:70%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;background:var(--puck);border:3px solid var(--puck-stroke);outline:1px solid var(--puck-outline)"></div>`;
+    $("bottom").innerHTML = (st === "notice" ? `<div class="panel notice" data-box="voice-notice" role="status"><span class="ico" aria-hidden="true"></span><span>${t.voiceNotice}</span></div>` : "")
+      + (st === "arrival"
+        ? `<div class="panel" data-box="progress"><div class="txt"><div class="eta" lang="mn">Зайсан Голден Вилл</div></div><button class="btn filled" data-control>${t.close}</button></div>`
+        : `<div class="panel" data-box="progress"><div class="txt"><div class="eta">${t.eta}</div><div class="meta">${t.meta}</div></div><button class="iconbtn flat" data-control aria-label="${t.settings}">${I.gear}</button><button class="btn outlined round" data-control aria-label="${t.end}">${I.x}</button></div>`);
+  }
+  // RB is capped at 50 % of the app height in portrait guidance; RD stays visible below it (Layout rule D2).
+  $("top").style.maxHeight = root.dataset.orient === "port" && surface === "guidance" ? Math.floor($("app").clientHeight * 0.5) + "px" : "";
+  // Picker sheet cap: 75 % of the area above R5 (portrait); the heading and list label are pinned, the list scrolls.
+  // Picker cap (rule P2): portrait min(75 % of the area above R5, that area - the top message - 8 - 48 dp of map) ;
+  // landscape: the side column. If the pinned heading + label + the first entry do not fit, the whole sheet scrolls (P3).
+  const pk = document.getElementById("picker");
+  if (pk) {
+    const area = $("app").clientHeight - $("attr").offsetHeight, topH = $("top").offsetHeight;
+    pk.style.maxHeight = (root.dataset.orient === "port" ? Math.floor(Math.min(area * 0.75, area - topH - 8 - 48)) - 8 : area - 16) + "px";
+    const first = pk.querySelector("[data-entry]"), pinned = pk.querySelector(".pk-head").offsetHeight + pk.querySelector(".pk-label").offsetHeight;
+    pk.classList.toggle("whole", pinned + first.offsetHeight > parseFloat(pk.style.maxHeight));
+  }
+  const sh = document.querySelector('[data-box="sheet"]');
+  if (sh) sh.style.maxHeight = root.dataset.orient === "port" ? Math.floor(($("app").clientHeight - $("attr").offsetHeight) * 0.75) - 8 + "px" : ($("app").clientHeight - $("attr").offsetHeight - 16) + "px";
+  if (P.v !== "a" && $("recenter")) $("recenter").style.maxWidth = "calc(100% - 32px - 160px - 8px)";
+  if (P.v === "b" && $("recenter") && $("bbadge")) $("recenter").style.bottom = 16 + $("bbadge").offsetHeight + 8 + "px";
+  renderToolbar(P);
+}
+function renderToolbar(P) {
+  const tb = $("toolbar"); tb.hidden = !P.toolbar; if (!P.toolbar) return;
+  const sel = (k, vals) => `<select data-k="${k}">${vals.map((v) => `<option ${String(P[k]) === String(v) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+  tb.innerHTML = sel("state", STATES) + sel("theme", ["day", "night"]) + sel("lang", ["mn", "en"]) + sel("scale", [1, 1.3, 2]) + sel("font", ["narrow", "wide"]) + sel("v", ["a", "b", "c"]);
+  tb.querySelectorAll("select").forEach((s) => s.onchange = () => {
+    const p = params(); p[s.dataset.k] = s.value;
+    location.hash = Object.entries(p).map(([k, v]) => `${k}=${k === "toolbar" ? (v ? 1 : 0) : v}`).join("&");
+  });
+}
+addEventListener("hashchange", render);
+addEventListener("resize", render);
+render();
+</script>
+</body>
+</html>
