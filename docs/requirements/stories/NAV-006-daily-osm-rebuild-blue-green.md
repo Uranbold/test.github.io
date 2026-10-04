@@ -2,12 +2,12 @@
 id: NAV-006
 title: Daily OSM data rebuild pipeline with a blue/green switch (zero downtime, one-step rollback)
 phase: 1          # Phase 1 beta, on the critical path (research §10 item 5: rebuild pipelines and blue/green from MVP)
-priority: must    # PO "Yes" on 2026-10-04 to the orchestrator's proposal (D110)
+priority: must    # PO "Yes" on 2026-10-04 to the orchestrator's proposal (D125)
 size: L           # fetch + validation, slot build, private verification, atomic switch, rollback, guards, scheduler, runbook
 needs_design: false
 needs_backend: true
 needs_mobile: false
-status: ready     # 2026-10-04. No blocking open question. Architect ADR (slot layout and switch) comes first, then backend. Built and verified in the dev container (D111); real-VPS deployment waits for NAV-008 host details
+status: ready     # 2026-10-04. No blocking open question. Architect ADR (slot layout and switch) comes first, then backend. Built and verified in the dev container (D126); real-VPS deployment waits for NAV-008 host details
 ---
 
 # NAV-006: Daily OSM data rebuild pipeline with a blue/green switch (zero downtime, one-step rollback)
@@ -26,9 +26,9 @@ As a **taxi / delivery driver** (and a **UB commuter by car**), I want **the map
   - The **Photon index is imported from the GraphHopper country dump** (ADR-0003), published about weekly, not from our OSM extract. Our own Nominatim is the ADR-0003 "production direction" and is not part of this story (Open question 2).
   - `data/build-info.json` records sources, the OSM replication timestamp, the Photon dump date, artefact markers and versions. It is **not** exposed over HTTP. `GET /health` answers without contacting any upstream (openapi `getHealth`).
 - **Sizing (NAV-008 AC 16, sizing baseline):** cold build peak **5.5 GB** RAM (tiles-build alone 5.0 GB); running services **< 1 GB**; artefacts per data set about **0.4 GB** (PMTiles 243 MB at z15, smaller at z14 per D1; routing graph 64 MB; Photon index 27 MB; OSM PBF about 70 MB); shared auxiliary cache about **2.5 GB**. Staging target **16 GB RAM / ~100 GB SSD** (the Hostinger KVM 4 has 200 GB NVMe, D25). NAV-008 AC 16 limit: build peak + serving ≤ **70 %** of RAM (≤ 11.2 GB on 16 GB).
-- **PO decisions of 2026-10-04** (`decisions.md` D110, D111; PO answer "Yes", relayed by the orchestrator):
-  - D110: priority **must**, Phase 1 beta, on the critical path.
-  - D111: the PO has no VPS details yet (NAV-008 still waits for them), so NAV-006 is **built and verified in the dev container** on a **separate Compose project and slot directories**, while the shared dev stack at `http://127.0.0.1:8080` keeps serving. **Light-QA mode:** QA writes the test plan and runs only the focused set in AC 38. Deployment to the real VPS is documented in `infra/staging/RUNBOOK.md`, not executed.
+- **PO decisions of 2026-10-04** (`decisions.md` D125, D126; PO answer "Yes", relayed by the orchestrator):
+  - D125: priority **must**, Phase 1 beta, on the critical path.
+  - D126: the PO has no VPS details yet (NAV-008 still waits for them), so NAV-006 is **built and verified in the dev container** on a **separate Compose project and slot directories**, while the shared dev stack at `http://127.0.0.1:8080` keeps serving. **Light-QA mode:** QA writes the test plan and runs only the focused set in AC 38. Deployment to the real VPS is documented in `infra/staging/RUNBOOK.md`, not executed.
 - **Runtime stays Docker Compose** (ADR-0001, ADR-0002), project `navmn` on staging. The gateway paths in `openapi.yaml` stay the same (ADR-0002: "Production (NAV-006) replaces the one-shot builders with a scheduled pipeline and blue/green switch. The gateway paths stay the same").
 - **Who decides what.** The architect writes an ADR for the slot layout, the switch mechanism, PMTiles client continuity (AC 16) and private verification of the inactive slot, and changes `openapi.yaml` **only** if an HTTP status or data-version field is added (AC 30). This story fixes the observable behaviour, the limits and the checks. It does not prescribe nginx upstream reload vs symlink.
 
@@ -191,7 +191,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
     - the new slot's services are stopped, and the new slot is deleted or marked `failed`. A `failed` slot is never a switch or rollback target and is deleted by the next run
     - the run exits non-zero and calls the alert hook once (AC 32)
 
-### I. Build and verify in the dev container (D111)
+### I. Build and verify in the dev container (D126)
 34. **Given** the shared dev stack (Compose project `navmn`, `http://127.0.0.1:8080`) is running, **When** the whole NAV-006 build and QA run takes place, **Then**:
     - none of its containers is stopped, restarted, recreated or rebuilt: the container IDs and `StartedAt` times are identical before and after
     - a probe of `http://127.0.0.1:8080/health` every **≤ 5 s** for the whole run records **0** failures
@@ -199,7 +199,7 @@ Numbers marked *BA proposal* are defaults the backend implements as configuratio
 35. **Given** the test setup, **When** it is inspected, **Then** it uses a Compose project name other than `navmn`, its own slot root outside the shared stack's `backend/data/`, and a second gateway instance bound to `127.0.0.1` on a port other than 8080.
 36. **Given** the test setup, **When** it runs, **Then** it uses the cached Mongolia extract already on disk under `backend/data/`, or a small extract that contains P1–P6, through the source list (AC 2). A Geofabrik download is **not** needed to pass. If one is tried and blocked, the log shows the fallback.
 37. **Given** the cached extract is older than 48 h, **When** the test configuration relaxes the freshness check 3(f) and the "not older" check 3(e) where a test repeats a build from the same file, **Then** the relaxation is set only through configuration, the run log states it on every run, and the QA report lists it. Staging defaults keep both checks on.
-38. **Given** light-QA mode (D111), **When** QA reports, **Then** the report contains exactly this focused set, each with its evidence (commands, logs, loop summaries):
+38. **Given** light-QA mode (D126), **When** QA reports, **Then** the report contains exactly this focused set, each with its evidence (commands, logs, loop summaries):
     1. one full rebuild into a new slot and switch, with the AC 15 request loop: **0** failed requests (AC 7, 11, 14, 15, 22)
     2. one forced-failure build: no switch (AC 33; the verification-stage failure is recommended because it tests the last gate before the switch)
     3. one `make rollback` with the AC 15 loop: **0** failed requests (AC 18)
@@ -321,7 +321,7 @@ None of them blocks the architect's ADR or the start of the backend work. Each h
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
 |---|---|---|---|---|---|
-| AC1–AC3 | — | — | source list and validation step (backend, TBD); `backend/scripts/data-fetch.sh`, `pbfinfo.py` (existing) | unit or script tests (backend); AC 4 run in QA set item 2 if the validation-stage failure is chosen | D110, D111 |
+| AC1–AC3 | — | — | source list and validation step (backend, TBD); `backend/scripts/data-fetch.sh`, `pbfinfo.py` (existing) | unit or script tests (backend); AC 4 run in QA set item 2 if the validation-stage failure is chosen | D125, D126 |
 | AC4 | — | — | validation step (backend, TBD) | truncated-file test (backend test or QA) | |
 | AC5–AC6 | — | — | pipeline (backend, TBD) | review or backend test | |
 | AC7–AC10 | — | — | slot build (backend, TBD); `build_info.py` (extend) | QA set item 1 (checksum listing, `build-info.json`) | |
@@ -341,11 +341,11 @@ None of them blocks the architect's ADR or the start of the backend work. Each h
 | AC30 | — | new status operation only if the ADR adds it (architect) | `openapi.yaml` (architect, conditional) | `contract_check.py` (conditional) | |
 | AC31–AC32 | — | — | logging and alert hook (backend) | review; hook call checked in QA set item 2 | |
 | AC33 | — | all (loop) | failure handling (backend) | QA set item 2 | |
-| AC34–AC39 | — | `getHealth` (shared-stack probe) | test configuration (backend, QA) | QA report (`docs/qa/`) | D111 |
+| AC34–AC39 | — | `getHealth` (shared-stack probe) | test configuration (backend, QA) | QA report (`docs/qa/`) | D126 |
 | AC40 | — | — | NAV-006 ADR (architect, TBD) | ADR review | |
 | AC41–AC43 | — | — | `infra/staging/RUNBOOK.md`, `.env.example`, deployment-staging §11 (architect) | review, secret scan | NAV-008 AC 15, AC 21 |
 
 ## Change log
 | Date | Issue | Change | Why |
 |---|---|---|---|
-| 2026-10-04 | Feature request NAV-006 (PO "Yes" to the orchestrator's proposal, relayed by the orchestrator; `decisions.md` D110, D111) | Story written from the backlog draft row: 43 AC in sections A–J (fetch and validation, slot build, private verification, atomic switch with a zero-failure request loop, rollback and retention, triggers/lock/guards, status/logs/alerting, failure handling, dev-container build with light QA, ADR/runbook/config). Priority must, Phase 1 (D110). Light-QA set and dev-container isolation from D111. Seven non-blocking open questions with working assumptions. Status `ready` | Daily fresh OSM data with no downtime is on the Phase 1 beta critical path. The NAV-008 interim rebuild has routing and search downtime and no slot-level rollback |
+| 2026-10-04 | Feature request NAV-006 (PO "Yes" to the orchestrator's proposal, relayed by the orchestrator; `decisions.md` D125, D126) | Story written from the backlog draft row: 43 AC in sections A–J (fetch and validation, slot build, private verification, atomic switch with a zero-failure request loop, rollback and retention, triggers/lock/guards, status/logs/alerting, failure handling, dev-container build with light QA, ADR/runbook/config). Priority must, Phase 1 (D125). Light-QA set and dev-container isolation from D126. Seven non-blocking open questions with working assumptions. Status `ready` | Daily fresh OSM data with no downtime is on the Phase 1 beta critical path. The NAV-008 interim rebuild has routing and search downtime and no slot-level rollback |
