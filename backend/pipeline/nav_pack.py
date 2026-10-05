@@ -166,6 +166,14 @@ class PackConfig:
         if self.method_url and why:
             raise base.ConfigError(f"PACK_METHOD_URL is a placeholder ({why}); set the public pipeline repository "
                                    f"(ODbL §4.6, NAV-020 AC 7)")
+        # TEST ONLY (e.g. a small phone-test pack): accept a basemap whose header bounds cover Ulaanbaatar (P1-P6) but
+        # not X1, and/or write a free-text `notes` string into the manifest (OfflinePackManifest allows extra keys).
+        self.partial_tiles = g("PACK_TEST_PARTIAL_TILES", "0") == "1"
+        self.tiles_check_points = dict(base.REF_POINTS) if self.partial_tiles else CHECK_POINTS
+        self.notes = g("PACK_TEST_NOTES", "").strip()
+        if (self.partial_tiles or self.notes) and (not cfg.allow_faults or not test_project):
+            raise base.ConfigError("PACK_TEST_PARTIAL_TILES / PACK_TEST_NOTES are honoured only with "
+                                   "REBUILD_ALLOW_TEST_FAULTS=1 and a Compose project other than navmn")
         self.test_fault = g("PACK_TEST_FAULT", "")
         self.pause_at = g("PACK_TEST_PAUSE_AT", "")
         self.pause_s = num("PACK_TEST_PAUSE_SECONDS", 20)
@@ -190,6 +198,10 @@ class PackConfig:
             out.append(f"PACK_RETAIN_MANIFESTS={self.retain} (staging 3)")
         if self.gate2_mode == "evidence":
             out.append("PACK_GATE2_MODE=evidence: NOT the Gate 2 engine (test only, AC 35)")
+        if self.partial_tiles:
+            out.append("PACK_TEST_PARTIAL_TILES=1: tiles bounds checked against P1-P6 only (test basemap, not Mongolia)")
+        if self.notes:
+            out.append("PACK_TEST_NOTES set: manifest carries a test `notes` string")
         if self.test_fault:
             out.append(f"PACK_TEST_FAULT={self.test_fault}")
         if self.pause_at:
@@ -315,7 +327,10 @@ def pmtiles_header(b):
             "max_lon": struct.unpack_from("<i", b, 110)[0] / 1e7, "max_lat": struct.unpack_from("<i", b, 114)[0] / 1e7}
 
 
-def tiles_problems(hdr):
+def tiles_problems(hdr, points=None):
+    """AC 12 header checks. `points` defaults to CHECK_POINTS (P1-P6 and X1); PACK_TEST_PARTIAL_TILES=1 (test projects
+    only) passes P1-P6, so an Ulaanbaatar-only test basemap passes."""
+    points = CHECK_POINTS if points is None else points
     if not hdr:
         return ["not a PMTiles archive (magic missing)"]
     out = []
@@ -323,7 +338,7 @@ def tiles_problems(hdr):
         out.append(f"PMTiles version {hdr['version']} != 3")
     if hdr["min_zoom"] != 0 or hdr["max_zoom"] != 14:
         out.append(f"zoom {hdr['min_zoom']}-{hdr['max_zoom']} != 0-14 (D170)")
-    miss = [k for k, (lat, lon) in CHECK_POINTS.items()
+    miss = [k for k, (lat, lon) in points.items()
             if not (hdr["min_lon"] <= lon <= hdr["max_lon"] and hdr["min_lat"] <= lat <= hdr["max_lat"])]
     if miss:
         out.append(f"bounds miss {','.join(miss)}")
@@ -872,7 +887,7 @@ class PackStep:
                 hdr = pmtiles_header(files["tiles"]["head"])
                 if pc.test_fault == "self_test_tiles" and hdr:
                     hdr["max_zoom"] = 13
-                problems += [f"tiles: {x}" for x in tiles_problems(hdr)]
+                problems += [f"tiles: {x}" for x in tiles_problems(hdr, pc.tiles_check_points)]
                 done.append("tiles header")
                 s["tiles_header"] = hdr
             if "search" in files:
@@ -1085,6 +1100,8 @@ class PackStep:
              "total_download_bytes": sum(e["download_bytes"] for e in entries),
              "files": entries,
              "self_test": {"route": pc.self_test_route, "search": {"q": pc.self_test_query}}}
+        if pc.notes:
+            m["notes"] = pc.notes
         problems = manifest_problems(m, self.pl.region, self.partial)
         if problems:
             raise PackOutcome("failed (build)", "pack.manifest", "manifest rules (AC 7): " + "; ".join(problems))

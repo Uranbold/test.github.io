@@ -11,6 +11,8 @@ import kotlinx.serialization.json.longOrNull
 import mn.navmn.app.log.DebugLog
 import mn.navmn.app.routing.PackFiles
 import java.io.File
+import java.io.FileDescriptor
+import java.io.FileOutputStream
 import java.io.IOException
 
 /** A verified, decompressed file waiting in the staging area for the atomic install. */
@@ -29,7 +31,12 @@ data class StagedFile(val manifestFile: PackFile, val raw: File)
  *
  * Files not referenced by `active.json` are garbage: deleted at the next start, or when no consumer holds them.
  */
-class PackStore(val packsDir: File, private val log: DebugLog = DebugLog.NONE) {
+class PackStore(
+    val packsDir: File,
+    private val log: DebugLog = DebugLog.NONE,
+    /** NAV-022 review M3: flushes `active.json.tmp` to storage before the rename (tests record the order). */
+    private val fsync: (FileDescriptor) -> Unit = { it.sync() },
+) {
     private val active = File(packsDir, PackFiles.ACTIVE_JSON)
     private val activeTmp = File(packsDir, PackFiles.ACTIVE_JSON + ".tmp")
     val stagingRoot = File(packsDir, STAGING)
@@ -167,9 +174,17 @@ class PackStore(val packsDir: File, private val log: DebugLog = DebugLog.NONE) {
         if (!from.renameTo(to)) throw IOException("rename failed")
     }
 
+    /**
+     * The commit point. NAV-022 review M3: the temp file is written and fsynced before the rename, so a power loss
+     * right after the rename never leaves an empty or truncated `active.json` (the old one, or the new one, complete).
+     */
     private fun writeActive(p: InstalledPack) {
         packsDir.mkdirs()
-        activeTmp.writeText(toJson(p).toString())
+        FileOutputStream(activeTmp).use { out ->
+            out.write(toJson(p).toString().toByteArray(Charsets.UTF_8))
+            out.flush()
+            fsync(out.fd)
+        }
         if (!activeTmp.renameTo(active)) throw IOException("rename of active.json failed")
     }
 

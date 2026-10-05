@@ -117,6 +117,24 @@ object PackRules {
         }
     }
 
+    /**
+     * NAV-022 review M2: files of [kinds] that differ from the installed one but this app cannot take (e.g. a routing
+     * graph whose `graph_builder` is not on the allow-list). While any exist, the manifest ETag is not remembered: a
+     * later app version with a wider allow-list must get the full manifest again, not a 304 (AC 21, 24).
+     */
+    fun incompatibleWanted(
+        m: PackManifest,
+        installed: InstalledPack,
+        kinds: Set<PackKind>,
+        allowList: (String?) -> Boolean = GraphBuilderAllowList::allows,
+    ): List<PackFile> {
+        if (!schemaKnown(m)) return emptyList()
+        return PackKind.entries.mapNotNull { kind ->
+            val f = m.file(kind)
+            if (kind !in kinds || f == null || compatible(f, allowList) || installed[kind]?.sha256 == f.sha256) null else f
+        }
+    }
+
     fun downloadBytes(files: List<PackFile>): Long = files.sumOf { it.downloadBytes }
 
     /** NAV-022 Terms "Required space": Σ bytes + the largest download_bytes + 50 MB. */

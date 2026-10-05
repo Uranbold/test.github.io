@@ -47,6 +47,30 @@ class PackStoreTest {
         assertEquals("\"etag\"", store.installed().manifestEtag)
     }
 
+    /** NAV-022 review M3: active.json.tmp is complete and fsynced before it replaces active.json. */
+    @Test fun activeJsonTempFileIsFsyncedBeforeTheRename() {
+        val events = ArrayList<String>()
+        lateinit var store: PackStore
+        store = PackStore(File(tmp.root, "packs"), fsync = { fd ->
+            fd.sync()
+            val tmpFile = File(store.packsDir, "active.json.tmp")
+            val parsed = PackStore.parse(tmpFile.readText())
+            events += "fsync tmp complete=${parsed != null} etag=${parsed?.manifestEtag} activeEtag=${store.installed().manifestEtag}"
+        })
+        val files = listOf(FixtureFile.tiles(v1), FixtureFile.routing(v1), FixtureFile.search(v1))
+        store.install(files.map { stage(store, it) }, "\"e1\"", null)
+        store.rememberEtag("\"e2\"", null)
+        assertEquals(
+            listOf(
+                "fsync tmp complete=true etag=\"e1\" activeEtag=null", // first install: no active.json yet
+                "fsync tmp complete=true etag=\"e2\" activeEtag=\"e1\"", // the old commit point is still in place
+            ),
+            events,
+        )
+        assertEquals("\"e2\"", store.installed().manifestEtag)
+        assertFalse(File(store.packsDir, "active.json.tmp").exists())
+    }
+
     @Test fun anExistingVersionDirectoryReceivesFilesOneByOne() {
         val store = PackStore(File(tmp.root, "packs"))
         store.install(listOf(stage(store, FixtureFile.tiles(v2))), null, null)

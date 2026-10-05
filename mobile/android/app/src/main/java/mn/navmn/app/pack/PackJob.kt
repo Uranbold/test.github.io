@@ -91,7 +91,13 @@ class PackJob(
             }
             val plan = PackRules.filesToFetch(manifest, installed, PackRules.kindsFor(mode, installed), allowList)
             if (plan.isEmpty()) {
-                store.rememberEtag(fetched.etag, manifest.licence.url)
+                // Review M2: a skipped incompatible file (graph_builder not allow-listed, …) must be re-evaluated by the
+                // next app version, so its manifest's ETag is not remembered (no 304 for it).
+                if (PackRules.incompatibleWanted(manifest, installed, PackRules.kindsFor(mode, installed), allowList).isEmpty()) {
+                    store.rememberEtag(fetched.etag, manifest.licence.url)
+                } else {
+                    log.d("pack manifest: incompatible files skipped, ETag not remembered")
+                }
                 return if (mode.userStarted && installed.isEmpty) JobResult.Failed(FailReason.INCOMPATIBLE) else JobResult.NothingToDo
             }
             val toFree = PackRules.spaceToFree(plan, space.allocatable(store.packsDir))

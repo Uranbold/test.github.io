@@ -437,6 +437,13 @@ class PackManager internal constructor(
                         notifier.clear()
                     }
                     throw e
+                } catch (e: Exception) {
+                    // Review M1: any other failure (an IOException from PackStore.install, a self-test or file error)
+                    // ends like a failed check: staged and partial files go, the installed pack stays (active.json is
+                    // the commit point and was not replaced), the UI shows the failure instead of a stuck row.
+                    log.d("pack job error: ${e.javaClass.simpleName}")
+                    runCatching { store.clearStaging() }
+                    JobResult.Failed(FailReason.INTEGRITY)
                 }
                 handle(mode, allowMetered, result)
             } finally {
@@ -490,6 +497,8 @@ class PackManager internal constructor(
             }
             is JobResult.Failed -> {
                 log.d("pack job failed: ${r.reason}")
+                // The installed pack as on disk (unchanged by a failed job; a file that went missing is not shown).
+                runCatching { manifest?.let { recompute(it) } ?: run { _installed.value = store.installed() } }
                 if (user) {
                     _final.value = JobUi.Failed
                     notifier.clear()

@@ -231,6 +231,22 @@ class ConfigTests(unittest.TestCase):
                 with self.assertRaises(nav.ConfigError):
                     self.pc(**base)
 
+    def test_partial_tiles_and_notes_test_only(self):
+        pc = self.pc(PACK_TEST_PARTIAL_TILES="1", PACK_TEST_NOTES="TEST ONLY")
+        self.assertEqual(set(pc.tiles_check_points), set(nav.REF_POINTS))
+        self.assertEqual(pc.notes, "TEST ONLY")
+        text = " ".join(pc.relaxations())
+        self.assertIn("PACK_TEST_PARTIAL_TILES=1", text)
+        self.assertIn("PACK_TEST_NOTES", text)
+        self.assertIn("X1", self.pc().tiles_check_points)
+        for env in ({"PACK_TEST_PARTIAL_TILES": "1"}, {"PACK_TEST_NOTES": "x"}):
+            with self.subTest(env=env):
+                with self.assertRaises(nav.ConfigError):
+                    self.pc(REBUILD_ALLOW_TEST_FAULTS="0", **env)
+                with self.assertRaises(nav.ConfigError):
+                    self.pc(NAV_COMPOSE_PROJECT="navmn", PACK_WEEKLY_MIN_AGE_DAYS="7", PACK_TILES_MIN_AGE_DAYS="28",
+                            PACK_GATE2_MODE="engine", **env)
+
     def test_bad_values(self):
         for env in ({"PACK_GATE2_IMAGE": "ghcr.io/valhalla/valhalla:3.6.3"}, {"PACK_SEARCH_BUILDER_IMAGE": "python:3.14-slim"},
                     {"PACK_REGION": "cn"}, {"PACK_ATTRIBUTION": "someone"}, {"PACK_METHOD_URL": "http://x.example"},
@@ -352,6 +368,7 @@ class FileTests(unittest.TestCase):
         self.assertIn("zoom 0-13", " ".join(nav_pack.tiles_problems(nav_pack.pmtiles_header(pmtiles_bytes(maxz=13)[:127]))))
         ub_only = nav_pack.pmtiles_header(pmtiles_bytes(bounds=(106.5, 47.7, 107.2, 48.1))[:127])
         self.assertIn("X1", " ".join(nav_pack.tiles_problems(ub_only)))
+        self.assertEqual(nav_pack.tiles_problems(ub_only, dict(nav.REF_POINTS)), [])
         self.assertEqual(nav_pack.tiles_problems(nav_pack.pmtiles_header(b"x" * 127)), ["not a PMTiles archive (magic missing)"])
 
 

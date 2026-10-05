@@ -195,6 +195,70 @@ class PackManagerTest {
         assertEquals(v2, store.installed()[PackKind.ROUTING]!!.version)
     }
 
+    /**
+     * NAV-022 review M1: an IOException from PackStore.install (here: the target version directory cannot be created
+     * because a plain file has its name) must not escape runWork. The UI leaves «Татаж байна» for the failure, the
+     * staged and partial files go, the old pack stays installed and a later run installs normally.
+     */
+    @Test fun installIoErrorShowsFailedAndKeepsTheOldPack() = runBlocking {
+        network.set(validated = true, unmetered = true)
+        manager.onForeground()
+        assertEquals(PackManager.WorkOutcome.DONE, manager.runWork(JobMode.USER, false))
+        manager.dismissMessage()
+        val v3 = "20261011T193000Z"
+        val next = listOf(files[0], FixtureFile.routing(v3, seed = 8), FixtureFile.search(v3, seed = 9))
+        dispatcher.publish(Manifests.json(next), next)
+        val blocker = File(store.packsDir, v3).apply { writeText("not a directory") }
+        val outcome = manager.runWork(JobMode.USER, false) // threw IOException("rename failed") before the fix
+        assertEquals(PackManager.WorkOutcome.DONE, outcome)
+        assertEquals(PackMessage.Failed, manager.message.value)
+        eventually("failed row") { manager.state.value.job == JobUi.Failed }
+        assertEquals("the old pack is kept", v2, store.installed()[PackKind.ROUTING]!!.version)
+        assertEquals(v2, manager.state.value.installed[PackKind.ROUTING]!!.version)
+        assertTrue("the old routing file is still there", store.fileOf(store.installed()[PackKind.ROUTING]!!)!!.isFile)
+        assertFalse("staging deleted", store.stagingRoot.exists())
+        assertTrue("no partial directory", store.packsDir.listFiles().orEmpty().none { it.name.endsWith(PackStore.PARTIAL) })
+        // The cause gone, «Дахин оролдох» installs the new version.
+        blocker.delete()
+        manager.dismissMessage()
+        assertEquals(PackManager.WorkOutcome.DONE, manager.runWork(JobMode.USER, false))
+        assertEquals(PackMessage.Ready, manager.message.value)
+        assertEquals(v3, store.installed()[PackKind.ROUTING]!!.version)
+    }
+
+    /** M1 for an automatic run: any exception (here from a self-test) stays silent and keeps the pack. */
+    @Test fun automaticRunExceptionIsSilentAndKeepsThePack() = runBlocking {
+        network.set(validated = true, unmetered = true)
+        manager.runWork(JobMode.USER, false)
+        manager.dismissMessage()
+        val throwing = PackManager(
+            enabled = true,
+            store = store,
+            http = PackHttp(server.url("/packs").toString(), OkHttpClient(), "navmn-android/test"),
+            prefs = prefs,
+            scheduler = scheduler,
+            network = network,
+            space = { allocatable },
+            selfTests = FakeSelfTests(throwKinds = setOf(PackKind.ROUTING)),
+            notifier = notifier,
+            guiding = guiding,
+            routingHold = { null },
+            clock = { now },
+            elapsed = { 0L },
+            sleep = {},
+            scope = scope,
+            log = DebugLog.NONE,
+        )
+        val weekly = listOf(files[0], FixtureFile.routing("20261011T193000Z", seed = 8), FixtureFile.search("20261011T193000Z", seed = 9))
+        dispatcher.publish(Manifests.json(weekly), weekly)
+        val failedBefore = notifier.fails
+        assertEquals(PackManager.WorkOutcome.DONE, throwing.runWork(JobMode.AUTO, false))
+        assertNull("AC 17/22: silent", throwing.message.value)
+        assertEquals(failedBefore, notifier.fails)
+        assertEquals(v2, store.installed()[PackKind.ROUTING]!!.version)
+        assertFalse(store.stagingRoot.exists())
+    }
+
     @Test fun cancelLeavesNoPartialFiles() = runBlocking {
         val dir = store.stagingDir(v2).apply { mkdirs() }
         File(dir, "routing.tar.gz").writeBytes(ByteArray(100))

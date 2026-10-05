@@ -73,6 +73,16 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - Maven Central rate-limited this build machine (ADR-0009 F12): `settings.gradle.kts` lists Google's mirror of Maven
   Central first. It is a build-time host only; the app never contacts it.
 - Robolectric downloads `android-all` from the same mirror (system property set in `app/build.gradle.kts`).
+- **API levels (bug B-NAV012-01).** minSdk is 26. A framework type added after 26 (e.g. API 31's
+  `AudioManager.OnModeChangedListener`) must not appear in shared code at all, not even as a null local, a lambda
+  capture, a coroutine-spilled value, a field, a parameter or a return type: ART resolves the type for D8's check-cast
+  even for null and throws `NoClassDefFoundError` below that API (the PO's Android 11 crash). An `SDK_INT` guard around
+  the *call* is not enough. Put such code in a holder class named `…Api<N>` annotated `@RequiresApi(N)` (example:
+  `ModeListenerApi31` in `audio/calls/CallSignals.kt`), pass values across as `Any`, and guard every call site. Check
+  any APK with `python3 mobile/android/tools/apk_api_level_types.py --apk <apk>` (dex-level; works on debug and demo
+  APKs). The JVM twin is `CallSignalsApiLevelTest` (Robolectric SDK 26/28/29/30 with a class loader that hides
+  classes the SDK's framework jar lacks: AGP's mockable compileSdk `android.jar` on the unit-test classpath otherwise
+  hides this bug class).
 
 ## 4. Code map (ADR-0009)
 

@@ -281,6 +281,45 @@ class PackJobTest {
         assertFalse(dispatcher.fileRequests().any { it.url.encodedPath.endsWith("routing.tar.gz") })
     }
 
+    /** NAV-022 review M2: an empty plan because routing is not allow-listed must not store that manifest's ETag. */
+    @Test fun incompatibleRoutingDoesNotRememberTheManifestEtag() = runBlocking {
+        val first = publishV1()
+        assertTrue(job().run(JobMode.USER, false) is JobResult.Installed)
+        val oldEtag = store.installed().manifestEtag
+        assertEquals(dispatcher.manifestEtag, oldEtag)
+        // The next build moved to a graph builder this app does not know yet (tiles and search unchanged).
+        val next = listOf(first[0], FixtureFile.routing(v3, seed = 60, builder = "valhalla 9.9.9"), first[2])
+        dispatcher.publish(Manifests.json(next), next, etag = "\"m-next\"")
+        dispatcher.requests.clear()
+        assertEquals(JobResult.NothingToDo, job().run(JobMode.AUTO, false))
+        assertEquals(0, dispatcher.fileRequests().size)
+        assertEquals("the skipped manifest's ETag is not remembered", oldEtag, store.installed().manifestEtag)
+        // So the next automatic check gets the full manifest again (a newer app could take the file), not a 304.
+        dispatcher.requests.clear()
+        assertEquals(JobResult.NothingToDo, job().run(JobMode.AUTO, false))
+        assertEquals(oldEtag, dispatcher.manifestRequests().single().headers["If-None-Match"])
+        assertEquals(v1, store.installed()[PackKind.ROUTING]!!.version)
+    }
+
+    /** The other side of M2: an empty plan with every file compatible still remembers the ETag (AC 21). */
+    @Test fun compatibleEmptyPlanRemembersTheManifestEtag() = runBlocking {
+        val first = publishV1()
+        assertTrue(job().run(JobMode.USER, false) is JobResult.Installed)
+        dispatcher.publish(Manifests.json(first), first, etag = "\"m-same-files\"")
+        assertEquals(JobResult.NothingToDo, job().run(JobMode.AUTO, false))
+        assertEquals("\"m-same-files\"", store.installed().manifestEtag)
+    }
+
+    @Test fun incompatibleWantedListsOnlyChangedFilesThisAppCannotTake() {
+        val m = ManifestParser.parse(
+            Manifests.json(listOf(FixtureFile.tiles(v1), FixtureFile.routing(v3, builder = "valhalla 9.9.9"), FixtureFile.search(v1))),
+        )
+        val wanted = PackRules.incompatibleWanted(m, InstalledPack.NONE, PackKind.entries.toSet())
+        assertEquals(listOf(PackKind.ROUTING), wanted.map { it.packKind })
+        assertTrue(PackRules.incompatibleWanted(m, InstalledPack.NONE, setOf(PackKind.TILES, PackKind.SEARCH)).isEmpty())
+        assertTrue(PackRules.incompatibleWanted(m, InstalledPack.NONE, PackKind.entries.toSet()) { true }.isEmpty())
+    }
+
     @Test fun automaticChecksOnlyUpdateInstalledKinds() = runBlocking {
         publishV1()
         // AC 38: nothing installed (deleted) → the periodic check downloads nothing.

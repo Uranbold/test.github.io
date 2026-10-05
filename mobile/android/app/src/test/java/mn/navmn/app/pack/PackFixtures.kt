@@ -117,13 +117,14 @@ class PackServer : Dispatcher() {
 }
 
 /** Self-tests that pass (or fail for chosen kinds); the real ones need the `:routing` process and FTS5. */
-class FakeSelfTests(var failKinds: Set<PackKind> = emptySet()) : SelfTests {
+class FakeSelfTests(var failKinds: Set<PackKind> = emptySet(), var throwKinds: Set<PackKind> = emptySet()) : SelfTests {
     val ran = Collections.synchronizedList(ArrayList<PackKind>())
     override suspend fun tiles(f: PackFile, file: File): Boolean = run(PackKind.TILES)
     override suspend fun routing(f: PackFile, file: File, manifest: PackManifest): Boolean = run(PackKind.ROUTING)
     override suspend fun search(f: PackFile, file: File, manifest: PackManifest): Boolean = run(PackKind.SEARCH)
     private fun run(k: PackKind): Boolean {
         ran += k
+        if (k in throwKinds) throw IllegalStateException("self-test crashed: $k")
         return k !in failKinds
     }
 }
