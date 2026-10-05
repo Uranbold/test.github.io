@@ -67,6 +67,8 @@ data class GuidanceState(
     val restoring: Boolean = false,
     /** NAV-012 B3 «Замчлал сэргэлээ» for 3 s after a restore opened by the user (status kind `resumed`). */
     val resumedNoticeVisible: Boolean = false,
+    /** NAV-021 AC 28 (D201): the followed route was computed on the device; the progress panel shows OF24. */
+    val onDeviceRoute: Boolean = false,
 )
 
 sealed interface GuidanceEvent {

@@ -27,6 +27,12 @@ sealed interface SearchView {
     data class RateLimited(val retryEnabled: Boolean) : SearchView
     data object Offline : SearchView
     data object Error : SearchView
+
+    /**
+     * NAV-011 D140 (ADR-0012 Amendment A1): the settled query is an ADR-0006 §2.2 coordinate pair. One option
+     * «Сонгосон цэг», 0 requests. [point] is the parsed value, not rounded; the state carries no strings.
+     */
+    data class Coordinate(val point: LatLon) : SearchView
 }
 
 /**
@@ -36,8 +42,12 @@ sealed interface SearchView {
  *
  * NAV-011 AC 2–4, 7 (ADR-0012 §3): each settled query is planned by [QueryPlanner] (ADR-0006 rules A–D) into 1 or 2
  * requests: `parallel` sends both at once and merges them ([CombineOutcomes.parallel]); `ifEmpty` sends the second only
- * after an empty 200 for the first. A typed coordinate is still sent as typed (ADR-0012 §3, NAV-005 behaviour). The
- * field always shows what the user typed; planned variants never reach the UI.
+ * after an empty 200 for the first. The field always shows what the user typed; planned variants never reach the UI.
+ *
+ * NAV-011 D140 (ADR-0012 §3, Amendment A2; web parity with `searchController.ts` `settle()`): a recognised coordinate
+ * pair becomes [SearchView.Coordinate] with 0 `search` requests. It is planned before the offline and 429-cooldown
+ * checks, so the option also shows offline and during a cooldown; retry sends 0 requests for it. Pairs the rule
+ * rejects (out of range, decimal comma, …) are text and are searched as typed.
  */
 class SearchController(
     private val scope: CoroutineScope,
@@ -46,12 +56,13 @@ class SearchController(
     private val bias: () -> LatLon,
     private val isOnline: () -> Boolean,
     private val now: () -> Long,
+    /** NAV-018 (ADR-0015 §5): the per-operation 429 cooldown, shared by the map-screen and the preview-field instances. */
+    private val cooldown: SearchCooldown = SearchCooldown(),
 ) {
     private val _view = MutableStateFlow<SearchView>(SearchView.Closed)
     val view: StateFlow<SearchView> = _view.asStateFlow()
     private var job: Job? = null
     private var lastSettled: String? = null
-    private var cooldownUntil = 0L
     private var generation = 0
 
     companion object {
@@ -63,10 +74,13 @@ class SearchController(
         /** NAV-011 / ADR-0012 §1: the ported settle (JS whitespace set, surrogate-safe cap) replaces the NAV-005 one. */
         fun settle(raw: String): String = Settle.settle(raw)
 
-        /** The requests a settled query sends: a typed coordinate is sent as typed (ADR-0012 §3). */
-        fun requestsFor(q: String): QueryPlan.Text = when (val p = QueryPlanner.plan(q)) {
-            is QueryPlan.Text -> p
-            else -> QueryPlan.Text(q, null, PlanMode.NONE, 'D')
+        /**
+         * What a settled query becomes (ADR-0012 Amendment A2): [QueryPlan.Coordinate] (0 requests) or the
+         * [QueryPlan.Text] requests. A query too short to plan (never reached after [MIN_LENGTH]) is sent as typed.
+         */
+        fun planFor(q: String): QueryPlan = when (val p = QueryPlanner.plan(q)) {
+            is QueryPlan.Coordinate, is QueryPlan.Text -> p
+            QueryPlan.Skip -> QueryPlan.Text(q, null, PlanMode.NONE, 'D')
         }
     }
 
@@ -90,9 +104,26 @@ class SearchController(
 
     fun retry() {
         val q = lastSettled ?: return
-        if (now() < cooldownUntil) return
+        if (cooldown.active(now())) return
         job?.cancel()
         job = scope.launch { run(q, force = true) }
+    }
+
+    /**
+     * NAV-011 re-focus (NAV-018 minor): the field gains focus again with [raw] still in it and the list Closed (e.g.
+     * after the coordinate option opened the card). A recognised coordinate pair is settled again at once, so the
+     * «Сонгосон цэг» option shows again, with 0 requests. Any other text, or an open list, is left alone (false).
+     */
+    fun onRefocus(raw: String): Boolean {
+        if (_view.value !is SearchView.Closed) return false
+        val q = settle(raw)
+        if (q.length < MIN_LENGTH) return false
+        val p = QueryPlanner.plan(q) as? QueryPlan.Coordinate ?: return false
+        job?.cancel()
+        generation++
+        lastSettled = q
+        _view.value = SearchView.Coordinate(p.point)
+        return true
     }
 
     fun close() {
@@ -103,14 +134,31 @@ class SearchController(
     }
 
     private suspend fun run(q: String, force: Boolean = false) {
-        if (!force && q == lastSettled && _view.value is SearchView.Results) return
+        if (!force && q == lastSettled && (_view.value is SearchView.Results || _view.value is SearchView.Coordinate)) return
         lastSettled = q
+        // D140 (Amendment A2 step 3): a coordinate needs no request, so it is decided before the offline and cooldown
+        // checks. The generation bump discards any older response still on its way.
+        val plan = when (val p = planFor(q)) {
+            is QueryPlan.Coordinate -> {
+                generation++
+                _view.value = SearchView.Coordinate(p.point)
+                return
+            }
+            is QueryPlan.Text -> p
+            QueryPlan.Skip -> return
+        }
         if (!isOnline()) {
             _view.value = SearchView.Offline
             return
         }
-        if (now() < cooldownUntil) {
+        if (cooldown.active(now())) {
             _view.value = SearchView.RateLimited(retryEnabled = false)
+            // NAV-018: the wait may come from the other instance (shared cooldown); «Дахин оролдох» enables when it ends.
+            val wait = cooldown.until - now()
+            scope.launch {
+                delay(wait)
+                if (_view.value == SearchView.RateLimited(retryEnabled = false)) _view.value = SearchView.RateLimited(retryEnabled = true)
+            }
             return
         }
         val g = ++generation
@@ -122,7 +170,7 @@ class SearchController(
                 if (g == generation) _view.value = SearchView.Loading
             }
             try {
-                fetch(q, g)
+                fetch(plan, g)
             } finally {
                 loading.cancel()
             }
@@ -137,7 +185,7 @@ class SearchController(
             SearchOutcome.Offline -> SearchView.Offline
             SearchOutcome.Unavailable -> SearchView.Unavailable
             is SearchOutcome.RateLimited -> {
-                cooldownUntil = now() + outcome.retryAfterS * 1000L
+                cooldown.start(now() + outcome.retryAfterS * 1000L)
                 scope.launch {
                     delay(outcome.retryAfterS * 1000L)
                     if (_view.value is SearchView.RateLimited) _view.value = SearchView.RateLimited(retryEnabled = true)
@@ -147,9 +195,8 @@ class SearchController(
         }
     }
 
-    /** Sends the planned request(s) for [q]; `null` when superseded between the two `ifEmpty` requests. */
-    private suspend fun fetch(q: String, g: Int): SearchOutcome? {
-        val plan = requestsFor(q)
+    /** Sends the planned request(s) of [plan]; `null` when superseded between the two `ifEmpty` requests. */
+    private suspend fun fetch(plan: QueryPlan.Text, g: Int): SearchOutcome? {
         val l = lang()
         val b = bias()
         return coroutineScope {

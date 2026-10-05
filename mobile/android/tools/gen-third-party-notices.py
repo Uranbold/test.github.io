@@ -79,6 +79,13 @@ landcover © ESA WorldCover, CC BY 4.0). Both credits are shown on the map scree
 JNA (`net.java.dev.jna:jna`) is dual-licensed Apache-2.0 OR LGPL-2.1 and is used under **Apache-2.0** (ADR-0009 §11).
 Ferrostar `core` bundles `libferrostar.so` (BSD-3-Clause, built from https://github.com/stadiamaps/ferrostar).
 MapLibre Native bundles `libmaplibre.so` (BSD-2-Clause).
+`valhalla-mobile` (NAV-021, ADR-0017 §2, §7; MIT, © 2024 Adventure Consortium Inc (dba Rallista), © 2018 Valhalla
+contributors) bundles `libvalhalla-wrapper.so` for arm64-v8a, armeabi-v7a, x86 and x86_64, loaded only in the `:routing`
+process. Statically linked, per its `src/vcpkg.json` at tag 0.6.3 (commit b47ad5a) and a symbol scan of the shipped
+library: Valhalla 3.6.3 (MIT) with its bundled date library (MIT), protobuf 4.25.1 (BSD-3-Clause), Abseil (Apache-2.0,
+required by protobuf), Boost algorithm / foreach / format / geometry / heap / optional / property_tree / range / tokenizer
+(BSL-1.0), lz4 (BSD-2-Clause), RapidJSON (MIT), robin-hood-hashing and unordered_dense (MIT). The system `libz`, `liblog`,
+`libm`, `libdl` and `libc` are not bundled.
 
 | Group | Artifact | Version | Licence | Project URL |
 |---|---|---|---|---|

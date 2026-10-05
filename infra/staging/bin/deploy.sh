@@ -7,9 +7,13 @@
 #
 # Steps: validate infra/staging/.env -> git fetch + checkout of the tag (as the checkout owner) -> re-exec the
 # tag's own deploy.sh -> install/refresh systemd units -> docker compose pull (images pinned by digest/tag)
-# -> up -d --wait -> check that the gateway rate limits are active -> smoke suite. On a failed smoke the
-# command to roll back is printed; nothing is rolled back automatically.
-# The first deploy on an empty host builds the data (about 8-10 min on 4 vCPU plus downloads).
+# -> up -d --wait (gateway, Caddy) -> the active NAV-006 lane (blue|green) up -d --wait -> check that the gateway
+# rate limits are active -> smoke suite. On a failed smoke the command to roll back is printed; nothing is
+# rolled back automatically.
+# NAV-006 (ADR-0014): compose model = backend/compose.slots.yaml + overlays; data in NAV_DATA_ROOT. When no slot
+# is active yet (first deploy on an empty host), the pipeline's first build runs under this deploy's lock
+# (about 8-10 min on 4 vCPU plus downloads). A deploy that changes a lane's image recreates the active lane:
+# a few seconds of route/search 502 (accepted like any deploy; data switches stay at 0 s).
 # shellcheck source=nav-env.sh
 source "$(dirname "$(readlink -f "$0")")/nav-env.sh"
 
@@ -64,8 +68,17 @@ fi
 
 t0=$(date +%s)
 "$NAV_BIN/install-units.sh"
-nav_compose pull --quiet --ignore-buildable
+nav_ensure_data_root
+nav_compose --profile '*' pull --quiet --ignore-buildable
 nav_compose up -d --wait --remove-orphans
+lane=$(nav_active_lane)
+if [[ -n "$lane" ]]; then
+    nav_compose up -d --wait --no-deps "valhalla-$lane" "photon-$lane"
+else
+    nav_log info "no active data slot yet; running the first NAV-006 build under this deploy's lock"
+    NAV_COMPOSE_OVERLAYS=$(nav_overlays) python3 "$NAV_ROOT/backend/pipeline/nav_pipeline.py" \
+        --env-file "$NAV_ENV_FILE" rebuild --assume-locked || nav_die "first data build failed (see the run log above and RUNBOOK.md NAV-006 section)"
+fi
 nav_compose ps --format 'table {{.Service}}\t{{.Status}}'
 
 # Staging must never serve without rate limits (NAV-008 AC 13); the entrypoint writes this file at start.

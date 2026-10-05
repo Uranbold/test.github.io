@@ -38,6 +38,22 @@ val configuredGateway: String? = run {
 
 fun quoted(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
+// ------------------------------------------------------------------------------------------------ demo build (NAV-019)
+// ADR-0016 §8.1: the basemap of the `demo` build type. Gradle property → environment → the uncommitted
+// gateway.local.properties, like the gateway URL. Exactly one must be set for demo tasks (checkDemoTiles); no other task
+// reads them. Values are never committed (AC 41): the README shows placeholders only.
+fun navSetting(property: String, env: String): String? {
+    val fromProperty = providers.gradleProperty(property).orNull
+    val fromEnv = providers.environmentVariable(env).orNull
+    val localFile = rootProject.file("gateway.local.properties")
+    val fromFile = if (localFile.isFile) Properties().apply { localFile.inputStream().use { load(it) } }.getProperty(property) else null
+    return listOf(fromProperty, fromEnv, fromFile).firstOrNull { !it.isNullOrBlank() }?.trim()
+}
+val demoTilesFile: String? = navSetting("nav.demoTilesFile", "NAV_DEMO_TILES_FILE")
+val demoTilesUrl: String? = navSetting("nav.demoTilesUrl", "NAV_DEMO_TILES_URL")
+// NAV-019 AC 4 (ADR-0016 §8.3): the NAV-017 route manifest; its picker routes and tracks are copied at build time.
+val demoManifestFile: File = webDir.resolve("src/demo/routes.manifest.json")
+
 android {
     namespace = "mn.navmn.app"
     compileSdk = 36
@@ -57,13 +73,48 @@ android {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "GATEWAY_BASE_URL", quoted(configuredGateway ?: debugDefaultGateway))
             buildConfigField("boolean", "DEBUG_LOGS", "true")
+            // B-NAV019-01: the last crash's stack trace is stored app-private and shown on the next launch (no adb needed).
+            buildConfigField("boolean", "CRASH_DIAGNOSTICS", "true")
         }
         release {
             // Not minified in this slice (no store upload, D17); R8 rules for JNA/UniFFI come with NAV-012.
             isMinifyEnabled = false
             buildConfigField("String", "GATEWAY_BASE_URL", quoted(configuredGateway ?: ""))
             buildConfigField("boolean", "DEBUG_LOGS", "false")
+            buildConfigField("boolean", "CRASH_DIAGNOSTICS", "false")
         }
+        // NAV-019 (ADR-0016 §2): the demo build for the PO's phone. Installs next to the debug app (.demo), signed with the
+        // local debug key (nothing signing-related is committed), not debuggable, not minified (ADR-0013 B-A8 still open).
+        // The gateway URL is a fixed loopback discard address that is never contacted (§7): nav.gatewayBaseUrl is ignored,
+        // so a developer's gateway can never end up in the APK the PO receives.
+        create("demo") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".demo"
+            versionNameSuffix = "-demo"
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            isMinifyEnabled = false
+            matchingFallbacks += listOf("release")
+            buildConfigField("String", "GATEWAY_BASE_URL", quoted("https://127.0.0.1:9"))
+            buildConfigField("boolean", "DEBUG_LOGS", "false")
+            buildConfigField("boolean", "CRASH_DIAGNOSTICS", "true") // B-NAV019-01: the PO's phone has no adb
+            buildConfigField("String", "DEMO_TILES_URL", quoted(if (demoTilesFile.isNullOrBlank()) demoTilesUrl.orEmpty() else ""))
+        }
+    }
+
+    // ADR-0016 §2: src/replay is pure Kotlin (no Android types, no Hilt modules). It is compiled into the demo build and
+    // into the debug unit tests, so the replay tests run in the existing testDebugUnitTest. src/demo is the demo build
+    // type's own source set (Android, Hilt, UI, resources, manifest overlay).
+    sourceSets {
+        getByName("demo") { java.srcDir("src/replay/java") }
+        getByName("testDebug") {
+            java.srcDir("src/replay/java")
+            // The Gradle guard (AC 3) is the same source file the build script runs (DemoTilesGuardTest).
+            java.srcDir(rootProject.file("buildSrc/src/main/java"))
+        }
+        // NAV-019 TC-B19-01/02: testDemoUnitTest (only enabled with nav.demoTilesFile, see androidComponents below) also
+        // compiles src/test, whose DemoBuildTest needs the buildSrc guard. src/replay is already in the demo main sources.
+        getByName("testDemo") { java.srcDir(rootProject.file("buildSrc/src/main/java")) }
     }
 
     compileOptions {
@@ -76,11 +127,14 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        aidl = true // NAV-021 R2: IOnDeviceRouting (the :routing bound service)
     }
 
     androidResources {
         // values/ = Mongolian (default), values-en/ = English (ADR-0009 §8). Nothing else is packaged.
         localeFilters += listOf("mn", "en")
+        // NAV-019 (ADR-0016 §8.3): the bundled demo archive stays uncompressed (streamed copy, known length).
+        noCompress += "pmtiles"
     }
 
     testOptions {
@@ -126,6 +180,21 @@ val checkReleaseGatewayUrl by tasks.registering {
 }
 tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(checkReleaseGatewayUrl) }
 
+// NAV-019 AC 3 (ADR-0016 §8.2): demo tasks fail early unless exactly one basemap source is set. Bound to preDemoBuild only,
+// so assembleDebug, assembleRelease and testDebugUnitTest never need the properties. The rule is navmn.buildlogic.DemoTilesGuard
+// (buildSrc), the same source file the JVM test DemoTilesGuardTest runs.
+val checkDemoTiles by tasks.registering {
+    group = "verification"
+    description = "Fails unless exactly one of nav.demoTilesFile / nav.demoTilesUrl is set (NAV-019 demo build)"
+    val file = demoTilesFile
+    val url = demoTilesUrl
+    doLast {
+        val problem = navmn.buildlogic.DemoTilesGuard.problem(file, url)
+        if (problem != null) throw GradleException(problem)
+    }
+}
+tasks.matching { it.name == "preDemoBuild" }.configureEach { dependsOn(checkDemoTiles) }
+
 // ------------------------------------------------------------------------------------------------ generated sources
 /** Kotlin colours from docs/design/tokens.json (no copied hex values; ADR-0009 §6, ADR-0004 Amendment 1). */
 abstract class GenerateTokenColours : DefaultTask() {
@@ -160,7 +229,7 @@ abstract class GenerateTokenColours : DefaultTask() {
             val alpha = Math.round(a.toDouble() * 255).toInt()
             return "0x%02X%02X%02X%02X".format(alpha, r.toInt(), g.toInt(), b.toInt())
         }
-        val groups = listOf("ui", "nav", "route", "pin", "location")
+        val groups = listOf("ui", "nav", "route", "pin", "location", "demo")
         val modes = mapOf("light" to "Day", "night" to "Night")
         val perMode = modes.keys.associateWith { mode ->
             val out = linkedMapOf<String, String>()
@@ -224,10 +293,98 @@ val syncBasemapAssets by tasks.registering(SyncBasemapAssets::class) {
     outputDir.set(layout.buildDirectory.dir("generated/basemapAssets"))
 }
 
+/**
+ * NAV-019 AC 4 (ADR-0016 §8.3): the demo build's assets, copied byte for byte from their repo paths at build time (no
+ * copies under mobile/): `demo/routes.manifest.json` (the NAV-017 manifest), `demo/files/<repo path>` for the route and
+ * track of every `picker: true` entry, and `demo/basemap.pmtiles` from nav.demoTilesFile (file mode only). Validated
+ * like ADR-0011 §5: the manifest parses, ≥ 1 picker entry, every file exists, each route has code "Ok" and ≥ 1 route,
+ * each track ≥ 2 timed <trkpt>. Registered for the demo build type only.
+ */
+abstract class SyncDemoAssets : DefaultTask() {
+    @get:InputFile abstract val manifest: RegularFileProperty
+    @get:Input abstract val rootDirPath: Property<String>
+    @get:InputFiles abstract val pickerFiles: ConfigurableFileCollection
+    @get:Optional @get:InputFile abstract val tiles: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun sync() {
+        val root = File(rootDirPath.get())
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        val demo = out.resolve("demo").apply { mkdirs() }
+        val manifestFile = manifest.get().asFile
+        @Suppress("UNCHECKED_CAST")
+        val m = JsonSlurper().parse(manifestFile) as Map<String, Any?>
+        @Suppress("UNCHECKED_CAST")
+        val entries = (m["routes"] as? List<Map<String, Any?>>).orEmpty().filter { it["picker"] == true }
+        if (entries.isEmpty()) throw GradleException("NAV-019: ${manifestFile.name} has no picker entry")
+        manifestFile.copyTo(demo.resolve("routes.manifest.json"), overwrite = true)
+        val trkpt = Regex("<trkpt\\b[^>]*>[\\s\\S]*?<time>[^<]+</time>[\\s\\S]*?</trkpt>")
+        for (e in entries) {
+            val id = e["id"]
+            for (key in listOf("route", "track")) {
+                val rel = e[key] as? String ?: throw GradleException("NAV-019: manifest entry $id has no $key")
+                val src = root.resolve(rel)
+                if (!src.isFile) throw GradleException("NAV-019: manifest entry $id: $rel does not exist")
+                if (key == "route") {
+                    @Suppress("UNCHECKED_CAST")
+                    val r = runCatching { JsonSlurper().parse(src) as Map<String, Any?> }.getOrNull()
+                    val routes = r?.get("routes") as? List<*>
+                    if (r?.get("code") != "Ok" || routes.isNullOrEmpty()) throw GradleException("NAV-019: $rel is not an OSRM response with code Ok")
+                } else if (trkpt.findAll(src.readText()).count() < 2) {
+                    throw GradleException("NAV-019: $rel has fewer than 2 timed <trkpt>")
+                }
+                src.copyTo(demo.resolve("files/$rel"), overwrite = true)
+            }
+        }
+        if (tiles.isPresent) tiles.get().asFile.copyTo(demo.resolve("basemap.pmtiles"), overwrite = true)
+    }
+}
+
+val syncDemoAssets by tasks.registering(SyncDemoAssets::class) {
+    manifest.set(demoManifestFile)
+    rootDirPath.set(repoRoot.absolutePath)
+    @Suppress("UNCHECKED_CAST")
+    val pickerPaths = runCatching {
+        ((JsonSlurper().parse(demoManifestFile) as Map<String, Any?>)["routes"] as List<Map<String, Any?>>)
+            .filter { it["picker"] == true }
+            .flatMap { listOfNotNull(it["route"] as? String, it["track"] as? String) }
+    }.getOrDefault(emptyList())
+    pickerFiles.from(pickerPaths.map { repoRoot.resolve(it) }.filter { it.isFile })
+    val file = demoTilesFile
+    if (!file.isNullOrBlank() && File(file).isFile) tiles.set(File(file))
+    outputDir.set(layout.buildDirectory.dir("generated/demoAssets"))
+    dependsOn(checkDemoTiles)
+}
+
+// NAV-019 review housekeeping (ADR-0016 known gap 8) with the NAV-019 bug-lane regression test kept runnable
+// (NAV-005 test plan §8 Q9, option a). Without nav.demoTilesFile the demo build type has no unit-test variant, so
+// ./gradlew test, check and build work with no demo properties (the replay code is tested in testDebugUnitTest). With
+// nav.demoTilesFile (file mode, which TC-B19-02 asserts) testDemoUnitTest exists and runs only the demo-specific tests
+// in src/testDemo (QaNav019DemoStartupTest), not the whole src/test suite against the demo bindings.
+val demoUnitTestsEnabled: Boolean = !demoTilesFile.isNullOrBlank()
+val demoOnlyTestRoot: File = file("src/testDemo/java")
+val demoOnlyTestPatterns: List<String> = fileTree(demoOnlyTestRoot) { include("**/*.kt", "**/*.java") }.files
+    .map { it.relativeTo(demoOnlyTestRoot).invariantSeparatorsPath.substringBeforeLast('.').replace('/', '.') + "*" }
+    .sorted()
+tasks.withType<Test>().matching { it.name == "testDemoUnitTest" }.configureEach {
+    enabled = demoOnlyTestPatterns.isNotEmpty() // never fall back to running all of src/test under the demo bindings
+    filter {
+        isFailOnNoMatchingTests = true
+        demoOnlyTestPatterns.forEach { includeTestsMatching(it) }
+    }
+}
+
 androidComponents {
+    beforeVariants(selector().withBuildType("demo")) { it.enableUnitTest = demoUnitTestsEnabled }
     onVariants { variant ->
         variant.sources.java?.addGeneratedSourceDirectory(generateTokenColours, GenerateTokenColours::outputDir)
         variant.sources.assets?.addGeneratedSourceDirectory(syncBasemapAssets, SyncBasemapAssets::outputDir)
+    }
+    // NAV-019 AC 4–5: only the demo build type gets the demo assets; debug and release never see them.
+    onVariants(selector().withBuildType("demo")) { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(syncDemoAssets, SyncDemoAssets::outputDir)
     }
 }
 
@@ -299,6 +456,9 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)
     implementation(libs.compose.material3)
+    // NAV-021: the on-device engine (loaded only in the :routing process) and Moshi for its error envelope.
+    implementation(libs.valhalla.mobile)
+    implementation(libs.moshi)
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.viewmodel.compose)
     ksp(libs.hilt.compiler)

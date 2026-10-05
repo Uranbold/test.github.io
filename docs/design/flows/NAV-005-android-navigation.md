@@ -3,7 +3,8 @@
 - **Story:** [NAV-005](../../requirements/stories/NAV-005-active-navigation-android.md) (first slice, Android only, D24). AC referenced per step.
 - **Screens:** [`screens/NAV-005-android-navigation.md`](../screens/NAV-005-android-navigation.md) (S1 map, S2 search and coordinate card, S3 route preview, S4 location messages and permission rationale, S5 guidance, S6 arrival, S7 settings sheet, S8 notification).
 - **Rules:** [`navigation-ux.md`](../navigation-ux.md) (banner, voice schedule, off-route, GPS loss, camera). Map layers: [`map-style.md` §7.4](../map-style.md).
-- **Prototype:** [`prototypes/NAV-005-guidance.html`](../prototypes/NAV-005-guidance.html) (guidance, arrival, preview and message states).
+- **Prototype:** [`prototypes/NAV-005-guidance.html`](../prototypes/NAV-005-guidance.html) (guidance, arrival, preview and message states); [`prototypes/NAV-005-location-dot.html`](../prototypes/NAV-005-location-dot.html) (browse location dot states, F12).
+- **Section N (2026-10-04, AC 74–79, [D171–D178](../../requirements/decisions.md)):** the browse-map location dot, F12. F1 and F3 changed only where the my-location press now waits for a *showable* fix (accuracy known and ≤ 100 m).
 - **API and architecture:** `openapi.yaml` 0.5.0 `search` (GET `/v1/search`), `postRoute` (POST `/v1/route`); [ADR-0009](../../architecture/adr/0009-android-guidance-client.md) (app-owned route client and reroute policy, off-route = 3 consecutive good fixes > 50 m, on-device voice schedule). The flows show the user-visible outcome.
 
 Copy is quoted by its `mn` value in «»; every string is a glossary term; keys are in the screen spec › Copy. "Good fix" = accuracy ≤ 25 m; "fresh" = ≤ 10 s old (≤ 60 s for the preview origin).
@@ -23,6 +24,7 @@ flowchart TD
     U -- "types in «Газар, хаяг хайх»" --> F2S(["F2a search"])
     U -- "long-press on the map" --> F2C(["F2b coordinate card"])
     U -- "my-location button" --> F3(["F3 location access"])
+    U -- "my-location button, location OK" --> F12(["F12 browse location dot"])
     U -- "«Тохиргоо»" --> F11(["F11 settings sheet"])
     M -. "tiles fail" .-> TE["Message «Газрын зургийг ачаалж чадсангүй» + «Дахин оролдох»<br/>(NAV-002 rule; search and long-press still work)"]
     M -. "offline" .-> OF["Message «Интернэт холболт алга»; loaded tiles stay"]
@@ -69,7 +71,8 @@ flowchart TD
     OS -- "approximate only (Android 12+)" --> AP
     OS -- "denied (once or forever)" --> DN
     PG -- "granted precise" --> SV
-    PG -- "granted approximate" --> AP["S4 message «Нарийвчилсан байршлыг зөвшөөрнө үү»<br/>«Тохиргоо нээх» / «Хаах»<br/>«Эхлэх» disabled, 0 route requests — AC 10"]
+    PG -- "granted approximate, my-location press (as built)" --> SV
+    PG -- "granted approximate, other actions" --> AP["S4 message «Нарийвчилсан байршлыг зөвшөөрнө үү»<br/>«Тохиргоо нээх» / «Хаах»<br/>«Эхлэх» disabled, 0 route requests — AC 10"]
     PG -- "denied / don't ask again" --> DN["S4 message «Байршлын зөвшөөрөл олгоогүй байна»<br/>hint «Утасны тохиргоонд байршлын зөвшөөрлийг асаана уу»<br/>«Тохиргоо нээх» / «Хаах»; OS dialog not shown again — AC 11"]
     AP -- "«Тохиргоо нээх»" --> APPSET["App settings page (system)"]
     DN -- "«Тохиргоо нээх»" --> APPSET
@@ -77,7 +80,7 @@ flowchart TD
     APPSET -- "returns unchanged" --> PG
     SV{"Location services on?"} -- no --> LS["S4 message «Байршил тогтоох үйлчилгээ унтарсан байна»<br/>«Тохиргоо нээх» (system location settings) / «Хаах» — AC 12"]
     LS -- "returns with location on" --> FX
-    SV -- yes --> FX["Wait for a good fix<br/>(platform LocationManager GPS, or the platform fused provider on API 31+, no Google Play services: ADR-0009 §9, AC 14)"]
+    SV -- yes --> FX["Wait for a good fix<br/>(platform LocationManager GPS, or the platform fused provider on API 31+, no Google Play services: ADR-0009 §9, AC 14)<br/>my-location press: a showable fix ≤ 100 m instead, F12 — AC 76"]
     FX -- "good fix ≤ 10 s" --> OK(["Pending action continues within 2 s<br/>without another tap — AC 9, 11, 12"])
     FX -- "none in 10 s" --> NF["S4 message «Байршил тодорхойлж чадсангүй»<br/>«Дахин оролдох» / «Хаах»; 0 route requests — AC 9"]
     NF -- "«Дахин оролдох»" --> FX
@@ -236,10 +239,61 @@ flowchart TD
     LG --> K
 ```
 
+## F12. Browse location dot (S1, S2, S3) — AC 74–79 (section N, 2026-10-04)
+
+The dot shows the **shown position**, not every fix (NAV-005 Terms). The numbers are the PO's starting defaults (D176). Raw fixes still feed the route origin, guidance, the typing lock, the «Автомат» theme and the NAV-018 device start (AC 78, D177). The demo build never shows a dot (NAV-019 AC 13). Looks: [`map-style.md` §7.8](../map-style.md); states table: screen spec › S1 › Location dot on the browse map.
+
+### F12a. My-location press without a shown position (D172)
+
+```mermaid
+flowchart TD
+    P(["my-location button pressed (S1 or S2)"]) --> C{"F3 checks pass?<br/>permission, services — AC 8, 11, 12"}
+    C -- no --> F3M["F3 message, unchanged"]
+    C -- yes --> S{"Shown position?"}
+    S -- "yes, normal or stale" --> CEN["Camera centres on the dot and follows it<br/>no message, also when stale — AC 76"]
+    S -- no --> W["Waiting: no dot; button in the following colours<br/>with icon location_searching; no text"]
+    W -- "showable fix within 10 s" --> D["Dot and circle appear;<br/>camera centres and follows — AC 74"]
+    W -- "map gesture" --> X["Wait ends, button normal, no card later;<br/>a later fix shows the dot, camera not moved"]
+    W -- "10 s, no showable fix" --> G["S1 R2 card «Байршил тодорхойлж чадсангүй»<br/>«Дахин оролдох» / «Хаах»; 0 route requests — AC 76"]
+    G -- "«Дахин оролдох» or my-location press" --> W
+    G -- "«Хаах»" --> X
+    G -- "showable fix arrives" --> GD["Card closes within 2 s; dot appears;<br/>camera centres and follows (pending action continues, as F3)"]
+```
+
+With approximate permission only, the press passes F3 as built and coarse fixes (usually worse than 100 m) end in the card (NAV-005 Open question 1, BA).
+
+### F12b. What the dot does as fixes arrive (AC 75–77)
+
+```mermaid
+stateDiagram-v2
+    [*] --> NoDot
+    NoDot : No dot, no circle (no showable fix yet)
+    NoDot --> Shown : first showable fix
+    state Shown {
+        Moving : Moving, dot and camera follow each fix within 1 s
+        Holding : Holding, dot and camera move 0 m
+        [*] --> Moving
+        Moving --> Holding : speed below 0.5 m/s, or no speed and d within r
+        Holding --> Moving : speed 1.0 m/s or more, or 2nd fix in a row with d beyond r
+    }
+    Shown --> Pending : jump, more than max(50 m, 2 x acc) away and over 50 m/s
+    Pending : Jump pending, dot 0 m
+    Pending --> Shown : next fix within 5 s confirms (dot moves) or not (fix discarded)
+    Shown --> Stale : 10 s without a showable fix
+    Stale : Stale, hollow grey ring and dashed circle, no message
+    Stale --> Shown : next showable fix, normal look within 2 s
+    Shown --> Guidance : «Эхлэх»
+    Stale --> Guidance : «Эхлэх»
+    Guidance : Guidance or arrival, no dot, puck instead
+    Guidance --> Shown : guidance ends, next showable fix
+```
+
+*d* = distance from the new fix to the shown position, *r* = max(the new fix's accuracy, 10 m). Fixes with unknown accuracy or worse than 100 m are ignored in every state: they move nothing and do not reset the 10 s timer (AC 76). Pending and discarded jumps do not count as "in a row" (AC 75). The circle radius is always the accuracy of the fix the dot shows (AC 74).
+
 ## Error-path summary (every screen has offline, GPS-lost and no-result states)
 | Screen | Offline | GPS lost / no location | No result |
 |---|---|---|---|
-| S1 map | Message «Интернэт холболт алга»; loaded tiles stay | My-location button → F3 messages | — |
+| S1 map | Message «Интернэт холболт алга»; loaded tiles stay | My-location button → F3 messages; no showable fix: no dot, «Байршил тодорхойлж чадсангүй» 10 s after a press (F12a); fixes stop: stale hollow grey dot, no message (F12b) | — |
 | S2 search / card | List row «Интернэт холболт алга», 0 requests | not needed (search works without location; bias falls back to the map centre, D30) | «Илэрц олдсонгүй» |
 | S3 preview | «Интернэт холболт алга», 0 requests, auto-request when back | F3 messages in the result region; «Эхлэх» disabled | «Маршрут олдсонгүй», N9, N11 |
 | S5 guidance | Status indicator (F8); off-route → banner secondary line (F6) | F7 | reroute «Маршрут олдсонгүй» (F6) |

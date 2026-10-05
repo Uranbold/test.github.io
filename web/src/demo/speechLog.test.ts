@@ -43,5 +43,11 @@ describe("SpeechEventLog", () => {
     expect(formatSpeechEvent({ atMs: 1000, kind: "end" })).toBe("+1.0 s onend");
     expect(formatSpeechEvent({ atMs: 1000, kind: "no-start" })).toBe("+1.0 s no onstart within 3 s: prompt cancelled");
     expect(formatSpeechEvent({ atMs: 1000, kind: "chime" })).toBe("+1.0 s chime played");
+    expect(formatSpeechEvent({ atMs: 1000, kind: "chime", path: "element", ctxBefore: "interrupted", ctxAfter: "interrupted", result: "played (resume() rejected: NotAllowedError)" })).toBe(
+      "+1.0 s chime via element: played (resume() rejected: NotAllowedError) (AudioContext interrupted → interrupted)",
+    );
+    expect(formatSpeechEvent({ atMs: 1000, kind: "chime-error", path: "element", result: "play() rejected (NotAllowedError)" })).toBe("+1.0 s chime element error: play() rejected (NotAllowedError)");
+    expect(formatSpeechEvent({ atMs: 1000, kind: "ctx-state", state: "interrupted" })).toBe("+1.0 s AudioContext state: interrupted");
+    expect(formatSpeechEvent({ atMs: 1000, kind: "keep-alive", result: "started" })).toBe("+1.0 s silent keep-alive started");
   });
 });

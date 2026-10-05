@@ -64,6 +64,7 @@ import mn.navmn.app.reroute.RerouteSecondary
 import mn.navmn.app.ui.Orientation
 import mn.navmn.app.ui.components.CappedFontScale
 import mn.navmn.app.ui.components.MapIconButton
+import mn.navmn.app.ui.components.OfflineIndicatorIcon
 import mn.navmn.app.ui.components.maneuverIcon
 import mn.navmn.app.ui.theme.LocalNight
 import mn.navmn.app.ui.theme.LocalTokens
@@ -261,7 +262,9 @@ fun TripProgressPanel(state: GuidanceState, lang: Lang, strings: Strings, onSett
     val etaText = Formatters.etaText(eta, strings)
     val time = Formatters.duration(p.durationRemaining, strings)
     val dist = Formatters.distance(p.distanceRemaining, lang, strings)
-    val a11y = "$etaText, ${strings[StringKey.NAV_REMAINING_TIME]} $time, ${strings[StringKey.NAV_REMAINING_DISTANCE]} $dist"
+    val base = "$etaText, ${strings[StringKey.NAV_REMAINING_TIME]} $time, ${strings[StringKey.NAV_REMAINING_DISTANCE]} $dist"
+    // NAV-021 AC 28 (screen spec F9): the progress node gains «, Офлайн газрын зургаас» while the route came from the device.
+    val a11y = if (state.onDeviceRoute) "$base, ${strings[StringKey.OFFLINE_INDICATOR_A11Y]}" else base
     Surface(
         color = t.uiSurface.c(),
         contentColor = t.uiOnSurface.c(),
@@ -282,7 +285,16 @@ fun TripProgressPanel(state: GuidanceState, lang: Lang, strings: Strings, onSett
                 }
             } else Column(Modifier.weight(1f).clearAndSetSemantics { contentDescription = a11y }) {
                 Text(etaText, style = NavType.titleLarge, color = t.uiOnSurface.c(), modifier = Modifier.testTag("nav-eta"))
-                Text("$time · $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.testTag("nav-remaining"))
+                if (state.onDeviceRoute) {
+                    // F9: icon only, 20 dp, 8 dp after the text, centred on line 2; adds no panel height.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("$time · $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.testTag("nav-remaining"))
+                        Spacer(Modifier.width(8.dp))
+                        OfflineIndicatorIcon()
+                    }
+                } else {
+                    Text("$time · $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.testTag("nav-remaining"))
+                }
             }
             val settings = stringResource(R.string.settings_title)
             IconButton(onClick = onSettings, modifier = Modifier.size(48.dp).testTag("nav-settings")) {
@@ -349,6 +361,13 @@ fun GuidanceOverlay(
     onArrivalClose: () -> Unit,
     onCovered: (Covered) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * ADR-0016 / NAV-019 UX RD: a replay build's demo row directly below the banner (outside the 50 % banner cap), with
+     * `arrived`; null everywhere else.
+     */
+    demoRow: (@Composable (Boolean) -> Unit)? = null,
+    /** NAV-019 UX Design note 4: false when nothing needs the network (bundled tiles in a replay build). */
+    showOfflineStatus: Boolean = true,
 ) {
     val arrived = state.phase == GuidancePhase.ARRIVED || state.phase == GuidancePhase.ENDED
     val destinationText = state.trip.destinationName ?: stringResource(R.string.place_selected_point)
@@ -359,7 +378,7 @@ fun GuidanceOverlay(
             // NAV-012 Layout rule 8: «Замчлал сэргэлээ» has priority 2, after the GPS messages and before offline.
             if (state.resumedNoticeVisible) add(Triple("resumed", R.drawable.ic_info, strings[StringKey.NAV_RESUMED]))
             val bannerSaysOffline = (state.banner as? Banner.Rerouting)?.secondary == RerouteSecondary.OFFLINE
-            if (state.offline && !bannerSaysOffline) add(Triple("offline", R.drawable.ic_cloud_off, strings[StringKey.STATUS_OFFLINE]))
+            if (showOfflineStatus && state.offline && !bannerSaysOffline) add(Triple("offline", R.drawable.ic_cloud_off, strings[StringKey.STATUS_OFFLINE]))
         }
     }
     val density = LocalDensity.current
@@ -385,6 +404,10 @@ fun GuidanceOverlay(
             CappedFontScale(OVERLAY_CAP) {
                 Column(m) {
                     NavBanner(state.banner, lang, strings, bannerMax, Modifier.padding(horizontal = 8.dp))
+                    if (demoRow != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Box(Modifier.padding(horizontal = 8.dp)) { demoRow(arrived) }
+                    }
                     for ((kind, icon, text) in statuses) {
                         Spacer(Modifier.height(8.dp))
                         StatusMessage(kind, icon, text, Modifier.padding(horizontal = if (landscape) 8.dp else 16.dp))

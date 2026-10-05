@@ -15,22 +15,44 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 echo "== shell scripts"
-scripts=("$ST"/bin/*.sh "$ST"/bin/nav-compose "$ST"/bootstrap/*.sh "$ST"/monitoring/ops-vm/*.sh "$ROOT"/infra/ci/*.sh)
+scripts=("$ST"/bin/*.sh "$ST"/bin/nav-compose "$ST"/bin/nav-pipeline "$ST"/bootstrap/*.sh "$ST"/monitoring/ops-vm/*.sh "$ROOT"/infra/ci/*.sh)
 for f in "${scripts[@]}"; do bash -n "$f" || fail "bash -n $f"; done
 if command -v shellcheck >/dev/null; then
     shellcheck -x -P "$ST/bin" -S warning "${scripts[@]}" || fail shellcheck
 else
     echo "   (shellcheck not installed: bash -n only)"
 fi
-for f in "$ST"/bin/*.sh "$ST"/bin/nav-compose "$ST"/bootstrap/bootstrap.sh "$ST"/monitoring/ops-vm/setup-backup-account.sh; do
+for f in "$ST"/bin/*.sh "$ST"/bin/nav-compose "$ST"/bin/nav-pipeline "$ST"/bootstrap/bootstrap.sh "$ST"/monitoring/ops-vm/setup-backup-account.sh; do
     [[ "$(basename "$f")" == nav-env.sh || -x "$f" ]] || fail "not executable: $f"
 done
 
 echo "== compose config (overlay with .env.example values)"
 cp "$ST/.env.example" "$TMP/stg.env"
 echo "GATEWAY_BIND=0.0.0.0" >> "$TMP/stg.env"   # must NOT widen the gateway binding on staging
-compose() { docker compose -p navmn --project-directory "$ROOT/backend" -f "$ROOT/backend/compose.yaml" -f "$ST/compose.staging.yaml" "$@"; }
+compose() { docker compose -p navmn --project-directory "$ROOT/backend" -f "$ROOT/backend/compose.slots.yaml" -f "$ST/compose.staging.yaml" "$@"; }
 compose --env-file "$TMP/stg.env" config > "$TMP/v4.yaml" || fail "compose config (IPv4)"
+compose --env-file "$TMP/stg.env" --profile '*' config > "$TMP/all.yaml" || fail "compose config (all profiles)"
+python3 - "$TMP/all.yaml" <<'PY' || fail "NAV-006 lanes / verify gateway assertions"
+import sys, yaml
+s = yaml.safe_load(open(sys.argv[1]))["services"]
+pub = {n: x.get("ports") for n, x in s.items() if x.get("ports")}
+assert set(pub) == {"caddy", "gateway", "gateway-verify"}, sorted(pub)
+gv = pub["gateway-verify"]
+assert len(gv) == 1 and gv[0]["host_ip"] == "127.0.0.1", f"gateway-verify ports {gv}"
+assert "edge" not in (s["gateway-verify"].get("networks") or {}), "gateway-verify must never be on the edge network"
+for lane in ("blue", "green"):
+    for svc in (f"valhalla-{lane}", f"photon-{lane}"):
+        assert "edge" not in (s[svc].get("networks") or {}), svc
+data = [v["source"] for v in s["gateway"]["volumes"] if v["target"] in ("/etc/nginx/slot", "/srv/slots", "/srv/packs")]
+assert all(d.startswith("/var/lib/nav/data/") for d in data) and len(data) == 3, data
+packs = [v for v in s["gateway"]["volumes"] if v["target"] == "/srv/packs"][0]
+assert packs["source"] == "/var/lib/nav/data/packs" and packs["read_only"], packs
+assert "/srv/packs" not in {v["target"] for v in s["gateway-verify"]["volumes"]}, "gateway-verify must not serve packs"
+env = s["gateway"]["environment"]
+assert env["GATEWAY_RATE_PACKS"] == "2r/s" and env["GATEWAY_BURST_PACKS"] == "20", (env["GATEWAY_RATE_PACKS"], env["GATEWAY_BURST_PACKS"])
+print("   NAV-006: lanes and gateway-verify not on edge; gateway-verify on 127.0.0.1 only; slot root /var/lib/nav/data")
+print("   NAV-020: public gateway mounts /var/lib/nav/data/packs read-only at /srv/packs; packs limit 2r/s burst 20")
+PY
 compose -f "$ST/compose.staging.ipv6.yaml" --env-file "$TMP/stg.env" config > "$TMP/v6.yaml" || fail "compose config (IPv6)"
 for v in v4 v6; do
     python3 - "$TMP/$v.yaml" "$v" <<'PY' || fail "compose assertions ($v)"
@@ -152,6 +174,15 @@ else
     echo "   (systemd-analyze not installed: skipped)"
 fi
 grep -q 'OnCalendar=\*-\*-\* 19:30:00 UTC' "$ST/systemd/nav-rebuild.timer" || fail "rebuild timer must run 19:30 UTC"
+# NAV-006 AC 23/43: exactly one rebuild path (timer -> nav-rebuild.sh -> pipeline), interim scripts gone
+grep -q 'RandomizedDelaySec=15min' "$ST/systemd/nav-rebuild.timer" && grep -q 'Persistent=true' "$ST/systemd/nav-rebuild.timer" \
+    || fail "rebuild timer: RandomizedDelaySec=15min and Persistent=true"
+grep -q '^ExecStart=@NAV_ROOT@/infra/staging/bin/nav-rebuild.sh$' "$ST/systemd/nav-rebuild.service" \
+    && grep -q '^KillMode=mixed$' "$ST/systemd/nav-rebuild.service" && grep -q '^TimeoutStopSec=90s$' "$ST/systemd/nav-rebuild.service" \
+    || fail "nav-rebuild.service must run the NAV-006 wrapper with KillMode=mixed and TimeoutStopSec=90s"
+grep -q 'nav-pipeline" rebuild --scheduled' "$ST/bin/nav-rebuild.sh" || fail "nav-rebuild.sh must call the pipeline's scheduled entry point"
+[[ ! -e "$ST/bin/nav-rollback-data.sh" ]] || fail "nav-rollback-data.sh must be removed (NAV-006 AC 43)"
+[[ $(find "$ST/systemd" -name '*rebuild*.timer' | wc -l) == 1 ]] || fail "exactly one rebuild timer"
 grep -q 'OnCalendar=\*:0/5' "$ST/systemd/nav-diskcheck.timer" || fail "diskcheck every 5 min"
 
 echo "== .env.example and config helpers"
@@ -169,6 +200,20 @@ for path in sys.argv[1:]:
                 j -= 1
             assert j >= 0 and lines[j].startswith("#"), f"{path}:{i+1} {l.split('=')[0]} has no comment line"
 print("   every key in infra/staging/.env.example, monitoring/ops-vm/.env.example and backend/.env.example has a comment")
+PY
+python3 - "$ST/.env.example" <<'PY' || fail "NAV-020 pack keys in infra/staging/.env.example"
+import re, sys
+kv = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", open(sys.argv[1], encoding="utf-8").read(), re.M))
+want = {"PACK_ENABLED": "0", "PACK_REGION": "mn", "PACK_WEEKLY_MIN_AGE_DAYS": "7", "PACK_TILES_MIN_AGE_DAYS": "28",
+        "PACK_MIN_FREE_GB": "2", "PACK_RETAIN_MANIFESTS": "3", "PACK_GZIP_LEVEL": "6", "PACK_GATE2_MODE": "engine",
+        "PACK_GATE2_RATE": "5", "GATEWAY_RATE_PACKS": "2r/s", "GATEWAY_BURST_PACKS": "20"}
+bad = {k: kv.get(k) for k, v in want.items() if kv.get(k) != v}
+assert not bad, bad
+assert "@sha256:" in kv["PACK_SEARCH_BUILDER_IMAGE"], "builder image not pinned by digest"
+assert not kv["PACK_GATE2_IMAGE"].startswith("ghcr.io/valhalla/"), "upstream Valhalla image as the Gate 2 engine"
+assert "OpenStreetMap" in kv["PACK_ATTRIBUTION"]
+assert not kv.get("PACK_TEST_FAULT") and not kv.get("PACK_TEST_PAUSE_AT"), "test switches in the staging example"
+print("   NAV-020: pack keys at their staging defaults (disabled until the RUNBOOK 7A.8 checklist, Gate 2 mode engine)")
 PY
 cat > "$TMP/t.env" <<'EOF'
 STAGING_HOST=first.example.invalid

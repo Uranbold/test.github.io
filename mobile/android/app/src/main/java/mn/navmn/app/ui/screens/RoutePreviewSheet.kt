@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -52,7 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -67,7 +71,9 @@ import androidx.compose.ui.semantics.expand
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -84,10 +90,15 @@ import mn.navmn.app.i18n.Strings
 import mn.navmn.app.i18n.Templates
 import mn.navmn.app.preview.PreviewResult
 import mn.navmn.app.preview.PreviewState
+import mn.navmn.app.preview.turnlist.TurnListModel
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.search.PlaceDisplay
 import mn.navmn.app.search.reverse.ReverseView
 import mn.navmn.app.typinglock.TypingLockState
+import mn.navmn.app.ui.components.OfflineIndicator
+import mn.navmn.app.ui.screens.preview.PointsBlock
+import mn.navmn.app.ui.screens.preview.StartHint
+import mn.navmn.app.ui.screens.preview.turnListItem
 import mn.navmn.app.ui.theme.LocalNight
 import mn.navmn.app.ui.theme.LocalTokens
 import mn.navmn.app.ui.theme.NavType
@@ -111,8 +122,9 @@ private const val ANNOUNCE_HOLD_MS = 1_500L
 
 /**
  * S3 route preview (Layout rules P1–P5): portrait → a two-state draggable bottom sheet with «Эхлэх» pinned at the
- * bottom (collapsed ≤ 60 % with the top part giving way first, expanded ≤ 80 %); wide windows → a side sheet at the
- * start edge, always expanded. The sheet state lives in the ViewModel (kept across rotation, theme and language).
+ * bottom (collapsed up to the NAV-018 Q3 cap with the top part giving way first, expanded ≤ 80 %); wide windows → a side
+ * sheet at the start edge, always expanded. The sheet state lives in the ViewModel (kept across rotation, theme and
+ * language). NAV-018: the points block replaces the header row and «Маршрутын заавар» ends the expanded body.
  */
 @Composable
 internal fun RoutePreviewSheet(
@@ -123,6 +135,8 @@ internal fun RoutePreviewSheet(
     availableHeight: Dp,
     wide: Boolean,
     modifier: Modifier = Modifier,
+    /** NAV-018 Q3: width of the overlay (the 75 % cap applies from 360 dp wide). */
+    availableWidth: Dp = 360.dp,
 ) {
     val t = LocalTokens.current
     val night = LocalNight.current
@@ -134,6 +148,18 @@ internal fun RoutePreviewSheet(
         if (result is PreviewResult.NoRoute && result.avoidHint && !m.sheetExpanded) a.onSheetExpanded(true)
     }
     val shape = if (wide) RoundedCornerShape(16.dp) else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+    // NAV-018: one list state for the expanded body, kept while the sheet collapses and expands (Q8) and on rotation.
+    val listState = rememberLazyListState()
+    // NAV-018 AC 23: the rows are their own lazy list (the «Маршрутын заавар» collection), with their own state.
+    val turnState = rememberLazyListState()
+    val route = (result as? PreviewResult.Route)?.route
+    LaunchedEffect(route) {
+        // AC 21: another route or a new response shows its list from the first row (heading at the top).
+        if (turnState.firstVisibleItemIndex > 0 || turnState.firstVisibleItemScrollOffset > 0) {
+            if (listState.firstVisibleItemIndex >= 1) listState.scrollToItem(1)
+            turnState.scrollToItem(0)
+        }
+    }
     Surface(
         shape = shape,
         color = t.uiSurface.c(),
@@ -148,42 +174,39 @@ internal fun RoutePreviewSheet(
     ) {
         if (wide) {
             Column(Modifier.fillMaxHeight()) {
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                    SheetHeader(s, a)
-                    ModeTabs(s.mode, a)
-                    Spacer(Modifier.height(8.dp))
-                    SummaryRegion(s, m.lang, strings, a)
-                    LowerPart(s, strings, m.lang, a)
-                }
+                ExpandedBody(s, m, strings, a, listState, turnState, Modifier.weight(1f))
                 StartFooter(s, a, divider = true)
             }
         } else if (expanded) {
             Column(Modifier.heightIn(max = availableHeight * 0.8f)) {
                 HandleZone(expanded = true, a)
-                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                    SheetHeader(s, a)
-                    ModeTabs(s.mode, a)
-                    Spacer(Modifier.height(8.dp))
-                    SummaryRegion(s, m.lang, strings, a)
-                    LowerPart(s, strings, m.lang, a)
-                }
+                ExpandedBody(s, m, strings, a, listState, turnState, Modifier.weight(1f, fill = false))
                 StartFooter(s, a, divider = true)
             }
         } else {
             CollapsedLayout(
-                cap = availableHeight * 0.6f,
+                cap = collapsedCap(availableHeight, availableWidth),
                 hardCap = availableHeight * 0.8f,
+                joinBattery = LocalDensity.current.fontScale > 1f,
                 handle = { HandleZone(expanded = false, a) },
-                top = {
-                    Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                        SheetHeader(s, a)
-                        ModeTabs(s.mode, a)
+                top = { joined ->
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        PointsBlock(s, strings, a.points, a.onPreviewClose) // NAV-018 Q4: replaces the NAV-011 header row
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            ModeTabs(s.mode, a)
+                            // NAV-018 Q3: above 100 % the entry row may join the top part (after the points and the tabs).
+                            if (joined) BatteryPreviewEntry(Modifier.padding(vertical = 8.dp))
+                        }
                     }
                 },
                 summary = {
                     Column(Modifier.padding(horizontal = 16.dp)) {
                         Spacer(Modifier.height(8.dp))
                         SummaryRegion(s, m.lang, strings, a)
+                    }
+                },
+                battery = {
+                    Column(Modifier.padding(horizontal = 16.dp)) {
                         BatteryPreviewEntry(Modifier.padding(vertical = 8.dp)) // NAV-012 H1 entry row (Layout rule 10)
                     }
                 },
@@ -194,34 +217,53 @@ internal fun RoutePreviewSheet(
 }
 
 /**
- * P2/P3 collapsed sheet: handle, summary and footer are measured first and never scroll; the top part (header and
- * tabs) gets what is left of [cap] and scrolls inside (it may disappear entirely at large font scales). The total never
- * exceeds max([cap], fixed parts), and never [hardCap].
+ * NAV-018 Q3 collapsed height cap (replaces NAV-011 P3's 60 %): on ≥ 360×640 windows min(75 % of the area above R5,
+ * area − band − 8 dp), band = 160 dp at font scale 100 % and 96 dp above (AC 27); smaller windows keep 60 %. The area
+ * above R5 is 544 dp at 360×640 with system bars, so ≥ 500 dp marks that class.
+ */
+@Composable
+private fun collapsedCap(availableHeight: Dp, availableWidth: Dp): Dp {
+    val band = if (LocalDensity.current.fontScale <= 1f) 160.dp else 96.dp
+    val large = availableWidth >= 360.dp && availableHeight >= 500.dp
+    return if (large) minOf(availableHeight * 0.75f, availableHeight - band - 8.dp) else availableHeight * 0.6f
+}
+
+/**
+ * P2/Q1–Q3 collapsed sheet: handle, summary, battery entry row and footer are measured first and never scroll; the top
+ * part (points block and tabs) gets what is left of [cap] and scrolls inside (it may disappear entirely at large font
+ * scales). When [joinBattery] (font scale > 100 %) and the fixed parts alone exceed [cap], the battery entry row joins
+ * the top part instead (NAV-018 Q3). The total never exceeds max([cap], fixed parts), and never [hardCap].
  */
 @Composable
 private fun CollapsedLayout(
     cap: Dp,
     hardCap: Dp,
+    joinBattery: Boolean,
     handle: @Composable () -> Unit,
-    top: @Composable () -> Unit,
+    top: @Composable (joined: Boolean) -> Unit,
     summary: @Composable () -> Unit,
+    battery: @Composable () -> Unit,
     footer: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
     val capPx = with(density) { cap.roundToPx() }
     val hardCapPx = with(density) { hardCap.roundToPx() }
-    Layout(contents = listOf(handle, top, summary, footer), modifier = Modifier.clip(RectangleShape)) { (h, tp, sm, ft), constraints ->
+    SubcomposeLayout(Modifier.clip(RectangleShape)) { constraints ->
         val loose = constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity)
-        val handleP = h.map { it.measure(loose) }
-        val summaryP = sm.map { it.measure(loose) }
-        val footerP = ft.map { it.measure(loose) }
-        val fixed = handleP.sumOf { it.height } + summaryP.sumOf { it.height } + footerP.sumOf { it.height }
+        val handleP = subcompose("handle", handle).map { it.measure(loose) }
+        val summaryP = subcompose("summary", summary).map { it.measure(loose) }
+        val footerP = subcompose("footer", footer).map { it.measure(loose) }
+        val base = handleP.sumOf { it.height } + summaryP.sumOf { it.height } + footerP.sumOf { it.height }
+        val batteryP = subcompose("battery", battery).map { it.measure(loose) }
+        val joined = joinBattery && batteryP.isNotEmpty() && base + batteryP.sumOf { it.height } > capPx
+        val fixedP = if (joined) emptyList() else batteryP
+        val fixed = base + fixedP.sumOf { it.height }
         val topMax = (capPx - fixed).coerceAtLeast(0)
-        val topP = tp.map { it.measure(constraints.copy(minHeight = 0, maxHeight = topMax)) }
+        val topP = subcompose("top") { top(joined) }.map { it.measure(constraints.copy(minHeight = 0, maxHeight = topMax)) }
         val total = minOf(fixed + topP.sumOf { it.height }, maxOf(capPx, minOf(fixed, hardCapPx)))
         layout(constraints.maxWidth, total) {
             var y = 0
-            for (p in handleP + topP + summaryP + footerP) {
+            for (p in handleP + topP + summaryP + fixedP + footerP) {
                 p.placeRelative(0, y)
                 y += p.height
             }
@@ -265,28 +307,38 @@ private fun HandleZone(expanded: Boolean, a: BrowseActions) {
     }
 }
 
+/**
+ * NAV-018 Q1: the expanded body (and the wide side sheet) is one lazy list: the points block, tabs, summary region and
+ * lower part as the first item, then «Маршрутын заавар» (heading and one lazy row per step, AC 18, 25). The rows sit in
+ * their own lazy list inside that last item, so TalkBack gets one collection node named «Маршрутын заавар» (AC 23).
+ */
 @Composable
-private fun SheetHeader(s: PreviewState, a: BrowseActions) {
-    val t = LocalTokens.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).padding(top = 4.dp)) {
-            Text(stringResource(R.string.route_title), style = NavType.title, color = t.uiOnSurface.c(), modifier = Modifier.semantics { heading() })
-            val destText = s.destination.name ?: stringResource(R.string.place_selected_point)
-            val destA11y = stringResource(R.string.route_destination) + ": " + destText
-            Text(
-                destText,
-                style = NavType.body,
-                color = t.uiOnSurfaceVariant.c(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.semantics { contentDescription = destA11y },
-            )
-        }
-        IconButton(onClick = a.onPreviewClose, modifier = Modifier.size(48.dp)) {
-            Icon(painterResource(R.drawable.ic_close), contentDescription = stringResource(R.string.action_close))
+private fun ExpandedBody(s: PreviewState, m: BrowseModel, strings: Strings, a: BrowseActions, listState: LazyListState, turnState: LazyListState, modifier: Modifier) {
+    val r = s.result as? PreviewResult.Route
+    val rows = remember(r?.route) { r?.let { TurnListModel.build(it.route.plan) }.orEmpty() }
+    val active = m.points.step?.takeIf { r != null && it.route === r.route }?.index
+    BoxWithConstraints(modifier) {
+        // The turn-list section is at most as tall as the body, so its rows can be a lazy list of their own (AC 23, 25).
+        val viewport = if (constraints.hasBoundedHeight) maxHeight else TURN_LIST_FALLBACK_HEIGHT
+        LazyColumn(Modifier.fillMaxWidth().testTag("route-preview-body"), state = listState) {
+            item(key = "preview-top") {
+                Column {
+                    PointsBlock(s, strings, a.points, a.onPreviewClose) // NAV-018 Q4: replaces the NAV-011 header row
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        ModeTabs(s.mode, a)
+                        Spacer(Modifier.height(8.dp))
+                        SummaryRegion(s, m.lang, strings, a)
+                        LowerPart(s, strings, m.lang, a)
+                    }
+                }
+            }
+            if (r != null) turnListItem(rows, r.selected, active, m.lang, strings, a.points.onTurnRow, turnState, listState, viewport)
         }
     }
 }
+
+/** Turn-list section height when the body is measured without a height bound (not the case in the app's layouts). */
+private val TURN_LIST_FALLBACK_HEIGHT = 480.dp
 
 /** «Зорчих хэлбэр»: «Машин» / «Явган» / «Дугуй»; icon beside the label, stacked from font scale 1.5 (AC 22, 44). */
 @Composable
@@ -327,7 +379,10 @@ private fun SummaryRegion(s: PreviewState, lang: Lang, strings: Strings, a: Brow
     Spacer(Modifier.height(8.dp))
 }
 
-/** Expanded only: «Маршрут сонгох» (k ≥ 2), the avoid switch («Машин» only, AC 23) and the points block. */
+/**
+ * Expanded only: «Маршрут сонгох» (k ≥ 2) and the avoid switch («Машин» only, AC 23). NAV-018 Q1: the display-only
+ * points block is removed (the fields replace it); «Маршрутын заавар» follows as lazy items.
+ */
 @Composable
 private fun LowerPart(s: PreviewState, strings: Strings, lang: Lang, a: BrowseActions) {
     val t = LocalTokens.current
@@ -340,10 +395,6 @@ private fun LowerPart(s: PreviewState, strings: Strings, lang: Lang, a: BrowseAc
             Switch(checked = s.avoidUnpaved, onCheckedChange = a.onAvoid)
         }
     }
-    val originLabel = stringResource(R.string.marker_my_location)
-    PointRow(R.drawable.ic_my_location, originLabel, stringResource(R.string.route_origin) + ": " + originLabel)
-    val destText = s.destination.name ?: stringResource(R.string.place_selected_point)
-    PointRow(R.drawable.ic_place, destText, stringResource(R.string.route_destination) + ": " + destText)
     Spacer(Modifier.height(8.dp))
 }
 
@@ -353,7 +404,18 @@ private fun RouteOptions(r: PreviewResult.Route, strings: Strings, lang: Lang, a
     val t = LocalTokens.current
     val groupName = stringResource(R.string.route_options)
     val alternative = stringResource(R.string.route_alternative)
-    Text(groupName, style = NavType.label, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).semantics { heading() })
+    if (r.route.onDevice) {
+        // NAV-021 AC 27 (screen spec F8): once after the group heading when every option came from the device.
+        FlowRow(
+            itemVerticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).semantics(mergeDescendants = true) { heading() },
+        ) {
+            Text(groupName, style = NavType.label, color = t.uiOnSurfaceVariant.c())
+            OfflineIndicator(strings, Modifier.padding(start = 8.dp))
+        }
+    } else {
+        Text(groupName, style = NavType.label, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).semantics { heading() })
+    }
     Column(Modifier.selectableGroup().semantics { contentDescription = groupName }.testTag("route-options")) {
         r.routes.forEachIndexed { i, route ->
             val selected = i == r.selected
@@ -390,17 +452,21 @@ private fun RouteOptions(r: PreviewResult.Route, strings: Strings, lang: Lang, a
     }
 }
 
-/** «Эхлэх», pinned at the bottom in both states (P1); starts the selected route (AC 19). */
+/**
+ * «Эхлэх», pinned at the bottom in both states (P1); starts the selected route (AC 19). NAV-018 Q7: with a chosen start
+ * O1 sits one line above the disabled button; TalkBack reads «Эхлэх» first, then O1 (one traversal group).
+ */
 @Composable
 private fun StartFooter(s: PreviewState, a: BrowseActions, divider: Boolean) {
     val t = LocalTokens.current
-    Column {
+    Column(Modifier.semantics { isTraversalGroup = true }) {
         if (divider) HorizontalDivider(color = t.uiOutlineVariant.c())
+        if (s.showStartHint) StartHint(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp).semantics { traversalIndex = 1f })
         Button(
             onClick = a.onStart,
             enabled = s.canStart,
             colors = ButtonDefaults.buttonColors(containerColor = t.uiPrimary.c(), contentColor = t.uiOnPrimary.c()),
-            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp).heightIn(min = 56.dp).testTag("nav-start"),
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp).heightIn(min = 56.dp).semantics { traversalIndex = 0f }.testTag("nav-start"),
         ) {
             Icon(painterResource(R.drawable.ic_play), contentDescription = null)
             Spacer(Modifier.width(8.dp))

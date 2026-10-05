@@ -65,6 +65,10 @@ class GuidanceEngine(
     private val showResumedNotice: Boolean = false,
     /** NAV-012 (ADR-0013 §3.2): called on the engine thread when a new route became active. */
     private val onNewRoute: (ParsedRoute) -> Unit = {},
+    /** ADR-0016 §3: a replay build runs the engine on its replay clock (frozen while paused). */
+    private val clock: Clock = SystemClocks,
+    /** NAV-021: a usable on-device routing file for this session (offline reroutes, AC 15). */
+    private val onDeviceAvailable: () -> Boolean = { false },
 ) {
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "navmn-guidance").apply { isDaemon = true } }
     private val dispatcher = executor.asCoroutineDispatcher()
@@ -94,7 +98,7 @@ class GuidanceEngine(
         voice.onFallback = { scope.launch { core.onVoiceFallback() } }
         scope.launch {
             core = GuidanceCore(
-                clock = SystemClocks,
+                clock = clock,
                 initialRoute = route,
                 trip = trip,
                 navigators = navigators,
@@ -108,6 +112,7 @@ class GuidanceEngine(
                 onEvent = { e -> handle(e) },
                 log = log,
                 onNewRoute = onNewRoute,
+                onDeviceAvailable = onDeviceAvailable,
             )
             if (firstFix != null) core.start(firstFix) else core.startRestored(showResumedNotice)
             locationJob = launch { location.guidanceUpdates().collect { core.onFix(it) } }

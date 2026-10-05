@@ -12,8 +12,13 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0010: Mongolian voice clip pack (proposed)
 - ADR-0011: web demo mode (offline replay)
 - ADR-0012: Android route preview and search parity (NAV-011)
+- ADR-0013: Android background guidance, restore and lock screen (NAV-012)
+- ADR-0014: daily rebuild slots and pointer switch (NAV-006)
+- ADR-0015: Android route preview points (chosen start, swap) and turn list (NAV-018)
+- ADR-0016: Android demo build (offline replay through the real guidance engine, NAV-019)
+- ADR-0017: offline Mongolia pack for Android (PMTiles monthly, Valhalla graph + SQLite search DB weekly, per-file versioned; online first with on-device routing and search as fallback; engine in a separate process). **Accepted** (PO 2026-10-04); openapi 0.6.0 `packs` operations
 
-HTTP contract: `api/openapi.yaml` 0.5.3.
+HTTP contract: `api/openapi.yaml` 0.6.1 (0.6.0 added the `packs` operations; 0.6.1 is documentation only). Task breakdowns per story: `tasks/` (NAV-020 to NAV-023).
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 
@@ -203,6 +208,32 @@ flowchart LR
   TL -. "blocks the keyboard only" .-> SC
 ```
 
+## 1c-ter. Android route preview points and turn list (NAV-018, ADR-0015)
+
+There is **no new host, endpoint or field**. The start of a preview route may now be a chosen point (a search result, a long-press map point, or a typed coordinate, NAV-011 D140), and the user can swap start and destination. Each point change or swap sends one `POST /v1/route` with the NAV-011 body.
+
+The turn list «Маршрутын заавар» is built on the phone from the steps of the selected route. That route was already parsed when the response arrived, and the text comes from the ADR-0008 rules, so the list sends 0 requests. «Эхлэх» is enabled only when the start is «Миний байршил» (NAV-018 Open question 1, default (a)). Guidance and reroute are therefore unchanged.
+
+```mermaid
+flowchart LR
+  subgraph Phone["Android app"]
+    PF["preview fields<br/>2nd SearchController (shared 429 cooldown)"]
+    CC["coordinate card in preview<br/>«Эхлэх цэг болгох» / «Очих газар болгох»"]
+    PT["preview.points (pure)<br/>RoutePoint · swap · same point · start gate"]
+    PV["PreviewController<br/>only route requester, 1 in flight"]
+    TL["preview.turnlist (pure)<br/>rows from ParsedRoute.plan.steps"]
+    GE["NAV-005 guidance pipeline, unchanged"]
+  end
+  GW["gateway"]
+  PF -->|"GET /v1/search"| GW
+  CC -->|"GET /v1/reverse (1 per card)"| GW
+  PF --> PT
+  CC --> PT
+  PT --> PV -->|"POST /v1/route {alternates:2}"| GW
+  PV --> TL
+  PV -->|"«Эхлэх» only with a device start, 0 requests"| GE
+```
+
 ## 1d. Web demo mode (NAV-017, ADR-0011)
 
 A **separate build** of the web client (`npm run build:demo-mode` → `dist-demo-mode/`) that the PO uploads by hand into a **public sub-folder** of the shared web hosting, with no password (D107, 2026-10-03, supersedes the password part of D74; the page keeps `noindex`; folder and host names are never in the repo, D35). It replays three recorded UB routes (R1–R3) with simulated turn-by-turn guidance. It sends **0** requests to `search`, `reverse` or `route` and has no backend. The public static site (D44) and its build are unchanged.
@@ -227,6 +258,28 @@ flowchart LR
 - **Build inputs (read-only):** the recorded responses under `mobile/android/app/src/test/resources/routes/`, the GPX tracks under `tests/gpx/nav005/`, and the manifest `web/src/demo/routes.manifest.json`. The cross-platform guard is `tests/gpx/nav005/golden/voice-golden.tsv`, the same file the Android client is tested against.
 - **Hosts at runtime:** the page origin only. The demo folder serves the app and data, and the origin root serves the public tile archive. No other host is contacted, and there is no service worker.
 - **Deployment:** manual upload of the build output's contents. After every upload, three checks: 401 without credentials, 200 with them, and 206 for the archive Range request (NAV-017 AC 5). Re-uploading the public site must not delete the demo folder.
+
+## 1e. Android demo build (NAV-019, ADR-0016)
+
+A third Android build type, `demo` (`mn.navmn.app.demo`, launcher label «Туршилтын горим», signed with the local debug key, not debuggable). It is installed next to the debug app and given to the PO by direct file transfer only (D17). It replays the three NAV-017 routes (R1–R3) through the **unchanged** NAV-005 guidance engine, service, notification and lock-screen path. Only three things are replaced: the location source (recorded GPX at track time), the engine clock (replay time, frozen while paused) and the HTTP layer (blocked in-process). It has **no backend** and contacts no host.
+
+```mermaid
+flowchart LR
+  subgraph Phone["PO Android phone"]
+    A["demo APK<br/>assets: routes.manifest.json, 3 route JSON, 3 GPX, basemap.pmtiles"]
+    C["no_backup/demo-tiles/*.pmtiles<br/>(one-time copy)"]
+    E["GuidanceEngine + Ferrostar 0.57.0 (unchanged)"]
+    R["ReplayLocationSource"]
+    M["MapLibre 13.6.1<br/>pmtiles://file://"]
+  end
+  A -->|copy| C --> M
+  A --> R --> E
+  E -.->|"route / search / reverse: in-process IOException, 0 requests"| X((none))
+```
+
+- **Build inputs (read-only, copied at build time):** `web/src/demo/routes.manifest.json`, the recorded responses under `mobile/android/app/src/test/resources/routes/`, the GPX tracks under `tests/gpx/nav005/`, and a local tile archive named by `nav.demoTilesFile` (or an `https` archive URL in `nav.demoTilesUrl`). The property values are never committed.
+- **Hosts at runtime:** none with `nav.demoTilesFile`. With `nav.demoTilesUrl`, only HTTP Range requests to that archive.
+- **Contract:** none used; `openapi.yaml` unchanged.
 
 ## 2. Path map (symbolic names from NAV-001)
 
@@ -272,6 +325,36 @@ flowchart TD
   | Cold first run (empty `data/`, includes about 2.5 GB auxiliary downloads) | 530 s | **462 s** measured 2026-09-29 (AC 1, ≤ 30 min; images already pulled). Downloads 149 s, graph 22 s, Photon 33 s, Maven 101 s + Planetiler 208 s; peak build memory 5.5 GB |
   | Source switch (`make rebuild-data`, auxiliaries cached) | - | 336 s |
 
+## 3a. Daily rebuild with slots and a pointer switch (NAV-006, ADR-0014)
+Slot mode (`backend/compose.slots.yaml`; staging, and the NAV-006 test project) replaces the one-shot flow of §3 for serving hosts. The dev stack in §3 is unchanged.
+
+```mermaid
+flowchart LR
+  T["nav-rebuild.timer 19:30 UTC<br/>or make rebuild"] --> L{"flock<br/>NAV_LOCK_FILE"}
+  L --> G["guards: disk, MemAvailable"]
+  G --> F["fetch: OSM_SOURCES in order<br/>.md5, 1 download/day"]
+  F --> VAL["validate 3(a)-(f)<br/>full PBF read, P1-P6, size, dates"]
+  VAL --> B["builders -> slots/{run-id}.partial<br/>tiles, valhalla, photon (pristine cache reuse)"]
+  B --> C["rename -> slots/{run-id}"]
+  C --> LN["free lane (blue|green)<br/>repoint + recreate"]
+  LN --> VG["gateway-verify 127.0.0.1:NAV_VERIFY_PORT<br/>smoke, contract, ref routes, sizes"]
+  VG -->|pass| SW["rename pointer/public/active.json<br/>(the switch)"]
+  VG -->|fail| FX["slot .failed, lane stopped,<br/>alert hook, exit != 0"]
+  SW --> PS["post-switch smoke (public)"]
+  PS -->|pass| GR["grace >= 30 s, stop old lane,<br/>keep 2 slots"]
+  PS -->|fail| RB["pointer back (old lane still up),<br/>rolled back, alert"]
+
+  subgraph Serving["Serving (unchanged paths)"]
+    GW["gateway (nginx)<br/>njs reads active.json per request"] --> LB["valhalla-{lane} / photon-{lane}"]
+    GW --> TF[("/srv/slots/{slot}/tiles/basemap.pmtiles<br/>strong ETag")]
+  end
+  SW -.-> GW
+```
+
+- The switch is one atomic `rename(2)`: each request reads either the old or the new pointer completely. No nginx reload, no container change, no closed keep-alive connection (spike in ADR-0014).
+- Web PMTiles clients (`pmtiles` 4.5.0) detect the `ETag` change, reload the header and retry once (AC 16). MapLibre Native: not verified yet (NAV-006 R6).
+- Status is local only (`make status`). There is no HTTP data-version field (ADR-0014 §9); `openapi.yaml` is unchanged.
+
 ## 4. Request flow: route with Mongolian guidance (NAV-004/005 preview)
 
 ```mermaid
@@ -302,6 +385,8 @@ sequenceDiagram
 | NFR-A1 | Fault isolation | one upstream down does not affect the other endpoints or the gateway | NAV-001 AC 34 | QA |
 | NFR-A2 | Restart from existing data | all services healthy ≤ 120 s, nothing rebuilt | NAV-001 AC 2 | QA |
 | NFR-A3 | Clean first run | all services healthy ≤ 30 min, including downloads, on the default Mongolia source | NAV-001 AC 1 | QA |
+| NFR-A4 | Data replacement without failures | daily rebuild switch and `make rollback`: **0** failed requests in a ≥ 10 requests/s mixed loop (keep-alive and new connections); p95 in the switch window ≤ 2 × the p95 before it; a failed build never switches | NAV-006 AC 14–18, 33; ADR-0014 | QA light set |
+| NFR-D1 | Data freshness | active OSM data ≤ 48 h old, otherwise `stale: true` + alert; run start to end of switch ≤ 30 min on staging | NAV-006 AC 3(f), 10, 29; NAV-008 AC 15 | QA (dev: recorded only), staging |
 | NFR-R1 | Resources | steady-state memory ≤ 6 GB total; build peak ≤ 12 GB; `data/` ≤ 10 GB; PMTiles max zoom exactly 14 on the default build and ≤ 200 MB, with a ≤ 400 MB fallback for the Mongolia dev extract (PO decision D1). Measured z14: 117,536,866 bytes, so the primary limit holds | NAV-001 AC 12, 39 | QA |
 | NFR-P1 | **No PII in logs.** Coordinates, search text and route bodies are location data | Gateway logs path without query string. No request bodies are logged by gateway, Valhalla or Photon | Project NFR | Architect review |
 | NFR-P2 | GPS traces anonymised | N/A in NAV-001 (the backend stores no traces). Applies from the traffic phase | Project NFR | - |
@@ -321,6 +406,7 @@ sequenceDiagram
 | NFR-L6 | Web demo-mode replay timing | simulated fix applied ± 100 ms of its track time at 1×; prompts within ± 2 s of the shared golden set; core cost ≤ 1 ms per fix on the main thread (measured 0.2–0.8 ms in Node, ADR-0011 W2) | NAV-017 AC 12, 26 | Vitest fake clock + golden test |
 | NFR-R2 | Search request budget (web and, from NAV-011, Android) | ≤ 2 `search` requests per settled query, 1 `reverse` per coordinate card, no automatic retry except one resume when the network returns; 429 honoured per operation | NAV-003 AC 3, 15, 35, 36; NAV-011 AC 2–4, 7, 11, 12; openapi 0.4.0 rate-limit rules | QA e2e (web); JVM/Robolectric request capture (Android) |
 | NFR-P6 | Typing-lock privacy (Android) | lock fixes only while the map or route preview is in the foreground; 0 network requests and 0 stored values from the lock; passenger override in process memory only (never restored after a restart) | NAV-011 AC 27, 28, 34; ADR-0012 §7 | Robolectric log/storage scan, process-recreation test |
+| NFR-P7 | Route-preview points privacy (Android) | start and destination (a chosen start may be a customer's pickup) live in ViewModel memory only: never logged, stored or restored after process death; the device position is sent only in a route body whose point is «Миний байршил» (and as the D30 bias), never as a `reverse` point | NAV-018 AC 31–33; ADR-0015 §10 | Robolectric log/storage scan, request capture |
 
 These targets are BA-proposed Phase 0 baselines (NAV-001 Open question 3), not production SLAs.
 

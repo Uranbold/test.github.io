@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NAV-019 demo-build strings (Mongolian, default). Glossary docs/requirements/glossary.md section 2.3:
+     W1 «Туршилтын горим» (launcher label, picker heading, badge) and W2 «Түр зогсоох» (needs native review). -->
+<resources>
+    <string name="demo_mode">Туршилтын горим</string>
+    <string name="demo_pause">Түр зогсоох</string>
+</resources>

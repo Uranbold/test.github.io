@@ -45,6 +45,8 @@ object FakeLocation : LocationSource {
     val mapFixes = MutableSharedFlow<Fix>(extraBufferCapacity = 64)
     val guidanceFixes = MutableSharedFlow<Fix>(extraBufferCapacity = 64)
     @Volatile var freshFix: () -> Fix? = { goodFix() }
+    /** NAV-018 (ADR-0015 §4): when set, [freshGoodFix] waits for it, so a test can deliver a fix late. */
+    @Volatile var freshFixGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
     fun goodFix(lat: Double = 47.9189, lon: Double = 106.9176) =
         Fix(lat, lon, 5.0, 180.0, 10.0, 10.0, SystemClock.elapsedRealtime(), System.currentTimeMillis())
@@ -55,6 +57,7 @@ object FakeLocation : LocationSource {
         guidanceListeners.set(0)
         mapRegistrations.set(0)
         freshFix = { goodFix() }
+        freshFixGate = null
     }
 
     override fun servicesEnabled(): Boolean = servicesOn
@@ -78,12 +81,23 @@ object FakeLocation : LocationSource {
         }
     }
 
-    override suspend fun freshGoodFix(timeoutMs: Long): Fix? = freshFix()
+    override suspend fun freshGoodFix(timeoutMs: Long): Fix? {
+        freshFixGate?.await()
+        return freshFix()
+    }
 }
 
-/** No-op camera behind the recording surface. */
+/** No-op camera behind the recording surface; records [focus] moves (NAV-011 C1). */
 object FakeCamera : MapCamera {
     val styles = AtomicInteger(0)
+
+    data class Focus(val p: LatLon, val zoom: Double, val left: Int, val top: Int, val right: Int, val bottom: Int, val durationMs: Int)
+
+    val focuses: MutableList<Focus> = Collections.synchronizedList(ArrayList())
+
+    override fun focus(p: LatLon, zoom: Double, left: Int, top: Int, right: Int, bottom: Int, durationMs: Int) {
+        focuses += Focus(p, zoom, left, top, right, bottom, durationMs)
+    }
     override fun setStyle(night: Boolean, colours: TokenColours, pmtilesUrl: String) {
         styles.incrementAndGet()
     }

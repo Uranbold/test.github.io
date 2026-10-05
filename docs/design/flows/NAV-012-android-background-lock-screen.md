@@ -147,7 +147,7 @@ flowchart TD
     R -- no --> NONE["No hint"]
     R -- yes --> SN{"Dismissed in the last 30 days<br/>and no restore since?"}
     SN -- yes --> NONE
-    SN -- no --> E["Collapsed sheet: entry row «Батарейн хязгаарлалт» after «Хүрэх цаг»<br/>(NAV-011 caps kept; «Эхлэх» still one tap) — AC 26"]
+    SN -- no --> E["Collapsed sheet: one-line entry row after «Хүрэх цаг»: B2 cut with «…», no buttons<br/>(TalkBack reads the full B2; NAV-011 caps kept; «Эхлэх» still one tap) — AC 26"]
     E -- "tap the row, drag the sheet up,<br/>or TalkBack on (opens expanded)" --> H
     SN -- "no, wide window (side sheet)" --> H
     H["Full hint first in the expanded part:<br/>«Батарей хэмнэх тохиргоо замчлалыг зогсоож болзошгүй. Утасны тохиргоонд батарейн хязгаарлалтыг унтраана уу.»<br/>«Хаах», «Тохиргоо нээх» — AC 26"]

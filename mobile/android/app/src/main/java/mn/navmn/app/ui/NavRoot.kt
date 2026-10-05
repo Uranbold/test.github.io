@@ -3,6 +3,7 @@ package mn.navmn.app.ui
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,12 +22,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -38,6 +44,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import mn.navmn.app.R
 import mn.navmn.app.background.BackgroundUi
 import mn.navmn.app.background.LocalBackgroundUi
@@ -47,10 +56,14 @@ import mn.navmn.app.config.AppConfig
 import mn.navmn.app.engine.GuidancePhase
 import mn.navmn.app.engine.GuidanceState
 import mn.navmn.app.map.CameraRules
+import mn.navmn.app.map.CoordinateCamera
 import mn.navmn.app.map.MapCamera
 import mn.navmn.app.map.MapContent
 import mn.navmn.app.map.MapSurface
 import mn.navmn.app.preview.PreviewResult
+import mn.navmn.app.preview.points.PointRules
+import mn.navmn.app.preview.points.PointSide
+import mn.navmn.app.preview.turnlist.StepCamera
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.route.alternatives.AlternativeHitTest
 import mn.navmn.app.search.SearchView
@@ -62,8 +75,12 @@ import mn.navmn.app.ui.screens.BrowseOverlay
 import mn.navmn.app.ui.screens.Covered
 import mn.navmn.app.ui.screens.GuidanceOverlay
 import mn.navmn.app.ui.screens.SettingsSheet
+import mn.navmn.app.ui.screens.preview.PointActions
 import mn.navmn.app.ui.theme.LocalTokens
 import mn.navmn.app.ui.theme.NavTheme
+import mn.navmn.app.ui.theme.c
+import mn.navmn.app.variant.ReplayHost
+import mn.navmn.app.variant.TilesState
 
 /** Platform intents the root needs from the Activity (settings pages, background). */
 class PlatformActions(
@@ -101,9 +118,12 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     val preview by vm.preview.state.collectAsState()
     val searchView by vm.search.view.collectAsState()
     val guidance by vm.guidance.collectAsState()
-    val me by vm.myLocation.collectAsState()
+    // NAV-005 section N (AC 74–78): the map, its follow camera and the fit draw the shown position, never a raw fix.
+    val shown by vm.displayLocation.collectAsState()
     val reverseView by vm.reverse.view.collectAsState()
     val lock by vm.typingLock.state.collectAsState()
+    val points by vm.points.collectAsState() // NAV-018
+    val fieldView by vm.fieldSearch.view.collectAsState()
     val strings = rememberStrings(lang)
     val tokens = LocalTokens.current
     val context = LocalContext.current
@@ -118,9 +138,25 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     var topBarPx by remember { mutableIntStateOf(0) }
     var mapHeightPx by remember { mutableIntStateOf(0) }
     var followZoom by remember { mutableStateOf<Double?>(null) }
+    // NAV-011 C1 (typed-coordinate camera): overlay geometry in root px.
+    var mapRect by remember { mutableStateOf(Rect.Zero) }
+    var topGroupBottom by remember { mutableFloatStateOf(0f) }
+    var cardRect by remember { mutableStateOf<Rect?>(null) }
+    var cardWide by remember { mutableStateOf(false) }
+    var laneStart by remember { mutableStateOf<Float?>(null) }
 
     val g: GuidanceState? = guidance
     val guiding = g != null && g.phase != GuidancePhase.ENDED
+
+    // ADR-0016 §3: a replay (demo) build; null in debug and release, where every branch below keeps today's path.
+    val replay = vm.replay
+    val replayTiles = replay?.tiles?.collectAsState()?.value
+    val pmtilesUrl: String? = when {
+        replay == null -> AppConfig.pmtilesUrl()
+        replayTiles is TilesState.Ready -> replayTiles.pmtilesUrl
+        else -> null // §9: copying or failed; the map waits (the start screen shows the state)
+    }
+    val offline = !online && replay?.tilesBundled != true
 
     // AC 18: the screen stays on while guiding; cleared when guidance ends (also at arrival).
     KeepScreenOn(guiding && g?.phase != GuidancePhase.ARRIVED)
@@ -145,6 +181,8 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
             guiding && g?.phase == GuidancePhase.ARRIVED -> vm.onArrivalClose()
             guiding -> platform.moveToBack()
             lock.cardVisible && lock.locked -> vm.dismissTypingLock() // NAV-011: Back closes the lock card
+            points.editor != null -> vm.closePointEditor() // NAV-018: Back leaves the point editor, nothing changes (AC 7)
+            preview != null && ui.card != null -> vm.closeCard() // NAV-018: the card returns to the preview, 0 requests
             preview != null && ui.sheetExpanded -> vm.setSheetExpanded(false) // NAV-011: an expanded sheet collapses first
             preview != null -> vm.closePreview()
             ui.card != null -> vm.closeCard()
@@ -168,12 +206,23 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
             MapContent(
                 route = r?.route?.plan?.geometry ?: emptyList(),
                 destination = preview!!.destination.point,
-                myLocation = me?.latLon,
+                myLocation = shown?.latLon,
+                myLocationAccuracyM = shown?.accuracyM,
+                myLocationStale = shown?.stale ?: false,
                 routeIndex = r?.selected ?: 0,
                 alternatives = r?.routes?.mapIndexedNotNull { i, x -> if (i == r.selected) null else i to x.plan.geometry } ?: emptyList(),
+                // NAV-018 map-style §7.7: chosen-start marker, candidate pin while the card is open, manoeuvre point.
+                origin = preview!!.origin?.takeIf { PointRules.isChosenStart(it) }?.point,
+                candidate = ui.card,
+                step = points.step?.takeIf { r != null && it.route === r.route }?.location,
             )
         }
-        else -> MapContent(candidate = ui.card, myLocation = if (ui.followingMe || me != null) me?.latLon else null)
+        else -> MapContent(
+            candidate = ui.card,
+            myLocation = shown?.latLon,
+            myLocationAccuracyM = shown?.accuracyM,
+            myLocationStale = shown?.stale ?: false,
+        )
     }
 
     // Camera: S1 follow, S3 fit, S5 follow per navigation-ux §8 (reduced motion → no easing).
@@ -213,17 +262,61 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
         val routes = fitRoutes ?: return@LaunchedEffect
         delay(FIT_SETTLE_MS) // the sheet re-measures for the new result first
         val pad = with(density) { 40.dp.roundToPx() }
-        val points = routes.flatMap { it.plan.geometry } + listOfNotNull(preview?.destination?.point, me?.latLon)
+        // NAV-018 PO answer 7: with a chosen start the live device position is not part of the fit.
+        val markers = preview?.let { PointRules.fitMarkers(it.origin, it.destination, shown?.latLon) }.orEmpty()
+        val points = routes.flatMap { it.plan.geometry } + markers
         val left = pad + currentSheetStartPx
         val top = pad + currentTopBarPx
         val bottom = pad + currentSheetPx
         val roomy = (c.widthPx <= 0 || left + pad < c.widthPx - 1) && (c.heightPx <= 0 || top + bottom < c.heightPx - 1)
         if (roomy) c.fit(points, left, top, pad, bottom) else c.fit(points, pad, pad, pad, pad)
     }
-    LaunchedEffect(controller, me, ui.followingMe) {
+    // NAV-018 AC 22 (Q8): a turn-row tap centres the step at zoom max(17, current) in the uncovered map area, 40 dp
+    // padding; after a collapse the sheet re-measures first. Theme, language and rotation do not repeat it.
+    val stepFocus = points.step
+    var handledStep by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(controller, stepFocus?.seq) {
         val c = controller ?: return@LaunchedEffect
-        val f = me ?: return@LaunchedEffect
-        if (ui.followingMe && !guiding) c.easeTo(f.latLon, maxOf(c.zoom, 15.0))
+        val f = stepFocus ?: return@LaunchedEffect
+        if (f.seq == handledStep) return@LaunchedEffect
+        handledStep = f.seq
+        if (f.collapse) delay(STEP_COLLAPSE_SETTLE_MS)
+        val pad = StepCamera.padding(with(density) { StepCamera.PADDING_DP.dp.roundToPx() }, currentSheetStartPx, currentTopBarPx, currentSheetPx)
+        c.focus(f.location, StepCamera.zoom(c.zoom), pad.left, pad.top, pad.right, pad.bottom, if (reducedMotion) 0 else StepCamera.EASE_MS)
+    }
+    // NAV-005 AC 75: keyed on the shown position only, so a held dot (and a stale switch) moves the camera 0 m; a new
+    // shown position eases within 1 s (reduced motion: jump, map-style §7.8).
+    val shownAt = shown?.latLon
+    LaunchedEffect(controller, shownAt, ui.followingMe) {
+        val c = controller ?: return@LaunchedEffect
+        val p = shownAt ?: return@LaunchedEffect
+        // Zero padding: MapLibre keeps the padding of an earlier focus move (C1, NAV-018 step focus) on the camera, which
+        // would otherwise offset «Миний байршил» (ADR-0012 Amendment A4).
+        if (ui.followingMe && !guiding) c.focus(p, maxOf(c.zoom, 15.0), 0, 0, 0, 0, if (reducedMotion) 0 else 300)
+    }
+    // NAV-011 AC 7a, C1 (D142): the typed-coordinate option centres the point once, after the card's first layout, at
+    // zoom max(current, 16), clear of the top group and the card. One-shot: handled in the ViewModel, so a rotation does
+    // not repeat it; a long-press never sets it (AC 9).
+    val coordinateFocus = ui.coordinateFocus
+    LaunchedEffect(controller, coordinateFocus?.seq) {
+        val c = controller ?: return@LaunchedEffect
+        val f = coordinateFocus ?: return@LaunchedEffect
+        val card = withTimeoutOrNull(COORDINATE_CARD_LAYOUT_MS) { snapshotFlow { cardRect }.filterNotNull().first() }
+        vm.onCoordinateFocusHandled(f.seq)
+        val m = mapRect
+        // The map view fills the measured map box; the camera's own size is the fallback before the first layout.
+        val w = m.width.toInt().takeIf { it > 0 } ?: c.widthPx
+        val h = m.height.toInt().takeIf { it > 0 } ?: c.heightPx
+        val box = card?.let { CoordinateCamera.Box((it.left - m.left).toInt(), (it.top - m.top).toInt(), (it.right - m.left).toInt(), (it.bottom - m.top).toInt()) }
+        val pad = CoordinateCamera.padding(
+            mapWidth = w, mapHeight = h,
+            topGroupBottom = (topGroupBottom - m.top).toInt(),
+            card = box,
+            laneStart = laneStart?.let { (it - m.left).toInt() },
+            wide = cardWide,
+            density = density.density,
+        )
+        c.focus(f.point, CoordinateCamera.zoom(c.zoom), pad.left, pad.top, pad.right, pad.bottom, if (reducedMotion) 0 else CoordinateCamera.EASE_MS)
     }
     // NAV-012 Layout rule 9: while restoring (no position yet) the camera fits the stored route; no puck, no recenter.
     LaunchedEffect(controller, g?.restoring) {
@@ -241,24 +334,32 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     }
 
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            mapSurface.Map(
+        Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { mapRect = it.boundsInRoot() }) {
+            if (pmtilesUrl == null) {
+                // ADR-0016 §9: no MapLibre view until the bundled archive is ready (map background colour meanwhile).
+                Box(Modifier.fillMaxSize().background(tokens.uiSurfaceContainer.c()).testTag("map"))
+            } else mapSurface.Map(
                 modifier = Modifier.fillMaxSize().testTag("map"),
                 description = stringResource(R.string.map_content_description),
                 night = night,
                 colours = tokens,
-                pmtilesUrl = AppConfig.pmtilesUrl(),
+                pmtilesUrl = pmtilesUrl,
                 content = content,
                 onReady = { c ->
                     controller = c
                     if (c.center == null || c.zoom < 3) c.moveTo(AppViewModel.DEFAULT_CENTER, AppViewModel.DEFAULT_ZOOM)
                     mapHeightPx = c.heightPx
                 },
-                onLongPress = if (!guiding && preview == null) ({ p -> vm.onLongPress(p) }) else null,
+                // NAV-018 AC 6: long-press also works during the preview (the card then sets the start or destination).
+                // NAV-019 UX P1: the replay start screen's map pans and zooms only (no coordinate card).
+                onLongPress = if (!guiding && points.editor == null && !(replay != null && preview == null)) ({ p -> vm.onLongPress(p) }) else null,
                 // NAV-011 AC 17: a tap on an unselected line selects it (0 requests, no camera move).
                 onTap = if (!guiding && preview != null) ({ p, hit ->
+                    // NAV-018 AC 7: a map tap leaves the point editor without changes.
+                    val editing = vm.points.value.editor != null
+                    if (editing) vm.closePointEditor()
                     val r = vm.preview.state.value?.result as? PreviewResult.Route
-                    if (r != null && r.k >= 2) {
+                    if (!editing && r != null && r.k >= 2) {
                         AlternativeHitTest.pick(p, hit, r.selected, r.routes.map { it.plan.geometry })?.let(vm::selectRoute)
                     }
                 }) else null,
@@ -286,12 +387,34 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     onDismissNotice = vm::dismissVoiceNotice,
                     onArrivalClose = vm::onArrivalClose,
                     onCovered = { covered = it },
+                    demoRow = replay?.let { r -> { arrived: Boolean -> r.GuidanceControls(arrived, Modifier) } },
+                    showOfflineStatus = replay?.tilesBundled != true,
+                )
+            } else if (replay != null && preview == null) {
+                // ADR-0016 §3 / NAV-019 UX P1: the route picker replaces the browse overlay in a replay build.
+                replay.StartScreen(
+                    ReplayHost(
+                        lang = lang,
+                        strings = strings,
+                        mapFailed = ui.tilesFailed,
+                        openPreview = vm::openRecordedRoute,
+                        openSettings = { vm.openSettings(true) },
+                        retryTiles = {
+                            vm.setTilesFailed(false)
+                            replay.retryTiles()
+                            val url = (replay.tiles.value as? TilesState.Ready)?.pmtilesUrl
+                            if (url != null) controller?.setStyle(night, tokens, "$url")
+                        },
+                    ),
+                    Modifier,
                 )
             } else {
                 BrowseOverlay(
                     m = BrowseModel(
-                        lang, ui.query, searchView, ui.card, preview, ui.mapProblem, ui.tilesFailed, !online, bearing, ui.followingMe,
+                        lang, ui.query, searchView, ui.card, preview, ui.mapProblem, ui.tilesFailed, offline, bearing, ui.followingMe,
+                        locating = ui.locating,
                         reverse = reverseView, lock = lock, sheetExpanded = ui.sheetExpanded, focusSearch = ui.focusSearch,
+                        points = points, fieldView = fieldView, cardTitleFocus = ui.cardTitleFocus,
                     ),
                     strings = strings,
                     a = BrowseActions(
@@ -316,19 +439,48 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                         onDismissMapProblem = vm::dismissMapProblem,
                         onRetryTiles = {
                             vm.setTilesFailed(false)
-                            controller?.let { c -> c.setStyle(night, tokens, AppConfig.pmtilesUrl() + "") }
+                            controller?.let { c -> pmtilesUrl?.let { c.setStyle(night, tokens, "$it") } }
                         },
                         onSheetHeight = { sheetPx = it },
                         onSelectRoute = vm::selectRoute,
                         onSheetExpanded = vm::setSheetExpanded,
                         onReverseRetry = vm.reverse::retry,
                         onSearchFieldTap = vm::onSearchFieldTap,
+                        onSearchFocused = vm::onSearchFocused,
                         onLockedWhileTyping = vm::onLockedWhileTyping,
-                        onDismissLock = vm::dismissTypingLock,
+                        onDismissLock = {
+                            vm.dismissTypingLock()
+                            vm.closePointEditor() // NAV-018: «Хаах» on the lock card in the point editor closes the editor
+                        },
                         onPassenger = vm::onPassenger,
                         onSheetStart = { sheetStartPx = it },
                         onTopBar = { topBarPx = it },
+                        onCoordinateOption = vm::onCoordinateOption,
+                        onTopGroup = { topGroupBottom = it },
+                        onCardBounds = { r, wide ->
+                            cardRect = r
+                            cardWide = wide
+                        },
+                        onControlLane = { laneStart = it },
+                        onCardTitleFocused = vm::onCardTitleFocused,
+                        points = PointActions(
+                            onField = vm::openPointEditor,
+                            onSwap = vm::swapPoints,
+                            onEditorQuery = vm::onPointQuery,
+                            onEditorResult = vm::onPointResult,
+                            onEditorRetry = vm.fieldSearch::retry,
+                            onEditorCoordinate = vm::onPointTypedCoordinate,
+                            onEditorMyLocation = vm::onPointMyLocation,
+                            onEditorClose = vm::closePointEditor,
+                            onEditorFieldTap = vm::onSearchFieldTap,
+                            onCardSetOrigin = { vm.onCardSetPoint(PointSide.ORIGIN) },
+                            onCardSetDestination = { vm.onCardSetPoint(PointSide.DESTINATION) },
+                            // Q8: portrait touch use collapses the sheet; TalkBack and wide windows keep it as it is.
+                            onTurnRow = { i -> vm.focusStep(i, collapse = sheetStartPx == 0 && !vm.touchExploration()) },
+                            offerMyLocation = replay == null,
+                        ),
                     ),
+                    replayBadge = replay?.let { r -> { m: Modifier -> r.Badge(m) } },
                 )
             }
         }
@@ -372,3 +524,9 @@ fun KeepScreenOn(enabled: Boolean) {
 
 /** NAV-011 AC 16: wait for the sheet to re-measure for a new response before the one camera fit (well inside 1 s). */
 private const val FIT_SETTLE_MS = 150L
+
+/** NAV-011 C1: the longest wait for the coordinate card's first layout before the camera moves anyway. */
+private const val COORDINATE_CARD_LAYOUT_MS = 500L
+
+/** NAV-018 Q8: the collapse (250 ms) settles before the step camera move; both finish within 1 s. */
+private const val STEP_COLLAPSE_SETTLE_MS = 260L

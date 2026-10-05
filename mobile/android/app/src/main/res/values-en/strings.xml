@@ -52,6 +52,14 @@
     <string name="typing_lock_title">You can\'t type while moving</string>
     <string name="typing_lock_hint">If you are driving, stop before you search</string>
     <string name="typing_lock_passenger">I\'m a passenger</string>
+    <!-- NAV-018 (start point choice and turn list). -->
+    <string name="route_origin_placeholder">Choose starting point</string>
+    <string name="route_destination_placeholder">Choose destination</string>
+    <string name="route_swap">Swap start and destination</string>
+    <string name="route_directions">Directions</string>
+    <string name="route_set_origin">Set as start</string>
+    <string name="route_set_destination">Set as destination</string>
+    <string name="route_start_only_from_location">Navigation starts only from your location</string>
     <string name="nav_name">Navigation</string>
     <string name="nav_start">Start</string>
     <string name="nav_end">End</string>
@@ -182,4 +190,7 @@
     <string name="nav_resumed">Navigation resumed</string>
     <string name="nav_interrupted_title">Navigation was interrupted</string>
     <string name="nav_interrupted_text">Tap to continue</string>
+    <!-- NAV-021 / NAV-023 "offline" indicator (D201): glossary 2.7 OF24, OF25, needs native review. -->
+    <string name="offline_indicator">Offline</string>
+    <string name="offline_indicator_a11y">From the offline map</string>
 </resources>

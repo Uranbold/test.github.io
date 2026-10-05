@@ -44,7 +44,19 @@ data class GuidancePlan(
  * NAV-012 (ADR-0013 §3.1): [source] is the exact OSRM body that entered the pipeline (before the token rewrite), kept
  * in memory so the restore record can store it; null where no body exists (tests that build routes by hand).
  */
-class ParsedRoute(val plan: GuidancePlan, val native: NativeRoute, val source: ByteArray? = null)
+class ParsedRoute(
+    val plan: GuidancePlan,
+    val native: NativeRoute,
+    val source: ByteArray? = null,
+    /**
+     * NAV-021 (ADR-0017 §2, D201): computed by the on-device engine from the installed routing file instead of the
+     * gateway. Drives the "offline" indicator OF24 on the preview and during guidance; never sent anywhere.
+     */
+    val onDevice: Boolean = false,
+) {
+    /** The same route marked as computed on the device (NAV-021 AC 27–28). */
+    fun asOnDevice(): ParsedRoute = if (onDevice) this else ParsedRoute(plan, native, source, onDevice = true)
+}
 
 /** Marker for the navigation engine's route object; keeps pure code free of Ferrostar types. */
 interface NativeRoute {

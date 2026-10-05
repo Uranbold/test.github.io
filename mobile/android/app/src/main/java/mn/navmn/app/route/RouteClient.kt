@@ -85,13 +85,62 @@ class RouteClient(
         cont.invokeOnCancellation { c.cancel() }
     }
 
+    /**
+     * NAV-021 (ADR-0017 §5, D199): like [start], but reports the response headers to [listener] before the body is
+     * read, so the online-first policy can abandon the call (502/503/504, 429) or a connection failure before headers
+     * and answer on the device in the same attempt. After [OnlineListener.onHeaders] returned true the response is
+     * handled exactly as by [start] (12 s call timeout, same classification). The caller checks the network first.
+     */
+    fun startOnline(request: RouteRequest, generation: Int, listener: OnlineListener): Cancelable {
+        val call = buildCall(request)
+        call.enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (call.isCanceled()) listener.onResult(RouteOutcome.Cancelled) else listener.onFailureBeforeHeaders()
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    if (!listener.onHeaders(response.code, response.header("Retry-After"))) {
+                        response.close()
+                        return
+                    }
+                    val outcome = try {
+                        response.use { handle(it, generation, request.purpose) }
+                    } catch (e: IOException) {
+                        if (call.isCanceled()) RouteOutcome.Cancelled else RouteOutcome.Unavailable
+                    }
+                    listener.onResult(if (call.isCanceled()) RouteOutcome.Cancelled else outcome)
+                }
+            },
+        )
+        return Cancelable { call.cancel() }
+    }
+
     private fun handle(response: Response, generation: Int, purpose: RoutePurpose): RouteOutcome {
         val bytes = response.body.bytes()
         return if (response.code == 200) {
-            // NAV-011 (ADR-0012 §5.2–5.3): a preview response may hold up to 3 routes; each is parsed on its own slice.
-            if (purpose == RoutePurpose.PREVIEW) PreviewRoutes.process(processor, bytes, generation) else processor.process(bytes, generation)
+            RouteResponses.processOk(processor, bytes, generation, purpose)
         } else {
             RouteClassifier.classify(response.code, response.header("Retry-After"), bytes)
         }
     }
+}
+
+/** NAV-021: the online transport's hooks for [RouteClient.startOnline]. Called on OkHttp threads. */
+interface OnlineListener {
+    /** Headers arrived. Return false to abandon the call (no [onResult] follows), true to read the body as today. */
+    fun onHeaders(status: Int, retryAfter: String?): Boolean
+
+    /** The connection failed before any response headers (not a cancellation). No [onResult] follows. */
+    fun onFailureBeforeHeaders()
+
+    /** The outcome after [onHeaders] returned true, or [RouteOutcome.Cancelled]. */
+    fun onResult(outcome: RouteOutcome)
+}
+
+/** The 200 path shared by the gateway and the on-device engine (ADR-0009 §3.1, ADR-0017 §2: same parsing). */
+object RouteResponses {
+    fun processOk(processor: RouteProcessor, bytes: ByteArray, generation: Int, purpose: RoutePurpose): RouteOutcome =
+        // NAV-011 (ADR-0012 §5.2–5.3): a preview response may hold up to 3 routes; each is parsed on its own slice.
+        if (purpose == RoutePurpose.PREVIEW) PreviewRoutes.process(processor, bytes, generation) else processor.process(bytes, generation)
 }

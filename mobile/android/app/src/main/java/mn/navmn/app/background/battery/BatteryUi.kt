@@ -27,6 +27,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import mn.navmn.app.R
 import mn.navmn.app.ui.theme.LocalTokens
@@ -65,8 +66,10 @@ fun BatteryPreviewHint(modifier: Modifier = Modifier) {
 
 /**
  * H1 entry row (collapsed sheet): 48 dp, `ui.surface-container`, 12 dp radius; `battery_alert` in `ui.error`,
- * «Батарейн хязгаарлалт» (B1, wraps, never truncated), trailing chevron (decorative). Role button; a tap expands the
- * sheet with the full hint in view. Test tag `battery-entry`.
+ * the B2 hint text on one line cut with «…» (`maxLines = 1`, never wraps; AC 26 of 2026-10-04, screen spec Design
+ * note 9), trailing `expand_less` (decorative), no buttons. Role button; the merged semantics carry the full B2 text
+ * (Compose keeps the untruncated string), so TalkBack reads all of B2 although the screen shows it cut (QA D4).
+ * A tap expands the sheet with the full hint in view. Test tag `battery-entry`.
  */
 @Composable
 fun BatteryEntryRow(onExpand: () -> Unit, modifier: Modifier = Modifier) {
@@ -84,7 +87,15 @@ fun BatteryEntryRow(onExpand: () -> Unit, modifier: Modifier = Modifier) {
     ) {
         Icon(painterResource(R.drawable.ic_battery_alert), contentDescription = null, tint = t.uiError.c(), modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(12.dp))
-        Text(stringResource(R.string.battery_restrictions), style = NavType.body, color = t.uiOnSurface.c(), modifier = Modifier.weight(1f))
+        Text(
+            stringResource(R.string.battery_hint),
+            style = NavType.body,
+            color = t.uiOnSurface.c(),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
         Icon(painterResource(R.drawable.ic_expand_less), contentDescription = null, tint = t.uiOnSurfaceVariant.c(), modifier = Modifier.size(24.dp))
     }
 }

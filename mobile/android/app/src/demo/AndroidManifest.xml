@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NAV-019 demo build overlay (ADR-0016 §2, §4.5). The launcher and notification label is «Туршилтын горим» (W1); the
+     in-app app_name is unchanged. WAKE_LOCK replaces the main manifest's removal for the demo build only: a simulated
+     replay has no GNSS wake-ups, so it holds a partial wake lock while it runs (debug and release keep the removal).
+     Location permissions and the `location` foreground-service type stay as in the main manifest (ADR-0016 §5, story
+     Open question 6 option (b), PO to confirm). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="replace" />
+
+    <application
+        android:label="@string/demo_mode"
+        tools:replace="android:label" />
+</manifest>

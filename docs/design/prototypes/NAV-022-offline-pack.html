@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAV-022 offline map wireframe</title>
+<!--
+  Static wireframe of the Android "Download Mongolia map" experience (NAV-022) and the "offline" indicator OF24
+  (NAV-021 AC 27-28, NAV-023 AC 21-24). Owner: ux-designer. Checks the DESIGN, not the app.
+  1 CSS px = 1 dp. Hash parameters: state, theme (day|night), lang (mn|en), scale (1|1.3|2 = Android font scale),
+  font (narrow|wide), v (a = chosen; b, c = measured alternatives), toolbar (0|1).
+  Example: #state=offer-first&theme=night&lang=mn&scale=2
+  Spec: docs/design/screens/android-offline-pack.md. Flow: docs/design/flows/NAV-022-offline-download.md.
+  Colours copied from docs/design/tokens.json v0.6.3 (tokens.json wins). S1, S2, S3 (NAV-018 sheet), the coordinate card
+  and S5 are simplified copies; their own prototypes stay authoritative. Underlying screens behind a modal carry no
+  data-box / data-control attributes (they are dimmed and inert, so the checker ignores them).
+  Sizes are the spike measurements: download 119.3 MB -> «120 МБ», space needed 338 MB, installed 202 MB, routing +
+  search update 32.9 MB -> «33 МБ» (size display rule: decimal MB, rounded up).
+-->
+<style>
+  :root { --fs: 1; --fsB: 1; --fsD: 1; --fsP: 1; --font: "Liberation Sans", Roboto, sans-serif; --ime: 0px; }
+  :root[data-theme="day"] {
+    --surface: #FFFFFF; --surface-container: #F1F3F4; --on-surface: #1F1F1F; --on-surface-variant: #444746;
+    --outline: #747775; --outline-variant: #C4C7C5; --primary: #0B57D0; --on-primary: #FFFFFF;
+    --primary-container: #D3E3FD; --on-primary-container: #041E49; --error: #B3261E;
+    --message-surface: #303030; --on-message-surface: #F2F2F2; --message-outline: #303030; --message-action: #A8C7FA;
+    --banner: #0F6B45; --on-banner: #FFFFFF; --on-banner-variant: #D2EBDD; --banner-outline: #0F6B45;
+    --earth: #F3F0EA; --water: #A8CDEE; --major: #FFFFFF; --major-casing: #C9C2B5;
+    --route: #1967D2; --route-casing: #0B3D91; --route-alt: #9AA0A6; --puck: #1A73E8; --puck-stroke: #FFFFFF; --puck-outline: #0B3D91;
+    --pin: #C5221F; --scrim: rgba(0,0,0,.32); --kbd: #D7DBE0;
+  }
+  :root[data-theme="night"] {
+    --surface: #1F2733; --surface-container: #27303D; --on-surface: #E3E6EA; --on-surface-variant: #B9C0CA;
+    --outline: #8B94A1; --outline-variant: #3F4957; --primary: #A8C7FA; --on-primary: #062E6F;
+    --primary-container: #0B3D8C; --on-primary-container: #D3E3FD; --error: #F2B8B5;
+    --message-surface: #2E3846; --on-message-surface: #E3E6EA; --message-outline: #6E7A8C; --message-action: #A8C7FA;
+    --banner: #123D2C; --on-banner: #E3E6EA; --on-banner-variant: #B7D3C5; --banner-outline: #3E7A5E;
+    --earth: #18202B; --water: #0B2238; --major: #4A5566; --major-casing: #10151C;
+    --route: #8AB4F8; --route-casing: #10151C; --route-alt: #5F6B7A; --puck: #E8EAED; --puck-stroke: #10151C; --puck-outline: #10151C;
+    --pin: #F28B82; --scrim: rgba(0,0,0,.48); --kbd: #2B323C;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: var(--font); background: var(--earth); color: var(--on-surface); font-size: calc(14px * var(--fs)); line-height: 1.43; }
+  #toolbar { position: fixed; z-index: 99; top: 0; left: 0; right: 0; font: 12px sans-serif; background: #fffd; padding: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+  [hidden] { display: none !important; }
+  p { margin: 0; }
+
+  /* Screen = status bar 24 + app + navigation bar 48 (portrait, 3-button worst case) / 24 (landscape); IME above the nav bar */
+  #screen { position: absolute; inset: 0; display: grid; grid-template-rows: 24px minmax(0,1fr) var(--ime) 48px; }
+  :root[data-orient="land"] #screen { grid-template-rows: 24px minmax(0,1fr) var(--ime) 24px; }
+  #ime { background: var(--kbd); }
+  #app { position: relative; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,auto) minmax(0,1fr) auto auto; min-height: 0; }
+  #map { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+  #map svg { width: 100%; height: 100%; display: block; }
+  #top { position: relative; z-index: 2; padding: 8px 8px 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+  #mid { position: relative; z-index: 1; min-height: 0; }
+  #bottom { position: relative; z-index: 2; padding: 0 8px 8px; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; }
+  #attr { position: relative; z-index: 3; background: var(--surface-container); color: var(--on-surface-variant); font-size: calc(12px * var(--fs)); line-height: 1.333; padding: 4px 16px; min-height: 24px; }
+  :root[data-orient="land"][data-surface="preview"] #app, :root[data-orient="land"][data-surface="card"] #app { grid-template-columns: clamp(320px, 40%, 400px) minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto; }
+  :root[data-orient="land"][data-surface="preview"] #top, :root[data-orient="land"][data-surface="card"] #top { grid-column: 2; grid-row: 1; }
+  :root[data-orient="land"][data-surface="preview"] #mid, :root[data-orient="land"][data-surface="card"] #mid { display: none; }
+  :root[data-orient="land"][data-surface="preview"] #bottom, :root[data-orient="land"][data-surface="card"] #bottom { grid-column: 1; grid-row: 1; padding: 8px; }
+  :root[data-orient="land"][data-surface="preview"] #attr, :root[data-orient="land"][data-surface="card"] #attr { grid-column: 1 / 3; grid-row: 2; }
+
+  /* Landscape (NAV-005 D5 wide arrangement): the S1/S2 top group keeps to a start column, the map controls keep the end edge */
+  :root[data-orient="land"][data-surface="s1"] #top, :root[data-orient="land"][data-surface="search"] #top { width: clamp(320px, 50%, 400px); }
+  :root[data-surface="s1"] #top { overflow: auto; padding-bottom: 8px; }
+  /* Landscape guidance (NAV-005 rule 5): banner in the start column, map band and progress panel at the end */
+  :root[data-orient="land"][data-surface="guidance"] #app { grid-template-columns: clamp(320px, 40%, 400px) minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto auto; }
+  :root[data-orient="land"][data-surface="guidance"] #top { grid-column: 1; grid-row: 1 / 3; overflow: auto; padding-bottom: 8px; }
+  :root[data-orient="land"][data-surface="guidance"] #mid { grid-column: 2; grid-row: 1; }
+  :root[data-orient="land"][data-surface="guidance"] #bottom { grid-column: 2; grid-row: 2; padding-top: 8px; }
+  :root[data-orient="land"][data-surface="guidance"] #attr { grid-column: 1 / 3; grid-row: 3; }
+  .elev { box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  :root[data-theme="night"] .elev { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  .ic { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .btn { min-height: 48px; min-width: 48px; border-radius: 9999px; font: inherit; font-size: calc(14px * var(--fs)); line-height: 1.43; font-weight: 500; padding: 8px 20px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; text-align: center; background: transparent; color: var(--primary); }
+  .btn .ic { width: 18px; height: 18px; }
+  .btn.filled { background: var(--primary); color: var(--on-primary); }
+  .btn.tonal { background: var(--primary-container); color: var(--on-primary-container); }
+  .btn.text { padding: 8px 12px; }
+  .btn.danger { color: var(--error); }
+  .btn.full { width: 100%; }
+  .iconbtn { width: 48px; height: 48px; border-radius: 9999px; border: 0; background: transparent; color: var(--on-surface); display: grid; place-items: center; flex: none; }
+  .iconbtn.tonal { background: var(--primary-container); color: var(--on-primary-container); }
+  .iconbtn.fab { border-radius: 12px; background: var(--surface); }
+
+  /* S1 search row */
+  .searchrow { display: flex; gap: 8px; align-items: center; }
+  .searchbar { flex: 1 1 0; min-width: 0; min-height: 56px; border-radius: 28px; background: var(--surface); display: flex; align-items: center; gap: 12px; padding: 0 4px 0 16px; color: var(--on-surface-variant); font-size: calc(16px * var(--fs)); }
+  .searchbar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .searchbar .typed { color: var(--on-surface); }
+  #ctl { position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; }
+
+  /* NAV-002 message card (R2) */
+  .msg { background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 8px; padding: 8px 8px 8px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .msg .t { flex: 1 1 160px; min-width: 0; }
+  .msg .acts { display: flex; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+  .msg .btn { color: var(--message-action); padding: 8px 12px; }
+
+  /* Offer: modal bottom sheet ABOVE R5 (scrim covers the app above R5 only, so the attribution stays visible) */
+  #ovl { position: absolute; left: 0; right: 0; top: 0; z-index: 8; background: var(--scrim); display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+  #ovl.center { justify-content: center; padding: 16px 24px; }
+  .osheet { width: 100%; max-width: 640px; background: var(--surface); color: var(--on-surface); border-radius: 28px 28px 0 0; display: flex; flex-direction: column; min-height: 0; max-height: calc(100% - 56px); }
+  :root[data-orient="land"] .osheet { max-height: calc(100% - 16px); }
+  #ovl.center .osheet { max-width: 560px; border-radius: 28px; max-height: 100%; }
+  .handle { height: 24px; display: grid; place-items: center; flex: none; }
+  .handle::after { content: ""; width: 32px; height: 4px; border-radius: 2px; background: var(--outline); }
+  .osheet .scroll { overflow: auto; min-height: 0; padding: 0 24px 8px; overscroll-behavior: contain; }
+  #ovl.center .osheet .scroll { padding-top: 24px; }
+  .osheet .hero { width: 40px; height: 40px; color: var(--primary); margin: 4px 0 12px; }
+  .osheet .hero .ic { width: 40px; height: 40px; stroke-width: 1.6; }
+  .osheet h2 { margin: 0 0 8px; font-size: calc(22px * var(--fs)); line-height: 1.27; font-weight: 500; }
+  .osheet .body { font-size: calc(16px * var(--fs)); line-height: 1.5; color: var(--on-surface); margin-bottom: 12px; }
+  .facts { display: flex; flex-direction: column; gap: 4px; color: var(--on-surface-variant); font-size: calc(14px * var(--fs)); line-height: 1.43; font-variant-numeric: tabular-nums; }
+  .facts div { display: flex; gap: 8px; align-items: flex-start; }
+  .facts .ic { width: 20px; height: 20px; margin-top: 0; }
+  .oacts { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px; padding: 12px 24px 16px; border-top: 1px solid transparent; }
+  .osheet.scrolled .oacts { border-top-color: var(--outline-variant); }
+
+  /* S7 settings (NAV-005/NAV-012) modal sheet over the whole screen + the new offline section */
+  #modal { position: absolute; inset: 0; z-index: 10; background: var(--scrim); display: flex; flex-direction: column; justify-content: flex-end; }
+  #set { background: var(--surface); color: var(--on-surface); border-radius: 28px 28px 0 0; max-height: calc(100% - 72px); display: flex; flex-direction: column; min-height: 0; }
+  :root[data-orient="land"] #set { max-height: calc(100% - 24px); }
+  #set .scroll { overflow: auto; padding-bottom: 16px; min-height: 0; }
+  #set .title { font-size: calc(22px * var(--fs)); line-height: 1.27; padding: 0 24px 8px; }
+  #set .sec { font-size: calc(14px * var(--fs)); line-height: 1.43; font-weight: 500; color: var(--primary); padding: 16px 24px 4px; }
+  #set .opt { min-height: 56px; display: flex; align-items: center; gap: 16px; padding: 4px 24px; width: 100%; border: 0; background: none; color: inherit; font: inherit; font-size: calc(16px * var(--fs)); text-align: left; }
+  #set .radio { width: 20px; height: 20px; flex: none; border-radius: 50%; border: 2px solid var(--on-surface-variant); }
+  #set .radio.on { border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 10px var(--primary); }
+  #set .track { width: 52px; height: 32px; flex: none; border-radius: 16px; background: var(--primary); margin-left: auto; }
+  #set hr { border: 0; border-top: 1px solid var(--outline-variant); margin: 8px 0; }
+  .setrow { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 16px; padding: 12px 24px 4px; font-size: calc(16px * var(--fs)); }
+  .setrow .acts { grid-column: 2; margin-left: -12px; }
+  #off { padding: 0 24px 8px; }
+  #off .sec { padding-left: 0; padding-right: 0; }
+  #off .lead { font-size: calc(14px * var(--fs)); line-height: 1.43; color: var(--on-surface-variant); margin-bottom: 8px; }
+  #off .facts { margin-bottom: 12px; }
+  #off .group { margin: 4px 0 12px; }
+  #off .glabel { font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); margin-bottom: 4px; }
+  #off .dates { font-size: calc(16px * var(--fs)); line-height: 1.5; font-variant-numeric: tabular-nums; }
+  #off .used { font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+  .status { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 12px; align-items: center; margin: 4px 0 8px; font-size: calc(16px * var(--fs)); line-height: 1.5; font-variant-numeric: tabular-nums; }
+  .status .bar { grid-column: 1 / 3; height: 4px; border-radius: 2px; background: var(--primary-container); overflow: hidden; margin-top: 4px; }
+  .status .bar i { display: block; height: 100%; background: var(--primary); border-radius: 2px; }
+  .status .bar.ind i { width: 30%; margin-left: 35%; }
+  .status .acts { grid-column: 1 / 3; display: flex; justify-content: flex-end; margin-right: -12px; }
+  .status.err .ic { color: var(--error); }
+  .status .sub { grid-column: 2; font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); }
+  .delrow { margin: 0 -12px; display: flex; justify-content: flex-start; }
+  .licence { font-size: calc(12px * var(--fs)); line-height: 1.333; color: var(--on-surface-variant); margin-top: 8px; }
+  .licence .btn { margin-left: -12px; font-size: calc(14px * var(--fs)); }
+
+  /* M3 basic dialog over S7 */
+  #dlgwrap { position: absolute; inset: 0; z-index: 20; background: var(--scrim); display: grid; place-items: center; padding: 24px; }
+  .dlg { width: min(560px, 100%); min-width: 0; max-height: 100%; overflow: auto; background: var(--surface); color: var(--on-surface); border-radius: 28px; padding: 24px; }
+  .dlg h2 { margin: 0 0 16px; font-size: calc(24px * var(--fs)); line-height: 1.333; font-weight: 400; }
+  .dlg .body { font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); margin-bottom: 24px; font-variant-numeric: tabular-nums; }
+  .dlg .acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-right: -12px; }
+
+  /* Offline indicator OF24 (D201): neutral, quiet, non-interactive label: icon + «Офлайн» */
+  .chip { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 2px 8px 2px 6px; border-radius: 8px; background: var(--surface-container); color: var(--on-surface-variant); border: 1px solid var(--outline-variant); font-size: calc(12px * var(--fs)); line-height: 1.333; font-weight: 500; white-space: nowrap; flex: none; vertical-align: middle; }
+  .chip .ic { width: 16px; height: 16px; }
+  .chip.iconly { padding: 2px; }
+  .chiprow { display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 4px 0; border-radius: 8px; background: var(--surface-container); color: var(--on-surface-variant); font-size: calc(14px * var(--fs)); }
+
+  /* S3 (simplified NAV-018 collapsed sheet) */
+  .sheet { background: var(--surface); border-radius: 16px; display: flex; flex-direction: column; min-height: 0; }
+  .sheet .scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
+  .pv-points { display: grid; grid-template-columns: 48px minmax(0,1fr) 48px; column-gap: 4px; padding: 0 4px 4px; align-items: center; }
+  .pv-fields { background: var(--surface-container); border-radius: 12px; }
+  .pv-field { min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 12px; font-size: calc(16px * var(--fs)); width: 100%; border: 0; background: none; color: inherit; font-family: inherit; text-align: left; }
+  .pv-field + .pv-field { border-top: 1px solid var(--outline-variant); }
+  .pv-field span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mk { display: inline-block; flex: none; width: 12px; height: 12px; border-radius: 50%; }
+  .mk.o { border: 2px solid var(--on-surface); } .mk.d { background: var(--pin); border-radius: 50% 50% 50% 0; transform: rotate(-45deg); }
+  .pv-tabs { display: flex; border-bottom: 1px solid var(--outline-variant); }
+  .pv-tab { flex: 1; min-height: 48px; display: flex; align-items: center; justify-content: center; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); border: 0; background: none; font-family: inherit; padding: 0 4px; }
+  .pv-tab.sel { color: var(--primary); box-shadow: inset 0 -3px 0 var(--primary); }
+  .pv-sum { padding: 8px 16px 4px; flex: none; }
+  .pv-sum .rn { font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--primary); }
+  .pv-sum .line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .pv-sum .dur { font-size: calc(22px * var(--fs)); line-height: 1.27; font-weight: 500; }
+  .pv-sum .dist { font-size: calc(16px * var(--fs)); color: var(--on-surface-variant); }
+  .pv-sum .eta { font-size: calc(16px * var(--fs)); color: var(--on-surface-variant); }
+  .pv-start { padding: 8px 16px 12px; flex: none; }
+  .pv-start .btn { width: 100%; min-height: 56px; font-size: calc(16px * var(--fs)); }
+
+  /* S2 results */
+  .results { background: var(--surface); border-radius: 16px; overflow: auto; min-height: 0; flex: 0 1 auto; }
+  .reshead { display: flex; align-items: center; padding: 8px 16px 4px; }
+  .res { display: grid; grid-template-columns: 24px minmax(0,1fr); column-gap: 16px; width: 100%; min-height: 56px; padding: 8px 16px; border: 0; border-top: 1px solid var(--outline-variant); background: none; color: inherit; font: inherit; text-align: left; }
+  .reshead + .res { border-top: 0; }
+  .res .nm { font-size: calc(16px * var(--fs)); line-height: 1.5; grid-column: 2; }
+  .res .nm, .res .meta { overflow-wrap: break-word; min-width: 0; }
+  .res .meta { grid-column: 2; font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); }
+  .res .ic { grid-row: 1 / 3; align-self: center; color: var(--on-surface-variant); }
+  .empty { padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: calc(16px * var(--fs)); }
+
+  /* coordinate card */
+  .card { background: var(--surface); border-radius: 16px; display: flex; flex-direction: column; min-height: 0; }
+  .card .scroll { overflow: auto; min-height: 0; padding: 12px 16px 4px; }
+  .card .ttl { display: flex; align-items: flex-start; gap: 8px; }
+  .card .ttl .t { flex: 1; min-width: 0; font-size: calc(16px * var(--fs)); font-weight: 600; line-height: 1.5; }
+  .card .coord { font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+  .card .nearh { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); margin-bottom: 2px; }
+  .card .pl { font-size: calc(16px * var(--fs)); line-height: 1.5; }
+  .card .plm { font-size: calc(14px * var(--fs)); color: var(--on-surface-variant); }
+  .card .acts { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px 12px; }
+
+  /* S5 guidance (copied from NAV-005 / NAV-019, caps 1.3 / 1.2) */
+  #banner .main { background: var(--banner); color: var(--on-banner); border: 1px solid var(--banner-outline); border-radius: 16px; padding: 16px; display: grid; grid-template-columns: 56px minmax(0,1fr); column-gap: 12px; min-height: 104px; }
+  #banner .icon svg { width: 56px; height: 56px; fill: none; stroke: var(--on-banner); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+  #banner .dist { font-size: calc(32px * var(--fsD)); line-height: 1.25; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #banner .instr { font-size: calc(24px * var(--fsB)); line-height: 1.25; font-weight: 500; }
+  #banner .street { font-size: calc(18px * var(--fsB)); line-height: 1.333; color: var(--on-banner-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :root[data-stacked="1"] #banner .main { grid-template-areas: "icon dist" "text text"; }
+  :root[data-stacked="1"] #banner .icon { grid-area: icon; } :root[data-stacked="1"] #banner .dist { grid-area: dist; align-self: center; }
+  :root[data-stacked="1"] #banner .textcol { grid-area: text; margin-top: 8px; }
+  .panel { background: var(--surface); color: var(--on-surface); border-radius: 16px; padding: 12px 16px; min-height: 72px; display: flex; align-items: center; gap: 8px 12px; }
+  .panel .txt { min-width: 0; flex: 1 1 0; }
+  .panel .eta { font-size: calc(22px * var(--fsP)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .panel .meta { font-size: calc(16px * var(--fsP)); line-height: 1.5; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+  .panel .chip { font-size: calc(12px * var(--fsP)); }
+  .btn.outlined { border: 1px solid var(--outline); color: var(--error); padding: 0; width: 48px; }
+  #rc { position: absolute; right: 16px; bottom: 16px; display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<div id="toolbar"></div>
+<div id="screen">
+  <div></div>
+  <div id="app">
+    <div id="map"></div>
+    <div id="top"></div>
+    <div id="mid"></div>
+    <div id="bottom"></div>
+    <div id="attr" data-box="attribution">© OpenStreetMap contributors</div>
+  </div>
+  <div id="ime"></div>
+  <div></div>
+</div>
+<script>
+// Every Mongolian string is a glossary term (section 2.7 OF1-OF29 plus reused rows). Place names are OSM data.
+const T = {
+  mn: {
+    of1: "Офлайн газрын зураг", of2: "Монголын газрын зураг татах", of3: "Интернэт холболтгүй үед ч газрын зураг, маршрут, хайлт ажиллана",
+    of4: "Татах", of5: "Дараа", of6: (s) => `Татах хэмжээ: ${s}`, of7: (s) => `Утсанд шаардлагатай зай: ${s}`, of8: (p) => `Татаж байна… ${p}%`,
+    of9: "Wi-Fi холболт хүлээж байна", of10: "Цуцлах", of11: "Офлайн газрын зураг бэлэн боллоо", of12: "Газрын зургийг татаж чадсангүй",
+    of13: (s) => `Мобайл датагаар ${s} татах уу?`, of14: "Wi-Fi хүлээх", of15: (s) => `Утсанд хангалттай зай алга. ${s} зай чөлөөлнө үү.`,
+    of16: "Шинэчлэх", of17: "Маршрут, хайлтын мэдээлэл хуучирсан байна", of18: (s) => `Мобайл датагаар ${s} шинэчлэх үү?`,
+    of19: "Мэдээллийн огноо", map: (d) => `Газрын зураг: ${d}`, routes: (d) => `Маршрут: ${d}`, search: (d) => `Хайлт: ${d}`,
+    of21: "Офлайн газрын зургийг устгах", of22: "Офлайн газрын зургийг устгах уу?", of23: "Устгах", of24: "Офлайн", of25: "Офлайн газрын зургаас",
+    mb: "МБ", of28: (s) => `Эзэлж буй зай: ${s}`, of29: "Open Database License (ODbL) 1.0",
+    retry: "Дахин оролдох", close: "Хаах", settings: "Тохиргоо", searchPh: "Газар, хаяг хайх", myLoc: "Миний байршил", zoomIn: "Томруулах", zoomOut: "Жижигрүүлэх",
+    day: "Өдрийн горим", night: "Шөнийн горим", auto: "Автомат", lang: "Хэл", voice: "Дуут заавар", battery: "Батарейн хязгаарлалт",
+    car: "Машин", walk: "Явган", bike: "Дугуй", route1: "Маршрут 1", dur: "18 мин", dist: "7,4 км", etaP: "Хүрэх цаг 14:08", start: "Эхлэх",
+    swap: "Эхлэх цэг, очих газрыг солих", destName: "Зайсан толгой", noRes: "Илэрц олдсонгүй", clear: "Хайлтыг арилгах",
+    r: [["Гандан хийд", "Хийд · Сонгинохайрхан дүүрэг, 7-р хороо"], ["Гандангийн гудамж", "Гудамж · Сонгинохайрхан дүүрэг"], ["Гандан плаза", "Худалдааны төв · Баянгол дүүрэг, 2-р хороо"]],
+    point: "Сонгосон цэг", near: "Ойролцоох газар", place: "Гандантэгчинлэн хийд", placeMeta: "Хийд · Сонгинохайрхан дүүрэг, 7-р хороо, Улаанбаатар", directions: "Маршрут гаргах",
+    dist300: "300 м", turnR: "Баруун тийш эргэнэ үү", street: "Энхтайвны өргөн чөлөө", eta: "Хүрэх цаг 14:35", meta: "25 мин · 12,4 км", end: "Дуусгах", mute: "Дууг хаах", northUp: "Хойд зүг дээшээ",
+  },
+  en: {
+    of1: "Offline map", of2: "Download Mongolia map", of3: "Map, routes and search work even without an internet connection",
+    of4: "Download", of5: "Not now", of6: (s) => `Download size: ${s}`, of7: (s) => `Space needed on phone: ${s}`, of8: (p) => `Downloading… ${p}%`,
+    of9: "Waiting for Wi-Fi", of10: "Cancel", of11: "Offline map is ready", of12: "The map could not be downloaded",
+    of13: (s) => `Download ${s} using mobile data?`, of14: "Wait for Wi-Fi", of15: (s) => `Not enough space on the phone. Free up ${s}.`,
+    of16: "Update", of17: "Route and search data are out of date", of18: (s) => `Update ${s} using mobile data?`,
+    of19: "Data date", map: (d) => `Map: ${d}`, routes: (d) => `Routes: ${d}`, search: (d) => `Search: ${d}`,
+    of21: "Delete offline map", of22: "Delete the offline map?", of23: "Delete", of24: "Offline", of25: "From the offline map",
+    mb: "MB", of28: (s) => `Space used: ${s}`, of29: "Open Database License (ODbL) 1.0",
+    retry: "Try again", close: "Close", settings: "Settings", searchPh: "Search for a place or address", myLoc: "My location", zoomIn: "Zoom in", zoomOut: "Zoom out",
+    day: "Day mode", night: "Night mode", auto: "Automatic", lang: "Language", voice: "Voice guidance", battery: "Battery restrictions",
+    car: "Car", walk: "Walk", bike: "Bike", route1: "Route 1", dur: "18 min", dist: "7.4 km", etaP: "Arrive at 14:08", start: "Start",
+    swap: "Swap start and destination", destName: "Zaisan Hill", noRes: "No results found", clear: "Clear search",
+    r: [["Gandan Monastery", "Monastery · Songinokhairkhan District, 7th khoroo"], ["Гандангийн гудамж", "Street · Songinokhairkhan District"], ["Гандан плаза", "Shopping centre · Bayangol District, 2nd khoroo"]],
+    point: "Selected point", near: "Nearest place", place: "Gandantegchinlen Monastery", placeMeta: "Monastery · Songinokhairkhan District, 7th khoroo, Ulaanbaatar", directions: "Directions",
+    dist300: "300 m", turnR: "Turn right", street: "Энхтайвны өргөн чөлөө", eta: "Arrive at 14:35", meta: "25 min · 12.4 km", end: "End", mute: "Mute", northUp: "North up",
+  },
+};
+const SET = ["set-none", "set-none-nomanifest", "set-downloading", "set-waiting", "set-verifying", "set-installed", "set-update",
+  "set-update-running", "set-failed", "set-storage", "set-update-failed"];
+const OFFER = ["offer-first", "offer-14"], DLG = ["dlg-mobile", "dlg-delete"], MSG = ["msg-ready", "msg-failed", "msg-storage"];
+const IND = ["ind-preview", "ind-preview-k2", "ind-results", "ind-noresult", "ind-card", "ind-guidance"];
+const STATES = [...SET, ...OFFER, ...DLG, ...MSG, ...IND];
+const P_ = (d) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+const I = {
+  download: P_('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+  map: P_('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>'),
+  phone: P_('<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>'),
+  wifi: P_('<path d="M2 9a15 15 0 0 1 20 0M5 13a10 10 0 0 1 14 0M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/>'),
+  err: P_('<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/>'),
+  check: P_('<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>'),
+  pin: P_('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>'), // offline_pin stand-in
+  del: P_('<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>'),
+  ext: P_('<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>'),
+  search: P_('<circle cx="11" cy="11" r="6"/><path d="M16 16l5 5"/>'),
+  back: P_('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  x: P_('<path d="M6 6l12 12M18 6L6 18"/>'),
+  gear: P_('<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>'),
+  loc: P_('<circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>'),
+  plus: P_('<path d="M12 5v14M5 12h14"/>'), minus: P_('<path d="M5 12h14"/>'),
+  place: P_('<path d="M12 21s-6-6-6-11a6 6 0 0 1 12 0c0 5-6 11-6 11z"/><circle cx="12" cy="10" r="2"/>'),
+  swap: P_('<path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"/>'),
+  play: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor" stroke="none"/></svg>',
+  vol: P_('<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8a5 5 0 0 1 0 8"/>'),
+  compass: P_('<path d="M12 3l4 9-4 9-4-9z"/>'),
+  battery: P_('<rect x="7" y="4" width="10" height="17" rx="2"/><path d="M10 2h4"/>'),
+  right: '<svg viewBox="0 0 56 56"><path d="M16 48V26a6 6 0 0 1 6-6h20"/><path d="M34 11l9 9-9 9"/></svg>',
+};
+function params() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  return { state: STATES.includes(p.get("state")) ? p.get("state") : "set-none", theme: p.get("theme") === "night" ? "night" : "day",
+    lang: p.get("lang") === "en" ? "en" : "mn", scale: Number(p.get("scale")) || 1, font: p.get("font") || "narrow", toolbar: p.get("toolbar") !== "0",
+    v: ["b", "c"].includes(p.get("v")) ? p.get("v") : "a" };
+}
+const $ = (id) => document.getElementById(id);
+const sz = (n, t) => `${n}\u00A0${t.mb}`; // number and unit joined by a no-break space (NAV-004 / NAV-005 rule)
+let under = false; // true while a modal covers the screen: underlying elements get no checker attributes
+const DC = () => (under ? "" : " data-control"), DB = (n) => (under ? "" : ` data-box="${n}"`);
+
+function chip(t, v) {
+  if (v === "b") return `<span class="chip iconly"${DB("chip")} role="img" aria-label="${t.of25}">${I.pin}</span>`;
+  if (v === "c") return `<div class="chiprow"${DB("chip")} role="note">${I.pin}<span>${t.of25}</span></div>`;
+  return `<span class="chip"${DB("chip")} role="img" aria-label="${t.of25}">${I.pin}<span aria-hidden="true">${t.of24}</span></span>`;
+}
+function mapSvg(route) {
+  return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><rect width="100" height="100" fill="var(--earth)"/>
+    <path d="M0 62 C30 58 60 70 100 66" stroke="var(--water)" stroke-width="3" fill="none"/>
+    <path d="M50 100 V0 M0 40 H100" stroke="var(--major-casing)" stroke-width="3.2"/><path d="M50 100 V0 M0 40 H100" stroke="var(--major)" stroke-width="2.4"/>
+    ${route ? `<path d="M50 100 V40 H100" stroke="var(--route-casing)" fill="none" vector-effect="non-scaling-stroke" style="stroke-width:14px"/>
+    <path d="M50 100 V40 H100" stroke="var(--route)" fill="none" vector-effect="non-scaling-stroke" style="stroke-width:9px"/>` : ""}</svg>`;
+}
+function s1(t, msg) {
+  $("top").innerHTML = `<div class="searchrow"><div class="searchbar elev"${DB("search")}>${I.search}<span>${t.searchPh}</span></div>
+    <button class="iconbtn tonal"${DC()} aria-label="${t.settings}">${I.gear}</button></div>${msg || ""}`;
+  $("mid").innerHTML = `<div id="ctl"${DB("controls")}>${[["plus", t.zoomIn], ["minus", t.zoomOut], ["loc", t.myLoc]].map(([i, n]) => `<button class="iconbtn fab elev"${DC()} aria-label="${n}">${I[i]}</button>`).join("")}</div>`;
+}
+function offlineSection(st, t) {
+  const facts = (a) => `<div class="facts">${a.map(([i, s]) => `<div>${I[i]}<span class="wrap">${s}</span></div>`).join("")}</div>`;
+  const dates = (old) => `<div class="group"><div class="glabel">${t.of19}</div><div class="dates" data-check="dates">
+    <div>${t.map("2026-09-07")}</div><div>${t.routes(old ? "2026-09-15" : "2026-09-30")}</div><div>${t.search(old ? "2026-09-15" : "2026-09-28")}</div></div></div>`;
+  const prog = (p, ind) => `<div class="status" data-box="status" role="status">${I.download}<span class="wrap">${t.of8(p)}</span>
+    <div class="bar${ind ? " ind" : ""}" role="progressbar" aria-label="${t.of8(p)}"><i style="width:${ind ? 30 : p}%"></i></div>
+    <div class="acts"><button class="btn text" data-control data-primary>${t.of10}</button></div></div>`;
+  const wait = `<div class="status" data-box="status" role="status">${I.wifi}<span class="wrap">${t.of9}</span>
+    <div class="acts"><button class="btn text" data-control data-primary>${t.of10}</button></div></div>`;
+  const err = (text) => `<div class="status err" data-box="status" role="alert">${I.err}<span class="wrap">${text}</span>
+    <div class="acts"><button class="btn text" data-control data-primary>${t.retry}</button></div></div>`;
+  const used = `<div class="used">${t.of28(sz(202, t))}</div>`;
+  const installedTail = `<hr style="margin:4px -24px 4px">
+    <div class="delrow"><button class="btn text danger" data-control>${I.del}<span>${t.of21}</span></button></div>
+    <div class="licence"><div>© OpenStreetMap contributors</div><button class="btn text" data-control>${t.of29}${I.ext}</button></div>`;
+  let body = "";
+  if (st === "set-none") body = `<p class="lead wrap">${t.of3}</p>${facts([["download", t.of6(sz(120, t))], ["phone", t.of7(sz(338, t))]])}
+    <button class="btn tonal full" data-control data-primary>${I.download}<span>${t.of2}</span></button>`;
+  if (st === "set-none-nomanifest") body = `<p class="lead wrap">${t.of3}</p><button class="btn tonal full" data-control data-primary>${I.download}<span>${t.of2}</span></button>`;
+  if (st === "set-downloading") body = prog(42) + facts([["download", t.of6(sz(120, t))]]);
+  if (st === "set-waiting") body = wait + facts([["download", t.of6(sz(120, t))]]);
+  if (st === "set-verifying") body = prog(100, true);
+  if (st === "set-failed") body = err(t.of12) + facts([["download", t.of6(sz(120, t))], ["phone", t.of7(sz(338, t))]]);
+  if (st === "set-storage") body = err(t.of15(sz(45, t))) + facts([["download", t.of6(sz(120, t))], ["phone", t.of7(sz(338, t))]]);
+  if (st === "set-installed") body = dates() + used + installedTail;
+  if (st === "set-update") body = dates(true) + used + facts([["download", t.of6(sz(33, t))]])
+    + `<button class="btn tonal full" data-control data-primary style="margin-bottom:12px">${I.download}<span>${t.of16}</span></button>` + installedTail;
+  if (st === "set-update-running") body = dates(true) + used + prog(64) + installedTail;
+  if (st === "set-update-failed") body = dates(true) + used + err(t.of12) + installedTail;
+  return `<section id="off" data-box="offline-section" aria-labelledby="offh"><div class="sec" id="offh" data-check="off-heading">${t.of1}</div>${body}</section>`;
+}
+function renderSettings(st, t, P) {
+  const m = document.createElement("div"); m.id = "modal";
+  const opt = (label, on) => `<button class="opt" data-control role="radio" aria-checked="${on}"><span class="radio${on ? " on" : ""}"></span><span>${label}</span></button>`;
+  m.innerHTML = `<div id="set" data-box="settings" role="dialog" aria-label="${t.settings}"><div class="scroll" id="setscroll">
+    <div class="handle" aria-hidden="true"></div><div class="title">${t.settings}</div>
+    <div role="radiogroup">${opt(t.day, false)}${opt(t.night, false)}${opt(t.auto, true)}</div>
+    <div class="sec">${t.lang}</div><div role="radiogroup">${opt("Монгол", P.lang === "mn")}${opt("English", P.lang === "en")}</div>
+    <hr><button class="opt" data-control role="switch" aria-checked="true"><span>${t.voice}</span><span class="track"></span></button>
+    <hr><div class="setrow">${I.battery}<div>${t.battery}</div></div>
+    <hr>${offlineSection(st, t)}</div></div>`;
+  $("screen").appendChild(m);
+}
+function render() {
+  const P = params(), t = T[P.lang], root = document.documentElement, st = P.state;
+  root.lang = P.lang; root.dataset.theme = P.theme;
+  root.dataset.orient = innerWidth > innerHeight ? "land" : "port";
+  const fsB = Math.min(P.scale, 1.3), fsD = Math.min(P.scale, 1.2);
+  root.style.setProperty("--fs", P.scale); root.style.setProperty("--fsB", fsB); root.style.setProperty("--fsD", fsD); root.style.setProperty("--fsP", fsB);
+  root.dataset.stacked = fsB >= 1.15 ? "1" : "0";
+  root.style.setProperty("--font", P.font === "narrow" ? '"Liberation Sans", Roboto, sans-serif' : '"DejaVu Sans", Roboto, sans-serif');
+  const surface = st.startsWith("set") || st.startsWith("dlg") ? "settings" : st.startsWith("offer") ? "offer" : st.startsWith("msg") ? "s1"
+    : st.startsWith("ind-preview") ? "preview" : st === "ind-card" ? "card" : st === "ind-guidance" ? "guidance" : "search";
+  root.dataset.surface = surface; root.dataset.state = st;
+  document.querySelectorAll("#modal, #ovl, #dlgwrap").forEach((e) => e.remove());
+  ["top", "mid", "bottom"].forEach((id) => { $(id).innerHTML = ""; $(id).style.maxHeight = ""; });
+  root.style.setProperty("--ime", surface === "search" ? (root.dataset.orient === "port" ? "260px" : "0px") : "0px");
+  under = surface === "settings" || surface === "offer";
+  $("map").innerHTML = mapSvg(["preview", "guidance"].includes(surface));
+
+  if (surface === "settings") {
+    s1(t);
+    const base = st === "dlg-delete" ? "set-installed" : st === "dlg-mobile" ? "set-none" : st;
+    renderSettings(base, t, P);
+    const sc = $("setscroll"), off = $("off");
+    // Opened from the offer, a notification or a message (and in this wireframe always): the sheet scrolls so that the
+    // offline section heading is at the top of the scroll area (Layout rule F2). The real S7 from the gear opens at the top.
+    const offTop = off.getBoundingClientRect().top - sc.getBoundingClientRect().top;
+    root.dataset.offTop = Math.round(offTop);
+    sc.scrollTop = offTop - 8;
+    if (st.startsWith("dlg")) {
+      const w = document.createElement("div"); w.id = "dlgwrap";
+      w.innerHTML = st === "dlg-mobile"
+        ? `<div class="dlg" role="alertdialog" data-box="dialog"><h2 class="wrap">${t.of13(sz(120, t))}</h2>
+           <div class="acts"><button class="btn text" data-control>${t.of14}</button><button class="btn text" data-control data-primary>${t.of4}</button></div></div>`
+        : `<div class="dlg" role="alertdialog" data-box="dialog"><h2 class="wrap">${t.of22}</h2><p class="body wrap">${t.of28(sz(202, t))}</p>
+           <div class="acts"><button class="btn text" data-control>${t.of10}</button><button class="btn text danger" data-control data-primary>${t.of23}</button></div></div>`;
+      $("screen").appendChild(w);
+      document.querySelectorAll("#modal [data-control], #modal [data-box]").forEach((e) => { e.removeAttribute("data-control"); e.removeAttribute("data-box"); e.removeAttribute("data-primary"); });
+    }
+  } else if (surface === "offer") {
+    s1(t);
+    const first = st === "offer-first";
+    const ov = document.createElement("div"); ov.id = "ovl"; ov.dataset.box = "scrim"; if (P.v === "b") ov.className = "center";
+    ov.innerHTML = `<div class="osheet" data-box="offer" role="dialog" aria-labelledby="oh">${P.v === "b" ? "" : '<div class="handle" aria-hidden="true"></div>'}<div class="scroll">
+      <div class="hero" aria-hidden="true">${first ? I.map : I.download}</div>
+      <h2 id="oh" class="wrap" data-check="offer-heading">${first ? t.of2 : t.of17}</h2>
+      <p class="body wrap">${first ? t.of3 : t.of18(sz(33, t))}</p>
+      ${first ? `<div class="facts"><div>${I.download}<span class="wrap">${t.of6(sz(120, t))}</span></div><div>${I.phone}<span class="wrap">${t.of7(sz(338, t))}</span></div></div>`
+        : `<div class="facts"><div class="wrap">${t.routes("2026-09-15")}</div><div class="wrap">${t.search("2026-09-15")}</div></div>`}
+      </div><div class="oacts"><button class="btn text" data-control data-check="decline">${t.of5}</button><button class="btn filled" data-control data-primary>${first ? t.of4 : t.of16}</button></div></div>`;
+    $("app").appendChild(ov);
+  } else if (surface === "s1") {
+    const msg = st === "msg-ready" ? `<div class="msg elev" data-box="message" role="status">${I.check}<span class="t wrap">${t.of11}</span></div>`
+      : `<div class="msg elev" data-box="message" role="alert">${I.err}<span class="t wrap">${st === "msg-failed" ? t.of12 : t.of15(sz(45, t))}</span>
+         <div class="acts"><button class="btn" data-control>${t.retry}</button><button class="btn" data-control>${t.close}</button></div></div>`;
+    s1(t, msg);
+  } else if (surface === "search") {
+    const typed = st === "ind-noresult" ? "Гандаааан" : "Гандан"; // user input (a typo), not UI copy
+    $("top").innerHTML = `<div class="searchrow"><div class="searchbar elev" data-box="search"><button class="iconbtn" data-control aria-label="${t.close}">${I.back}</button><span class="typed">${typed}</span>
+      <button class="iconbtn" data-control aria-label="${t.clear}">${I.x}</button></div></div>
+      <div class="results elev" data-box="results" id="results" role="list">${st === "ind-noresult"
+        ? `<div class="empty"><span data-box="empty-text">${t.noRes}</span>${chip(t, P.v)}</div>`
+        : `<div class="reshead">${chip(t, P.v)}</div>` + t.r.map(([n, m], i) => `<button class="res" data-control ${i === 0 ? 'data-check="first-result"' : ""}>${I.place}<span class="nm" data-box="name${i}">${n}</span><span class="meta">${m}</span></button>`).join("")}</div>`;
+    $("top").style.paddingBottom = "8px";
+  } else if (surface === "preview") {
+    const k2 = st === "ind-preview-k2";
+    const chipEl = chip(t, P.v), row = P.v === "c", land = root.dataset.orient === "land";
+    $("bottom").innerHTML = `<div class="sheet elev" data-box="sheet"><div class="handle" aria-hidden="true"></div><div class="scroll" id="pvtop">
+      <div class="pv-points"><button class="iconbtn" data-control aria-label="${t.close}">${I.x}</button>
+        <div class="pv-fields"><button class="pv-field" data-control><span class="mk o"></span><span>${t.myLoc}</span></button>
+        <button class="pv-field" data-control><span class="mk d"></span><span>${t.destName}</span></button></div>
+        <button class="iconbtn" data-control aria-label="${t.swap}">${I.swap}</button></div>
+      <div class="pv-tabs" role="tablist"><button class="pv-tab sel" data-control>${t.car}</button><button class="pv-tab" data-control>${t.walk}</button><button class="pv-tab" data-control>${t.bike}</button></div>${land ? "" : "</div>"}
+      <div class="pv-sum" data-check="summary">${k2 ? `<div class="rn">${t.route1}</div>` : ""}
+        <div class="line"><span data-box="sum-text"><span class="dur">${t.dur}</span><span class="dist"> · ${t.dist}</span></span>${row ? "" : chipEl}</div>
+        <div class="eta" data-box="sum-eta">${t.etaP}</div>${row ? chipEl : ""}</div>${land ? "</div>" : ""}
+      <div class="pv-start"><button class="btn filled" data-control data-check="start">${I.play}<span>${t.start}</span></button></div></div>`;
+    $("mid").innerHTML = `<div id="ctl" data-box="controls"><button class="iconbtn fab elev" data-control aria-label="${t.myLoc}">${I.loc}</button></div>`;
+    $("mid").firstChild.style.bottom = "8px";
+  } else if (surface === "card") {
+    $("top").innerHTML = `<div class="searchrow"><div class="searchbar elev" data-box="search">${I.search}<span>${t.searchPh}</span></div>
+      <button class="iconbtn tonal" data-control aria-label="${t.settings}">${I.gear}</button></div>`;
+    $("bottom").innerHTML = `<div class="card elev" data-box="card"><div class="scroll"><div class="ttl"><span class="t">${t.point}</span><button class="iconbtn" data-control aria-label="${t.close}" style="margin:-12px -12px 0 0">${I.x}</button></div>
+      <div class="coord">47.92120, 106.89480</div>
+      <div class="nearh" data-check="near"><span data-box="near-label">${t.near}</span>${chip(t, P.v)}</div>
+      <div class="pl">${t.place}</div><div class="plm">${t.placeMeta}</div></div>
+      <div class="acts"><button class="btn filled" data-control data-check="directions">${t.directions}</button></div></div>`;
+  } else if (surface === "guidance") {
+    // Guidance (Layout rule F9): a = icon only (chosen; the glyph the user saw labelled on the preview), b = the labelled
+    // chip (measured alternative: +26 dp panel at 360 dp), c = a full-width row.
+    const gv = P.v === "a" ? "b" : P.v === "b" ? "a" : "c";
+    $("top").innerHTML = `<div id="banner" data-box="banner"><div class="main elev"><div class="icon" aria-hidden="true">${I.right}</div><div class="textcol">
+      <div class="dist">${t.dist300}</div><div class="instr" data-check="instruction">${t.turnR}</div><div class="street">${t.street}</div></div></div></div>`;
+    if (root.dataset.stacked === "1") { const b = $("top").querySelector(".main"); b.insertBefore(b.querySelector(".dist"), b.querySelector(".textcol")); }
+    $("mid").innerHTML = `<div id="rc">${[["vol", t.mute], ["compass", t.northUp]].map(([i, n]) => `<button class="iconbtn fab elev" data-control aria-label="${n}">${I[i]}</button>`).join("")}</div>
+      <div id="puck" style="position:absolute;left:50%;top:70%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;background:var(--puck);border:3px solid var(--puck-stroke);outline:1px solid var(--puck-outline)"></div>`;
+    $("bottom").innerHTML = `<div class="panel elev" data-box="progress"><div class="txt"><div class="eta" data-box="eta">${t.eta}</div>
+      <div class="meta"><span data-box="remaining">${t.meta}</span>${P.v === "c" ? "" : chip(t, gv)}</div>${P.v === "c" ? chip(t, gv) : ""}</div>
+      <button class="iconbtn" data-control aria-label="${t.settings}">${I.gear}</button><button class="btn outlined" data-control aria-label="${t.end}">${I.x}</button></div>`;
+    $("top").style.maxHeight = root.dataset.orient === "port" ? Math.floor($("app").clientHeight * 0.5) + "px" : "";
+    $("top").style.overflow = "auto";
+  }
+  // Offer overlay: above R5 only (Layout rule F4)
+  const ov = $("ovl"); if (ov) ov.style.bottom = $("attr").offsetHeight + "px";
+  const osh = document.querySelector(".osheet .scroll"); if (osh) osh.parentElement.classList.toggle("scrolled", osh.scrollHeight > osh.clientHeight + 1);
+  // NAV-018 Q3 collapsed cap: min(75 % of the area above R5, area - band_min - 8); the top part scrolls first.
+  const sh = document.querySelector('[data-box="sheet"]');
+  if (sh) {
+    const area = $("app").clientHeight - $("attr").offsetHeight, band = P.scale > 1 ? 96 : 160;
+    const port = root.dataset.orient === "port";
+    const cap = port ? (innerWidth >= 360 && innerHeight >= 640 ? Math.min(area * 0.75, area - band - 8) : area * 0.6) : area - 16;
+    sh.style.maxHeight = Math.floor(cap - (port ? 8 : 0)) + "px";
+  }
+  const cd = document.querySelector('[data-box="card"]');
+  if (cd) cd.style.maxHeight = Math.floor(($("app").clientHeight - $("attr").offsetHeight) * (root.dataset.orient === "port" ? 0.6 : 1) - 16) + "px";
+  // NAV-005 D5: on S1 the top group (search row + message) only gets the height above the map controls column; the
+  // message shrinks and scrolls inside, it never runs under the controls.
+  if (surface === "s1" && root.dataset.orient === "port") {
+    const ctl = $("ctl"), area = $("app").clientHeight - $("attr").offsetHeight;
+    $("top").style.maxHeight = Math.max(56 + 16, area - ctl.offsetHeight - 16 - 16) + "px";
+  }
+  const rs = $("results");
+  if (rs) rs.style.maxHeight = ($("app").clientHeight - $("attr").offsetHeight - rs.offsetTop - 8) + "px";
+  renderToolbar(P);
+}
+function renderToolbar(P) {
+  const tb = $("toolbar"); tb.hidden = !P.toolbar; if (!P.toolbar) return;
+  const sel = (k, vals) => `<select data-k="${k}">${vals.map((v) => `<option ${String(P[k]) === String(v) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+  tb.innerHTML = sel("state", STATES) + sel("theme", ["day", "night"]) + sel("lang", ["mn", "en"]) + sel("scale", [1, 1.3, 2]) + sel("font", ["narrow", "wide"]) + sel("v", ["a", "b", "c"]);
+  tb.querySelectorAll("select").forEach((s) => s.onchange = () => {
+    const p = params(); p[s.dataset.k] = s.value;
+    location.hash = Object.entries(p).map(([k, v]) => `${k}=${k === "toolbar" ? (v ? 1 : 0) : v}`).join("&");
+  });
+}
+addEventListener("hashchange", render);
+addEventListener("resize", render);
+render();
+</script>
+</body>
+</html>

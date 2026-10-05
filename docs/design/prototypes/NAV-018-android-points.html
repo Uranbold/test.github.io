@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAV-018 points wireframe</title>
+<!--
+  Static wireframe of the NAV-018 Android screens (owner: ux-designer). Checks the DESIGN, not the app.
+  1 CSS px = 1 dp. Hash parameters: state, theme (day|night), lang (mn|en), scale (1|1.3|2 = Android font scale),
+  font (narrow|wide), toolbar (0|1), v (a|b|c: layout alternatives measured in the screen spec; a = chosen design).
+  Example: #state=pv-chosen-exp&theme=night&lang=mn&scale=2
+  Screen spec: docs/design/screens/NAV-018-android-origin-turn-list.md (delta on the NAV-011 spec, which is a delta on NAV-005).
+  The sheet model (handle, top part, summary region, pinned «Эхлэх», sizes) is copied from prototypes/NAV-011-android-preview.html;
+  the battery row and hint from prototypes/NAV-012-background.html. Colours are copied from docs/design/tokens.json v0.5.0
+  for this wireframe only (tokens.json wins). Window classes as NAV-005 D5: wide = width >= 600, or landscape with width >= 480.
+-->
+<style>
+  :root { --fs: 1; --font: "Liberation Sans", Roboto, sans-serif; }
+  :root[data-theme="day"] {
+    --surface: #FFFFFF; --surface-container: #F1F3F4; --on-surface: #1F1F1F; --on-surface-variant: #444746;
+    --outline: #747775; --outline-variant: #C4C7C5; --primary: #0B57D0; --on-primary: #FFFFFF;
+    --primary-container: #D3E3FD; --on-primary-container: #041E49; --error: #B3261E;
+    --message-surface: #303030; --on-message-surface: #F2F2F2; --message-outline: #303030; --message-action: #A8C7FA;
+    --earth: #F3F0EA; --water: #A8CDEE; --major: #FFFFFF; --major-casing: #C9C2B5;
+    --route: #1967D2; --route-casing: #0B3D91; --alt: #8FA7CC; --alt-casing: #5F7CAB;
+    --pin: #C5221F; --pin-stroke: #FFFFFF; --disabled: rgba(31,31,31,.38); --handle: #747775;
+    --origin-fill: #FFFFFF; --origin-stroke: #1F1F1F; --step-fill: #FFFFFF; --step-stroke: #0B3D91;
+    --loc: #1A73E8; --loc-stroke: #FFFFFF; --kbd: #D7DBE0;
+  }
+  :root[data-theme="night"] {
+    --surface: #1F2733; --surface-container: #27303D; --on-surface: #E3E6EA; --on-surface-variant: #B9C0CA;
+    --outline: #8B94A1; --outline-variant: #3F4957; --primary: #A8C7FA; --on-primary: #062E6F;
+    --primary-container: #0B3D8C; --on-primary-container: #D3E3FD; --error: #F2B8B5;
+    --message-surface: #2E3846; --on-message-surface: #E3E6EA; --message-outline: #6E7A8C; --message-action: #A8C7FA;
+    --earth: #18202B; --water: #0B2238; --major: #4A5566; --major-casing: #10151C;
+    --route: #8AB4F8; --route-casing: #10151C; --alt: #5A7396; --alt-casing: #10151C;
+    --pin: #F28B82; --pin-stroke: #10151C; --disabled: rgba(227,230,234,.38); --handle: #8B94A1;
+    --origin-fill: #10151C; --origin-stroke: #E3E6EA; --step-fill: #10151C; --step-stroke: #8AB4F8;
+    --loc: #669DF6; --loc-stroke: #E8EAED; --kbd: #2B323C;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: var(--font); background: var(--earth); color: var(--on-surface); font-size: calc(14px * var(--fs)); line-height: 1.43; }
+  #toolbar { position: fixed; z-index: 99; top: 0; left: 0; right: 0; font: 12px sans-serif; background: #fffd; padding: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+  #toolbar[hidden], [hidden] { display: none !important; }
+  .wrap { overflow-wrap: normal; word-break: normal; hyphens: none; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+  /* status bar 24, 3-button navigation bar 48 (portrait) / 24 (landscape); simulated keyboard (IME) above the nav bar */
+  #screen { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: 24px minmax(0,1fr) auto 48px; }
+  :root[data-wide="1"][data-orient="land"] #screen { grid-template-rows: 24px minmax(0,1fr) auto 24px; }
+  #ime { background: var(--kbd); height: 0; }
+  :root[data-ime="1"] #ime { height: 260px; }
+  :root[data-ime="1"][data-orient="land"] #ime { height: 170px; }
+  #app { position: relative; min-height: 0; display: flex; flex-direction: column; }
+  #map { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+  #map svg.base { width: 100%; height: 100%; display: block; }
+  #markers { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+  #layer { position: relative; z-index: 2; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #attr { position: relative; z-index: 3; flex: none; background: var(--surface-container); color: var(--on-surface-variant); font-size: calc(12px * var(--fs)); line-height: 1.333; padding: 4px 16px; min-height: 24px; }
+
+  .elev { box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  :root[data-theme="night"] .elev { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  .iconbtn { width: 48px; height: 48px; flex: none; border-radius: 12px; background: var(--surface); color: var(--on-surface); border: 0; display: grid; place-items: center; padding: 0; }
+  .iconbtn.flat { background: transparent; box-shadow: none; outline: 0; }
+  .iconbtn[aria-disabled="true"] { color: var(--disabled); }
+  .iconbtn svg, .ico svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .ico { width: 24px; height: 24px; display: block; flex: none; }
+  .btn { min-height: 48px; min-width: 48px; border-radius: 9999px; font: inherit; font-size: calc(14px * var(--fs)); font-weight: 500; padding: 8px 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; text-align: center; }
+  .btn svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.5; }
+  .btn.filled { background: var(--primary); color: var(--on-primary); }
+  .btn.filled:disabled { background: var(--disabled); color: var(--surface); }
+  .btn.text { background: transparent; color: var(--primary); padding: 8px 12px; }
+  .btn.text:disabled { color: var(--disabled); }
+  .btn.msgtext { background: transparent; color: var(--message-action); padding: 8px 12px; }
+  .btn.tonal { background: var(--primary-container); color: var(--on-primary-container); }
+
+  /* ---------- points block (fields + close + swap) ---------- */
+  .points { display: grid; grid-template-columns: 48px minmax(0,1fr) 48px; column-gap: 4px; padding: 0 4px 4px; align-items: start; }
+  .points .close { grid-column: 1; grid-row: 1; }
+  .points .fields { grid-column: 2; grid-row: 1; background: var(--surface-container); border-radius: 12px; display: flex; flex-direction: column; min-width: 0; }
+  .points .swap { grid-column: 3; grid-row: 1; align-self: center; }
+  .points.titled { grid-template-columns: minmax(0,1fr) 48px; padding-left: 12px; }
+  .points.titled .fields { grid-column: 1; }
+  .points.titled .swap { grid-column: 2; }
+  .field { min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 4px 12px; font-size: calc(16px * var(--fs)); color: var(--on-surface); min-width: 0; }
+  .field.ph { color: var(--on-surface-variant); }
+  .field.me { color: var(--primary); }
+  .field .ring { width: 24px; height: 24px; flex: none; display: grid; place-items: center; color: var(--on-surface-variant); }
+  .field.me .ring { color: var(--primary); }
+  .field .ring svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .fdiv { height: 0; box-shadow: 0 0 0 .5px var(--outline-variant); margin-left: 48px; }
+  .pinico { width: 20px; height: 20px; flex: none; margin: 0 2px; border-radius: 50% 50% 50% 0; background: var(--pin); transform: rotate(-45deg); }
+
+  /* ---------- S3 route preview sheet (NAV-011 model) ---------- */
+  #previewwrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; }
+  #routeband { flex: 1 1 0; min-height: 0; }
+  #sheet { flex: none; margin: 0 8px 8px; background: var(--surface); border-radius: 16px; display: flex; flex-direction: column; min-height: 0; }
+  #sheet.expanded { max-height: 80%; flex: 0 1 auto; }
+  .handle { flex: none; height: 24px; display: grid; place-items: center; }
+  .handle i { display: block; width: 32px; height: 4px; border-radius: 2px; background: var(--handle); }
+  #topscroll, #body { flex: 0 1 auto; min-height: 0; overflow: auto; }
+  #sheet > .sum, #sheet > .pstate, #sheet > .start, #sheet > .entryreg { flex: none; }
+  #sheet .start { border-top: 1px solid transparent; }
+  #sheet.expanded .start { border-top-color: var(--outline-variant); }
+  #more { border-top: 1px solid var(--outline-variant); margin-top: 8px; }
+  #sheet .head { display: flex; align-items: center; gap: 8px; padding: 0 4px 0 16px; }
+  #sheet .head .tt { flex: 1; min-width: 0; }
+  #sheet .head .title { font-size: calc(16px * var(--fs)); font-weight: 600; line-height: 1.5; }
+  .tabs { display: flex; border-bottom: 1px solid var(--outline-variant); }
+  .tab { flex: 1 1 0; min-width: 0; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 4px 4px; font: inherit; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); border: 0; background: none; }
+  .tab svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+  .tab.sel { color: var(--primary); box-shadow: inset 0 -3px 0 var(--primary); }
+  :root[data-stackedtabs="1"] .tab { flex-direction: column; gap: 2px; min-height: 64px; }
+  .sum { padding: 8px 16px 0; }
+  .sum .rn { font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--primary); }
+  .sum .dur { font-size: calc(22px * var(--fs)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .sum .dist { font-size: calc(16px * var(--fs)); color: var(--on-surface-variant); }
+  .sum .eta { font-variant-numeric: tabular-nums; }
+  .pstate { padding: 8px 16px 0; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 12px; }
+  .pstate .acts { grid-column: 2; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 8px; }
+  .pstate .sub { color: var(--on-surface-variant); }
+  .spin { width: 20px; height: 20px; margin: 2px; border-radius: 50%; border: 3px solid var(--outline-variant); border-top-color: var(--primary); }
+  .start { padding: 8px 16px 12px; }
+  .start .btn { width: 100%; min-height: 56px; font-size: calc(16px * var(--fs)); }
+  /* O1 hint (NAV-018 AC 15): v=a/b above the pinned «Эхлэх»; v=c beside it */
+  .o1 { display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 8px; align-items: start; padding: 0 0 8px; color: var(--on-surface-variant); }
+  .o1 svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; display: block; }
+  .start.side { display: flex; align-items: center; gap: 12px; }
+  .start.side .btn { width: auto; flex: none; padding: 8px 20px; }
+  .start.side .o1 { padding: 0; flex: 1 1 0; min-width: 0; }
+  .grp { padding: 8px 0 0; }
+  .grp .gh { padding: 0 16px 4px; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--on-surface-variant); }
+  .opt { min-height: 56px; display: grid; grid-template-columns: 20px 24px minmax(0,1fr); align-items: center; gap: 16px; padding: 4px 16px; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+  .opt .radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--on-surface-variant); }
+  .opt.sel .radio { border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 10px var(--primary); }
+  .opt .sw { width: 24px; height: 6px; border-radius: 3px; background: var(--alt); outline: 1px solid var(--alt-casing); }
+  .opt.sel .sw { background: var(--route); outline-color: var(--route-casing); }
+  .opt .ol { font-size: calc(16px * var(--fs)); font-weight: 500; }
+  .opt .om { color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+  .switchrow { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; width: 100%; border: 0; background: none; color: inherit; font: inherit; font-size: calc(14px * var(--fs)); text-align: left; }
+  .track { width: 52px; height: 32px; flex: none; border-radius: 16px; border: 2px solid var(--outline); }
+  /* NAV-012 battery entry row (collapsed) and hint (expanded), copied */
+  .entryreg { padding: 0 16px; }
+  .batrow { margin: 0; min-height: 48px; width: 100%; border: 0; border-radius: 12px; background: var(--surface-container); color: var(--on-surface); display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 16px; font: inherit; font-size: calc(14px * var(--fs)); text-align: left; }
+  .batrow span.l { flex: 1 1 0; width: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .batrow svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+  .batrow svg.warn { stroke: var(--error); }
+  .hintrow { margin: 8px 16px 0; padding: 12px 12px 4px 16px; border-radius: 12px; background: var(--surface-container); }
+  .hintrow .acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0 8px; margin-top: 4px; }
+  .hintrow .acts .bi { margin-right: auto; color: var(--on-surface-variant); }
+  .hintrow svg { display: block; width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+  /* turn list «Маршрутын заавар» */
+  .steps { border-top: 1px solid var(--outline-variant); margin-top: 8px; padding-bottom: 8px; }
+  .steps h3 { margin: 0; padding: 12px 16px 4px; font-size: calc(16px * var(--fs)); font-weight: 600; line-height: 1.5; }
+  .step { position: relative; min-height: 56px; display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: start; gap: 16px; padding: 8px 16px; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+  .step .si { color: var(--on-surface-variant); padding-top: 2px; }
+  .step .si svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; display: block; }
+  .step .ins { font-size: calc(16px * var(--fs)); line-height: 1.5; }
+  .step .st { color: var(--on-surface-variant); }
+  .step .sd { color: var(--on-surface-variant); font-variant-numeric: tabular-nums; white-space: nowrap; padding-top: 2px; }
+  :root[data-stackedtabs="1"] .step { grid-template-columns: 24px minmax(0,1fr); }
+  :root[data-stackedtabs="1"] .step .sd { grid-column: 2; padding-top: 0; }
+  .step.act::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px; border-radius: 0 2px 2px 0; background: var(--route); }
+
+  /* ---------- point editor (search row look of NAV-005 S1/S2 as built) ---------- */
+  #editor { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 8px 16px 8px; gap: 8px; }
+  .efield { flex: none; min-height: 56px; border-radius: 28px; background: var(--surface); display: flex; align-items: center; gap: 12px; padding: 0 4px 0 16px; }
+  .efield .lbls { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .efield .lb { font-size: calc(12px * var(--fs)); line-height: 1.333; color: var(--on-surface-variant); }
+  .efield .tx { font-size: calc(16px * var(--fs)); line-height: 1.5; }
+  .efield .tx.sel span { background: var(--primary-container); color: var(--on-primary-container); }
+  .efield .tx.ph { color: var(--on-surface-variant); }
+  .efield .caret { display: inline-block; width: 2px; height: 1.1em; background: var(--primary); vertical-align: text-bottom; margin-left: 1px; }
+  #ebody { flex: 0 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 2px; }
+  .elist { flex: none; background: var(--surface); border-radius: 12px; }
+  .erow { min-height: 56px; display: flex; align-items: center; gap: 16px; padding: 8px 16px; border-bottom: 1px solid var(--outline-variant); width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; color: inherit; font: inherit; text-align: left; }
+  .erow:last-child { border-bottom: 0; }
+  .erow .n { font-size: calc(16px * var(--fs)); }
+  .erow .m { color: var(--on-surface-variant); }
+  .erow.me { color: var(--primary); }
+  .erow.me .n { font-weight: 500; }
+  .erow svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; flex: none; }
+  .erow > div { min-width: 0; flex: 1; }
+  .estate { min-height: 56px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 16px; padding: 16px; align-items: start; color: var(--on-surface); }
+  .lock { background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 12px; padding: 12px 8px 4px 16px; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 4px 12px; flex: none; }
+  .lock .ico { color: var(--on-message-surface); }
+  .lock .t { font-size: calc(16px * var(--fs)); line-height: 1.5; font-weight: 500; padding-right: 8px; }
+  .lock .h { grid-column: 2; font-size: calc(14px * var(--fs)); opacity: .87; padding-right: 8px; }
+  .lock .acts { grid-column: 1 / 3; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  #espacer { flex: 1 1 0; min-height: 0; }
+  :root[data-wide="1"] #editor { width: clamp(320px, 40%, 400px); padding: 8px; }
+
+  /* ---------- coordinate card during the preview (NAV-011 card + two buttons) ---------- */
+  #cardwrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 8px 8px; }
+  :root[data-wide="1"] #cardwrap { width: clamp(320px, 40%, 400px); }
+  .card { background: var(--surface); border-radius: 16px; width: 100%; display: flex; flex-direction: column; min-height: 0; flex: 0 1 auto; }
+  .card .scroll { overflow: auto; min-height: 0; padding: 4px 0 0; }
+  .card .head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0 16px; font-size: calc(16px * var(--fs)); font-weight: 600; }
+  .card .coord { padding: 0 16px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+  .near { margin: 8px 16px 0; min-height: calc(64px * var(--fs)); padding-top: 8px; border-top: 1px solid var(--outline-variant); }
+  .near .lbl { font-size: calc(12px * var(--fs)); line-height: 1.333; color: var(--on-surface-variant); font-weight: 500; }
+  .near .pn { font-size: calc(16px * var(--fs)); }
+  .near .pm { color: var(--on-surface-variant); }
+  .near .stt { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 0 12px; align-items: start; }
+  .near .stt .acts { grid-column: 2; display: flex; justify-content: flex-end; }
+  .card .go { flex: none; padding: 8px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .card .go .btn { width: 100%; }
+  .card .go .btn .pinico { width: 16px; height: 16px; background: currentColor; }
+
+  /* wide window: side sheet at the start edge, full height, «Эхлэх» pinned at the bottom */
+  :root[data-wide="1"] #previewwrap { flex-direction: row; justify-content: flex-start; align-items: stretch; }
+  :root[data-wide="1"] #sheet { width: clamp(320px, 40%, 400px); margin: 8px; max-height: none; flex: none; }
+  :root[data-wide="1"] #sheet .handle { display: none; }
+  :root[data-wide="1"] #sideScroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  :root[data-wide="0"] #sideScroll { display: contents; }
+  :root[data-wide="1"] #routeband { display: none; }
+  :root[data-wide="1"] .points { padding-top: 8px; }
+</style>
+</head>
+<body>
+<div id="toolbar"></div>
+<div id="screen">
+  <div></div>
+  <div id="app">
+    <div id="map"></div>
+    <div id="markers"></div>
+    <div id="layer"></div>
+    <div id="attr" data-box="attribution">© OpenStreetMap contributors</div>
+  </div>
+  <div id="ime" data-box="keyboard"></div>
+  <div></div>
+</div>
+<script>
+// Every mn value is a glossary term (O1, K1–K3 and B2 are `needs native review`). en values = the existing Android/web en resources.
+const T = {
+  mn: {
+    close: "Хаах", origin: "Эхлэх цэг", dest: "Очих газар", originPh: "Эхлэх цэг сонгох", destPh: "Очих газар сонгох",
+    myLoc: "Миний байршил", point: "Сонгосон цэг", swap: "Эхлэх цэг, очих газрыг солих", directions: "Маршрутын заавар",
+    setOrigin: "Эхлэх цэг болгох", setDest: "Очих газар болгох", o1: "Замчлал зөвхөн таны байршлаас эхэлнэ",
+    title: "Маршрут харах", destName: "Зайсан толгой", pickup: "Гандан хийд", typed: "Gandan",
+    r: [["Гандан хийд", "Хийд · Сонгинохайрхан дүүрэг, 7-р хороо"], ["Гандангийн гудамж", "Гудамж · Сонгинохайрхан дүүрэг"], ["Гандан плаза", "Худалдааны төв · Баянгол дүүрэг, 2-р хороо"]],
+    rDest: [["Зайсан толгой", "Дурсгалт газар · Хан-Уул дүүрэг, 11-р хороо"], ["Зайсангийн гудамж", "Гудамж · Хан-Уул дүүрэг"]],
+    car: "Машин", walk: "Явган", bike: "Дугуй", modes: "Зорчих хэлбэр", opt: (n) => `Маршрут ${n}`, options: "Маршрут сонгох",
+    avoid: "Шороон замаас зайлсхийх", routes: [["18 мин", "7,4 км"], ["21 мин", "8,1 км"], ["24 мин", "7,9 км"]],
+    eta: "Хүрэх цаг 14:08", start: "Эхлэх", loading: "Ачаалж байна…", noRes: "Илэрц олдсонгүй", offline: "Интернэт холболт алга",
+    unavailable: "Хайлт түр ажиллахгүй байна", rate: "Түр хүлээгээд дахин оролдоно уу", error: "Алдаа гарлаа", retry: "Дахин оролдох",
+    same: "Эхлэх цэг, очих газар ижил байна", outside: "Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна",
+    denied: "Байршлын зөвшөөрөл олгоогүй байна", deniedHint: "Утасны тохиргоонд байршлын зөвшөөрлийг асаана уу", openSettings: "Тохиргоо нээх",
+    batteryHint: "Батарей хэмнэх тохиргоо замчлалыг зогсоож болзошгүй. Утасны тохиргоонд батарейн хязгаарлалтыг унтраана уу.",
+    k1: "Хөдөлж байх үед бичих боломжгүй", k3: "Жолооч бол зогсоод хайна уу", k2: "Би зорчигч",
+    coord: "47.92120, 106.89480", near: "Ойролцоох газар", place: "Гандантэгчинлэн хийд", placeMeta: "Хийд · Сонгинохайрхан дүүрэг, 7-р хороо, Улаанбаатар",
+    steps: [["depart", "Өмнө зүг рүү явна уу", "Гандангийн гудамж", "350 м"], ["right", "Баруун тийш эргэнэ үү", "Энхтайвны өргөн чөлөө", "2,1 км"],
+      ["round", "Тойрог: 2-р гарц", "", "450 м"], ["keep", "Баруун талаа барина уу", "Чингисийн өргөн чөлөө", "3,2 км"],
+      ["left", "Зүүн тийш эргэнэ үү", "Зайсангийн гудамж", "1,1 км"], ["straight", "Чигээрээ явна уу", "", "200 м"], ["arrive", "Таны очих газар баруун талд байна", "", ""]],
+  },
+  en: {
+    close: "Close", origin: "Start", dest: "Destination", originPh: "Choose starting point", destPh: "Choose destination",
+    myLoc: "My location", point: "Selected point", swap: "Swap start and destination", directions: "Directions",
+    setOrigin: "Set as start", setDest: "Set as destination", o1: "Navigation starts only from your location",
+    title: "Route preview", destName: "Zaisan Hill", pickup: "Gandan Monastery", typed: "Gandan",
+    r: [["Gandan Monastery", "Monastery · Songinokhairkhan District, 7th khoroo"], ["Гандангийн гудамж", "Street · Songinokhairkhan District"], ["Гандан плаза", "Shopping centre · Bayangol District, 2nd khoroo"]],
+    rDest: [["Zaisan Hill", "Monument or historic site · Khan-Uul District, 11th khoroo"], ["Зайсангийн гудамж", "Street · Khan-Uul District"]],
+    car: "Car", walk: "Walk", bike: "Bike", modes: "Travel mode", opt: (n) => `Route ${n}`, options: "Choose a route",
+    avoid: "Avoid unpaved roads", routes: [["18 min", "7.4 km"], ["21 min", "8.1 km"], ["24 min", "7.9 km"]],
+    eta: "Arrive at 14:08", start: "Start", loading: "Loading…", noRes: "No results found", offline: "No internet connection",
+    unavailable: "Search is temporarily unavailable", rate: "Too many route requests. Wait a moment and try again", error: "Something went wrong", retry: "Try again",
+    same: "The start and destination are the same", outside: "The start or destination is outside the service area",
+    denied: "Location permission is turned off", deniedHint: "Allow location access in your phone settings", openSettings: "Open settings",
+    batteryHint: "Battery saving can stop navigation. Turn off battery restrictions in your phone settings.",
+    k1: "You can't type while moving", k3: "If you are driving, stop before you search", k2: "I'm a passenger",
+    coord: "47.92120, 106.89480", near: "Nearest place", place: "Gandantegchinlen Monastery", placeMeta: "Monastery · Songinokhairkhan District, 7th khoroo, Ulaanbaatar",
+    steps: [["depart", "Head south", "Гандангийн гудамж", "350 m"], ["right", "Turn right", "Энхтайвны өргөн чөлөө", "2.1 km"],
+      ["round", "Roundabout: exit 2", "", "450 m"], ["keep", "Keep right", "Чингисийн өргөн чөлөө", "3.2 km"],
+      ["left", "Turn left", "Зайсангийн гудамж", "1.1 km"], ["straight", "Continue straight", "", "200 m"], ["arrive", "Your destination is on the right", "", ""]],
+  },
+};
+const PREVIEW = ["pv-device", "pv-device-exp", "pv-device-b2", "pv-chosen", "pv-chosen-exp", "pv-chosen-b2", "pv-chosen-b2-exp",
+  "pv-nostart", "pv-loading", "pv-same", "pv-outside", "pv-ratelimited", "pv-list"];
+const EDITOR = ["ed-start", "ed-start-results", "ed-dest-results", "ed-start-offline", "ed-start-lock", "ed-dest-lock"];
+const CARD = ["cd-loading", "cd-place", "cd-empty", "cd-offline", "cd-unavailable", "cd-ratelimited", "cd-error"];
+const STATES = [...PREVIEW, ...EDITOR, ...CARD];
+const I = {
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  swap: '<svg viewBox="0 0 24 24"><path d="M8 4v14M4 8l4-4 4 4M16 20V6M12 16l4 4 4-4"/></svg>',
+  ring: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg>',
+  myloc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg>',
+  wifi: '<svg viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5 13a10 10 0 0 1 14 0M8.5 16.5a5 5 0 0 1 7 0M3 3l18 18"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>',
+  car: '<svg viewBox="0 0 24 24"><path d="M4 16V12l2-5h12l2 5v4z"/><circle cx="7.5" cy="16.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/></svg>',
+  walk: '<svg viewBox="0 0 24 24"><circle cx="13" cy="4" r="2"/><path d="M10 21l2-7 3 3v5M9 11l3-4 3 3 3 1"/></svg>',
+  bike: '<svg viewBox="0 0 24 24"><circle cx="6" cy="16" r="4"/><circle cx="18" cy="16" r="4"/><path d="M6 16l4-7h5l3 7M10 9l2 7"/></svg>',
+  battery: '<svg viewBox="0 0 24 24"><rect x="7" y="4" width="10" height="17" rx="2"/><path d="M10 2h4M12 9v5M12 17v.5"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>',
+  depart: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg>',
+  right: '<svg viewBox="0 0 24 24"><path d="M7 21V12a3 3 0 0 1 3-3h8M14 5l4 4-4 4"/></svg>',
+  left: '<svg viewBox="0 0 24 24"><path d="M17 21V12a3 3 0 0 0-3-3H6M10 5L6 9l4 4"/></svg>',
+  round: '<svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="4"/><path d="M12 21v-7M16 10h5M18 7l3 3-3 3"/></svg>',
+  keep: '<svg viewBox="0 0 24 24"><path d="M9 21v-8l7-7M16 11V6h-5M9 13L5 9"/></svg>',
+  straight: '<svg viewBox="0 0 24 24"><path d="M12 21V4M7 9l5-5 5 5"/></svg>',
+  arrive: '<svg viewBox="0 0 24 24"><path d="M6 21V4h11l-2 4 2 4H6"/></svg>',
+};
+function params() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  return { state: STATES.includes(p.get("state")) ? p.get("state") : "pv-device", theme: p.get("theme") === "night" ? "night" : "day",
+    lang: p.get("lang") === "en" ? "en" : "mn", scale: Number(p.get("scale")) || 1, font: p.get("font") || "narrow",
+    toolbar: p.get("toolbar") !== "0", v: ["a", "b", "c"].includes(p.get("v")) ? p.get("v") : "a" };
+}
+const $ = (id) => document.getElementById(id);
+
+/* ---------- route preview sheet ---------- */
+function points(t, o, v) {
+  // o: { origin: "me" | "chosen" | "empty" | "point", dest: text }
+  const ot = o.origin === "me" ? t.myLoc : o.origin === "chosen" ? t.pickup : o.origin === "point" ? t.point : t.originPh;
+  const oc = o.origin === "me" ? "me" : o.origin === "empty" ? "ph" : "";
+  const swapOff = o.origin === "empty";
+  const fields = `<div class="fields">
+      <div class="field ${oc}" data-control data-field="origin" role="textbox" aria-readonly="true" aria-label="${t.origin}"><span class="ring" aria-hidden="true">${o.origin === "me" ? I.myloc : I.ring}</span><span class="name" style="flex:1">${ot}</span></div>
+      <div class="fdiv"></div>
+      <div class="field" data-control data-field="dest" role="textbox" aria-readonly="true" aria-label="${t.dest}"><span class="ring" aria-hidden="true"><span class="pinico"></span></span><span class="name" style="flex:1">${o.dest}</span></div></div>`;
+  const swap = `<button class="iconbtn flat swap" data-control data-swap aria-label="${t.swap}" ${swapOff ? 'aria-disabled="true"' : ""}>${I.swap}</button>`;
+  if (v === "b") return `<div class="head"><div class="tt"><div class="title wrap">${t.title}</div></div><button class="iconbtn flat" data-control data-close aria-label="${t.close}">${I.x}</button></div>
+    <div class="points titled" data-box-points>${fields}${swap}</div>`;
+  return `<div class="points" data-box-points><button class="iconbtn flat close" data-control data-close aria-label="${t.close}">${I.x}</button>${fields}${swap}</div>`;
+}
+function preview(t, st, wide, v) {
+  const chosen = /chosen/.test(st) || st === "pv-loading" || st === "pv-outside" || st === "pv-ratelimited";
+  const expanded = wide || /-exp$/.test(st) || st === "pv-list";
+  const b2 = /b2/.test(st);
+  const route = /^pv-(device|chosen|list)/.test(st);
+  const k = route ? 3 : 0;
+  let o = { origin: chosen ? "chosen" : "me", dest: t.destName };
+  if (st === "pv-nostart") o = { origin: "empty", dest: t.destName };
+  if (st === "pv-loading") o = { origin: "chosen", dest: t.myLoc };   // after swap: destination = «Миний байршил»
+  if (st === "pv-same") o = { origin: "point", dest: t.destName };
+  if (st === "pv-outside") o = { origin: "chosen", dest: t.destName };
+  let region;
+  if (route) region = `<div class="sum" data-box-sum><div class="rn">${t.opt(1)}</div>
+      <div class="wrap"><span class="dur">${t.routes[0][0]}</span> <span class="dist">· ${t.routes[0][1]}</span></div><div class="eta wrap">${t.eta}</div></div>`;
+  const row = (ico, text, sub, act) => `<div class="pstate" data-box-sum><span class="ico" aria-hidden="true">${ico}</span><div><div class="wrap">${text}</div>${sub ? `<div class="wrap sub">${sub}</div>` : ""}</div>${act ? `<div class="acts">${act}</div>` : ""}</div>`;
+  if (st === "pv-nostart") region = row(I.info, t.denied, t.deniedHint, `<button class="btn text" data-control>${t.openSettings}</button>`);
+  if (st === "pv-loading") region = `<div class="pstate" data-box-sum><span class="spin" aria-hidden="true"></span><div class="wrap">${t.loading}</div></div>`;
+  if (st === "pv-same") region = row(I.info, t.same);
+  if (st === "pv-outside") region = row(I.info, t.outside);
+  if (st === "pv-ratelimited") region = row(I.info, t.rate, "", `<button class="btn text" data-control disabled>${t.retry}</button>`);
+  const tabs = `<div class="tabs" role="tablist" aria-label="${t.modes}">${[["car", t.car], ["walk", t.walk], ["bike", t.bike]].map(([i, n]) =>
+    `<button class="tab ${i === "car" ? "sel" : ""}" role="tab" data-control>${I[i]}<span class="wrap">${n}</span></button>`).join("")}</div>`;
+  const opts = k >= 2 ? `<div class="grp" role="radiogroup" aria-label="${t.options}"><div class="gh wrap">${t.options}</div>${t.routes.map((r, i) =>
+    `<button class="opt ${i === 0 ? "sel" : ""}" role="radio" aria-checked="${i === 0}" data-control><span class="radio"></span><span class="sw"></span><span><span class="ol wrap">${t.opt(i + 1)}</span><br><span class="om wrap">${r[0]} · ${r[1]}</span></span></button>`).join("")}</div>` : "";
+  const avoid = `<button class="switchrow" data-control><span class="wrap">${t.avoid}</span><span class="track"></span></button>`;
+  const steps = route ? `<div class="steps" data-steps><h3 class="wrap" id="steps-h">${t.directions}</h3><div role="list" aria-labelledby="steps-h">${t.steps.map(([ic, ins, street, d], i) =>
+    `<button class="step ${st === "pv-list" && i === 1 ? "act" : ""}" role="listitem" data-control data-step aria-label="${[ins, street, d].filter(Boolean).join(", ")}"><span class="si" aria-hidden="true">${I[ic]}</span><span><span class="ins wrap" style="display:block">${ins}</span>${street ? `<span class="st name" style="display:block">${street}</span>` : ""}</span><span class="sd">${d}</span></button>`).join("")}</div></div>` : "";
+  const hint = b2 && route ? `<div class="hintrow" data-hint role="note"><div class="wrap">${t.batteryHint}</div><div class="acts"><span class="bi" aria-hidden="true">${I.battery}</span><button class="btn text" data-control>${t.close}</button><button class="btn text" data-control>${t.openSettings}</button></div></div>` : "";
+  const entry = b2 && route && !expanded ? `<div class="entryreg" data-entry><button class="batrow" data-control aria-label="${t.batteryHint}">${I.battery.replace("<svg", '<svg class="warn" aria-hidden="true"')}<span class="l" aria-hidden="true">${t.batteryHint}</span>${I.up.replace("<svg", '<svg aria-hidden="true"')}</button></div>` : "";
+  const showO1 = chosen && route;
+  const enabled = route && !chosen;
+  const o1 = showO1 ? `<div class="o1" data-o1><span aria-hidden="true">${I.info}</span><span class="wrap">${t.o1}</span></div>` : "";
+  const btn = `<button class="btn filled" data-control data-start ${enabled ? "" : "disabled"}>${I.play}<span>${t.start}</span></button>`;
+  const startBtn = v === "c" && showO1 ? `<div class="start side" data-box-start>${btn}${o1}</div>` : `<div class="start" data-box-start>${o1}${btn}</div>`;
+  const top = `${points(t, o, v)}${tabs}`;
+  const more = `${hint}${opts}${avoid}${steps}`;
+  const body = wide
+    ? `<div id="sideScroll">${top}${region}${more}</div>${startBtn}`
+    : expanded
+      ? `<div class="handle" aria-hidden="true"><i></i></div><div id="body">${top}${region}<div id="more">${more}</div></div>${startBtn}`
+      : `<div class="handle" aria-hidden="true"><i></i></div><div id="topscroll">${top}</div>${region}${entry}${startBtn}`;
+  return `<div id="previewwrap"><div id="routeband" data-routeband></div><div id="sheet" class="elev ${expanded ? "expanded" : ""}" data-box="sheet" data-expanded="${expanded ? 1 : 0}">${body}</div>${wide ? '<div id="routeband2" data-routeband style="flex:1"></div>' : ""}</div>`;
+}
+
+/* ---------- point editor ---------- */
+function editor(t, st) {
+  const isStart = st.startsWith("ed-start");
+  const locked = st.endsWith("-lock");
+  const label = isStart ? t.origin : t.dest;
+  let tx;
+  if (st === "ed-start" || st === "ed-start-lock") tx = `<span class="tx sel name" data-ftext><span>${t.pickup}</span></span>`;
+  else if (st === "ed-dest-lock") tx = `<span class="tx name" data-ftext>${t.destName}</span>`;
+  else tx = `<span class="tx name" data-ftext>${t.typed}<i class="caret"></i></span>`;
+  const lead = isStart ? `<span class="ico" aria-hidden="true" style="color:var(--on-surface-variant)">${I.ring}</span>` : `<span class="ico" aria-hidden="true" style="display:grid;place-items:center"><span class="pinico"></span></span>`;
+  const typed = st === "ed-start-results" || st === "ed-dest-results" || st === "ed-start-offline";
+  const field = `<div class="efield elev" data-box="efield" data-control>${lead}<span class="lbls"><span class="lb wrap">${label}</span>${tx}</span>${typed ? `<button class="iconbtn flat" data-control aria-label="clear">${I.x}</button>` : ""}</div>`;
+  const me = isStart ? `<button class="erow me" data-control data-me>${I.myloc}<div><div class="n name">${t.myLoc}</div></div></button>` : "";
+  const res = (list) => list.map(([n, m]) => `<button class="erow" data-control><div><div class="n name">${n}</div><div class="m wrap">${m}</div></div></button>`).join("");
+  let rows = me;
+  if (st === "ed-start-results") rows += res(t.r);
+  if (st === "ed-dest-results") rows = res(t.rDest);
+  if (st === "ed-start-offline") rows += `<div class="estate"><span class="ico" aria-hidden="true">${I.wifi}</span><div class="wrap">${t.offline}</div></div>`;
+  const lockHtml = locked ? `<div class="lock elev" data-box="lock" role="status"><span class="ico" aria-hidden="true">${I.lock}</span>
+    <div class="t wrap">${t.k1}</div><div class="h wrap">${t.k3}</div>
+    <div class="acts"><button class="btn msgtext" data-control data-lockact>${t.close}</button><button class="btn tonal" data-control data-lockact>${t.k2}</button></div></div>` : "";
+  // Order (spec Q5): field (pinned) → «Миний байршил» option card (start only) → lock card → results card; the body scrolls
+  const meCard = me ? `<div class="elist elev" data-box="eoption" role="list">${me}</div>` : "";
+  const resRows = rows.slice(me.length);
+  const list = resRows ? `<div class="elist elev" data-box="elist" role="list">${resRows}</div>` : "";
+  return `<div id="editor">${field}<div id="ebody">${meCard}${lockHtml}${list}</div><div id="espacer"></div></div>`;
+}
+
+/* ---------- coordinate card during the preview ---------- */
+function card(t, st) {
+  const stateRow = (ico, text, act) => `<div class="stt"><span class="ico" aria-hidden="true">${ico}</span><div class="wrap">${text}</div>${act ? `<div class="acts">${act}</div>` : ""}</div>`;
+  let near;
+  if (st === "cd-loading") near = stateRow("", t.loading);
+  if (st === "cd-place") near = `<div class="lbl wrap">${t.near}</div><div class="pn name">${t.place}</div><div class="pm wrap">${t.placeMeta}</div>`;
+  if (st === "cd-empty") near = `<div class="lbl wrap">${t.near}</div><div class="wrap">${t.noRes}</div>`;
+  if (st === "cd-offline") near = stateRow(I.wifi, t.offline);
+  if (st === "cd-unavailable") near = stateRow(I.info, t.unavailable, `<button class="btn text" data-control>${t.retry}</button>`);
+  if (st === "cd-ratelimited") near = stateRow(I.info, t.rate, `<button class="btn text" data-control disabled>${t.retry}</button>`);
+  if (st === "cd-error") near = stateRow(I.info, t.error);
+  return `<div id="cardwrap"><div class="card elev" data-box="card"><div class="scroll">
+    <div class="head"><span class="wrap">${t.point}</span><button class="iconbtn flat" data-control aria-label="${t.close}">${I.x}</button></div>
+    <div class="coord">${t.coord}</div><div class="near" aria-live="polite">${near}</div></div>
+    <div class="go"><button class="btn tonal" data-control data-go="origin"><span aria-hidden="true" style="display:grid">${I.ring.replace("<svg", '<svg style="width:18px;height:18px"')}</span><span class="wrap">${t.setOrigin}</span></button>
+    <button class="btn tonal" data-control data-go="dest"><span class="pinico" aria-hidden="true"></span><span class="wrap">${t.setDest}</span></button></div></div></div>`;
+}
+
+function render() {
+  const P = params(), t = T[P.lang], root = document.documentElement;
+  root.lang = P.lang; root.dataset.theme = P.theme;
+  const st = P.state;
+  const isEd = st.startsWith("ed-"), isCard = st.startsWith("cd-"), isPv = st.startsWith("pv-");
+  root.dataset.ime = isEd && !st.endsWith("-lock") ? "1" : "0";
+  const land = innerWidth > innerHeight;
+  root.dataset.orient = land ? "land" : "port";
+  root.dataset.wide = innerWidth >= 600 || (land && innerWidth >= 480) ? "1" : "0";
+  root.style.setProperty("--fs", P.scale);
+  root.dataset.stackedtabs = P.scale >= 1.5 ? "1" : "0";
+  root.style.setProperty("--font", P.font === "narrow" ? '"Liberation Sans", Roboto, sans-serif' : '"DejaVu Sans", Roboto, sans-serif');
+  const route = isPv && /^pv-(device|chosen|list)/.test(st);
+  const lines = route ? ["M30 92 V45 H75 V20", "M30 92 V70 H85 V20", "M30 92 V30 H60 V20"] : [];
+  $("map").innerHTML = `<svg class="base" viewBox="0 0 100 100" preserveAspectRatio="none"><rect width="100" height="100" fill="var(--earth)"/>
+    <path d="M0 62 C30 58 60 70 100 66" stroke="var(--water)" stroke-width="3" fill="none"/>
+    <path d="M30 100 V0 M0 45 H100 M75 0 V100" stroke="var(--major-casing)" stroke-width="3"/><path d="M30 100 V0 M0 45 H100 M75 0 V100" stroke="var(--major)" stroke-width="2.2"/>
+    ${lines.map((d, i) => i === 0 ? "" : `<path d="${d}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--alt-casing)" style="stroke-width:8px"/><path d="${d}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--alt)" style="stroke-width:6px"/>`).join("")}
+    ${lines[0] ? `<path d="${lines[0]}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--route-casing)" style="stroke-width:12px"/><path d="${lines[0]}" fill="none" vector-effect="non-scaling-stroke" stroke="var(--route)" style="stroke-width:8px"/>` : ""}</svg>`;
+  // markers (map-style §7.7): chosen start = origin ring marker; device start = location dot; destination = pin; candidate = outline pin
+  const chosen = isPv && !/device/.test(st) && st !== "pv-nostart";
+  const mk = [];
+  if (isPv && st !== "pv-nostart") mk.push(chosen ? `<span title="origin" style="position:absolute;left:calc(30% - 9px);top:calc(92% - 9px);width:18px;height:18px;border-radius:50%;background:var(--origin-fill);border:4px solid var(--origin-stroke)"></span>`
+    : `<span title="location" style="position:absolute;left:calc(30% - 9px);top:calc(92% - 9px);width:18px;height:18px;border-radius:50%;background:var(--loc);border:3px solid var(--loc-stroke)"></span>`);
+  if (isPv) mk.push(`<span class="pinico" style="position:absolute;left:calc(75% - 10px);top:calc(20% - 24px);width:24px;height:24px;border:2px solid var(--pin-stroke)"></span>`);
+  if (st === "pv-list") mk.push(`<span style="position:absolute;left:calc(30% - 6px);top:calc(45% - 6px);width:12px;height:12px;border-radius:50%;background:var(--step-fill);border:3px solid var(--step-stroke)"></span>`);
+  if (isCard) mk.push(`<span class="pinico" style="position:absolute;left:calc(50% - 10px);top:calc(35% - 24px);width:24px;height:24px;background:var(--surface);border:2px solid var(--pin)"></span>`);
+  $("markers").innerHTML = mk.join("");
+  $("layer").innerHTML = isPv ? preview(t, st, root.dataset.wide === "1", P.v) : isEd ? editor(t, st) : card(t, st);
+  // Collapsed sheet cap (screen spec Layout rule Q3): the top part (points block + tabs) gets what is left of the cap after the
+  // summary region, the battery entry row and the footer; it scrolls (and may scroll out) before any of them would.
+  const ts = $("topscroll");
+  if (ts) {
+    const sheet = $("sheet"), wrap = $("previewwrap");
+    const fixedH = [...sheet.children].filter((c) => c !== ts).reduce((a, c) => a + c.getBoundingClientRect().height, 0);
+    const area = wrap.clientHeight, band = P.scale > 1 ? 96 : 160;
+    const cap = innerWidth >= 360 && innerHeight >= 640 ? Math.min(area * 0.75, area - band - 8) : area * 0.6;
+    ts.style.maxHeight = Math.max(0, Math.floor(cap - fixedH)) + "px";
+    // Q3 last resort (font scale > 100 % only): if the summary region, the battery entry row and the footer alone exceed
+    // the cap, the entry row joins the top part (it scrolls after the points block and the tabs).
+    const entry = sheet.querySelector(":scope > [data-entry]");
+    if (entry && P.scale > 1 && fixedH > cap) {
+      ts.appendChild(entry);
+      const fixed2 = [...sheet.children].filter((c) => c !== ts).reduce((a, c) => a + c.getBoundingClientRect().height, 0);
+      ts.style.maxHeight = Math.max(0, Math.floor(cap - fixed2)) + "px";
+    }
+  }
+  if (st === "pv-list") { const b = $("body") || $("sideScroll"); const a = document.querySelector(".step.act"); if (b && a) b.scrollTop += a.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom + 8; }
+  renderToolbar(P);
+}
+function renderToolbar(P) {
+  const tb = $("toolbar"); tb.hidden = !P.toolbar; if (!P.toolbar) return;
+  const sel = (k, vals) => `<select data-k="${k}">${vals.map((v) => `<option ${String(P[k]) === String(v) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+  tb.innerHTML = sel("state", STATES) + sel("theme", ["day", "night"]) + sel("lang", ["mn", "en"]) + sel("scale", [1, 1.3, 2]) + sel("font", ["narrow", "wide"]) + sel("v", ["a", "b", "c"]);
+  tb.querySelectorAll("select").forEach((s) => s.onchange = () => {
+    const p = params(); p[s.dataset.k] = s.value;
+    location.hash = Object.entries(p).map(([k, v]) => `${k}=${k === "toolbar" ? (v ? 1 : 0) : v}`).join("&");
+  });
+}
+addEventListener("hashchange", render);
+addEventListener("resize", render);
+render();
+</script>
+</body>
+</html>

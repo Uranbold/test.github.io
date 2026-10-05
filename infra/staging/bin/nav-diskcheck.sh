@@ -10,9 +10,9 @@ nav_require_env_file
 limit=$(nav_env_get DISK_ALERT_PERCENT 85)
 worst=0
 report=""
-# / plus the filesystems holding data/ and Docker, de-duplicated by device.
+# / plus the filesystems holding the NAV-006 data root and Docker, de-duplicated by device.
 declare -A seen=()
-for path in / "$NAV_ROOT/backend/data" /var/lib/docker; do
+for path in / "$(nav_data_root)" /var/lib/docker; do
     [[ -e "$path" ]] || continue
     dev=$(df -P "$path" | awk 'NR==2 {print $1}')
     if [[ -n "${seen[$dev]:-}" ]]; then continue; fi

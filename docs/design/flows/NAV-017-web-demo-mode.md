@@ -1,40 +1,36 @@
-# Flow NAV-017: web demo mode (password-protected folder → route picker → simulated guidance → arrival)
+# Flow NAV-017: web demo mode (public demo folder with noindex → route picker → simulated guidance → arrival)
 
-- **Story:** [NAV-017](../../requirements/stories/NAV-017-web-demo-mode-replay.md). AC referenced per step. PO decisions D71–D75 (2026-10-01).
+- **Story:** [NAV-017](../../requirements/stories/NAV-017-web-demo-mode-replay.md). AC referenced per step. PO decisions D71–D75 (2026-10-01); the demo folder is **public without a password** since D107 (2026-10-03), and D17 does not cover this demo (D116, 2026-10-04), so F0 and F1 have no password step.
 - **Screens:** [`screens/NAV-017-web-demo-mode.md`](../screens/NAV-017-web-demo-mode.md) (D1 route picker, D2 guidance, D3 arrival; the NAV-002 states that still apply).
 - **Rules:** [`navigation-ux.md`](../navigation-ux.md) §2–4, §7–8 and **§11 (web demo-mode replay, new in v0.5)**. Map layers: [`map-style.md` §7.5](../map-style.md).
 - **Prototype:** [`prototypes/NAV-017-demo-mode.html`](../prototypes/NAV-017-demo-mode.html), checked by `prototypes/check-layout-nav017.mjs`.
-- **Architecture:** no API operation except the basemap archive (`getBasemapPmtiles`). The architect decides how the demo-mode build, the sub-folder base, the tiles under HTTP Basic auth (story R6, request 1) and the iOS speech unlock (request 2) work. The flows show what the user sees and hears.
+- **Architecture:** no API operation except the basemap archive (`getBasemapPmtiles`). The architect decides how the demo-mode build, the sub-folder base, where the tiles are read from and HTTP Range on the host (story R6, request 1; no Basic auth since D107) and the iOS speech unlock (request 2) work. The flows show what the user sees and hears.
 
 Copy is quoted by its `mn` value in «»; every string is a glossary term; keys are in the screen spec › Copy. "Replay clock" = time since «Эхлэх» without paused time (story › Terms). Place names (P1 …) are manifest data, not UI strings.
 
 ## F0. Getting the build onto the PO's host (people and files, no app UI)
 
-The password and the hostname are **never** written in the repo, an issue or a document (D35, D74). Placeholders: `<demo-host>`, `<demo-folder>`.
+The hostname is **never** written in the repo, an issue or a document, and the repo holds no password or `.htpasswd` file (D35; the D74 rule kept by D107; AC 6). Placeholders: `<demo-host>`, `<demo-folder>`.
 
 ```mermaid
 flowchart TD
-    B["Developer or PO runs the demo-mode build<br/>(npm run build:demo-mode → its own output folder) — AC 1"] --> C{"Output contains .htaccess,<br/>.htpasswd or other server config?"}
+    B["Developer or PO runs the demo-mode build<br/>(npm run build:demo-mode → its own output folder) — AC 1"] --> C{"Output contains .htaccess,<br/>.htpasswd or other server config,<br/>or index.html lacks the noindex meta?"}
     C -- yes --> X["Build check fails: never upload — AC 3"]
-    C -- no --> U["PO uploads the output CONTENTS into<br/>#lt;web root#gt;/#lt;demo-folder#gt;/ (hPanel File Manager) — AC 2, 5"]
-    U --> P["PO sets 'Password protect directories' on #lt;demo-folder#gt;<br/>username and password chosen by the PO, not written down anywhere public — AC 5"]
-    P --> K1{"Unauthenticated request<br/>to https://#lt;demo-host#gt;/#lt;demo-folder#gt;/"}
-    K1 -- "401" --> K2{"Same URL with the credentials"}
-    K1 -- "200 (protection missing)" --> FIX["Stop. Set the protection again before sharing — AC 5, R12"]
-    K2 -- "200" --> K3{"Tile archive Range request in the logged-in browser"}
-    K3 -- "206, Content-Range, no Content-Encoding" --> OK(["Share the password with the PO's chosen team members only<br/>(D74, never a public post) — AC 5, 49"])
-    K3 -- "200 / 401 / 416" --> TR["Tiles do not load under the protection (R6):<br/>architect's fallback per web/README.md"]
-    FIX --> P
-    OK -. "public static build re-uploaded later" .-> W["README warning: the public upload must not delete #lt;demo-folder#gt;;<br/>repeat the 401 / 200 / 206 checks after every upload — AC 5"]
+    C -- no --> U["PO uploads the output CONTENTS into<br/>#lt;web root#gt;/#lt;demo-folder#gt;/ (hPanel File Manager)<br/>public folder, no password (D107, D116) — AC 2, 5"]
+    U --> K1{"Request to https://#lt;demo-host#gt;/#lt;demo-folder#gt;/<br/>without credentials"}
+    K1 -- "200 and the page has the noindex meta" --> K3{"Tile archive Range request"}
+    K1 -- "anything else (404, 401/403, 200 without noindex)" --> FIX["Stop. Upload the demo-mode build again<br/>(or remove a leftover folder setting) before sharing the link — AC 3, 5"]
+    K3 -- "206, Content-Range, no Content-Encoding" --> OK(["PO shares the link with the people the PO chooses;<br/>never linked from the public site (AC 7). Anyone with the URL<br/>can open it: badge + noindex mark it as a test (D107, D116) — AC 5, 49"])
+    K3 -- "200 / 416" --> TR["Tiles do not load over Range (R6):<br/>architect's fallback per web/README.md"]
+    FIX --> U
+    OK -. "public static build re-uploaded later" .-> W["README warning: the public upload must not delete #lt;demo-folder#gt;;<br/>repeat the 200 + noindex and 206 checks after every upload — AC 5"]
 ```
 
 ## F1. Open the demo on the iPhone — AC 8, 11, 14, 36
 
 ```mermaid
 flowchart TD
-    A(["PO opens https://#lt;demo-host#gt;/#lt;demo-folder#gt;/ in Safari"]) --> PW{"Browser's own password prompt<br/>(not our UI)"}
-    PW -- "cancel / wrong password" --> E401["Host's 401 page (accepted, story edge cases)"]
-    PW -- "correct" --> L["Page loads from the sub-folder (relative URLs, AC 2)<br/>robots noindex (AC 3); language and theme from storage or defaults<br/>(Mongolian, day; D12) — no location prompt, Geolocation never called"]
+    A(["PO opens https://#lt;demo-host#gt;/#lt;demo-folder#gt;/ in Safari"]) --> L["Page loads from the sub-folder (relative URLs, AC 2), no password prompt<br/>(public folder, D107, D116; AC 8); robots noindex (AC 3); language and theme from storage or defaults<br/>(Mongolian, day; D12) — no location prompt, Geolocation never called"]
     L --> T{"Map ready?<br/>(NAV-002 rules)"}
     T -- "> 300 ms" --> LD["NAV-002 loading pill «Ачаалж байна…»"] --> T
     T -- "tiles fail at start" --> TC["NAV-002 blocking card «Газрын зургийг ачаалж чадсангүй»<br/>+ «Дахин оролдох»; the picker waits"]
@@ -168,4 +164,4 @@ flowchart TD
 | D1 picker | NAV-002 offline banner in R2; selecting an entry whose data are not loaded yet shows the footer row «Интернэт холболт алга» and loads by itself when back online | not applicable (no location; the route origin is recorded data) | the list always has R1–R3 (bundled manifest); a data file that fails or does not parse shows «Алдаа гарлаа» + «Дахин оролдох» (AC 10) |
 | D2 guidance | «Интернэт холболт алга» in the message stack; replay continues (AC 40) | not applicable: the position is simulated (AC 14); there is no GPS-lost state | not applicable: the replay data are loaded before «Эхлэх» is enabled; a track that ends early behaves as «Дуусгах» (AC 16) |
 | D3 arrival | nothing needed (no network use) | not applicable | — |
-| Password / host | Safari's own error page (accepted) | — | wrong or cancelled password: host's 401 page (accepted) |
+| Host / demo folder | Safari's own error page (accepted) | — | missing or wrong upload: the host's own error page (not our UI); the after-upload 200 + `noindex` check catches it (AC 5, F0) |

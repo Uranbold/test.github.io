@@ -390,6 +390,9 @@ if ! skip repo; then
         [[ -d "$NAV_DIR/backend/data" ]] || { install -d -m 755 "$NAV_DIR/backend/data"; changed "$NAV_DIR/backend/data"; }
     fi
     [[ -d /var/lib/nav ]] || { install -d -m 750 /var/lib/nav; changed "/var/lib/nav"; }
+    # NAV-006 slot root (ADR-0014 §1). 755: the unprivileged gateway container reads the pointer and the slots.
+    # /var/lib/nav itself stays 750 (root), which is fine: bind mounts do not need the parent to be readable.
+    [[ -d /var/lib/nav/data ]] || { install -d -m 755 /var/lib/nav/data; changed "/var/lib/nav/data"; }
     [[ -d /root/.config/nav ]] || { install -d -m 700 /root/.config/nav; changed "/root/.config/nav"; }
     ok "$NAV_DIR (owner $ADMIN), /var/lib/nav"
 fi

@@ -1,19 +1,25 @@
-# NAV-008 staging: daily data rebuild (deployment-staging.md §11). Installed by infra/staging/bin/install-units.sh.
+# NAV-006 staging: daily data rebuild (ADR-0014; deployment-staging.md §11). Installed by infra/staging/bin/install-units.sh.
+# Runs the slot pipeline through bin/nav-rebuild.sh (scheduled entry point: no overrides). Exactly one rebuild job:
+# this unit + nav-rebuild.timer. The NAV-008 in-place rebuild and nav-rollback-data.sh are gone (AC 23, AC 43).
 [Unit]
-Description=NAV-008 staging daily data rebuild (OSM -> tiles, routing graph, search index)
+Description=NAV-006 daily OSM rebuild into a new slot with blue/green pointer switch (tiles, routing graph, search index)
 Documentation=file://@NAV_ROOT@/infra/staging/RUNBOOK.md
 Wants=network-online.target
 After=network-online.target docker.service
 Requires=docker.service
 
 [Service]
+# NAV-020: after a `success` run the offline pack step runs in the same process and lock when PACK_ENABLED=1 (target
+# <= 15 min more; rebuild + pack end well before the 21:30 UTC reboot window). Its result never changes the exit code.
 Type=oneshot
-# The script takes /run/lock/nav-stack.lock (flock) itself, so a manual run, a deploy or a rollback never overlaps.
+# The pipeline takes /run/lock/nav-stack.lock (flock, shared with deploy.sh, cert-dry-run.sh and make rollback) itself.
 ExecStart=@NAV_ROOT@/infra/staging/bin/nav-rebuild.sh
 TimeoutStartSec=2h
-# On stop or start timeout the script's EXIT trap restarts photon/valhalla (up --wait, about 1 min); give it time
-# before systemd sends SIGKILL.
-TimeoutStopSec=5min
+# On stop/timeout only the wrapper gets SIGTERM and forwards it to the pipeline, which stops the builders, the
+# candidate lane and the verify gateway and deletes the partial slot within 60 s (AC 26). The public pointer is
+# never touched by an interrupt. Everything left after 90 s is killed.
+KillMode=mixed
+TimeoutStopSec=90s
 Nice=5
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6

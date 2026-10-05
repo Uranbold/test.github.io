@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Own path (NAV-021 / NAV-023 "offline" indicator, screen spec android-offline-pack F7): a check mark in a ring above
+     a base line, the "kept on the phone" glyph. Decorative; the name comes from OF25. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M12 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm3.3 2.8L10.8 11.3 8.7 9.2 7.3 10.6l3.5 3.5 5.9-5.9ZM5 20h14v2H5Z" />
+</vector>

@@ -59,6 +59,13 @@
             android:foregroundServiceType="location"
             android:stopWithTask="false" />
 
+        <!-- NAV-021 AC 4 (ADR-0017 §2): the on-device engine (valhalla-mobile) in its own process, so a native crash
+             cannot end guidance. Bound by the main process only; never exported. -->
+        <service
+            android:name=".routing.service.OnDeviceRoutingService"
+            android:exported="false"
+            android:process=":routing" />
+
         <!-- NAV-012 AC 22: «Дуусгах» on the «Замчлал тасарлаа» notification (explicit broadcast only). -->
         <receiver
             android:name=".background.restore.InterruptedEndReceiver"

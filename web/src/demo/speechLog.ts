@@ -15,8 +15,14 @@ export type SpeechEventKind =
   | "no-start"
   /** The watchdog ended an utterance that never fired end/error. */
   | "watchdog"
-  /** A chime was played instead of speech. */
-  | "chime";
+  /** One chime attempt (one per chimed prompt): path, AudioContext state before/after and the result. */
+  | "chime"
+  /** The chime element failed (priming, or play() rejected after it was started). */
+  | "chime-error"
+  /** AudioContext statechange. */
+  | "ctx-state"
+  /** The silent keep-alive loop of a replay started, stopped or failed. */
+  | "keep-alive";
 
 export interface SpeechEvent {
   /** Milliseconds on the page clock (performance.now()). */
@@ -32,6 +38,15 @@ export interface SpeechEvent {
   code?: string;
   /** speak/start/end/error of the unlock utterance. */
   prime?: boolean;
+  /** chime, chime-error: which output was used ("none" = no path could play it). */
+  path?: "webaudio" | "element" | "none";
+  /** chime: AudioContext state before the attempt and when the result was known ("none" = no context). */
+  ctxBefore?: string;
+  ctxAfter?: string;
+  /** chime, chime-error, keep-alive: what happened. */
+  result?: string;
+  /** ctx-state: the new AudioContext state. */
+  state?: string;
 }
 
 export class SpeechEventLog {
@@ -81,6 +96,12 @@ export function formatSpeechEvent(e: SpeechEvent): string {
     case "watchdog":
       return `${at} watchdog: utterance ended without end/error`;
     case "chime":
-      return `${at} chime played`;
+      return e.path ? `${at} chime via ${e.path}: ${e.result ?? ""} (AudioContext ${e.ctxBefore ?? "?"} → ${e.ctxAfter ?? "?"})` : `${at} chime played`;
+    case "chime-error":
+      return `${at} chime ${e.path ?? ""} error: ${e.result ?? ""}`;
+    case "ctx-state":
+      return `${at} AudioContext state: ${e.state ?? "?"}`;
+    case "keep-alive":
+      return `${at} silent keep-alive ${e.result ?? ""}`;
   }
 }

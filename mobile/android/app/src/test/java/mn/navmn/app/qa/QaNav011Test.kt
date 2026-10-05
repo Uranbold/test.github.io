@@ -97,11 +97,11 @@ class QaNav011Test {
         assertTrue("released ${releasedAt - slowStart} ms after the first slow fix (window 10 s)", releasedAt - slowStart in 9_000..10_000)
     }
 
-    /** TC-K05, AC 35 / AC 36 (ix) wording: the derived speed needs a previous fix, so (ix) engages on fix 4 (see plan, Q1). */
+    /** TC-K05, AC 35 / AC 36 (ix): the derived speed needs a previous fix, so the lock is engaged after the 4th fix (3 derived speeds), not earlier. */
     @Test
     fun tcK05_derivedSpeedNeedsAPreviousFix() {
         val states = TypingLockRule().feed(fixes(4, 50.0, noSpeed = true))
-        // Recorded behaviour, not a pass of the literal AC 36 (ix) "engaged after 3 fixes": open question to the BA.
+        // Matches AC 36 (ix) as reworded: "engaged after the 4th fix (3 derived speeds)"; fixes 1-3 stay unlocked.
         assertEquals(listOf(false, false, false, true), states)
         // Re-engaging after a release starts the run again: no carry-over of the old history.
         val r = TypingLockRule()

@@ -1,9 +1,9 @@
 # Map style spec (MapLibre)
 
 - **Owner:** ux-designer
-- **Stories:** NAV-002 (AC 5–10, 15, 26–29, 35, 46), NAV-003 (§7.1 selected-place pin; AC 21, 23, 25), NAV-004 (§7.2 route lines and alternatives, §7.3 route markers; AC 9, 16–18, 20, 30), NAV-005 (§7.4 Android guidance route line, puck and native style; §8 automatic theme; AC 1, 2, 23, 51, 58, 59), NAV-017 (§7.5 web demo-mode picker route, replay route line and puck; AC 9, 13, 22, 41, 44), NAV-011 (§7.6 Android route preview with alternatives; AC 15–17, 19–21), NAV-012 (§8 automatic theme by sunrise/sunset; AC 41–43). Later stories add sections (traffic: Phase 3).
+- **Stories:** NAV-002 (AC 5–10, 15, 26–29, 35, 46), NAV-003 (§7.1 selected-place pin; AC 21, 23, 25), NAV-004 (§7.2 route lines and alternatives, §7.3 route markers; AC 9, 16–18, 20, 30), NAV-005 (§7.4 Android guidance route line, puck and native style; §7.8 Android browse location dot and accuracy circle, AC 74–77; §8 automatic theme; AC 1, 2, 23, 51, 58, 59), NAV-017 (§7.5 web demo-mode picker route, replay route line and puck; AC 9, 13, 22, 41, 44), NAV-011 (§7.6 Android route preview with alternatives; AC 15–17, 19–21), NAV-012 (§8 automatic theme by sunrise/sunset; AC 41–43), NAV-018 (§7.7 Android route markers for a chosen start, candidate pin and manoeuvre point; AC 6, 8, 22). Later stories add sections (traffic: Phase 3).
 - **Colour values:** `docs/design/tokens.json` is the single source of truth. The tables below quote it for readability. `node docs/design/prototypes/check-contrast.mjs` fails if a table value here drifts from `tokens.json`, or if a listed text/background pair drops below WCAG AA.
-- **Status:** v0.8, 2026-10-03 (§8 NAV-012: Android «Автомат» = sunrise/sunset on the device; §9 trimming and arrows no longer labelled NAV-012; no new colours). v0.7, 2026-10-03 (§7.6 NAV-011 Android alternatives: §7.2 layers in dp, 48 dp tap box, no new colours). v0.6, 2026-10-01 (§7.5 NAV-017 web demo mode: picker route and markers, replay route line, web puck; no new colours). v0.5, 2026-10-01 (§7.4 NAV-005 Android guidance: route line, off-route display, puck, native style rules; §8 «Автомат» theme on Android). v0.4, 2026-09-30 (§7.2–7.3 NAV-004 route lines, origin marker, destination = NAV-003 pin, candidate point, manoeuvre point). v0.3, 2026-09-30 (§1 zoom range: D1 max zoom 14 read from the archive header; §7.1 NAV-003 pin). v0.2, 2026-09-30 (§1 post-processing moved to runtime per ADR-0004 §3; PO decisions D11–D13, D16 recorded). v0.1, 2026-09-29. Colours are a first proposal. The PO judges them on real tiles in the NAV-002 demo (story goal: "is the open basemap good enough for Mongolian users").
+- **Status:** v0.10, 2026-10-04 (§7.8 NAV-005 section N: Android browse location dot, accuracy circle as MapLibre Native layers, circle hidden while smaller than the dot, hollow-ring stale dot with a dashed circle; new token `location.stale-ring`, tokens v0.6.2; §7 and §7.4 point to it). v0.9, 2026-10-04 (§7.7 NAV-018: Android start marker for a chosen start, candidate pin on the preview-time coordinate card, `nav-route-step` manoeuvre point; §7.6 points to it; no new colours). v0.8, 2026-10-03 (§8 NAV-012: Android «Автомат» = sunrise/sunset on the device; §9 trimming and arrows no longer labelled NAV-012; no new colours). v0.7, 2026-10-03 (§7.6 NAV-011 Android alternatives: §7.2 layers in dp, 48 dp tap box, no new colours). v0.6, 2026-10-01 (§7.5 NAV-017 web demo mode: picker route and markers, replay route line, web puck; no new colours). v0.5, 2026-10-01 (§7.4 NAV-005 Android guidance: route line, off-route display, puck, native style rules; §8 «Автомат» theme on Android). v0.4, 2026-09-30 (§7.2–7.3 NAV-004 route lines, origin marker, destination = NAV-003 pin, candidate point, manoeuvre point). v0.3, 2026-09-30 (§1 zoom range: D1 max zoom 14 read from the archive header; §7.1 NAV-003 pin). v0.2, 2026-09-30 (§1 post-processing moved to runtime per ADR-0004 §3; PO decisions D11–D13, D16 recorded). v0.1, 2026-09-29. Colours are a first proposal. The PO judges them on real tiles in the NAV-002 demo (story goal: "is the open basemap good enough for Mongolian users").
 - **Checked on real tiles (2026-09-29, design preview only, not app code):** both styles were generated from `tokens.json` with `@protomaps/basemaps` 5.7.2 plus the §3.2, §3.3 and §4 post-processing (the same steps `buildStyle` now runs at runtime, §1), validated with the MapLibre style validator (0 errors, 0 layers left reading `name:ru` / `pgf:*` / `name2` / `name3`), and rendered against the NAV-001 gateway archive at P1 z12, z14, z16.5 and Mongolia z6/z7, day and night. Result: Cyrillic labels incl. ө/ү render, Энх тайваны өргөн чөлөө shows as trunk, and the night map has no bright areas. Two things to watch in the demo: the low-zoom road *widths* are thin Protomaps defaults (colours fixed in §3.3; widths: PO decision D16, 2026-09-30, the PO judges them in the demo and a later widening comes back to this spec as a change), and some POI names are Latin because that is the OSM `name` (story R2).
 
 ## 1. Base and build approach
@@ -162,6 +162,8 @@ Every symbol layer that shows a feature **name** uses exactly this `text-field`,
 
 A GeoJSON polygon keeps the accuracy radius true to ground distance at every zoom and latitude (AC 19: 30 m ± 10 %). These layers are re-added after every style switch (day/night).
 
+This table is the **web** (NAV-002) dot, which stays unchanged (D175). The Android browse map draws the same circle with MapLibre Native layers and its own stale cue: §7.8.
+
 ### 7.1 Selected-place pin (NAV-003)
 One pin marks the selected search result or the selected point of a coordinate card (NAV-003 AC 21, 22, 25). At most one pin exists.
 
@@ -252,7 +254,7 @@ Story NAV-005 AC 1, 2, 23, 51, 58, 59. Rules for the camera, banner and states: 
 - **Not in this slice:** alternatives, manoeuvre arrows on the line, travelled-route trimming or greying, traffic colours.
 - **Destination:** the NAV-003 pin (§7.1) at the destination point, content description = the destination text. No origin marker during guidance.
 
-**Puck (navigation chevron).** Drawn above every style layer and below the UI (MapLibre location component with a custom bitmap, or a symbol layer; mobile's choice). 40 dp (`size.nav-puck`) including a 3 dp ring (`nav.puck-stroke`) and a 1 dp outer hairline (`nav.puck-outline`), soft shadow (elevation 1). The chevron points along the course; in heading-up it points to the top of the screen. **No accuracy circle during guidance** (clutter in a tilted view; the §7 circle stays on S1). Stale variant while GPS is lost (AC 51): `nav.puck-stale-*`, same shape, at the last position. Off-route: the puck shows the raw position (AC 23).
+**Puck (navigation chevron).** Drawn above every style layer and below the UI (MapLibre location component with a custom bitmap, or a symbol layer; mobile's choice). 40 dp (`size.nav-puck`) including a 3 dp ring (`nav.puck-stroke`) and a 1 dp outer hairline (`nav.puck-outline`), soft shadow (elevation 1). The chevron points along the course; in heading-up it points to the top of the screen. **No accuracy circle during guidance** (clutter in a tilted view; the circle stays on the browse map S1–S3, §7.8). Stale variant while GPS is lost (AC 51): `nav.puck-stale-*`, same shape, at the last position. Off-route: the puck shows the raw position (AC 23).
 
 | Key | Day | Night |
 |---|---|---|
@@ -290,23 +292,83 @@ Story NAV-017 AC 9, 13, 14, 22, 41, 44. Screen spec: [`screens/NAV-017-web-demo-
 ### 7.6 Android route preview with alternatives (NAV-011)
 Story NAV-011 AC 15–17, 19–21. Screen spec: [`screens/NAV-011-android-route-preview-search-parity.md`](screens/NAV-011-android-route-preview-search-parity.md) › Map. Replaces the single preview line of NAV-005 on Android; guidance (§7.4) is unchanged.
 
-**Source and layers.** The same as §7.2: one GeoJSON source `nav-route` with one feature per route (1–3, Valhalla order), properties `index` and `selected`; layers `nav-route-alt-casing`, `nav-route-alt`, `nav-route-sel-casing`, `nav-route-sel`, below the first symbol layer, with the §7.2 colour tokens (no new colours). Widths are the §7.2 values read as **dp** (MapLibre Native line widths are density-independent): the alternative is ≥ 2 dp narrower than the selected line at every zoom stop, in fill and in total width (AC 15). Selecting a route only rewrites `selected` (`setGeoJson`), so 0 requests and no camera move (AC 17). No `nav-route-step` layer (no turn list on Android, story Out of scope).
+**Source and layers.** The same as §7.2: one GeoJSON source `nav-route` with one feature per route (1–3, Valhalla order), properties `index` and `selected`; layers `nav-route-alt-casing`, `nav-route-alt`, `nav-route-sel-casing`, `nav-route-sel`, below the first symbol layer, with the §7.2 colour tokens (no new colours). Widths are the §7.2 values read as **dp** (MapLibre Native line widths are density-independent): the alternative is ≥ 2 dp narrower than the selected line at every zoom stop, in fill and in total width (AC 15). Selecting a route only rewrites `selected` (`setGeoJson`), so 0 requests and no camera move (AC 17). No `nav-route-step` layer in NAV-011 (no turn list); NAV-018 adds it with the turn list (§7.7).
 
 **Hit test (AC 17).** No invisible hit layer. A tap (not the end of a pan, not a long-press) queries `queryRenderedFeatures` in a **48 × 48 dp box centred on the tap** against `nav-route-alt` and `nav-route-sel`, so the target reaches ≥ 24 dp on each side of a line centre (gloves in winter). Result:
 - any **unselected** route in the box → select it; with two unselected routes in the box, the one whose geometry is nearest to the tap point;
 - only the selected route in the box, or nothing → no change (the tap falls through to the map: no card, no camera move).
 That makes the overlap rule of AC 17 ("the line that is **not** selected is chosen") a property of the query. Long-press keeps its NAV-005 meaning (coordinate card) even on a line.
 
-**Markers.** As NAV-005 S3: origin = the location dot («Миний байршил», no second marker); destination = the §7.1 pin. Contrast of the selected line against `earth`, `major`, `minor_a` and the casing rule: §7.2 (already in `contrastPairs`, AC 15).
+**Markers.** As NAV-005 S3: origin = the location dot («Миний байршил», no second marker); destination = the §7.1 pin. With NAV-018 the start can be another point: §7.7. Contrast of the selected line against `earth`, `major`, `minor_a` and the casing rule: §7.2 (already in `contrastPairs`, AC 15).
 
 **«Эхлэх» (AC 19).** The selected route's geometry becomes the §7.4 guidance source; the other features are removed from the map within 1 s; reroutes draw one route.
 
 **Theme, language, rotation (AC 20).** Re-add the source with its current data, including `selected`, and the layers in the new flavor's colours in the same frame as the style switch (as §7.2); 0 route requests.
 
+### 7.7 Android start point, candidate pin and manoeuvre point (NAV-018)
+Story NAV-018 AC 6, 8, 22. Screen spec: [`screens/NAV-018-android-origin-turn-list.md`](screens/NAV-018-android-origin-turn-list.md) › Map. It brings the §7.3 web markers to the Android preview (§7.6), in dp. **No new colours or sizes:** every value is an existing `route.*`, `pin.*`, `location.*` token or `size.*` dimension, already in `contrastPairs`.
+
+| Marker | When | Look (day / night tokens) | Content description (TalkBack) |
+|---|---|---|---|
+| **Start = «Миний байршил»** (device start) | Start field shows «Миний байршил» | The NAV-005 browse location dot with its accuracy circle (§7.8: the shown position, so it may be held some metres from the raw fix the route starts at, D177), **no second marker** (AC 8) | «Эхлэх цэг: Миний байршил» (`route_origin` + ": " + field text) |
+| **Start = chosen start** (search result, «Сонгосон цэг», or «Миний байршил» swapped to the destination side) | Start field shows anything else | §7.3 origin marker: circle **18 dp** (`size.origin-marker`) incl. a **4 dp** ring, anchor centre, elevation 1; fill `route.origin-fill`, ring `route.origin-stroke`. The live location dot is still drawn when there is a fix (it is the live position, not a route point) | «Эхлэх цэг: <field text>» |
+| **Destination** | Always | §7.1 pin (28×40 dp, anchor bottom) | «Очих газар: <field text>» |
+| **Destination = «Миний байршил»** (after a swap) | Destination field shows «Миний байршил» | The §7.1 pin at the fix the start was set from (the point is fixed when set; it is not the live dot) | «Очих газар: Миний байршил» |
+| **Candidate point** | Coordinate card open during the preview (AC 6) | §7.3 candidate pin: outline variant (body `ui.surface`, 2 dp `pin.fill` stroke, `pin.fill` head dot) | «Сонгосон цэг». Removed when the card closes |
+| **Manoeuvre point** | After a turn-list row tap (AC 22), until the route changes or the preview closes | Style layer `nav-route-step` (§7.2): circle radius **6 dp**, fill `route.step-fill`, 3 dp ring `route.step-stroke`, inserted above `nav-route-sel` and below the first symbol layer | none (decorative; the row carries the name) |
+
+- **At most one start and one destination marker** (AC 8). Stacking (bottom → top): route lines < accuracy circle (§7.8) < manoeuvre point < start marker < destination pin < candidate pin < live location dot.
+- **Colour is never the only signal:** the start is a ring, the destination a pin, the candidate an outlined pin; the field icons in the sheet repeat the shapes (ring / `my_location` / pin), so map and sheet match (Gestalt similarity).
+- **Camera fit** (NAV-011 AC 16) includes both markers. A turn-row tap centres `maneuver.location` in the map band above the collapsed sheet (or beside the side sheet), zoom 17 or the current zoom if higher, 40 dp padding (screen spec › Camera).
+- **Theme, language, rotation:** re-add `nav-route-step` with its current data in the same frame as the style switch (as §7.2); marker colours follow the theme; 0 requests.
+- **Guidance:** at «Эхлэх» the start marker and the manoeuvre point are removed (as §7.4: no origin marker during guidance). «Эхлэх» is only possible from a device start (NAV-018 AC 15).
+
+### 7.8 Android browse location dot and accuracy circle (NAV-005 section N)
+Story NAV-005 AC 74–79 ([D171–D178](../requirements/decisions.md)). Screen spec: [`screens/NAV-005-android-navigation.md`](screens/NAV-005-android-navigation.md) › S1 location dot states; flow: [`flows/NAV-005-android-navigation.md`](flows/NAV-005-android-navigation.md) F12. Prototype: [`prototypes/NAV-005-location-dot.html`](prototypes/NAV-005-location-dot.html); geometry and contrast numbers: `prototypes/check-location-dot.mjs`. Applies to the **browse map** (S1 map, S2 search and coordinate card, S3 route preview) of the real Android app. Not in guidance or arrival (§7.4: puck, no circle), not in the NAV-019 demo build (no dot, NAV-019 AC 13), and not on the web (§7, D175).
+
+**What the map draws.** The dot and circle show the **shown position** and the accuracy of the fix it came from (NAV-005 Terms; the filter rules are AC 75–77, not style rules). Both are set from the same data in the same frame, so they always move and change together (AC 74).
+
+**Source and layers** (bottom → top):
+
+| Layer / element | Type | Placement | Normal (day / night) | Stale (AC 76, day / night) |
+|---|---|---|---|---|
+| Source `nav-location-accuracy` | GeoJSON, one `Polygon`: 64 vertices at the accuracy distance from the shown position (spherical destination formula, as the web `circle.ts`), ring closed | — | — | — |
+| `nav-location-accuracy-fill` | `fill` | Directly **above the route lines** (`nav-route-*`, §7.6 and §7.7) and **below** `nav-route-step` and the first symbol layer, so labels and the manoeuvre point stay crisp on top (§7.2 order) | `location.accuracy-fill` | `location.stale-accuracy-fill` |
+| `nav-location-accuracy-line` | `line`, width **1 dp**, no cap | Directly above the fill | `location.accuracy-stroke`, solid | `location.stale-accuracy-stroke`, **dashed**: `line-dasharray` [4, 3] (4 dp dash, 3 dp gap at width 1) |
+| `nav-location-dot` (existing `CircleLayer`, source `nav-location`) | `circle` | Unchanged: above every style layer (§7.7 stacking) | fill `location.dot`, stroke **3 dp** `location.dot-stroke` (as built: `circle-radius` 7.5 dp, outer radius *R*<sub>dot</sub> = 10.5 dp) | **Hollow ring**: `circle-opacity` 0 (see-through centre), stroke **4 dp** `location.stale-ring`, `circle-radius` = *R*<sub>dot</sub> − 4 dp (6.5 dp), so the outer size does not change |
+
+| Key | Day | Night |
+|---|---|---|
+| `location.dot` | #1A73E8 | #669DF6 |
+| `location.dot-stroke` | #FFFFFF | #E8EAED |
+| `location.stale-ring` | #5F6368 | #BDC1C6 |
+
+The fills and strokes are the existing translucent `location.*accuracy*` tokens (the web values in §7). `location.stale-ring` is **new** (tokens v0.6.2), Android only: the web `location.stale-dot` grey (#80868B) is only 2.75:1 on day buildings and 2.96:1 on parks as a thin ring, so the ring gets a darker day grey and a lighter night grey.
+
+**Circle smaller than the dot (decided: hide it).** The two accuracy layers are drawn only while the circle's on-screen radius is larger than *R*<sub>dot</sub>. Rule: whenever the shown position or its accuracy changes, set both layers' `minzoom` to log2(*R*<sub>dot</sub> × 78 271.517 × cos(lat) / accuracy in m) (MapLibre zoom, 512 dp tiles); *R*<sub>dot</sub> is read from the dot layer (`circle-radius` + `circle-stroke-width`). At UB (47.92° N, *R*<sub>dot</sub> 10.5 dp) the circle appears from **z16.75** for 5 m, **z15.75** for 10 m, **z14.43** for 25 m and **z12.43** for 100 m. Why: the normal dot would cover a smaller circle anyway, but the hollow stale ring would show a tiny dashed circle inside its hole (noise); one rule for both states is simpler than a per-state exception. A zoom expression cannot do this (zoom stops cannot depend on feature data), and `minzoom` changes only when the shown fix changes, which the hold makes rare.
+
+**Size it can reach.** The largest showable circle is 100 m (AC 76): about 62 dp radius at z15 and 125 dp at z16 on a 360 dp wide phone at UB. The fill is translucent and below the labels, so streets stay readable through it (the night fill composited over earth, buildings, parks and water stays darker than #3A4452, the glare rule; checked).
+
+**Stale cue (non-colour, D173).** Stale = grey **and** a hollow ring (no fill) **and** a dashed circle outline. The hollow ring is the cue that always shows (also when the circle is hidden). It follows the Android icon pair `my_location` (filled centre, position known) / `location_searching` (empty centre, searching) that the my-location button uses in the screen spec. It stays distinct from the §7.7 chosen-start marker on S3: that marker has an **opaque** centre (`route.origin-fill`) and a near-black / near-white ring, the stale dot a see-through centre, a mid-grey ring and usually the dashed circle. No message and no text (D173).
+
+**Contrast** (WCAG 2.2 AA, 1.4.11; `check-contrast.mjs` and `check-location-dot.mjs`):
+- `location.stale-ring` ≥ 3:1 on `earth`, `major`, `minor_a`, `buildings`, `park_a` and `water` in both modes (day 3.64–6.05, night 4.17–9.07; pairs in `contrastPairs`). Over the selected route line it is low (1.1:1, as the normal dot fill), but the ring is 21 dp across and the route line at most 13 dp wide, so most of the ring always lies on the map.
+- Normal dot: unchanged (existing pairs; its light ring separates it from the route line).
+- The circle is an area cue, not the carrier of position or state: composite fill 1.1–1.4:1 and stroke 1.4–2.5:1 over the map (measured), the same values the web uses (NAV-002 AC 19). Accepted: position is the dot, state is the dot's ring.
+
+**Re-add and timing.**
+- **Theme switch** (AC 74, 58, 59): `setStyle` drops our layers; re-add the `nav-location-accuracy` source with its current polygon, both layers with the new flavor's colours, the current `minzoom` and the current state (normal or stale) in the same frame as the §7.6 route layers and the dot. Dot and circle are back within **1 s**, 0 network requests.
+- **State changes**: normal → stale within 1 s of the 10 s timeout; stale → normal within 2 s of the next showable fix (AC 76). Switching state changes only paint properties (colours, `circle-opacity`, `circle-stroke-width`, `circle-radius`, `line-dasharray`), no source rewrite.
+- **No shown position** (no showable fix yet, location off, no permission): the `nav-location` and `nav-location-accuracy` sources are empty, so neither dot nor circle is drawn (AC 76).
+- **Guidance and arrival**: both sources empty and the layers hidden (§7.4); the puck takes over.
+- **Demo build** (NAV-019 AC 13): the sources stay empty; nothing here is drawn.
+
+**Camera** (screen spec › Interactions): the S1 follow camera centres on the shown position, never on a raw fix, so a held dot holds the camera too (AC 75). It eases to a new shown position within 1 s (`motion.duration-camera`; reduced motion: jump).
+
 ## 8. Day / night switching
 - NAV-002: manual toggle, day on first visit, choice remembered (AC 26–28; PO decision D12, 2026-09-30).
 - The switch calls `map.setStyle(buildStyle(otherTheme, cfg))` with diffing on (ADR-0004 §3): the other style object is generated at runtime from `tokens.json`, not loaded from a static JSON file. The camera must not move (AC 27). Re-add §7 layers (and the §7.2 route source and layers with their current data). The UI chrome switches through CSS custom properties from `tokens.json › color.<mode>.ui` in the same frame.
-- **Android (NAV-005, AC 58):** three options «Өдрийн горим», «Шөнийн горим», «Автомат». «Автомат» is the default; the map flavor and the Compose colours switch together within 1 s, with the §7.4 (and §7.6) layers re-added. The choice is remembered.
+- **Android (NAV-005, AC 58):** three options «Өдрийн горим», «Шөнийн горим», «Автомат». «Автомат» is the default; the map flavor and the Compose colours switch together within 1 s, with the §7.4 (and §7.6, §7.7, §7.8) layers re-added. The choice is remembered.
 - **Android «Автомат» since NAV-012** (AC 41–43; story Open question 4 (a), working assumption): day flavor from sunrise to sunset at the current position, night flavor otherwise, computed on the device in UTC with 0 network requests; switch within 60 s after the computed time, at most once per 10 min (`motion.theme-auto-hold`). The Android system dark-theme setting no longer drives «Автомат» (it did under NAV-005, D63). Same flavors, same re-add rules; no new colours. Timing rules: [`navigation-ux.md` §12.7](navigation-ux.md).
 
 ## 9. Reserved (later stories)

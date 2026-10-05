@@ -4,7 +4,8 @@
     python3 tests/android/nav005/static_checks.py [--apk mobile/android/app/build/outputs/apk/debug/app-debug.apk]
 
 Build the APK first (cd mobile/android && ./gradlew :app:assembleDebug). Test plan docs/qa/test-plans/NAV-005.md ids
-TC-S*. Story AC 1, 8, 13, 15, 61, 62 (recenter term), 65 (static part), 66, 67 (allowBackup), 69, 70.
+TC-S*. Story AC 1, 8, 13, 15, 61, 62 (recenter term), 65 (static part), 66, 67 (allowBackup), 69, 70; section N
+(2026-10-04): AC 74, 76, 78, 79 static parts (TC-S29…S35).
 Read-only: never builds, installs or contacts anything. Exit 0 only if every check passes.
 """
 import argparse
@@ -179,6 +180,53 @@ def main():
     rep.check("TC-S27.start_camera_P1_z12 (AC 1)", "LatLon(47.9189, 106.9176)" in vm and re.search(r"DEFAULT_ZOOM\s*=\s*12\.0", vm) is not None, "P1, zoom 12", None)
     readme = open(os.path.join(ANDROID, "README.md"), encoding="utf-8").read()
     rep.check("TC-S28.readme_documents_sdk_url_commands (AC 69)", all(k in readme for k in ("ANDROID_HOME", "nav.gatewayBaseUrl", "assembleDebug")), "SDK setup, gateway property, commands", None)
+
+    # ---------------------------------------------------------------- section N (2026-10-04, D171–D178): browse location dot
+    # Static part only: MapLibre Native cannot render on the JVM, so the paint values the screen spec / map-style §7.8 name
+    # are checked in source; on-device rendering stays AC 73 (D178).
+    app_src = os.path.join(ANDROID, "app/src/main/java/mn/navmn/app")
+    ctl = open(os.path.join(app_src, "map/NavMapController.kt"), encoding="utf-8").read()
+    ids = all(f'"{i}"' in ctl for i in ("nav-location-accuracy", "nav-location-accuracy-fill", "nav-location-accuracy-line"))
+    rep.check("TC-S29.accuracy_layers_map_style_7_8 (AC 74)", ids and "FillLayer(L_ACCURACY_FILL, SRC_ACCURACY)" in ctl
+              and "lineWidth(1f)" in ctl and "SRC_ACCURACY" in re.search(r"listOf\(SRC_ROUTE[^)]*\)", ctl).group(0),
+              "source + fill + 1 dp line, source re-added in addOverlay", None)
+    stale_ok = (re.search(r"circleOpacity\(if \(stale\) 0f else 1f\)", ctl) is not None
+                and re.search(r"STALE_RING_DP\s*=\s*4f", ctl) is not None
+                and "arrayOf(4f, 3f)" in ctl and "locationStaleRing" in ctl
+                and "locationStaleAccuracyFill" in ctl and "locationStaleAccuracyStroke" in ctl)
+    rep.check("TC-S30.stale_non_colour_cue (AC 76, D173)", stale_ok,
+              "hollow ring (opacity 0, 4 dp locationStaleRing stroke), stale circle colours, dash [4,3]", None)
+    rings = re.findall(r'"stale-ring":\s*\{\s*"\$type":\s*"color",\s*"\$value":\s*"(#[0-9A-Fa-f]{6})"',
+                       open(os.path.join(REPO, "docs/design/tokens.json"), encoding="utf-8").read())
+    rep.check("TC-S31.stale_ring_tokens (AC 76, tokens v0.6.2)", rings == ["#5F6368", "#BDC1C6"], "day #5F6368, night #BDC1C6", rings)
+    flt = open(os.path.join(app_src, "location/LocationDisplayFilter.kt"), encoding="utf-8").read()
+    flt_code = "\n".join(l for l in flt.splitlines() if not l.strip().startswith(("*", "/*", "//")))
+    bad = [w for w in ("import android", "Log.", "println", "SharedPreferences", "DataStore", "java.io", "Timber", "SystemClock", "System.currentTimeMillis")
+           if w in flt_code]
+    rep.check("TC-S32.filter_pure_memory_only (AC 79, AC 71 fake clock)", not bad, "no Android/logging/storage/wall-clock in LocationDisplayFilter", bad)
+    vm_src = open(os.path.join(app_src, "ui/AppViewModel.kt"), encoding="utf-8").read()
+    rep.check("TC-S33.display_not_persisted (AC 79)", not re.search(r"SavedStateHandle|savedState|putDouble|edit\s*\{[^}]*display", vm_src),
+              "no SavedStateHandle / prefs write for the shown position", None)
+    unchanged = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", "mobile/android/app/src/main/java/mn/navmn/app/location/LocationSource.kt",
+                                "mobile/android/app/src/main/java/mn/navmn/app/location/Fix.kt"], cwd=REPO).returncode == 0
+    rep.check("TC-S34.location_source_unchanged (AC 78, D62, NAV-019 ReplayLocationSource)", unchanged,
+              "LocationSource.kt and Fix.kt identical to HEAD", None)
+    gradle = open(os.path.join(ANDROID, "app/build.gradle.kts"), encoding="utf-8").read()
+    # TC-S35 (changed in the section N fix loop, NAV-005 test plan §8 Q9 option a): the old check pinned an unconditional
+    # enableUnitTest = false, which made the NAV-019 regression test QaNav019DemoStartupTest unreachable. New behaviour:
+    # no demo unit-test variant by default (test/check/build need no demo property), the variant only with
+    # nav.demoTilesFile, restricted to the src/testDemo classes and never silently running all of src/test.
+    s35_cond = re.search(r'beforeVariants\(selector\(\)\.withBuildType\("demo"\)\)\s*\{\s*it\.enableUnitTest\s*=\s*demoUnitTestsEnabled\s*\}', gradle)
+    s35_flag = re.search(r'val\s+demoUnitTestsEnabled\s*:\s*Boolean\s*=\s*!demoTilesFile\.isNullOrBlank\(\)', gradle)
+    s35_filter = ('file("src/testDemo/java")' in gradle and 'it.name == "testDemoUnitTest"' in gradle
+                  and re.search(r'enabled\s*=\s*demoOnlyTestPatterns\.isNotEmpty\(\)', gradle) is not None
+                  and "includeTestsMatching" in gradle)
+    s35_regression = os.path.isfile(os.path.join(ANDROID, "app/src/testDemo/java/mn/navmn/app/qa/QaNav019DemoStartupTest.kt"))
+    rep.check("TC-S35.demo_unit_tests_only_with_demo_tiles_file (NAV-019 housekeeping, §8 Q9 option a)",
+              all(x is not None and x is not False for x in (s35_cond, s35_flag, s35_regression)) and s35_filter,
+              "beforeVariants(demo) enableUnitTest = !demoTilesFile.isNullOrBlank(); testDemoUnitTest limited to src/testDemo, "
+              "disabled if empty; QaNav019DemoStartupTest present",
+              {"conditional": bool(s35_cond), "flag": bool(s35_flag), "filter": s35_filter, "regression_test": s35_regression})
 
     for k, v in rep.info.items():
         print(f"INFO  {k}: {v}")

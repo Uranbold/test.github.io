@@ -1,5 +1,6 @@
-// NAV-017 A/B: sub-folder hosting (AC 2), the local Basic-auth stand-in for hPanel protection (ADR-0011 §9), and the
-// route picker (AC 8–11), plus the double-tap edge case. Production demo-mode build from nav017/site.mjs.
+// NAV-017 A/B: sub-folder hosting (AC 2), the public demo folder without a password (D107/D116; the ADR-0011 §9
+// Basic-auth stand-in is retired), and the route picker (AC 8–11), plus the double-tap edge case. Production demo-mode
+// build from nav017/site.mjs.
 import { expect } from '@playwright/test';
 import { test } from './helpers.mjs';
 import { S, ROUTES, demoUrl, netLog, openDemo, qaInit, selectRoute, site, tick, tid, fmtDistance, fmtDuration, nb, readJson, waitPicker } from './helpers.mjs';
@@ -8,7 +9,7 @@ const ORIGIN = () => site().origin;
 const offOrigin = (reqs) => reqs.filter((r) => !r.url.startsWith(ORIGIN()) && !/^(data|blob):/.test(r.url)).map((r) => r.url);
 const backend = (reqs) => reqs.filter((r) => /\/v1\/(search|reverse|route)/.test(r.url)).map((r) => r.url);
 
-test.describe('A. Sub-folder hosting and protection', () => {
+test.describe('A. Sub-folder hosting and public folder', () => {
   for (const folder of ['a', 'b']) {
     test(`AC2: the same build files load from ${folder === 'a' ? '/demo-a/' : '/x/y/demo-b/ (two levels deep)'} without a rebuild: page, scripts, styles, fonts, sprites, WASM and route data from that folder; opening view drawn with tiles`, async ({ page }) => {
       const reqs = [];
@@ -56,31 +57,37 @@ test.describe('A. Sub-folder hosting and protection', () => {
     expect(Math.abs(demo.w - pub.w)).toBeLessThanOrEqual(2);
   });
 
-  test('ADR-0011 §9 Basic auth stand-in: /locked-demo/ answers 401 without credentials and 200 with them; every asset, the WASM and the route data load with credentials; tiles come from the unprotected /tiles/ (206)', async ({ freshBrowser: browser, request }, ti) => {
+  // D107/D116 (2026-10-03/04): the demo folder is PUBLIC, without a password; `noindex` (AC 3) stays. Replaces the
+  // ADR-0011 §9 Basic-auth stand-in test (401 without credentials, 200 with them), retired with the `/locked-demo/`
+  // folder in site.mjs: no test needs a protected folder any more. Story AC 5 (after-upload checks), AC 8, AC 48, AC 49.
+  test('D107/D116 public demo folder (AC 3, 5, 49): /demo-a/ and /x/y/demo-b/ answer 200 without credentials and without a WWW-Authenticate challenge, the page carries noindex; a browser with no credentials loads every asset, the WASM and the route data; tiles 206 from /tiles/', async ({ page, request }) => {
     const s = site();
-    const url = s.origin + s.folders.locked;
-    expect((await request.get(url, { failOnStatusCode: false })).status()).toBe(401);
-    expect((await request.get(url + 'demo-routes/r1.json', { failOnStatusCode: false })).status()).toBe(401);
-    const auth = 'Basic ' + Buffer.from(`${s.user}:${s.pass}`).toString('base64');
-    expect((await request.get(url, { headers: { Authorization: auth } })).status()).toBe(200);
-    const { defaultBrowserType, trace, ...use } = ti.project.use;
-    const ctx = await browser.newContext({ ...use, httpCredentials: { username: s.user, password: s.pass } });
-    const page = await ctx.newPage();
+    for (const folder of ['a', 'b']) {
+      const url = s.origin + s.folders[folder];
+      const res = await request.get(url, { failOnStatusCode: false });
+      expect(res.status(), `${folder}: page without credentials`).toBe(200);
+      expect(res.headers()['www-authenticate'], `${folder}: no auth challenge`).toBeUndefined();
+      expect(await res.text(), `${folder}: noindex meta`).toMatch(/<meta\s+name="robots"\s+content="noindex, nofollow"\s*\/?>/);
+      const data = await request.get(url + 'demo-routes/r1.json', { failOnStatusCode: false });
+      expect(data.status(), `${folder}: route data without credentials`).toBe(200);
+      expect(data.headers()['www-authenticate']).toBeUndefined();
+    }
     const res = [];
     page.on('requestfinished', async (r) => res.push({ url: r.url(), status: (await r.response())?.status() }));
     const failed = [];
     page.on('requestfailed', (r) => failed.push(`${r.url()} ${r.failure()?.errorText}`));
+    page.on('dialog', (d) => failed.push(`unexpected dialog: ${d.type()}`));
     await page.addInitScript(qaInit, { voices: [] });
-    await page.goto(url);
+    await page.goto(demoUrl('a'));
     await expect(tid(page, 'demo-picker')).toBeVisible({ timeout: 20_000 });
     await selectRoute(page, 'R3');
     await page.waitForTimeout(500);
     expect(failed).toEqual([]);
+    expect(res.filter((r) => r.status === 401 || r.status === 403)).toEqual([]);
     expect(res.filter((r) => r.status >= 400)).toEqual([]);
     expect(res.some((r) => r.url.endsWith('.wasm') && r.status === 200)).toBe(true);
     expect(res.some((r) => r.url.endsWith('/demo-routes/r3.json') && r.status === 200)).toBe(true);
     expect(res.some((r) => new URL(r.url).pathname === '/tiles/basemap.pmtiles' && r.status === 206)).toBe(true);
-    await ctx.close();
   });
 });
 

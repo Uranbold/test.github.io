@@ -9,6 +9,11 @@
 //    An error that we did not cause switches to the chime for the rest of the replay.
 //  - Chime: navigation-ux §4.8 synthesised with Web Audio (880 Hz 120 ms, 20 ms gap, 1,320 Hz 180 ms, 10 ms ramps,
 //    peak gain 0.71 ≈ −3 dBFS, ≈ 330 ms). No sound file, no licence.
+//  - iOS Safari (NAV-017 AC 29/48 fix loop, PO iPhone test): a chime scheduled outside a gesture on a suspended or
+//    "interrupted" AudioContext is silent. So every chime checks ctx.state and resumes first; a silent zero-gain
+//    keep-alive loop runs from «Эхлэх» until the replay ends; and when Web Audio still cannot run, the chime plays
+//    through an HTMLAudioElement primed inside «Эхлэх» with the same sound as a WAV generated at runtime (data URI,
+//    still no sound file). navigator.audioSession is never set (iOS default category, ring/silent switch respected).
 import type { Lang } from "../i18n/i18n";
 import type { Speaker, SpokenPrompt } from "../guidance/playbackQueue";
 import { SpeechEventLog } from "./speechLog";
@@ -19,6 +24,8 @@ export const START_TIMEOUT_MS = 3_000;
 export const WATCHDOG_EXTRA_MS = 3_000;
 export const WATCHDOG_CAP_MS = 10_000;
 export const CHIME_MS = 330;
+/** A chime waits at most this long for ctx.resume() (iOS may leave it pending without a gesture), then uses the element. */
+export const RESUME_WAIT_MS = 400;
 /** localStorage key of the voice choice (AC 30, web/README.md). "1" = muted. */
 export const MUTE_KEY = "navmn.voiceMuted";
 
@@ -48,10 +55,15 @@ export interface Timers {
   clearTimeout(h: unknown): void;
 }
 
+/** The part of HTMLAudioElement the chime fallback uses (injected, so tests can fake it). */
+export type ChimeElement = Pick<HTMLAudioElement, "play" | "pause" | "muted" | "currentTime" | "preload">;
+
 export interface AudioEnv {
   speechSynthesis?: SpeechSynthesis | undefined;
   SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance | undefined;
   AudioContext?: typeof AudioContext | undefined;
+  /** `new Audio(src)`; missing = no element fallback. */
+  createAudio?: ((src: string) => ChimeElement) | undefined;
   timers: Timers;
   storage?: Pick<Storage, "getItem" | "setItem"> | undefined;
   /** Page clock for the diagnostics event log (default performance.now()). */
@@ -170,13 +182,26 @@ export class AudioOut {
   readonly log: SpeechEventLog;
   /** Read-only facts for the diagnostics panel. Observing only: nothing here changes what is played. */
   private readonly diag = { unlockRan: false, unlockError: null as string | null, failCode: null as string | null };
+  /** Silent loop that keeps the AudioContext running during a replay (iOS), or null. */
+  private keepAlive: (() => void) | null = null;
+  /** The chime fallback element, primed inside «Эхлэх». */
+  private element: { el: ChimeElement; state: "priming" | "primed" | "failed" } | null = null;
 
   constructor(private readonly env: AudioEnv) {
     this.log = new SpeechEventLog(env.now ?? (() => (typeof performance === "undefined" ? 0 : performance.now())));
   }
 
   /** Diagnostics: AudioContext state, whether the silent-buffer unlock ran, speech priming and the replay failure. */
-  diagnostics(): { context: AudioContextState | "not created" | "unavailable"; unlockRan: boolean; unlockError: string | null; speechPrimed: boolean; failed: boolean; failCode: string | null } {
+  diagnostics(): {
+    context: AudioContextState | "interrupted" | "not created" | "unavailable";
+    unlockRan: boolean;
+    unlockError: string | null;
+    speechPrimed: boolean;
+    failed: boolean;
+    failCode: string | null;
+    keepAlive: boolean;
+    element: "priming" | "primed" | "failed" | "not primed" | "unavailable";
+  } {
     return {
       context: this.ctx ? this.ctx.state : this.env.AudioContext ? "not created" : "unavailable",
       unlockRan: this.diag.unlockRan,
@@ -184,6 +209,8 @@ export class AudioOut {
       speechPrimed: this.speechPrimed,
       failed: this.failed,
       failCode: this.diag.failCode,
+      keepAlive: this.keepAlive !== null,
+      element: this.element ? this.element.state : this.env.createAudio ? "not primed" : "unavailable",
     };
   }
 
@@ -268,9 +295,84 @@ export class AudioOut {
         // no Web Audio: speech or nothing
         this.diag.unlockError = e instanceof Error ? e.name : "error";
       }
+      this.startKeepAlive(ctx);
     }
+    this.primeElement();
     if (this.env.speechSynthesis) this.env.speechSynthesis.cancel();
     if (this.voiceFor(lang) === undefined) this.primeSpeech();
+  }
+
+  /** «Дуусгах», «Хаах», track end, or the replay clock stopping after arrival: stop the keep-alive. Idempotent. */
+  endReplay(): void {
+    const stop = this.keepAlive;
+    if (!stop) return;
+    this.keepAlive = null;
+    stop();
+    this.log.add({ kind: "keep-alive", result: "stopped" });
+  }
+
+  /** A looping one-second silent buffer through a zero-gain node: output is silence, the context stays active. */
+  private startKeepAlive(ctx: AudioContext): void {
+    if (this.keepAlive) return;
+    try {
+      const rate = ctx.sampleRate || 22_050;
+      const buf = ctx.createBuffer(1, rate, rate);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(gain);
+      gain.connect(ctx.destination);
+      src.start(0);
+      this.keepAlive = () => {
+        try {
+          src.stop();
+          src.disconnect();
+          gain.disconnect();
+        } catch {
+          // already stopped
+        }
+      };
+      this.log.add({ kind: "keep-alive", result: "started" });
+    } catch (e) {
+      this.log.add({ kind: "keep-alive", result: `failed (${errName(e)})` });
+    }
+  }
+
+  /**
+   * Inside «Эхлэх»: play() the chime element muted, then pause and rewind it, so that iOS lets it play later without a
+   * gesture. `muted` is used because iOS ignores `volume`. Once per page.
+   */
+  private primeElement(): void {
+    if (this.element || !this.env.createAudio) return;
+    let el: ChimeElement;
+    try {
+      el = this.env.createAudio(chimeWavDataUri());
+      el.preload = "auto";
+    } catch (e) {
+      this.log.add({ kind: "chime-error", path: "element", result: `element not created (${errName(e)})` });
+      return;
+    }
+    const entry: { el: ChimeElement; state: "priming" | "primed" | "failed" } = { el, state: "priming" };
+    this.element = entry;
+    el.muted = true;
+    const settle = (ok: boolean, e?: unknown) => {
+      if (entry.state !== "priming") return; // a fallback chime took the element over meanwhile
+      entry.state = ok ? "primed" : "failed";
+      el.pause();
+      el.currentTime = 0;
+      el.muted = false;
+      if (!ok) this.log.add({ kind: "chime-error", path: "element", result: `element priming failed (${errName(e)})` });
+    };
+    try {
+      Promise.resolve(el.play()).then(
+        () => settle(true),
+        (e: unknown) => settle(false, e),
+      );
+    } catch (e) {
+      settle(false, e);
+    }
   }
 
   /**
@@ -328,7 +430,9 @@ export class AudioOut {
     const Ctor = this.env.AudioContext;
     if (!Ctor) return null;
     try {
-      this.ctx = new Ctor();
+      const ctx = new Ctor();
+      this.ctx = ctx;
+      ctx.addEventListener?.("statechange", () => this.log.add({ kind: "ctx-state", state: ctx.state }));
     } catch {
       this.ctx = null;
     }
@@ -409,15 +513,113 @@ export class AudioOut {
     synth.speak(u);
   }
 
+  /** One chime per prompt (AC 29). The prompt ends CHIME_MS after the chime starts (or after the attempt failed). */
   private chime(p: SpokenPrompt): void {
     const c = { id: p.id, utterance: null, cancelled: false, timers: [] as unknown[], chime: null as (() => void) | null };
     this.current = c;
-    c.chime = playChime(this.context());
     this.stats.chimes++;
-    this.log.add({ kind: "chime" });
-    c.timers.push(this.env.timers.setTimeout(() => this.finish(p.id), CHIME_MS));
+    c.chime = this.chimeAttempt(() => {
+      if (this.current === c) c.timers.push(this.env.timers.setTimeout(() => this.finish(p.id), CHIME_MS));
+    });
+  }
+
+  /**
+   * Plays the §4.8 chime by the first path that works and logs the attempt once (path, ctx.state before and after,
+   * result): Web Audio when the context runs; otherwise resume() first and play when it resolves with "running";
+   * otherwise (still not running, rejected, or no answer within RESUME_WAIT_MS) the primed element. Never silently
+   * dropped: a chime that no path can play is logged as such. `settled` runs exactly once. Returns a stop function.
+   */
+  private chimeAttempt(settled: () => void): () => void {
+    let stopped = false;
+    let stopSound: () => void = () => undefined;
+    let done = false;
+    const settle = () => {
+      if (done) return;
+      done = true;
+      settled();
+    };
+    const ctx = this.context();
+    const before = ctx ? ctx.state : "none";
+    const log = (path: ChimePath, result: string) => this.log.add({ kind: "chime", path, ctxBefore: before, ctxAfter: ctx ? ctx.state : "none", result });
+    const viaElement = (why: string) => {
+      if (stopped) return settle();
+      const r = this.playElement();
+      if (r.ok) {
+        stopSound = r.stop;
+        log("element", `played (${why})`);
+      } else log("none", `not played (${why}; element: ${r.reason})`);
+      settle();
+    };
+    if (!ctx) {
+      viaElement("no AudioContext");
+    } else if (ctx.state === "running") {
+      stopSound = playChime(ctx);
+      log("webaudio", "played");
+      settle();
+    } else {
+      let waited = false;
+      const timer = this.env.timers.setTimeout(() => {
+        if (waited) return;
+        waited = true;
+        viaElement(`resume() no answer in ${RESUME_WAIT_MS} ms`);
+      }, RESUME_WAIT_MS);
+      const after = (ok: boolean, error?: unknown) => {
+        if (waited) return;
+        waited = true;
+        this.env.timers.clearTimeout(timer);
+        if (stopped) return settle();
+        if (ok && ctx.state === "running") {
+          stopSound = playChime(ctx);
+          log("webaudio", "played after resume()");
+          settle();
+        } else viaElement(ok ? `still ${ctx.state} after resume()` : `resume() rejected: ${errName(error)}`);
+      };
+      try {
+        ctx.resume().then(
+          () => after(true),
+          (e: unknown) => after(false, e),
+        );
+      } catch (e) {
+        after(false, e);
+      }
+    }
+    return () => {
+      stopped = true;
+      stopSound();
+    };
+  }
+
+  /** The chime through the primed element (from the start, unmuted). */
+  private playElement(): { ok: true; stop: () => void } | { ok: false; reason: string } {
+    const entry = this.element;
+    if (!entry) return { ok: false, reason: this.env.createAudio ? "not primed" : "unavailable" };
+    if (entry.state === "failed") return { ok: false, reason: "priming failed" };
+    const el = entry.el;
+    entry.state = "primed"; // a still pending priming must not pause this playback
+    try {
+      el.muted = false;
+      el.currentTime = 0;
+      Promise.resolve(el.play()).catch((e: unknown) => this.log.add({ kind: "chime-error", path: "element", result: `play() rejected (${errName(e)})` }));
+    } catch (e) {
+      return { ok: false, reason: `play() threw (${errName(e)})` };
+    }
+    return {
+      ok: true,
+      stop: () => {
+        try {
+          el.pause();
+          el.currentTime = 0;
+        } catch {
+          // nothing to stop
+        }
+      },
+    };
   }
 }
+
+type ChimePath = "webaudio" | "element" | "none";
+
+const errName = (e: unknown): string => (e instanceof Error ? e.name || e.message : typeof e === "string" ? e : "error");
 
 /** navigation-ux §4.8 chime on `ctx`. Returns a stop function. A missing context plays nothing (still one "chime"). */
 export function playChime(ctx: AudioContext | null): () => void {
@@ -464,4 +666,62 @@ export function playChime(ctx: AudioContext | null): () => void {
   } catch {
     return () => undefined;
   }
+}
+
+const CHIME_PEAK = 0.71;
+const CHIME_RAMP_S = 0.01;
+/** [start s, end s, Hz] of the two tones, after the 10 ms lead the Web Audio path also has. */
+const CHIME_TONES: readonly (readonly [number, number, number])[] = [
+  [0.01, 0.13, 880],
+  [0.15, 0.33, 1_320],
+];
+
+/** The §4.8 chime as samples (−1…1): the same tones, 10 ms linear ramps and peak as playChime(). */
+export function chimeSamples(sampleRate = 44_100): Float32Array {
+  const n = Math.round((CHIME_MS / 1000) * sampleRate);
+  const out = new Float32Array(n);
+  for (const [a, b, hz] of CHIME_TONES) {
+    for (let i = Math.ceil(a * sampleRate); i < Math.min(n, Math.floor(b * sampleRate)); i++) {
+      const t = i / sampleRate;
+      const env = Math.min(1, (t - a) / CHIME_RAMP_S, (b - t) / CHIME_RAMP_S);
+      out[i] = CHIME_PEAK * Math.max(0, env) * Math.sin(2 * Math.PI * hz * (t - a));
+    }
+  }
+  return out;
+}
+
+/** Mono 16-bit PCM WAV bytes. */
+export function encodeWav(samples: Float32Array, sampleRate: number): Uint8Array {
+  const bytes = new Uint8Array(44 + samples.length * 2);
+  const v = new DataView(bytes.buffer);
+  const ascii = (o: number, t: string) => {
+    for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i));
+  };
+  ascii(0, "RIFF");
+  v.setUint32(4, 36 + samples.length * 2, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, 1, true); // mono
+  v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  ascii(36, "data");
+  v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) v.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, samples[i]!)) * 32_767), true);
+  return bytes;
+}
+
+let wavUri: string | null = null;
+
+/** The chime as a `data:audio/wav;base64,…` URI (generated once, ≈ 39 KB of text). */
+export function chimeWavDataUri(): string {
+  if (wavUri) return wavUri;
+  const bytes = encodeWav(chimeSamples(44_100), 44_100);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  wavUri = `data:audio/wav;base64,${btoa(bin)}`;
+  return wavUri;
 }

@@ -1,6 +1,8 @@
 package mn.navmn.app.ui
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -12,22 +14,31 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import mn.navmn.app.BuildConfig
+import mn.navmn.app.R
 import mn.navmn.app.background.BackgroundUi
 import mn.navmn.app.background.battery.BatteryHint
 import mn.navmn.app.background.battery.BatterySettings
 import mn.navmn.app.background.restore.RestoreLauncher
 import mn.navmn.app.location.LocationSource
+import mn.navmn.app.log.CrashLog
 import mn.navmn.app.lockscreen.LockScreenGate
 import mn.navmn.app.map.MapSurface
 import mn.navmn.app.permission.LocationAction
 import mn.navmn.app.permission.PermissionStatus
 import mn.navmn.app.theme.sun.SunTheme
+import mn.navmn.app.ui.screens.CrashReportScreen
+import mn.navmn.app.ui.theme.NavTheme
 import javax.inject.Inject
 
 /**
@@ -88,8 +99,25 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        // B-NAV019-01 diagnostic (debug and demo builds only): the last crash report is shown before the map until closed.
+        val crashLog = CrashLog.of(this)
+        val lastCrash = if (BuildConfig.CRASH_DIAGNOSTICS) crashLog.read() else null
         setContent {
-            NavRoot(
+            var crashReport by remember { mutableStateOf(lastCrash) }
+            val report = crashReport
+            if (report != null) {
+                NavTheme(night = false) {
+                    CrashReportScreen(
+                        report = report,
+                        onCopy = { copyText(report) },
+                        onShare = { shareText(report) },
+                        onClose = {
+                            crashLog.clear()
+                            crashReport = null
+                        },
+                    )
+                }
+            } else NavRoot(
                 vm,
                 mapSurface,
                 PlatformActions(
@@ -132,6 +160,15 @@ class MainActivity : AppCompatActivity() {
                 vm.requireLocation(LocationAction.MY_LOCATION) // NAV-005 AC 8–12 flow; the record is kept (AC 23)
             }
         }
+    }
+
+    private fun copyText(text: String) {
+        getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(getString(R.string.app_name), text))
+    }
+
+    private fun shareText(text: String) {
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+        runCatching { startActivity(Intent.createChooser(send, null)) }
     }
 
     private fun granted(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED

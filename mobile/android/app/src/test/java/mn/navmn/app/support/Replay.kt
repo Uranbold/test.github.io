@@ -114,6 +114,8 @@ class Replay(
     destination: LatLon? = null,
     /** A real requester (live gateway): its synchronous result is delivered right away. */
     private val liveRequester: RouteRequester? = null,
+    /** NAV-021: a usable on-device routing file for the session (GuidanceCore `onDeviceAvailable`). */
+    private val onDeviceAvailable: () -> Boolean = { false },
 ) {
     val clock = VirtualClock()
     val processor = RouteProcessor(parser)
@@ -185,6 +187,7 @@ class Replay(
         },
         onEvent = { events += clock.now to it },
         log = DebugLog { log += it },
+        onDeviceAvailable = onDeviceAvailable,
     )
 
     fun bannerText(b: Banner, l: Lang): String {

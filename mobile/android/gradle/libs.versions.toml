@@ -21,6 +21,10 @@ jna = "5.18.1"
 kotlinMetadata = "2.3.20"
 junit = "4.13.2"
 robolectric = "4.16"
+# NAV-021 (ADR-0017 §2, A1 F1): on-device Valhalla, pinned, used as published (no fork, no patch). Moshi is its own
+# runtime dependency at the same version; the app compiles against it only for the error-envelope adapter.
+valhallaMobile = "0.6.3"
+moshi = "1.15.1"
 androidxTestCore = "1.7.0"
 androidxTestExtJunit = "1.3.0"
 
@@ -57,6 +61,8 @@ junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTestCore" }
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestExtJunit" }
+valhalla-mobile = { module = "io.github.rallista:valhalla-mobile", version.ref = "valhallaMobile" }
+moshi = { module = "com.squareup.moshi:moshi", version.ref = "moshi" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

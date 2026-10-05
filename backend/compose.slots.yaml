@@ -1,0 +1,258 @@
+# NAV-006 slot runtime (ADR-0014): daily rebuild into immutable slots, two service lanes, pointer switch.
+# Contract: docs/architecture/api/openapi.yaml (unchanged). Driven by backend/pipeline/nav_pipeline.py
+# (`make rebuild | rollback | status`); never needed by hand except `up -d gateway` on first install.
+#
+#   docker compose -p <project> --project-directory backend -f backend/compose.slots.yaml \
+#                  [-f infra/staging/compose.staging.yaml ...] --env-file <config> <command>
+#
+# Standalone (not an overlay). backend/compose.yaml stays the NAV-001 dev one-shot stack, unchanged.
+# Same pinned images and scripts as compose.yaml (infra/ci/backend-static-checks.sh compares the pins).
+#
+# Data: everything under NAV_DATA_ROOT (one filesystem, outside the checkout):
+#   cache/  slots/<slot-id>/  lanes/{blue,green,build} -> ../slots/<id>  pointer/{public,verify}/active.json
+#   packs/mn/  NAV-020 offline pack (manifest.json + <slot-id>/*.gz), served by the public gateway at /packs/
+#
+# Services
+#   gateway            public gateway (127.0.0.1:GATEWAY_PORT; Caddy in front on staging). Reads
+#                      pointer/public/active.json on EVERY request (gateway/njs/slot.js): the switch is one
+#                      rename(2), no reload, no restart. No slot yet = 502/404 in the contract's shapes.
+#   gateway-verify     private verify gateway, 127.0.0.1:NAV_VERIFY_PORT only, never on the edge network or in
+#                      Caddy. Reads pointer/verify/active.json. Rate limits off. Profile "verify".
+#   valhalla-<lane>,   service lanes blue and green. /data = lanes/<lane> (a symlink; the mount resolves to
+#   photon-<lane>      one slot when the container is created). Profiles "lane-blue" / "lane-green", so a plain
+#                      `up -d` never starts or recreates a lane by accident.
+#   aux-fetch, tiles-build, valhalla-build, photon-import, build-info
+#                      one-shot builders (profile "build", restart "no"). /data = lanes/build (the partial
+#                      slot); aux-fetch fills cache/ instead.
+#
+# The project name has no default on purpose: `navmn` would collide with the dev stack on a dev machine.
+name: ${NAV_COMPOSE_PROJECT:?set NAV_COMPOSE_PROJECT (staging navmn, dev-container test navmn-nav006)}
+
+x-build-env: &build-env
+  BUILD_HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+  BUILD_THREADS: ${BUILD_THREADS:-}
+  PROTOMAPS_COMMIT: ${PROTOMAPS_COMMIT:-42ffaaa4a85a41bfcb23e43cc0f5b492a5eca123}
+  PHOTON_LANGUAGES: ${PHOTON_LANGUAGES:-mn,en,ru}
+  PHOTON_COUNTRY_CODES: ${PHOTON_COUNTRY_CODES:-}
+  PHOTON_JAVA_OPTS: ${PHOTON_JAVA_OPTS:--Xms256m -Xmx1g}
+  PHOTON_VERSION: "1.3.0"
+  VALHALLA_VERSION: "3.9.0"
+  PLANETILER_VERSION: "0.10.2"
+  TILES_MAXZOOM: ${TILES_MAXZOOM:-14}
+  TILES_BOUNDS: ${TILES_BOUNDS:-}
+  TILES_JAVA_OPTS: ${TILES_JAVA_OPTS:--Xmx3g}
+
+x-scripts: &scripts
+  type: bind
+  source: ./scripts
+  target: /scripts
+  read_only: true
+
+x-build-data: &build-data
+  type: bind
+  source: ${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/build
+  target: /data
+  bind: { create_host_path: false }
+
+x-extra-ca: &extra-ca
+  type: bind
+  source: ${EXTRA_CA_CERT:-./config/empty-ca.pem}
+  target: /run/extra-ca.pem
+  read_only: true
+  bind: { create_host_path: false }
+
+x-valhalla-lane: &valhalla-lane
+  image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
+  entrypoint: ["/bin/bash", "/scripts/valhalla-serve.sh"]
+  # valhalla_service ignores SIGTERM (measured: killed after the 10 s timeout, also behind docker-init) but exits
+  # on SIGINT in < 0.2 s. A lane is stopped only after the grace period, when no request is routed to it.
+  init: true
+  stop_signal: SIGINT
+  environment:
+    VALHALLA_THREADS: ${VALHALLA_THREADS:-}
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8002/status"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 60s
+    start_interval: 1s
+  restart: unless-stopped
+
+x-photon-lane: &photon-lane
+  image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+  entrypoint: ["/bin/bash", "/scripts/photon-serve.sh"]
+  environment:
+    PHOTON_JAVA_OPTS: ${PHOTON_JAVA_OPTS:--Xms256m -Xmx1g}
+    PHOTON_DEFAULT_LANGUAGE: ${PHOTON_DEFAULT_LANGUAGE:-mn}
+    PHOTON_MAX_RESULTS: ${PHOTON_MAX_RESULTS:-20}
+  healthcheck:
+    test: ["CMD", "/bin/bash", "/scripts/http-ok.sh", "2322", "/status"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 90s
+    start_interval: 1s
+  restart: unless-stopped
+
+x-gateway: &gateway
+  image: ${GATEWAY_IMAGE:-ghcr.io/nginxinc/nginx-unprivileged:1.27.4-alpine}
+  healthcheck:
+    test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 10s
+    start_interval: 1s
+  restart: unless-stopped
+
+services:
+  # ------------------------------------------------------------------ public gateway
+  gateway:
+    <<: *gateway
+    ports:
+      - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080"
+    environment:
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+      GATEWAY_ERROR_LOG_LEVEL: ${GATEWAY_ERROR_LOG_LEVEL:-crit}
+      GATEWAY_RATE_LIMIT: ${GATEWAY_RATE_LIMIT:-off}
+      GATEWAY_RATE_ROUTE: ${GATEWAY_RATE_ROUTE:-30r/s}
+      GATEWAY_BURST_ROUTE: ${GATEWAY_BURST_ROUTE:-60}
+      GATEWAY_RATE_SEARCH: ${GATEWAY_RATE_SEARCH:-30r/s}
+      GATEWAY_BURST_SEARCH: ${GATEWAY_BURST_SEARCH:-60}
+      # NAV-020 per-IP "packs" limit for /packs/ (own zone; only when GATEWAY_RATE_LIMIT=on).
+      GATEWAY_RATE_PACKS: ${GATEWAY_RATE_PACKS:-2r/s}
+      GATEWAY_BURST_PACKS: ${GATEWAY_BURST_PACKS:-20}
+      GATEWAY_REAL_IP_FROM: ${GATEWAY_REAL_IP_FROM:-}
+      # Dev-mode fallbacks of the template; unused here because the pointer directory is mounted.
+      VALHALLA_UPSTREAM: 127.0.0.1:9
+      PHOTON_UPSTREAM: 127.0.0.1:9
+      NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+    volumes:
+      - { type: bind, source: ./gateway/nginx.conf, target: /etc/nginx/nginx.conf, read_only: true }
+      - { type: bind, source: ./gateway/templates, target: /etc/nginx/templates, read_only: true }
+      - { type: bind, source: ./gateway/snippets, target: /etc/nginx/snippets, read_only: true }
+      - { type: bind, source: ./gateway/njs, target: /etc/nginx/njs, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/16-rate-limits.sh, target: /docker-entrypoint.d/16-rate-limits.sh, read_only: true }
+      # The DIRECTORY, never the file: a single-file bind mount keeps the old inode after a rename.
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/pointer/public", target: /etc/nginx/slot, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/slots", target: /srv/slots, read_only: true, bind: { create_host_path: false } }
+      # NAV-020 offline pack tree (packs/mn/manifest.json + write-once version directories). The DIRECTORY: the
+      # manifest is replaced by rename(2). Public gateway only; gateway-verify never serves packs.
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/packs", target: /srv/packs, read_only: true, bind: { create_host_path: false } }
+
+  # ------------------------------------------------------------------ private verify gateway (verification only)
+  gateway-verify:
+    <<: *gateway
+    profiles: [verify]
+    ports:
+      - "127.0.0.1:${NAV_VERIFY_PORT:-8089}:8080"
+    environment:
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+      GATEWAY_ERROR_LOG_LEVEL: ${GATEWAY_ERROR_LOG_LEVEL:-crit}
+      GATEWAY_RATE_LIMIT: "off"
+      VALHALLA_UPSTREAM: 127.0.0.1:9
+      PHOTON_UPSTREAM: 127.0.0.1:9
+      NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+    volumes:
+      - { type: bind, source: ./gateway/nginx.conf, target: /etc/nginx/nginx.conf, read_only: true }
+      - { type: bind, source: ./gateway/templates, target: /etc/nginx/templates, read_only: true }
+      - { type: bind, source: ./gateway/snippets, target: /etc/nginx/snippets, read_only: true }
+      - { type: bind, source: ./gateway/njs, target: /etc/nginx/njs, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/16-rate-limits.sh, target: /docker-entrypoint.d/16-rate-limits.sh, read_only: true }
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/pointer/verify", target: /etc/nginx/slot, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/slots", target: /srv/slots, read_only: true, bind: { create_host_path: false } }
+    restart: "no"
+
+  # ------------------------------------------------------------------ service lanes
+  valhalla-blue:
+    <<: *valhalla-lane
+    profiles: [lane-blue]
+    volumes:
+      - *scripts
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/blue", target: /data, read_only: true, bind: { create_host_path: false } }
+
+  photon-blue:
+    <<: *photon-lane
+    profiles: [lane-blue]
+    volumes:
+      - *scripts
+      # Read-write: Photon keeps OpenSearch lock/state files in its index (ADR-0014 §1, the slot's own copy).
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/blue", target: /data, bind: { create_host_path: false } }
+
+  valhalla-green:
+    <<: *valhalla-lane
+    profiles: [lane-green]
+    volumes:
+      - *scripts
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/green", target: /data, read_only: true, bind: { create_host_path: false } }
+
+  photon-green:
+    <<: *photon-lane
+    profiles: [lane-green]
+    volumes:
+      - *scripts
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/green", target: /data, bind: { create_host_path: false } }
+
+  # ------------------------------------------------------------------ one-shot builders (pipeline only)
+  aux-fetch:
+    image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
+    profiles: [build]
+    entrypoint: ["/bin/bash", "/scripts/data-fetch.sh"]
+    command: ["aux"]
+    environment:
+      <<: *build-env
+      NATURAL_EARTH_URL: ${NATURAL_EARTH_URL:-https://naciscdn.org/naturalearth/packages/natural_earth_vector.gpkg.zip}
+      WATER_POLYGONS_URL: ${WATER_POLYGONS_URL:-https://osmdata.openstreetmap.de/download/water-polygons-split-3857.zip}
+      LAND_POLYGONS_URL: ${LAND_POLYGONS_URL:-https://osmdata.openstreetmap.de/download/land-polygons-split-3857.zip}
+      LANDCOVER_URL: ${LANDCOVER_URL:-https://r2-public.protomaps.com/datasets/daylight-landcover.gpkg}
+      QRANK_URL: ${QRANK_URL:-https://qrank.toolforge.org/download/qrank.csv.gz}
+      PGF_ENCODING_URL: ${PGF_ENCODING_URL:-https://wipfli.github.io/pgf-encoding/pgf-encoding.zip}
+      PHOTON_JAR_URL: ${PHOTON_JAR_URL:-https://github.com/komoot/photon/releases/download/1.3.0/photon-1.3.0.jar}
+      PHOTON_JAR_SHA256: ${PHOTON_JAR_SHA256:-a89707c0045e4807b2a1180e132e68e108d998709f48b6c94b98a6e281f571a5}
+      AIRCOMPRESSOR_URL: ${AIRCOMPRESSOR_URL:-https://repo1.maven.org/maven2/io/airlift/aircompressor/0.27/aircompressor-0.27.jar}
+      AIRCOMPRESSOR_SHA256: ${AIRCOMPRESSOR_SHA256:-fdbef3137a28f63bb0cb93487803080ede746a4ec3d421e36c6f0c305c35e5e4}
+      PROTOMAPS_SRC_URL: ${PROTOMAPS_SRC_URL:-https://codeload.github.com/protomaps/basemaps/tar.gz/42ffaaa4a85a41bfcb23e43cc0f5b492a5eca123}
+      PROTOMAPS_SRC_SHA256: ${PROTOMAPS_SRC_SHA256:-f89ff8ee6aff13baf60c83b5e98d3811ddb946cc1089d437c435885395764696}
+      MAVEN_DIST_URL: ${MAVEN_DIST_URL:-https://repo1.maven.org/maven2/org/apache/maven/apache-maven/3.9.11/apache-maven-3.9.11-bin.tar.gz}
+      MAVEN_DIST_SHA512: ${MAVEN_DIST_SHA512:-bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978}
+    volumes:
+      - *scripts
+      - *extra-ca
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/cache", target: /data, bind: { create_host_path: false } }
+    restart: "no"
+
+  tiles-build:
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    profiles: [build]
+    entrypoint: ["/bin/bash", "/scripts/tiles-build.sh"]
+    working_dir: /
+    environment: *build-env
+    volumes: [*scripts, *build-data, *extra-ca]
+    restart: "no"
+
+  valhalla-build:
+    image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
+    profiles: [build]
+    entrypoint: ["/bin/bash", "/scripts/valhalla-build.sh"]
+    environment: *build-env
+    volumes: [*scripts, *build-data]
+    restart: "no"
+
+  photon-import:
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    profiles: [build]
+    entrypoint: ["/bin/bash", "/scripts/photon-import.sh"]
+    environment: *build-env
+    volumes: [*scripts, *build-data]
+    restart: "no"
+
+  build-info:
+    image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
+    profiles: [build]
+    entrypoint: ["python3", "/scripts/build_info.py"]
+    environment: *build-env
+    volumes: [*scripts, *build-data]
+    restart: "no"

@@ -1,7 +1,9 @@
 package mn.navmn.app.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,6 +38,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -49,13 +53,17 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,6 +85,12 @@ import mn.navmn.app.search.reverse.ReverseView
 import mn.navmn.app.typinglock.TypingLockState
 import mn.navmn.app.ui.components.MapIconButton
 import mn.navmn.app.ui.components.MessageCard
+import mn.navmn.app.ui.components.OfflineIndicator
+import mn.navmn.app.preview.points.PointsUi
+import mn.navmn.app.ui.screens.preview.CoordinateCardPointButtons
+import mn.navmn.app.ui.screens.preview.MarkerDescriptions
+import mn.navmn.app.ui.screens.preview.PointActions
+import mn.navmn.app.ui.screens.preview.PointEditor
 import mn.navmn.app.ui.theme.LocalTokens
 import mn.navmn.app.ui.theme.NavType
 import mn.navmn.app.ui.theme.c
@@ -110,6 +124,8 @@ class BrowseActions(
     val onReverseRetry: () -> Unit = {},
     /** A tap on the search field: true → typing allowed; false → the lock card is shown (AC 31). */
     val onSearchFieldTap: () -> Boolean = { true },
+    /** NAV-011 re-focus: the field gained focus with typing allowed (a kept coordinate query shows its option again). */
+    val onSearchFocused: () -> Unit = {},
     val onLockedWhileTyping: () -> Unit = {},
     val onDismissLock: () -> Unit = {},
     val onPassenger: () -> Unit = {},
@@ -117,6 +133,18 @@ class BrowseActions(
     val onSheetStart: (Int) -> Unit = {},
     /** Height of the top bar (search row) in px, for the camera padding (AC 16). */
     val onTopBar: (Int) -> Unit = {},
+    /** NAV-011 AC 7a (D140; ADR-0012 Amendment A3): the typed-coordinate option was selected. */
+    val onCoordinateOption: (LatLon) -> Unit = {},
+    /** NAV-011 C1: bottom edge (root px) of the top group (search row, lock card, results, S1 messages). */
+    val onTopGroup: (Float) -> Unit = {},
+    /** NAV-011 C1: the coordinate card's bounds (root px) and whether it is the wide-window column (P8); null when gone. */
+    val onCardBounds: (Rect?, Boolean) -> Unit = { _, _ -> },
+    /** NAV-011 C1: start edge (root px) of the map-control lane on wide windows; null otherwise. */
+    val onControlLane: (Float?) -> Unit = {},
+    /** NAV-011 AC 7a: the card title took focus after the typed option (one-shot). */
+    val onCardTitleFocused: () -> Unit = {},
+    /** NAV-018: start/destination fields, swap, point editor, coordinate-card buttons, turn list. */
+    val points: PointActions = PointActions(),
 )
 
 data class BrowseModel(
@@ -135,6 +163,14 @@ data class BrowseModel(
     val lock: TypingLockState = TypingLockState(),
     val sheetExpanded: Boolean = false,
     val focusSearch: Int = 0,
+    // NAV-018
+    val points: PointsUi = PointsUi(),
+    /** The point editor's results (the preview fields' own SearchController, ADR-0015 §5). */
+    val fieldView: SearchView = SearchView.Closed,
+    /** NAV-011 AC 7a: move focus to the coordinate card title once (the card opened from the typed option). */
+    val cardTitleFocus: Boolean = false,
+    /** NAV-005 AC 76: waiting for the first showable fix after a my-location press (`location_searching`). */
+    val locating: Boolean = false,
 )
 
 @Composable
@@ -213,6 +249,8 @@ private fun SearchRow(m: BrowseModel, a: BrowseActions) {
                                 if (gained && !a.onSearchFieldTap()) {
                                     keyboard?.hide()
                                     focusManager.clearFocus()
+                                } else if (gained) {
+                                    a.onSearchFocused()
                                 }
                             }
                             .semantics { contentDescription = placeholder },
@@ -235,25 +273,39 @@ private fun SearchRow(m: BrowseModel, a: BrowseActions) {
  * shrinks (and scrolls) so it never runs into the map controls (NAV-005-D5).
  */
 @Composable
-private fun SearchResults(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: Modifier = Modifier) {
+internal fun SearchResults(
+    m: BrowseModel?,
+    strings: Strings,
+    a: BrowseActions,
+    modifier: Modifier = Modifier,
+    // NAV-018 (AC 4): the point editor reuses this card with its own SearchController's view and selection.
+    view: SearchView = m?.searchView ?: SearchView.Closed,
+    onResult: (PlaceDisplay.Info, String) -> Unit = a.onResult,
+    onRetry: () -> Unit = a.onRetrySearch,
+    tag: String = "search-results",
+    sidePadding: androidx.compose.ui.unit.Dp = 16.dp,
+    // NAV-011 D140 (ADR-0012 Amendment A3): selecting the coordinate option. null → the row shows but is not
+    // selectable (transitional, until NAV-018's point editor passes its own handler, D145).
+    onCoordinate: ((LatLon) -> Unit)? = null,
+) {
     val t = LocalTokens.current
-    val v = m.searchView
+    val v = view
     if (v is SearchView.Closed) return
-    Surface(shape = RoundedCornerShape(16.dp), color = t.uiSurface.c(), shadowElevation = 2.dp, modifier = modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)) {
+    Surface(shape = RoundedCornerShape(16.dp), color = t.uiSurface.c(), shadowElevation = 2.dp, modifier = modifier.padding(start = sidePadding, end = sidePadding, bottom = 8.dp)) {
         val listName = stringResource(R.string.search_results)
-        Column(Modifier.heightIn(max = 360.dp).semantics { contentDescription = listName }.testTag("search-results")) {
+        Column(Modifier.heightIn(max = 360.dp).semantics { contentDescription = listName }.testTag(tag)) {
             when (v) {
                 SearchView.Loading -> StateRow(stringResource(R.string.status_loading), progress = true)
                 SearchView.NoResults -> StateRow(stringResource(R.string.search_no_results))
-                SearchView.Unavailable -> StateRow(stringResource(R.string.search_unavailable), retry = a.onRetrySearch)
+                SearchView.Unavailable -> StateRow(stringResource(R.string.search_unavailable), retry = onRetry)
                 SearchView.Error -> StateRow(stringResource(R.string.status_generic_error))
                 SearchView.Offline -> StateRow(stringResource(R.string.status_offline))
-                is SearchView.RateLimited -> StateRow(stringResource(R.string.search_rate_limited), retry = a.onRetrySearch, retryEnabled = v.retryEnabled)
+                is SearchView.RateLimited -> StateRow(stringResource(R.string.search_rate_limited), retry = onRetry, retryEnabled = v.retryEnabled)
                 is SearchView.Results -> LazyColumn {
                     items(v.items) { info ->
                         val name = info.name ?: strings[info.type]
                         Column(
-                            Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { a.onResult(info, name) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                            Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { onResult(info, name) }.padding(horizontal = 16.dp, vertical = 8.dp),
                         ) {
                             Text(name, style = NavType.bodyLarge, color = t.uiOnSurface.c(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val second = listOfNotNull(strings[info.type].takeIf { info.name != null }, info.context).joinToString(" · ")
@@ -262,8 +314,47 @@ private fun SearchResults(m: BrowseModel, strings: Strings, a: BrowseActions, mo
                         HorizontalDivider(color = t.uiOutlineVariant.c())
                     }
                 }
+                is SearchView.Coordinate -> CoordinateOptionRow(v.point, strings, onCoordinate)
                 SearchView.Closed -> Unit
             }
+        }
+    }
+}
+
+/**
+ * NAV-011 AC 7 (D140, D146; screen spec › Components › Coordinate option): the only row for a recognised coordinate
+ * pair: `ic_location_searching`, «Сонгосон цэг» and the coordinates (5 decimals). One merged button node for TalkBack
+ * («Сонгосон цэг, 47.91890, 106.91760», existing strings only). Selectable while the typing lock is engaged (AC 33):
+ * it is a list item, not typing. Selecting hides the keyboard and clears the field focus (AC 7a).
+ */
+@Composable
+private fun CoordinateOptionRow(p: LatLon, strings: Strings, onSelect: ((LatLon) -> Unit)?) {
+    val t = LocalTokens.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    // `place_selected_point` through the app's language strings, so a language switch relabels at once (AC 13).
+    val label = strings[StringKey.PLACE_SELECTED_POINT]
+    val coords = Formatters.coordinates(p.lat, p.lon)
+    val select = if (onSelect == null) Modifier else Modifier.clickable(role = Role.Button) {
+        keyboard?.hide()
+        focusManager.clearFocus()
+        onSelect(p)
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .then(select)
+            .semantics(mergeDescendants = true) { contentDescription = "$label, $coords" }
+            .testTag("search-coordinate-option")
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(R.drawable.ic_location_searching), contentDescription = null, tint = t.uiOnSurfaceVariant.c(), modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Text(label, style = NavType.bodyLarge, color = t.uiOnSurface.c())
+            Text(coords, style = NavType.body.copy(fontFeatureSettings = "tnum"), color = t.uiOnSurfaceVariant.c())
         }
     }
 }
@@ -287,13 +378,22 @@ private fun StatusMessages(m: BrowseModel, a: BrowseActions, modifier: Modifier 
 
 /** S1 map controls (screen spec › Map controls): zoom in, zoom out, north-up (bearing ≠ 0), my location. */
 @Composable
-private fun MapControls(m: BrowseModel, a: BrowseActions, modifier: Modifier = Modifier) {
+private fun MapControls(m: BrowseModel, a: BrowseActions, modifier: Modifier = Modifier, lane: Boolean = false) {
+    // NAV-011 C1: on wide windows the controls are a lane at the end edge; the typed-coordinate camera keeps clear of it.
+    DisposableEffect(lane) { onDispose { if (lane) a.onControlLane(null) } }
+    val report = if (lane) Modifier.onGloballyPositioned { a.onControlLane(it.boundsInRoot().left) } else Modifier
     // Scrolls only if even the controls lane is shorter than the column (never overlaps other controls, D5).
-    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.then(report).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         MapIconButton(R.drawable.ic_add, stringResource(R.string.control_zoom_in), a.onZoomIn)
         MapIconButton(R.drawable.ic_remove, stringResource(R.string.control_zoom_out), a.onZoomOut)
         if (Math.abs(m.bearing) > 0.5) MapIconButton(R.drawable.ic_compass_north, stringResource(R.string.control_north_up), a.onNorthUp)
-        MapIconButton(R.drawable.ic_my_location, stringResource(R.string.marker_my_location), a.onMyLocation, highlighted = m.followingMe)
+        // NAV-005 AC 76 (screen spec): `location_searching` in the following colours while waiting; same description.
+        MapIconButton(
+            if (m.locating) R.drawable.ic_location_searching else R.drawable.ic_my_location,
+            stringResource(R.string.marker_my_location),
+            a.onMyLocation,
+            highlighted = m.followingMe,
+        )
     }
 }
 
@@ -315,13 +415,29 @@ internal fun StateRow(text: String, progress: Boolean = false, retry: (() -> Uni
  * (one `reverse` per card) sits between the coordinates and «Маршрут гаргах», which is usable at once (P6).
  */
 @Composable
-private fun CoordinateCard(p: LatLon, m: BrowseModel, strings: Strings, a: BrowseActions, modifier: Modifier) {
+private fun CoordinateCard(p: LatLon, m: BrowseModel, strings: Strings, a: BrowseActions, modifier: Modifier, previewMode: Boolean = false, wide: Boolean = false) {
     val t = LocalTokens.current
-    Surface(shape = RoundedCornerShape(16.dp), color = t.uiSurface.c(), shadowElevation = 2.dp, modifier = modifier.fillMaxWidth().testTag("coordinate-card")) {
+    // NAV-011 C1: the camera move for the typed option waits for the card's layout and keeps the point clear of it.
+    DisposableEffect(Unit) { onDispose { a.onCardBounds(null, false) } }
+    // NAV-011 AC 7a (screen spec › Accessibility): after the typed option, focus moves to the title (heading) once.
+    val titleFocus = remember { FocusRequester() }
+    LaunchedEffect(m.cardTitleFocus) {
+        if (m.cardTitleFocus) {
+            runCatching { titleFocus.requestFocus() }
+            a.onCardTitleFocused()
+        }
+    }
+    Surface(
+        shape = RoundedCornerShape(16.dp), color = t.uiSurface.c(), shadowElevation = 2.dp,
+        modifier = modifier.fillMaxWidth().testTag("coordinate-card").onGloballyPositioned { a.onCardBounds(it.boundsInRoot(), wide) },
+    ) {
         // Scrolls instead of squeezing «Маршрут гаргах» when the card gets less than its height (NAV-005-D5).
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.place_selected_point), style = NavType.title, color = t.uiOnSurface.c(), modifier = Modifier.weight(1f))
+                Text(
+                    stringResource(R.string.place_selected_point), style = NavType.title, color = t.uiOnSurface.c(),
+                    modifier = Modifier.weight(1f).focusRequester(titleFocus).focusable().semantics { heading() },
+                )
                 IconButton(onClick = a.onCardClose, modifier = Modifier.size(48.dp)) {
                     Icon(painterResource(R.drawable.ic_close), contentDescription = stringResource(R.string.action_close))
                 }
@@ -329,10 +445,15 @@ private fun CoordinateCard(p: LatLon, m: BrowseModel, strings: Strings, a: Brows
             Text(Formatters.coordinates(p.lat, p.lon), style = NavType.body.copy(fontFeatureSettings = "tnum"), color = t.uiOnSurface.c())
             NearestPlaceArea(p, m.reverse, strings, a)
             Spacer(Modifier.height(12.dp))
-            Button(onClick = a.onCardDirections, modifier = Modifier.heightIn(min = 48.dp), colors = ButtonDefaults.buttonColors(containerColor = t.uiPrimary.c(), contentColor = t.uiOnPrimary.c())) {
-                Icon(painterResource(R.drawable.ic_directions), contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.route_get_directions), style = NavType.label)
+            if (previewMode) {
+                // NAV-018 AC 6 (Q6): «Эхлэх цэг болгох» / «Очих газар болгох» instead of «Маршрут гаргах».
+                CoordinateCardPointButtons(a.points)
+            } else {
+                Button(onClick = a.onCardDirections, modifier = Modifier.heightIn(min = 48.dp), colors = ButtonDefaults.buttonColors(containerColor = t.uiPrimary.c(), contentColor = t.uiOnPrimary.c())) {
+                    Icon(painterResource(R.drawable.ic_directions), contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.route_get_directions), style = NavType.label)
+                }
             }
         }
     }
@@ -359,9 +480,25 @@ internal fun PreviewResultRegion(s: PreviewState, lang: Lang, strings: Strings, 
             val plan = r.route.plan // NAV-011: the selected route (AC 17)
             Column(Modifier.testTag("preview-summary")) {
                 RouteNumberLine(r, strings)
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(Formatters.duration(plan.duration, strings), style = NavType.titleLarge, color = t.uiOnSurface.c())
-                    Text(" · " + Formatters.distance(plan.distance, lang, strings), style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c())
+                if (r.route.onDevice) {
+                    // NAV-021 AC 27 (screen spec android-offline-pack F8): the chip after the duration · distance text,
+                    // wrapping to the next line as a whole; TalkBack reads OF25 at the end of this line (one node).
+                    FlowRow(
+                        verticalArrangement = Arrangement.Center,
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.semantics(mergeDescendants = true) { },
+                    ) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(Formatters.duration(plan.duration, strings), style = NavType.titleLarge, color = t.uiOnSurface.c())
+                            Text(" · " + Formatters.distance(plan.distance, lang, strings), style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c())
+                        }
+                        OfflineIndicator(strings, Modifier.padding(start = 8.dp))
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(Formatters.duration(plan.duration, strings), style = NavType.titleLarge, color = t.uiOnSurface.c())
+                        Text(" · " + Formatters.distance(plan.distance, lang, strings), style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c())
+                    }
                 }
                 // NAV-004 AC 25 (NAV-005 AC 6, D6): from the response time, then recomputed every 60 s from the
                 // current clock while the preview stays open (0 requests). Anchored to the response time, so a
@@ -375,7 +512,7 @@ internal fun PreviewResultRegion(s: PreviewState, lang: Lang, strings: Strings, 
                 }
                 val eta = Formatters.eta(etaFromMs, plan.duration, java.time.ZoneId.systemDefault())
                 Text(Formatters.etaText(eta, strings), style = NavType.bodyLarge, color = t.uiOnSurface.c())
-                val snap = plan.snapDistances.lastOrNull() ?: 0.0
+                val snap = plan.snapDistances.maxOrNull() ?: 0.0 // NAV-018 AC 14: the larger of start and destination
                 if (snap > 500.0) {
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -426,44 +563,84 @@ object PreviewEtaClock {
  *    card use the width left of it, so nothing stacks over the controls on a 360 dp high screen.
  */
 @Composable
-fun BrowseOverlay(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: Modifier = Modifier) {
+fun BrowseOverlay(
+    m: BrowseModel,
+    strings: Strings,
+    a: BrowseActions,
+    modifier: Modifier = Modifier,
+    /**
+     * ADR-0016 / NAV-019 UX P2: in a replay build the preview's top area shows only this badge (no search bar, no
+     * typing lock, no results); null everywhere else.
+     */
+    replayBadge: (@Composable (Modifier) -> Unit)? = null,
+) {
     BoxWithConstraints(modifier.fillMaxSize()) {
         val maxH = maxHeight
+        val maxW = maxWidth
         val preview = m.preview
         val wide = maxWidth >= WIDE_MIN_WIDTH || (maxWidth > maxHeight && maxWidth >= WIDE_LANDSCAPE_MIN_WIDTH)
         val sheetW = (maxWidth * 0.4f).coerceIn(320.dp, 400.dp)
         when {
             // NAV-011 P5: wide windows get a side sheet at the start edge, always expanded.
+            // NAV-018: the point editor (Q5) and the coordinate card (Q6) take the sheet's place (hidden, not closed).
             preview != null && wide -> Row(Modifier.fillMaxSize()) {
-                RoutePreviewSheet(
-                    preview, m, strings, a, maxH, wide = true,
-                    Modifier.width(sheetW).fillMaxHeight().padding(start = 8.dp, top = 8.dp, bottom = 8.dp).onGloballyPositioned {
-                        a.onSheetStart(it.size.width)
-                        a.onSheetHeight(0)
-                    },
-                )
-                Column(Modifier.weight(1f)) {
-                    SearchRow(m, a)
-                    TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
-                    SearchResults(m, strings, a)
-                    StatusMessages(m, a)
+                val column = Modifier.width(sheetW).fillMaxHeight().padding(start = 8.dp, top = 8.dp, bottom = 8.dp)
+                val editor = m.points.editor
+                when {
+                    editor != null -> PointEditor(preview, editor, m.fieldView, m.lock, m.focusSearch, strings, a, column.statusBarsPadding().imePadding())
+                    m.card != null -> Column(column, verticalArrangement = Arrangement.Bottom) {
+                        CoordinateCard(m.card, m, strings, a, Modifier, previewMode = true, wide = true)
+                    }
+                    else -> RoutePreviewSheet(
+                        preview, m, strings, a, maxH, wide = true,
+                        column.onGloballyPositioned {
+                            a.onSheetStart(it.size.width)
+                            a.onSheetHeight(0)
+                        },
+                        availableWidth = maxW,
+                    )
+                }
+                Column(Modifier.weight(1f).reportTopGroup(a)) {
+                    if (editor == null && replayBadge != null) {
+                        ReplayBadgeRow(replayBadge, a)
+                        StatusMessages(m, a)
+                    } else if (editor == null) {
+                        SearchRow(m, a)
+                        TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                        SearchResults(m, strings, a, onCoordinate = a.onCoordinateOption)
+                        StatusMessages(m, a)
+                    }
                 }
             }
             preview != null -> {
-                Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
-                    SearchRow(m, a)
-                    TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
-                    SearchResults(m, strings, a)
-                    StatusMessages(m, a)
-                }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-                    RoutePreviewSheet(
-                        preview, m, strings, a, maxH, wide = false,
-                        Modifier.fillMaxWidth().onGloballyPositioned {
-                            a.onSheetHeight(it.size.height)
-                            a.onSheetStart(0)
-                        },
-                    )
+                val editor = m.points.editor
+                if (editor != null) {
+                    PointEditor(preview, editor, m.fieldView, m.lock, m.focusSearch, strings, a, Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().imePadding())
+                } else {
+                    Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().reportTopGroup(a)) {
+                        if (replayBadge != null) {
+                            ReplayBadgeRow(replayBadge, a)
+                        } else {
+                            SearchRow(m, a)
+                            TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                            SearchResults(m, strings, a, onCoordinate = a.onCoordinateOption)
+                        }
+                        StatusMessages(m, a)
+                    }
+                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                        if (m.card != null) {
+                            CoordinateCard(m.card, m, strings, a, Modifier.padding(horizontal = 8.dp, vertical = 8.dp), previewMode = true)
+                        } else {
+                            RoutePreviewSheet(
+                                preview, m, strings, a, maxH, wide = false,
+                                Modifier.fillMaxWidth().onGloballyPositioned {
+                                    a.onSheetHeight(it.size.height)
+                                    a.onSheetStart(0)
+                                },
+                                availableWidth = maxW,
+                            )
+                        }
+                    }
                 }
             }
             wide -> Column(Modifier.fillMaxSize()) {
@@ -471,20 +648,22 @@ fun BrowseOverlay(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: 
                 TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
-                        Column(Modifier.weight(1f, fill = false)) {
-                            SearchResults(m, strings, a, Modifier.weight(1f, fill = false))
+                        Column(Modifier.weight(1f, fill = false).reportTopGroup(a)) {
+                            SearchResults(m, strings, a, Modifier.weight(1f, fill = false), onCoordinate = a.onCoordinateOption)
                             StatusMessages(m, a, Modifier.weight(1f, fill = false))
                         }
-                        m.card?.let { CoordinateCard(it, m, strings, a, Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp)) }
+                        // NAV-011 P8 (D140): a start-edge column of the P5 side-sheet width, for both entry points, so
+                        // the typed-coordinate camera (C1) has free map beside it.
+                        m.card?.let { CoordinateCard(it, m, strings, a, Modifier.width(sheetW).padding(start = 8.dp, top = 8.dp, bottom = 8.dp), wide = true) }
                     }
-                    MapControls(m, a, Modifier.align(Alignment.Bottom).padding(start = 8.dp, end = 16.dp, bottom = 16.dp))
+                    MapControls(m, a, Modifier.align(Alignment.Bottom).padding(start = 8.dp, end = 16.dp, bottom = 16.dp), lane = true)
                 }
             }
             else -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f, fill = false)) {
+                Column(Modifier.weight(1f, fill = false).reportTopGroup(a)) {
                     SearchRow(m, a)
                     TypingLockCard(m.lock, a, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
-                    SearchResults(m, strings, a, Modifier.weight(1f, fill = false))
+                    SearchResults(m, strings, a, Modifier.weight(1f, fill = false), onCoordinate = a.onCoordinateOption)
                     StatusMessages(m, a, Modifier.weight(1f, fill = false))
                 }
                 Column(Modifier.fillMaxWidth()) {
@@ -493,8 +672,24 @@ fun BrowseOverlay(m: BrowseModel, strings: Strings, a: BrowseActions, modifier: 
                 }
             }
         }
+        // NAV-018 AC 8: the markers' TalkBack descriptions (MapLibre symbols are not accessible).
+        if (preview != null) MarkerDescriptions(preview, strings, Modifier.align(Alignment.TopStart))
     }
 }
+
+/**
+ * NAV-019 UX P2 badge pill: top-left, 8 dp below the status bar, 16 dp from the start edge. Its height is the top bar
+ * of the camera fit (UX layout rule P6: the badge + 40 dp).
+ */
+@Composable
+private fun ReplayBadgeRow(badge: @Composable (Modifier) -> Unit, a: BrowseActions) {
+    Box(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp).onGloballyPositioned { a.onTopBar(it.size.height) }) {
+        badge(Modifier.align(Alignment.TopStart))
+    }
+}
+
+/** NAV-011 C1: reports the bottom edge of the top group (root px) for the typed-coordinate camera. */
+private fun Modifier.reportTopGroup(a: BrowseActions): Modifier = onGloballyPositioned { a.onTopGroup(it.boundsInRoot().bottom) }
 
 /** Window width from which the browse overlay uses the side lane for the map controls. */
 private val WIDE_MIN_WIDTH = 600.dp

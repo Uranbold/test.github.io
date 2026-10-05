@@ -1,6 +1,6 @@
 # Screen: Web demo mode — route picker, simulated guidance and arrival (NAV-017)
 
-- **Stories:** NAV-017 (AC 1–49; UI-relevant AC 8–41, 43). Traceability per AC at the end. PO decisions D71–D75 (2026-10-01).
+- **Stories:** NAV-017 (AC 1–49; UI-relevant AC 8–41, 43). Traceability per AC at the end. PO decisions D71–D75 (2026-10-01); demo folder public without a password with `noindex` (D107, 2026-10-03; D17 does not cover the demo, D116, 2026-10-04).
 - **Platforms:** Web (`web/`, MapLibre GL JS), **demo-mode build only**. Target: **iPhone Safari, current major iOS** (D72), plus the NAV-002 browser set. Automated tests: desktop Chromium and, where the container can run it, Playwright WebKit with iPhone descriptors (AC 47). The rest of the web demo stays as specified (D14).
 - **Base screens:** [`NAV-002-web-map.md`](NAV-002-web-map.md) (map, NAV-002 controls, messages, attribution, static demo) and [`NAV-004-route-preview.md`](NAV-004-route-preview.md) (route slot, sheet, route line and markers, content rules). Guidance rules: [`navigation-ux.md`](../navigation-ux.md) §2–4, §7–8 and **§11 (web demo-mode replay, new in v0.5)**. Everything this spec does not change stays as specified there.
 - **Flow:** [`flows/NAV-017-web-demo-mode.md`](../flows/NAV-017-web-demo-mode.md) (F0 hosting, F1 open, F2 pick, F3 start, F4 replay states, F5 voice and chime, F6 arrival, F7 language, theme, rotation, network).
@@ -10,7 +10,7 @@
 - **Instruction and voice text:** ADR-0008 client templates (`web/src/route/instructions.ts`, unchanged) for the banner; the navigation-ux §4.1 voice generator ported from Android (AC 24). Valhalla text is never shown or spoken (AC 18).
 
 ## Purpose
-Let the PO (and the team members the PO chooses, D74) open a password-protected page on an iPhone, pick one of three recorded Ulaanbaatar routes and watch the guidance the product will give, exactly as a driver would see and hear it: a moving puck, the Mongolian banner and distance, voice or a chime, recenter and arrival. A visible «Туршилтын горим» badge makes clear that the position is simulated.
+Let the PO (and the people the PO shares the link with) open the demo page on an iPhone (a public folder with `noindex`, no password: D107, D116), pick one of three recorded Ulaanbaatar routes and watch the guidance the product will give, exactly as a driver would see and hear it: a moving puck, the Mongolian banner and distance, voice or a chime, recenter and arrival. A visible «Туршилтын горим» badge makes clear that the position is simulated.
 
 ## Screens in this spec
 | ID | Screen / surface | Pattern | Main AC |
@@ -20,7 +20,7 @@ Let the PO (and the team members the PO chooses, D74) open a password-protected 
 | D3 | Arrival | D2 with the arrival panel | 32–34 |
 | — | NAV-002 states before the picker (loading, tiles unavailable, offline) | NAV-002, unchanged | 8, 40 |
 
-The browser's password prompt and the host's 401 page are not our UI (story edge cases).
+There is no password prompt: the demo folder is public, and `noindex` (AC 3) plus the «Туршилтын горим» badge (AC 14) mark it as a test (D107, D116). The host's own error pages are not our UI.
 
 ## Layout
 

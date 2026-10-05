@@ -4,7 +4,8 @@
 # Paths (override in the environment for tests):
 #   NAV_ROOT       git checkout at a pinned tag                    (default: two levels above this file)
 #   NAV_ENV_FILE   the ONE staging config file, never in git       (default: $NAV_ROOT/infra/staging/.env)
-#   NAV_STATE_DIR  heartbeat/rebuild state, rollback copy          (default: /var/lib/nav)
+#   NAV_STATE_DIR  heartbeat/deploy state                         (default: /var/lib/nav)
+# NAV-006 data (slots, cache, pointer) lives in NAV_DATA_ROOT from infra/staging/.env (default /var/lib/nav/data).
 # Logs: one JSON object per line on stdout/journald. Only URLs of public sources, sizes, durations and exit
 # codes; never client data, never secrets (push URLs and passwords are not printed).
 
@@ -71,6 +72,10 @@ nav_validate_env() {
     [[ -n "$email" ]] || nav_die "ACME_EMAIL is empty in infra/staging/.env (use a role mailbox)"
     [[ -n "$cors" ]] || nav_die "CORS_ALLOWED_ORIGINS is empty in infra/staging/.env"
     [[ "$cors" != *"*"* ]] || nav_die "CORS_ALLOWED_ORIGINS must not contain '*' on staging (NAV-008 AC 11)"
+    local root
+    root=$(nav_data_root)
+    [[ "$root" == /* ]] || nav_die "NAV_DATA_ROOT in infra/staging/.env must be an absolute path (default /var/lib/nav/data)"
+    case "$root/" in "$NAV_ROOT"/*) nav_die "NAV_DATA_ROOT must be outside the git checkout (deploys must never touch data)" ;; esac
     local lvl
     lvl=$(nav_env_get GATEWAY_ERROR_LOG_LEVEL crit)
     [[ "$lvl" == crit || "$lvl" == alert || "$lvl" == emerg ]] \
@@ -91,11 +96,41 @@ nav_ipv6_enabled() {
 # Compose project name (volume and container prefix). Environment wins over infra/staging/.env; default navmn.
 nav_project() { printf '%s' "${NAV_COMPOSE_PROJECT:-$(nav_env_get NAV_COMPOSE_PROJECT navmn)}"; }
 
-# nav_compose <compose args...>: the staging compose invocation (base file + overlay(s) + staging .env).
+# NAV-006 (ADR-0014 §1): slot root on the host. NAV_COMPOSE_PROJECT and NAV_DATA_ROOT must be in the .env file
+# itself, because compose.slots.yaml interpolates them from --env-file.
+nav_data_root() { nav_env_get NAV_DATA_ROOT /var/lib/nav/data; }
+
+# Overlay files on top of backend/compose.slots.yaml, relative to the checkout (also exported to the pipeline as
+# NAV_COMPOSE_OVERLAYS, so pipeline and deploy use the same compose model).
+nav_overlays() {
+    local o="infra/staging/compose.staging.yaml"
+    if nav_ipv6_enabled; then o+=" infra/staging/compose.staging.ipv6.yaml"; fi
+    printf '%s' "$o"
+}
+
+# Create the directories compose.slots.yaml bind-mounts (create_host_path is off on purpose).
+nav_ensure_data_root() {
+    local root
+    root=$(nav_data_root)
+    install -d -m 755 "$root" "$root/slots" "$root/lanes" "$root/cache" "$root/pointer" \
+        "$root/pointer/public" "$root/pointer/verify" "$root/runs" "$root/packs"
+}
+
+# nav_compose <compose args...>: the staging compose invocation (NAV-006 slot runtime + overlay(s) + staging .env).
 nav_compose() {
-    local files=(-f "$NAV_ROOT/backend/compose.yaml" -f "$NAV_STAGING/compose.staging.yaml")
-    if nav_ipv6_enabled; then files+=(-f "$NAV_STAGING/compose.staging.ipv6.yaml"); fi
+    local files=(-f "$NAV_ROOT/backend/compose.slots.yaml") o
+    for o in $(nav_overlays); do files+=(-f "$NAV_ROOT/$o"); done
     docker compose -p "$(nav_project)" --project-directory "$NAV_ROOT/backend" "${files[@]}" --env-file "$NAV_ENV_FILE" "$@"
+}
+
+# Lane (blue|green) of the active slot from the NAV-006 pointer, or nothing when no slot is active yet.
+nav_active_lane() {
+    python3 - "$(nav_data_root)/pointer/public/active.json" <<'PY' 2>/dev/null || true
+import json, sys
+p = json.load(open(sys.argv[1]))
+if p.get("lane") in ("blue", "green"):
+    print(p["lane"])
+PY
 }
 
 # nav_push_url_problem <url>: prints why a push URL cannot reach Uptime Kuma; prints nothing when it is usable.

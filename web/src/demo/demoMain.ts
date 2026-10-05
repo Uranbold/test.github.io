@@ -125,6 +125,7 @@ export class DemoController {
       speechSynthesis: "speechSynthesis" in window ? window.speechSynthesis : undefined,
       SpeechSynthesisUtterance: typeof SpeechSynthesisUtterance === "function" ? SpeechSynthesisUtterance : undefined,
       AudioContext: window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext,
+      createAudio: typeof Audio === "function" ? (src) => new Audio(src) : undefined,
       timers: { setTimeout: (f, ms) => window.setTimeout(f, ms), clearTimeout: (h) => window.clearTimeout(h as number) },
       storage: safeStorage(),
     });
@@ -429,7 +430,10 @@ export class DemoController {
     if (!r || !r.state) return;
     this.view.render(r.core.state(), performance.now());
     // After arrival the queue may still play the arrival prompt (≤ 3 s wait); then the replay clock stops (AC 33).
-    if (r.arrivedAt !== null && (r.core.queue.closed || r.engine.clock.elapsedMs() - r.arrivedAt > ARRIVAL_TAIL_MS)) r.engine.stop();
+    if (r.arrivedAt !== null && (r.core.queue.closed || r.engine.clock.elapsedMs() - r.arrivedAt > ARRIVAL_TAIL_MS)) {
+      r.engine.stop();
+      this.audio.endReplay(); // the arrival prompt is done: stop the silent keep-alive
+    }
   }
 
   private covered(): Covered {
@@ -520,6 +524,7 @@ export class DemoController {
     r.engine.stop();
     r.core.end();
     this.audio.stop();
+    this.audio.endReplay();
     this.wakeLock.release();
     document.removeEventListener("visibilitychange", this.onVisibility);
     document.removeEventListener("pointerdown", this.onAnyTap, true);

@@ -95,6 +95,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | `search.reverse` (NAV-011) | `ReverseClient` (`GET /v1/reverse`, 6 decimals, `limit=1`, `radius=0.5`), `ReverseController` (one request per coordinate card, own 429 cooldown) | ADR-0012 §4, AC 8–13 |
 | `route.alternatives` (NAV-011) | `PreviewRoutes` (k routes, each parsed from a single-route slice into the unchanged NAV-005 pipeline), `AlternativeHitTest` (48 dp tap box) | ADR-0012 §5, AC 14–21 |
 | `typinglock` (NAV-011) | `FixSpeed`, `TypingLockRule` (pure), `PlatformLockFixSource` (own 1 Hz GPS listener, S1/S3 foreground only), `PassengerOverride` (process memory only), `TypingLockController` | ADR-0012 §7, AC 27–37 |
+| `routing` (NAV-021) | on-device routing: online-first fallback, `:routing` bound service with `valhalla-mobile`, installed-pack reader, "offline" indicator (section 8) | ADR-0017 §2, §5 |
 
 Pure packages have no Android or Ferrostar types; all time is injected.
 
@@ -216,3 +217,271 @@ Tester checklist (record the model, OS version and date in the table above once 
 Real lock-screen behaviour and unlock prompts, OEM killers, the system's sticky restart, Bluetooth output and
 first-word clipping, cellular and VoIP calls, ducking, a real sunset theme switch, notification rendering on OEM skins
 and battery use: all need a real Android phone. JVM/Robolectric tests cover the pure rules and the Android glue.
+
+## 7. Demo build (NAV-019)
+
+A separate build of the real app for the PO's own phone. It needs **no server**: it replays the three recorded
+Ulaanbaatar routes of the web demo (NAV-017) through the real guidance engine, with a simulated position along the
+recorded track. Everything else is the production code path: banner, Android TTS voice or the D23 chime with notice A1,
+the foreground-service notification «Замчлал», the lock screen, Bluetooth audio and phone-call handling. Story
+[NAV-019](../../docs/requirements/stories/NAV-019-android-demo-mode.md), design
+[ADR-0016](../../docs/architecture/adr/0016-android-demo-mode.md), UX
+[screen spec](../../docs/design/screens/android-demo-picker.md).
+
+> **Distribution (D17).** The demo APK goes **only to the PO, by direct file transfer** (USB cable, or `adb`). It is
+> never put on the public website, in a store, or behind any download link.
+
+The orchestrator defaults R1–R7 behind this build are **proposed defaults, PO to confirm** (story Open questions 1–8),
+not PO decisions. Two of them affect what you see:
+
+- **Location permission (Open question 6, option (b) implemented).** At the first «Эхлэх» the app asks for location
+  exactly like the real app, and location services must be on. The reason: on Android 14+ a foreground service of type
+  `location` needs that permission. The demo **never reads a real fix**: the position on the map is always the
+  simulated one, and the phone's GPS is never used.
+- **Speed 1× with a pause (Open question 4, option (a)).** «Түр зогсоох» pauses the replay and «Үргэлжлүүлэх» resumes it.
+  2× and 4× exist in the replay code and its tests, but the UI offers no speed choice, because NAV-017 has none and a
+  speed label would need a new glossary term.
+
+### 7.1 Build
+
+The demo build is the Gradle build type `demo`. It installs next to the debug app with the application ID
+`mn.navmn.app.demo`. It is signed with your local debug key (`~/.android/debug.keystore`, which is never committed), is
+not debuggable and is not minified. Its launcher label is «Туршилтын горим» ("Demo mode"), and its icon has an amber
+background. It needs **exactly one** basemap source:
+
+| Property (or environment variable, or `gateway.local.properties` key) | Meaning |
+|---|---|
+| `nav.demoTilesFile` (`NAV_DEMO_TILES_FILE`) | Absolute path to a local PMTiles v3 archive. It is copied into the APK, so the app works offline, also in airplane mode. **Recommended.** |
+| `nav.demoTilesUrl` (`NAV_DEMO_TILES_URL`) | An `https://` PMTiles URL, for example on the PO's static site. The phone then needs a network for the map. |
+
+```bash
+cd mobile/android
+./gradlew :app:assembleDemo -Pnav.demoTilesFile=<path-to>.pmtiles
+# or: ./gradlew :app:assembleDemo -Pnav.demoTilesUrl=https://<host>/<path>.pmtiles
+# APK: app/build/outputs/apk/demo/app-demo.apk
+```
+
+Never commit the archive, the APK or either property value. The repository holds placeholders only (AC 41).
+`gateway.local.properties` is git-ignored, so you can put `nav.demoTilesFile=<path-to>.pmtiles` there instead of the
+command line. If neither property is set, any demo task stops in `preDemoBuild` with one message that names both
+properties and points here (`checkDemoTiles`). `assembleDebug`, `assembleRelease` and `testDebugUnitTest` never need
+them.
+
+**Archive.** Use a Ulaanbaatar extract that covers R1–R3 with some margin. Make it with the `pmtiles` CLI (go-pmtiles,
+BSD-3-Clause) from the Mongolia archive, for example
+`pmtiles extract <mongolia>.pmtiles <ub-demo>.pmtiles --bbox=106.80,47.83,107.05,47.98`. Measured on 2026-10-04 with the
+local test archive used for the quick check (bbox 106.55,47.72 to 107.25,48.12, zoom 0–14): **6,293,133 bytes
+(6.0 MiB)**. The archive sits twice on the phone: once inside the APK, once in app storage (see 7.3).
+
+**What the build packages (AC 4).** The Gradle task `syncDemoAssets` runs for the demo build type only. It copies the
+following byte for byte from their repo paths:
+
+- `web/src/demo/routes.manifest.json` to `demo/routes.manifest.json`;
+- the route JSON and the GPX track of every `picker: true` entry to `demo/files/<repo path>` (R1 = G1, R2 = G5,
+  R3 = G8; G4 and the off-route G2 are not offered);
+- the archive to `demo/basemap.pmtiles`.
+
+It validates the manifest, the routes and the tracks. Nothing is copied under `mobile/`.
+
+**Code (AC 5).**
+
+| Location | Contents |
+|---|---|
+| `app/src/replay/java` (package `mn.navmn.app.demo.replay`) | Pure Kotlin: track parser, replay clock, the simulated `LocationSource`, the voice pause gate, the network block, tile copy, route catalogue. Compiled into the demo build and into the debug unit tests. |
+| `app/src/demo` (package `mn.navmn.app.demo`) | Android parts: the `ReplayVariant` binding, wake lock, picker and pause UI, strings `demo_mode` / `demo_pause`, the launcher colour, the manifest overlay. |
+| `src/main` | Only the generic optional binding `mn.navmn.app.variant.ReplayVariant`. When it is absent (debug, release, every existing test), every call site keeps today's path. |
+
+Debug and release APKs contain no `mn.navmn.app.demo` class, no `demo/` asset, no GPX file and no `.pmtiles` file.
+
+**Tests.** The replay code is tested in `testDebugUnitTest`. The demo build type has a unit-test variant only when
+`nav.demoTilesFile` is set, so `./gradlew test`, `check` and `build` need no demo property. With it,
+`./gradlew :app:testDemoUnitTest -Pnav.demoTilesFile=<path-to>.pmtiles` runs only the demo-specific tests in
+`app/src/testDemo` (the NAV-019 startup regression test), not the whole `src/test` suite.
+
+### 7.2 Install on the PO's phone
+
+1. Copy `app-demo.apk` to the phone by direct file transfer (USB cable to the phone's Download folder). Alternatively,
+   with USB debugging on, run `adb install -r app/build/outputs/apk/demo/app-demo.apk`.
+2. On the phone, open the APK in the Files app. The first time, Android asks you to allow installs from this app. Go to
+   **Settings › Apps › Special app access › Install unknown apps**, select the Files app (or the app you opened the APK
+   with) and turn on **Allow from this source**. The names vary by phone maker. Then go back and tap **Install**.
+3. The demo build installs **next to** the debug build: two icons, "Газрын зураг" and «Туршилтын горим» (amber icon).
+   Uninstalling one never touches the other.
+4. Afterwards you may switch "Allow from this source" off again.
+
+### 7.3 What the demo does differently (and what that means for the test)
+
+- **Start screen.** The route picker «Туршилтын горим» lists R1–R3. Tap an entry to open the normal route preview with
+  «Маршрутын заавар». «Эхлэх» is enabled although the start is not your position. Settings «Тохиргоо» is the gear on
+  the picker.
+- **No network at all.** An in-process block sits first on the app's only HTTP client, and MapLibre gets a client that
+  refuses every request, so 0 requests leave the phone. Search in the point editor, a long-press address, a new route
+  (another mode, swap, changed points) and any reroute show their normal "unavailable" or «Интернэт холболт алга»
+  states. The base URL is the fixed loopback discard address `https://127.0.0.1:9`, which is never contacted.
+- **Tiles.** MapLibre 13.6.1 cannot read byte ranges from APK assets (upstream issue #4360; the fix is not in a
+  release yet). On first launch, the app therefore copies the archive once into no-backup app storage and opens it as
+  **`pmtiles://file://<absolute path>`**. While it copies, «Ачаалж байна…» shows. A broken archive shows
+  «Газрын зургийг ачаалж чадсангүй» with «Дахин оролдох», and the list keeps working.
+- **Background.** The replay keeps running with the screen off, after Home and after a swipe-away. To keep its timing it
+  holds a partial wake lock while it runs; it releases it on pause, arrival and end. The real app relies on GPS
+  wake-ups instead, so **screen-off battery drain in the demo does not predict production**.
+- **Process death.** No restore record is written. If the OEM kills the app during a replay, the next launch shows the
+  picker, and nothing about the replay is kept (Open question 8, default).
+- **End of track.** If a track ends without arrival, the app ends guidance 2 s later as if «Дуусгах» was tapped.
+
+### 7.4 PO phone checklist (AC 43)
+
+Fill in one row per item: pass, fail, or a note. Skipped items stay "not verified".
+
+| # | Check | Result (pass / fail / note) |
+|---|---|---|
+| a | Phone model and Android version. The TTS engine set in **Settings › Text-to-speech output** (or the phone's equivalent), and whether a Mongolian voice is listed (input for NAV-007 AC 9). Also the screen size in dp (Developer options › Smallest width) and the font size | |
+| b | R1 in the Mongolian UI: banner texts readable; either Mongolian speech, or notice A1 «Энэ утсанд монгол дуут заавар ажиллахгүй байна. Заавар зөвхөн дэлгэцэнд харагдана.» and an audible chime per prompt | |
+| c | R1 in the English UI (Settings › «Хэл» › English): English speech heard | |
+| d | R2 (walk) with the phone locked: lock-screen view with the badge, notification content and actions («Дуусгах», voice toggle), «Туршилтын горим» in the notification header | |
+| e | R3 with the screen off for the whole replay: prompts heard; the replay ends within 787 s ± 15 s of «Эхлэх» | |
+| f | Swipe the app away from Recents during a replay: guidance and the notification continue | |
+| g | Bluetooth car audio or headset: the first word of 5 prompts in a row is audible | |
+| h | A phone call during a replay: no prompt during the call, one catch-up prompt after it; the replay keeps running | |
+| i | Battery saver on, and the battery hint on the preview. Does the replay survive? If the app was killed: the next launch shows the picker | |
+| j | Airplane mode, R1 from «Эхлэх» to arrival: map, banner, voice or chime, notification and arrival all work | |
+| k | «Түр зогсоох» and «Үргэлжлүүлэх» (also over the lock screen): no prompt and no «GPS дохио тасарлаа» while paused, no repeated prompt after resuming; «Дуусгах»; arrival «Хаах» returns to the picker | |
+| l | The debug build still opens and works after installing the demo build. Both launcher icons look different (colour and label) | |
+| m | First launch: how long «Ачаалж байна…» showed while the map was copied (target ≤ 30 s) | |
+| n | TalkBack on the picker: an entry is read as start, destination, mode, distance and duration | |
+
+### 7.5 Not verified in this environment
+
+There is no emulator or device here. Only the JVM tests, lint and the APK inspection ran. These are verified only by
+the PO's phone test above:
+
+- MapLibre drawing `pmtiles://file://` on a device, and the copy time;
+- real TTS and whether a Mongolian voice exists;
+- the notification and lock-screen behaviour, Bluetooth and calls;
+- the wake lock under Doze and OEM battery savers;
+- the Android 14+ foreground-service prerequisites at runtime;
+- TalkBack, and the layout on the PO's screen size.
+
+## 8. On-device routing and reroute (NAV-021, ADR-0017 §2, §4, §5)
+
+Story [NAV-021](../../docs/requirements/stories/NAV-021-android-on-device-routing-reroute.md), task list
+[NAV-021](../../docs/architecture/tasks/NAV-021-android-on-device-routing-reroute.md). The engine is
+`io.github.rallista:valhalla-mobile:0.6.3` (Maven Central, MIT; AAR SHA-256 `ac6d7023…eb11cde`, the artefact recorded
+in ADR-0017 A1 F1), used as published. **Without an installed routing file nothing changes**: every request goes to
+the gateway exactly as before and the `:routing` process is never started (AC 13, 30). NAV-022 will install routing
+files; until then only the debug provisioning below does.
+
+### 8.1 Code map
+
+| Where (`app/src/main/java/mn/navmn/app/`) | What | AC |
+|---|---|---|
+| `routing/InstalledRouting.kt` | `PackFiles` reads the `routing` entry of `noBackupFilesDir/packs/active.json` (NAV-022 task file §1 format); `GraphBuilderAllowList` = `["valhalla 3.9.0"]` | 3, 29 |
+| `routing/OnlineFirstPolicy.kt` | no validated network → device at once; 3.0 s header budget; 60 s stickiness after a timeout / connection failure, ended early by a newly validated network; 429 window (`Retry-After`, 5 s default) | 8–12 |
+| `routing/FallbackRouteRequester.kt` | the route transport for the preview, reroutes and the NAV-012 restore: gateway first, cancelled and answered on the device in the same attempt on a connection failure, 502/503/504, 429 or no headers within 3.0 s; authoritative answers are final | 9–14 |
+| `routing/OnDeviceRouteRequester.kt` | sends `RouteBody.json(request)` (the exact ADR-0009 §2 body) to the engine; the OSRM bytes go through the unchanged classification → keyed rewrite → Ferrostar parser; `OnDeviceClassifier` (AC 6 table) | 5, 6 |
+| `routing/OnDeviceRouting.kt` | app-wide state: installed file, version pinned per guidance session, crash health (3 deaths / 10 min), `BIND_IMPORTANT` while guiding, pre-bind on network loss, unbind on memory pressure | 17, 21, 24, 26 |
+| `routing/ipc/` | `IOnDeviceRouting.aidl` (in `src/main/aidl`), `BoundRoutingEngine` (bind, `linkToDeath`, 10 s budget with `poll`, kill + rebind after a timeout), `RoutingWire` (answer frame through a pipe, never in a binder reply) | 4, 22, 23, 25 |
+| `routing/service/` | `OnDeviceRoutingService` (`android:process=":routing"`), `EngineHost` (one engine per routing-file version), `OnDeviceConfig` (AAR `default.json` + exactly the A1 item 5 overrides), `ValhallaEngine` (`Valhalla(configPath, moshi).routeRaw`), `ValhallaErrors` (code table = backend Gate 2) | 4, 6, R3 |
+| `NavApplication.kt`, `routing/ProcessRole.kt` | in `:routing` the application returns before Hilt, crash diagnostics and the replay variant | 4 |
+| `ui/components/OfflineIndicator.kt` | OF24 chip on the preview summary (and once after «Маршрут сонгох»), icon-only in the guidance progress panel; TalkBack name OF25 | 27, 28 |
+| `src/debug/.../routing/debug/` | debug-only provisioning, benchmark and `kill` command (`RoutingDebugReceiver`, protected by `android.permission.DUMP` = adb shell) | 1, 3, 34 |
+
+Moshi note: `valhalla-mobile`'s default Moshi uses `KotlinJsonAdapterFactory`, which needs `kotlin-reflect`; Gradle
+resolves it to 1.8.21 (from `moshi-kotlin` 1.15.1), older than the library's own Kotlin 2.2 metadata. The app passes a
+Moshi with an explicit adapter for the library's error envelope, so no Kotlin reflection runs. The dependency graph is
+left as published (nothing excluded).
+
+### 8.2 Debug provisioning of a routing file (AC 3)
+
+Needs a debug build, a phone with USB debugging and a local `routing.tar` that is **never committed**: for example a
+read-only copy of the dev stack's `backend/data/valhalla/valhalla_tiles.tar` (built by Valhalla 3.9.0, so
+`graph_builder` = `valhalla 3.9.0`). Do not stop or rebuild the shared dev stack for this.
+
+```bash
+PKG=mn.navmn.app.debug
+V=20261004T193412Z                      # any slot-ID-shaped version (^[0-9]{8}T[0-9]{6}Z$)
+R="adb shell am broadcast -a mn.navmn.app.debug.ROUTING -n $PKG/mn.navmn.app.routing.debug.RoutingDebugReceiver"
+adb push routing.tar /data/local/tmp/routing.tar
+adb shell run-as $PKG mkdir -p no_backup/packs/$V
+adb shell run-as $PKG cp /data/local/tmp/routing.tar no_backup/packs/$V/routing.tar
+#   if run-as cannot read /data/local/tmp on the phone, stream it instead:
+#   adb exec-in run-as $PKG sh -c "cat > no_backup/packs/$V/routing.tar" < routing.tar
+adb shell rm /data/local/tmp/routing.tar
+$R --es cmd provision --es version $V    # writes no_backup/packs/active.json (NAV-022 format)
+$R --es cmd status                       # installed=<V>; available=true; deaths=0
+$R --es cmd remove                       # back to today's behaviour (no routing file)
+```
+
+A `graph_builder` outside the allow-list is refused (`--es graph_builder "valhalla 3.10.0"` → `refused`). Release
+builds contain none of this: check with
+`$ANDROID_HOME/build-tools/36.0.0/dexdump app/build/outputs/apk/release/app-release-unsigned.apk | grep -c 'mn/navmn/app/routing/debug'`
+(must print 0) and `aapt2 dump xmltree --file AndroidManifest.xml <apk> | grep -c RoutingDebugReceiver` (0).
+
+### 8.3 Device procedure for the PO's phone (AC 1, 4, 9, 15, 16, 22, 26, 34)
+
+Nothing in this section ran in the build environment (no device, no emulator, no `/dev/kvm`). Phone: the PO's Xiaomi
+Redmi Note 8 Pro (Android 11, MIUI 12.5, Helio G90T, 6 GB). By the story's Terms this phone is neither benchmark
+class (mid-range = released 2022+, Android 12+; low-end = 3–4 GB RAM), so the benchmark is run with both threshold
+columns and the report names the phone. The other class stays **not verified** until the PO supplies a phone (OQ3).
+MIUI: allow "Install via USB" and "USB debugging (Security settings)" in Developer options, and set the app's battery
+saver to "No restrictions" for the 30-minute run.
+
+1. **Build and install:** `./gradlew :app:assembleDebug` and `adb install -r app/build/outputs/apk/debug/app-debug.apk`,
+   then provision a routing file (8.2). The benchmark entry is debug-only; the engine is the same native library as in
+   release (only the Kotlin side is debuggable), so the debug build stands in for the "release-like" build of AC 34.
+2. **Benchmark (AC 34, AC 1 first deliverable):** open the app (foreground), then
+   `$R --es cmd benchmark --es class mid` and again with `--es class low`. Read the report with
+   `adb logcat -d -s navmn.routing.bench` or `adb pull /sdcard/Android/data/$PKG/files/routing-benchmark.txt`. Per route
+   (P1 → P3, UB → Darkhan, Choibalsan → Ölgii) it gives the cold time (the `:routing` process is ended first, so it
+   includes bind, engine build and tar open), warm p50 / p95 over 15 requests, the response size and SHA-256 prefix,
+   the `:routing` peak PSS, and PASS / FAIL against the chosen column. Also record
+   `adb shell dumpsys meminfo $PKG:routing` right after the run. Send the report to the orchestrator before any
+   section C–F change is merged (AC 1); a FAIL goes to the PO with the measured values.
+3. **Process isolation (AC 4):** after the benchmark, `adb shell pidof $PKG:routing` and `adb shell pidof $PKG` give the
+   two pids. `adb shell run-as $PKG grep -c libvalhalla-wrapper /proc/<routing pid>/maps` must be > 0 and the same for
+   the main pid must print 0. The benchmark report line "main-process initialisations in :routing = 0" is the
+   log-free hook for the DI graph / MapLibre / notification channel / worker check.
+4. **Crash checks (AC 22):** start guidance on any route with the routing file installed. (a) idle: `$R --es cmd kill`
+   (or `adb shell run-as $PKG kill -9 <routing pid>`); (b) during a preview: switch on airplane mode, open a preview to a
+   far point (for example Ölgii) and run the kill while «Ачаалж байна…» shows; (c) during a reroute: with airplane mode
+   on, leave the route and kill during «Маршрутыг дахин тооцоолж байна». Each time: the app stays open, banner, voice
+   and progress continue on the current route, the request shows «Маршрутын үйлчилгээ түр ажиллахгүй байна», and the
+   next request (Retry / next off-route) is answered with the «Офлайн» indicator. Three kills within 10 minutes switch
+   on-device routing off until the app restarts (`status` shows `available=false`, AC 24).
+5. **3.0 s fallback timing (AC 9, ≤ 3.2 s):** never against the shared stack. On the dev machine start a server that
+   accepts connections and sends nothing for 10 s, build against it and open a preview on Wi-Fi:
+
+   ```bash
+   python3 -c 'import socket,time
+   s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", 18093)); s.listen(8)
+   while True:
+       c, _ = s.accept(); time.sleep(10); c.close()' &
+   ./gradlew :app:assembleDebug -Pnav.gatewayBaseUrl=http://127.0.0.1:18093 && adb install -r app/build/outputs/apk/debug/app-debug.apk
+   adb reverse tcp:18093 tcp:18093
+   adb logcat -s navmn.routing     # "route source: on-device after the header budget (… ms)"
+   ```
+
+   The logged time is the measured start (10 runs; all ≤ 3200 ms). Rebuild without the property afterwards.
+6. **Offline reroute timing (AC 15, 16):** needs the NAV-005 G2 track (`tests/gpx/nav005/G2.gpx`) played by a mock
+   location app (Developer options → "Select mock location app") with airplane mode on (AC 15: new route ≤ 2.0 s /
+   ≤ 4.0 s after «Маршрутыг дахин тооцоолж байна», no «Интернэт холболт алга», 10 runs) and with the delaying server of
+   step 5 (AC 16: ≤ 5.0 s). Timing is read from a screen recording (`adb shell screenrecord`).
+7. **Memory pressure (AC 26):** not guiding, app in the background: `adb shell am send-trim-memory $PKG RUNNING_CRITICAL`,
+   then `adb shell dumpsys activity services $PKG/mn.navmn.app.routing.service.OnDeviceRoutingService` shows no
+   binding within 5 s. During guidance the binding stays.
+8. **30-minute loop (AC 35):** low-end phone only; not runnable until the PO supplies one.
+
+### 8.4 Gate 1 (AC 7, 32, 33): not run here
+
+Gate 1 must route the golden set with the shipped AAR on an x86_64 emulator (the AAR has `x86_64`), through
+`OnDeviceRoutingService`, on a `routing.tar` from the server builder, and compare with the server engine on the same tar
+by the NAV-020 AC 10 rule. This build machine has no `/dev/kvm`, so no emulator can run, and no CI job exists yet. On a
+host with KVM: start an `x86_64` API 34 emulator, provision the tar (8.2), and route each body of the golden set (QA
+fixture; `backend/pack/golden-routes.provisional.json` until it exists) through the service; the comparison uses the
+backend comparator rules. Until a pass is recorded the allow-list stays `["valhalla 3.9.0"]` on the strength of the
+spike's 12/12 measurement with the upstream 3.6.3 engine (a stand-in, not the gate).
+
+### 8.5 APK size (AC 2)
+
+See the NAV-021 handoff for the measured numbers; the native library is stored uncompressed (`minSdk` 26, page-aligned)
+and is present for all four ABIs the app ships.

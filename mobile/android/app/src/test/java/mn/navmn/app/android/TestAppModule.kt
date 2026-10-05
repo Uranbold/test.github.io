@@ -37,15 +37,19 @@ import javax.inject.Singleton
 object FakeGateway : Interceptor {
     val routeRequests = AtomicInteger(0)
     val paths: MutableList<String> = Collections.synchronizedList(ArrayList())
+    /** Full request URLs (NAV-011 D140: the typed point appears only in `reverse`, never in a `search` q). */
+    val urls: MutableList<okhttp3.HttpUrl> = Collections.synchronizedList(ArrayList())
 
     fun reset() {
         routeRequests.set(0)
         paths.clear()
+        urls.clear()
     }
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val req = chain.request()
         paths += req.url.encodedPath
+        urls += req.url
         val ok = req.method == "POST" && req.url.encodedPath == "/v1/route"
         if (ok) routeRequests.incrementAndGet()
         return Response.Builder()

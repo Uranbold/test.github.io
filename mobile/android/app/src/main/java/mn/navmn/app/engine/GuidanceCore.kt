@@ -53,6 +53,12 @@ class GuidanceCore(
     private val log: DebugLog = DebugLog.NONE,
     /** NAV-012 (ADR-0013 §3.2): a new route became active; the restore record is rewritten with it. */
     private val onNewRoute: (ParsedRoute) -> Unit = {},
+    /**
+     * NAV-021 (ADR-0017 §5, D163): a usable on-device routing file for this session. Then a reroute without a validated
+     * network is answered on the device (0 HTTP requests, no «Интернэт холболт алга» secondary line; AC 15, 20).
+     * Default false: exactly the NAV-005 behaviour (AC 13, 30).
+     */
+    private val onDeviceAvailable: () -> Boolean = { false },
 ) {
     private var route: ParsedRoute = initialRoute
     private val plan get() = route.plan
@@ -525,7 +531,7 @@ class GuidanceCore(
         val ctx = ReroutePolicy.Context(
             now = now,
             inEpisode = offRoute.inEpisode,
-            online = online,
+            online = online || onDeviceAvailable(),
             gpsOk = gps.ok(now),
             finished = finished,
             position = lastGoodFix?.latLon,
@@ -595,6 +601,7 @@ class GuidanceCore(
                 speedMps = speed.mean(),
                 restoring = restoring && !finished,
                 resumedNoticeVisible = now < resumedUntil && !finished,
+                onDeviceRoute = route.onDevice,
             ),
         )
     }

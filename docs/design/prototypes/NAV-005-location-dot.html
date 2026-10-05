@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Browse location dot</title>
+<!--
+  Static wireframe of the Android browse-map location dot (owner: ux-designer). NAV-005 section N (AC 74-77),
+  map-style.md §7.8, screen spec docs/design/screens/NAV-005-android-navigation.md › S1 location dot states.
+  Checks the DESIGN, not the app. 1 CSS px = 1 dp. Each tile is a 200 x 200 dp map crop drawn at the zoom it names.
+  Hash parameters: theme (day|night), lang (mn|en), raw (0|1: also draw the raw fixes the filter does not show).
+  Example: #theme=night&lang=mn&raw=1
+  Colours are copied from docs/design/tokens.json v0.6.2 for this wireframe only (tokens.json wins).
+  Geometry: on-screen radius = accuracy / (78271.517 x cos(47.92°) / 2^zoom); the circle is drawn only while that
+  radius is larger than the dot's outer radius (10.5 dp as built), see check-location-dot.mjs.
+-->
+<style>
+  :root[data-theme="day"] {
+    --page: #FFFFFF; --text: #1F1F1F; --text-2: #444746; --rule: #C4C7C5;
+    --surface: #FFFFFF; --on-surface: #1F1F1F; --on-surface-variant: #444746; --outline-variant: #C4C7C5;
+    --primary-container: #D3E3FD; --on-primary-container: #041E49;
+    --message-surface: #303030; --on-message-surface: #F2F2F2; --message-action: #A8C7FA; --message-outline: #303030;
+    --earth: #F3F0EA; --buildings: #E3DED5; --park: #DCEBD5; --major: #FFFFFF; --major-casing: #C9C2B5;
+    --route: #1967D2; --route-casing: #0B3D91; --step-fill: #FFFFFF; --step-stroke: #0B3D91;
+    --origin-fill: #FFFFFF; --origin-stroke: #1F1F1F;
+    --dot: #1A73E8; --dot-stroke: #FFFFFF;
+    --acc-fill: rgba(26,115,232,.15); --acc-stroke: rgba(26,115,232,.45);
+    --stale-ring: #5F6368; --stale-fill: rgba(128,134,139,.15); --stale-stroke: rgba(128,134,139,.45);
+    --raw: #C5221F;
+  }
+  :root[data-theme="night"] {
+    --page: #10151C; --text: #E3E6EA; --text-2: #B9C0CA; --rule: #3F4957;
+    --surface: #1F2733; --on-surface: #E3E6EA; --on-surface-variant: #B9C0CA; --outline-variant: #3F4957;
+    --primary-container: #0B3D8C; --on-primary-container: #D3E3FD;
+    --message-surface: #2E3846; --on-message-surface: #E3E6EA; --message-action: #A8C7FA; --message-outline: #6E7A8C;
+    --earth: #18202B; --buildings: #222B37; --park: #1A2A26; --major: #4A5566; --major-casing: #10151C;
+    --route: #8AB4F8; --route-casing: #10151C; --step-fill: #10151C; --step-stroke: #8AB4F8;
+    --origin-fill: #10151C; --origin-stroke: #E3E6EA;
+    --dot: #669DF6; --dot-stroke: #E8EAED;
+    --acc-fill: rgba(102,157,246,.18); --acc-stroke: rgba(102,157,246,.50);
+    --stale-ring: #BDC1C6; --stale-fill: rgba(154,160,166,.15); --stale-stroke: rgba(154,160,166,.45);
+    --raw: #F28B82;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--page); color: var(--text); font: 14px/20px "Liberation Sans", Roboto, sans-serif; }
+  h1 { font-size: 18px; line-height: 24px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: var(--text-2); max-width: 72ch; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; max-width: 1100px; }
+  figure { margin: 0; }
+  .tile { position: relative; width: 200px; height: 200px; overflow: hidden; border: 1px solid var(--rule); border-radius: 8px; }
+  .tile.tall { height: 320px; }
+  .tile svg.map { position: absolute; inset: 0; }
+  figcaption { margin-top: 6px; font-size: 12px; line-height: 16px; color: var(--text-2); max-width: 200px; }
+  figcaption b { color: var(--text); font-weight: 600; display: block; }
+  .fab { position: absolute; right: 12px; bottom: 12px; width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center;
+         background: var(--surface); color: var(--on-surface-variant); box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+  :root[data-theme="night"] .fab { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  .fab.following { background: var(--primary-container); color: var(--on-primary-container); }
+  .card { position: absolute; left: 8px; right: 8px; top: 8px; border-radius: 12px; padding: 12px 8px 4px 16px; background: var(--message-surface);
+          color: var(--on-message-surface); outline: 1px solid var(--message-outline); }
+  .card .t { display: flex; gap: 12px; align-items: flex-start; padding-right: 8px; }
+  .card .a { display: flex; justify-content: flex-end; flex-wrap: wrap; }
+  .card button { min-height: 48px; min-width: 48px; padding: 0 12px; border: 0; background: none; color: var(--message-action); font: 600 14px/20px inherit; font-family: inherit; }
+  .controls { margin: 0 0 16px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .controls a { color: var(--text); min-height: 48px; display: inline-flex; align-items: center; }
+</style>
+</head>
+<body>
+<h1 id="h"></h1>
+<p class="lead" id="lead"></p>
+<nav class="controls" id="controls"></nav>
+<div class="grid" id="grid"></div>
+<script>
+const P = Object.fromEntries(location.hash.slice(1).split("&").filter(Boolean).map((kv) => kv.split("=")));
+const theme = P.theme === "night" ? "night" : "day", lang = P.lang === "en" ? "en" : "mn", raw = P.raw === "1";
+document.documentElement.dataset.theme = theme;
+document.documentElement.lang = lang;
+const T = {
+  mn: { unavailable: "Байршил тодорхойлж чадсангүй", retry: "Дахин оролдох", close: "Хаах" },
+  en: { unavailable: "Your location could not be determined", retry: "Try again", close: "Close" },
+}[lang];
+document.getElementById("h").textContent = "Android browse location dot (NAV-005 section N)";
+document.getElementById("lead").textContent =
+  "Wireframe tiles, 1 CSS px = 1 dp, " + theme + ", " + lang + ". Only the message card carries text; every other cue is visual (D173: no new string). Annotations below the tiles are for the reader, not app copy.";
+const ctl = document.getElementById("controls");
+for (const [label, h] of [["day", `theme=day&lang=${lang}&raw=${raw ? 1 : 0}`], ["night", `theme=night&lang=${lang}&raw=${raw ? 1 : 0}`],
+  ["mn", `theme=${theme}&lang=mn&raw=${raw ? 1 : 0}`], ["en", `theme=${theme}&lang=en&raw=${raw ? 1 : 0}`],
+  [raw ? "hide raw fixes" : "show raw fixes", `theme=${theme}&lang=${lang}&raw=${raw ? 0 : 1}`]]) {
+  const a = document.createElement("a"); a.href = "#" + h; a.textContent = label; a.onclick = () => setTimeout(() => location.reload()); ctl.append(a);
+}
+
+const LAT = 47.9189, R_DOT = 10.5, M0 = 40075016.686 / 512;
+const radiusDp = (acc, z) => acc / ((M0 * Math.cos((LAT * Math.PI) / 180)) / 2 ** z);
+const ICON = {
+  my_location: "M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z",
+  location_searching: "M20.94 11c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z",
+  gps_off: "M20.94 11c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06c-1.13.12-2.19.46-3.16.97l1.5 1.5C10.16 5.19 11.06 5 12 5c3.87 0 7 3.13 7 7 0 .94-.19 1.84-.52 2.65l1.5 1.5c.5-.96.84-2.02.97-3.15H23v-2h-2.06zM3 4.27l2.04 2.04C3.97 7.62 3.25 9.23 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c1.77-.2 3.38-.91 4.69-1.98L19.73 21 21 19.73 4.27 3 3 4.27zm13.27 13.27C15.09 18.45 13.61 19 12 19c-3.87 0-7-3.13-7-7 0-1.61.55-3.09 1.46-4.27l9.81 9.81z",
+};
+const icon = (name, size = 24) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${ICON[name]}"/></svg>`;
+
+function base(route) {
+  // A UB-like crop: earth, two building blocks, a park, a major road; optionally the selected preview route (§7.2 z16 widths).
+  let s = `<rect width="200" height="320" fill="var(--earth)"/>
+    <rect x="14" y="16" width="62" height="52" fill="var(--buildings)"/><rect x="128" y="120" width="58" height="66" fill="var(--buildings)"/>
+    <rect x="128" y="14" width="58" height="40" fill="var(--park)"/>
+    <path d="M-10 92 L210 104" stroke="var(--major-casing)" stroke-width="14"/><path d="M-10 92 L210 104" stroke="var(--major)" stroke-width="11"/>`;
+  if (route) s += `<path d="${route}" fill="none" stroke="var(--route-casing)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="${route}" fill="none" stroke="var(--route)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return s;
+}
+function accuracy(x, y, acc, z, stale) {
+  const r = radiusDp(acc, z);
+  if (r <= R_DOT) return "";
+  return `<circle cx="${x}" cy="${y}" r="${r.toFixed(1)}" fill="var(${stale ? "--stale-fill" : "--acc-fill"})" stroke="var(${stale ? "--stale-stroke" : "--acc-stroke"})" stroke-width="1"${stale ? ' stroke-dasharray="4 3"' : ""}/>`;
+}
+function dot(x, y, stale) {
+  // As built: circle-radius 7.5 dp + 3 dp stroke (outer 10.5). Stale: transparent centre, 4 dp ring, same outer radius.
+  return stale
+    ? `<circle cx="${x}" cy="${y}" r="8.5" fill="none" stroke="var(--stale-ring)" stroke-width="4"/>`
+    : `<circle cx="${x}" cy="${y}" r="9" fill="var(--dot)" stroke="var(--dot-stroke)" stroke-width="3" style="filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))"/>`;
+}
+function rawFixes(pts) { return raw ? pts.map(([x, y]) => `<path d="M${x - 3} ${y - 3}l6 6m0-6l-6 6" stroke="var(--raw)" stroke-width="1.5"/>`).join("") : ""; }
+
+const tiles = [
+  { id: "moving-z16-30m", title: "Moving or just shown", note: "z16, accuracy 30 m: circle 37.5 dp. Dot and circle change together (AC 74).",
+    svg: () => base() + accuracy(100, 100, 30, 16) + dot(100, 100) },
+  { id: "hold-z16-30m", title: "Holding (standing)", note: "Same look. Fixes keep arriving inside max(accuracy, 10 m); dot and camera move 0 m (AC 75). raw=1 draws them.",
+    svg: () => base() + accuracy(100, 100, 30, 16) + rawFixes([[112, 92], [86, 108], [104, 121], [79, 95], [118, 110]]) + dot(100, 100) },
+  { id: "small-z14-10m", title: "Circle smaller than the dot", note: "z14, 10 m = 3.1 dp: no circle (drawn from z15.75 for 10 m). The dot alone.",
+    svg: () => base() + accuracy(100, 100, 10, 14) + dot(100, 100) },
+  { id: "poor-z15-100m", title: "Worst showable fix", note: "z15, 100 m: circle 62.5 dp. Fixes worse than 100 m are never shown (AC 76).",
+    svg: () => base() + accuracy(100, 100, 100, 15) + rawFixes([[30, 150], [170, 40]]) + dot(100, 100) },
+  { id: "jump-pending-z16-30m", title: "Single jump held", note: "One fix 300 m away (off this crop) is pending; dot 0 m unless the next fix within 5 s confirms it (AC 77).",
+    svg: () => base() + accuracy(100, 100, 30, 16) + rawFixes([[192, 8]]) + dot(100, 100) },
+  { id: "stale-z16-30m", title: "Stale (10 s, no showable fix)", note: "Hollow grey ring + dashed grey circle at the last shown position. No message (D173).",
+    svg: () => base() + accuracy(100, 100, 30, 16, true) + dot(100, 100, true) },
+  { id: "stale-z14-10m", title: "Stale, circle hidden", note: "The hollow ring alone carries the state when the circle is smaller than the dot.",
+    svg: () => base() + accuracy(100, 100, 10, 14, true) + dot(100, 100, true) },
+  { id: "s3-device-start-z16", title: "S3, device start", note: "Route from the raw good fix (D177); circle above the route line, dot on top.",
+    svg: () => base("M106 104 L106 150 L196 156") + accuracy(100, 100, 20, 16) + dot(100, 100) },
+  { id: "s3-chosen-start-stale-z16", title: "S3, chosen start + stale dot", note: "Start marker: opaque centre, dark ring. Stale dot: see-through centre, grey ring, dashed circle.",
+    svg: () => base("M40 60 L40 150 L196 156") + `<circle cx="40" cy="60" r="5" fill="var(--origin-fill)" stroke="var(--origin-stroke)" stroke-width="4"/>` + accuracy(140, 80, 25, 16, true) + dot(140, 80, true) },
+  { id: "no-fix-yet", title: "No showable fix yet", note: "Indoors or cold start: no dot, no circle (AC 76). Button normal.",
+    svg: () => base(), fab: "normal" },
+  { id: "waiting-after-press", title: "Waiting after a my-location press", note: "Up to 10 s: button in the following colours with the searching icon, static. No text.",
+    svg: () => base(), fab: "searching" },
+  { id: "g5-after-10s", title: "10 s, still no showable fix", note: "S1 R2 card (existing «no fix» variant). Closes on «Хаах», on retry, or by itself when a showable fix arrives.",
+    svg: () => base(), fab: "normal", card: true, tall: true },
+];
+const grid = document.getElementById("grid");
+for (const t of tiles) {
+  const f = document.createElement("figure"); f.dataset.state = t.id;
+  const h = t.tall ? 320 : 200;
+  let html = `<div class="tile${t.tall ? " tall" : ""}"><svg class="map" width="200" height="${h}" viewBox="0 0 200 ${h}" role="img" aria-label="${t.title}">${t.svg()}</svg>`;
+  if (t.card) html += `<div class="card" data-testid="location-message"><div class="t">${icon("gps_off")}<span>${T.unavailable}</span></div><div class="a"><button>${T.retry}</button><button>${T.close}</button></div></div>`;
+  if (t.fab) html += `<div class="fab ${t.fab === "searching" ? "following" : ""}" aria-label="${lang === "mn" ? "Миний байршил" : "My location"}">${icon(t.fab === "searching" ? "location_searching" : "my_location")}</div>`;
+  html += `</div><figcaption><b>${t.title}</b><code>${t.id}</code><br>${t.note}</figcaption>`;
+  f.innerHTML = html; grid.append(f);
+}
+</script>
+</body>
+</html>

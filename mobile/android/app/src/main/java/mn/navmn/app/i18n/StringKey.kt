@@ -59,6 +59,14 @@ enum class StringKey(val resName: String) {
     TYPING_LOCK_TITLE("typing_lock_title"),
     TYPING_LOCK_HINT("typing_lock_hint"),
     TYPING_LOCK_PASSENGER("typing_lock_passenger"),
+    // NAV-018
+    ROUTE_ORIGIN_PLACEHOLDER("route_origin_placeholder"),
+    ROUTE_DESTINATION_PLACEHOLDER("route_destination_placeholder"),
+    ROUTE_SWAP("route_swap"),
+    ROUTE_DIRECTIONS("route_directions"),
+    ROUTE_SET_ORIGIN("route_set_origin"),
+    ROUTE_SET_DESTINATION("route_set_destination"),
+    ROUTE_START_ONLY_FROM_LOCATION("route_start_only_from_location"),
     NAV_NAME("nav_name"),
     NAV_START("nav_start"),
     NAV_END("nav_end"),
@@ -173,6 +181,9 @@ enum class StringKey(val resName: String) {
     NAV_RESUMED("nav_resumed"),
     NAV_INTERRUPTED_TITLE("nav_interrupted_title"),
     NAV_INTERRUPTED_TEXT("nav_interrupted_text"),
+    // NAV-021 / NAV-023 (glossary 2.7 OF24, OF25, needs native review)
+    OFFLINE_INDICATOR("offline_indicator"),
+    OFFLINE_INDICATOR_A11Y("offline_indicator_a11y"),
     ;
 
     companion object {

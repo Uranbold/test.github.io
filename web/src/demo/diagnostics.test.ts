@@ -260,11 +260,12 @@ describe("panel contents", () => {
       voicesChanged: 0,
       pick: { mn: null, en: null },
       decisions: { mn: { state: "chime", reason: "r" }, en: { state: "pending", reason: "p" } },
-      audio: { context: "suspended", unlockRan: true, unlockError: null, speechPrimed: true, failed: false, failCode: null },
+      audio: { context: "suspended", unlockRan: true, unlockError: null, speechPrimed: true, failed: false, failCode: null, keepAlive: true, element: "primed" },
       events: [{ atMs: 1500, kind: "error", code: "interrupted" }],
       tests: { en: "not run", default: "not run", chime: "not run" },
     });
     expect(text).toContain("AudioContext state: suspended; silent-buffer unlock ran: yes; speech primed: yes");
+    expect(text).toContain("Chime keep-alive running: yes; chime element fallback: primed");
     expect(text).toContain("+1.5 s onerror: interrupted");
     expect(text).toContain("Voice decision en (UI language): pending (p)");
     expect(text).toContain("Voice button: muted; replay running: yes");
