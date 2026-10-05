@@ -442,8 +442,39 @@ val buildHostFerrostar by tasks.registering(Exec::class) {
     isIgnoreExitValue = hostFerrostarMode != "required"
 }
 
+// NAV-023 (ADR-0017 §3, task SM1): JVM tests run the shipped androidx.sqlite BundledSQLiteDriver (the Android artefact's
+// classes, which call System.loadLibrary("sqliteJni")) on the host. The native library comes from the same release's JVM
+// artefact (same JNI, same bundled SQLite with FTS5, R*Tree and trigram); nothing of it is packaged into the app.
+val sqliteHostNatives: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies { sqliteHostNatives(libs.androidx.sqlite.bundled.jvm) }
+val sqliteHostNativesDir: File = layout.buildDirectory.dir("sqlite-host-natives").get().asFile
+val extractSqliteHostNatives by tasks.registering(Sync::class) {
+    group = "verification"
+    description = "Extracts the host libsqliteJni of androidx.sqlite:sqlite-bundled-jvm for JVM unit tests (NAV-023)"
+    val os = System.getProperty("os.name").lowercase()
+    val arm = System.getProperty("os.arch").let { it == "aarch64" || it == "arm64" }
+    val dir = when {
+        os.contains("mac") -> if (arm) "osx_arm64" else "osx_x64"
+        os.contains("win") -> "windows_x64"
+        else -> if (arm) "linux_arm64" else "linux_x64"
+    }
+    from({ sqliteHostNatives.map { zipTree(it) } }) {
+        include("natives/$dir/*")
+        eachFile { path = name }
+        includeEmptyDirs = false
+    }
+    into(sqliteHostNativesDir)
+}
+
 tasks.withType<Test>().configureEach {
     dependsOn(buildHostFerrostar)
+    dependsOn(extractSqliteHostNatives)
+    systemProperty("java.library.path", sqliteHostNativesDir.absolutePath + File.pathSeparator + System.getProperty("java.library.path"))
+    // NAV-023 opt-in: run the engine on a real search.sqlite (OfflineGoldenHarnessTest), e.g. -Pnav.searchDb=/path/search.sqlite
+    systemProperty("nav.searchDb", providers.gradleProperty("nav.searchDb").orNull ?: "")
     systemProperty("jna.library.path", hostFerrostarCache.resolve(ferrostarVersion).absolutePath)
     systemProperty("nav.hostFerrostar", hostFerrostarMode)
     systemProperty("nav.repoRoot", repoRoot.absolutePath)

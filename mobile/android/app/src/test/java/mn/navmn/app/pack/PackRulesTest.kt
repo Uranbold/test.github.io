@@ -154,9 +154,10 @@ class PackRulesTest {
         Unit
     }
 
-    @Test fun searchSelfTestQueryFoldsAndQuotes() {
-        assertEquals("names : (\"сухбаатар\"*)", SearchSelfTestQuery.match("Сүхбаатар"))
-        assertEquals("names : (\"их\" \"дэлгуур\"*)", SearchSelfTestQuery.match("Их дэлгүүр"))
+    /** ADR-0017 A3 item 3: since NAV-023 the app runs the server's `skel` expression (NAV-020 task file §3.6). */
+    @Test fun searchSelfTestQueryUsesTheSkeletonLikeTheServer() {
+        assertEquals("skel : (\"suhbatar\"*)", SearchSelfTestQuery.match("Сүхбаатар"))
+        assertEquals("skel : (\"ih\" \"delgur\"*)", SearchSelfTestQuery.match("Их дэлгүүр"))
         assertNull(SearchSelfTestQuery.match("  "))
     }
 }

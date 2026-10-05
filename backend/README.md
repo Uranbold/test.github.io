@@ -132,12 +132,24 @@ After a NAV-006 `success` (and with `make pack-publish`), the pack step cuts the
 | File | What |
 |---|---|
 | [`pipeline/nav_pack.py`](pipeline/nav_pack.py) | the pack step, `pack-publish`, `pack-status`, the rollback hook (AC 28); results and exit codes in its docstring and RUNBOOK 7A.4 |
-| [`pack/search_builder.py`](pack/search_builder.py) | search DB builder v1 (stdlib; runs in `PACK_SEARCH_BUILDER_IMAGE`, network none): schema, NAV-023 normalisation, self-test |
+| [`pack/search_builder.py`](pack/search_builder.py) | search DB builder v2 (stdlib; runs in `PACK_SEARCH_BUILDER_IMAGE`, network none): schema (`search_schema` 1), NAV-023 normalisation, self-test |
+| [`pack/vectors/search-normalisation.v1.json`](pack/vectors/search-normalisation.v1.json) | NAV-023 AC 3 shared normalisation vectors (fold, clean, skeleton groups, words, joined keys); read by the builder tests **and** the Android engine tests |
+| [`pack/search_engine.py`](pack/search_engine.py), [`pack/search_eval.py`](pack/search_eval.py), [`pack/search-eval.sh`](pack/search-eval.sh) | NAV-023 reference on-device engine (ADR-0012 plan + AC 6 stages, `RANKING_VERSION` 1) and the measurement: D168 gate (AC 17), AC 5 determinism, D198 held-out report (AC 19), AC 20 reverse (`make search-eval`, below) |
+| [`pack/heldout/countryside-v1.json`](pack/heldout/countryside-v1.json) | D198 held-out countryside set (36 queries; **report only**, never tuned on) |
 | [`gate2/`](gate2/) | Gate 2 engine recipe (valhalla-mobile 0.6.3 host build + our `driver.cpp`), the AAR `default.json` copy. **Not built in the dev container** (6-12 GB) |
 | [`pack/gate2_evidence_driver.py`](pack/gate2_evidence_driver.py) | test-only stand-in (`PACK_GATE2_MODE=evidence`): the server's own Valhalla on both sides, exercises runner and comparator, **not the gate** |
 | [`pack/golden-routes.provisional.json`](pack/golden-routes.provisional.json) | provisional copy of the AC 9 golden route set until QA's fixture exists |
 | [`scripts/validate_manifest.py`](scripts/validate_manifest.py) | manifest vs `OfflinePackManifest` (jsonschema) |
 | [`pipeline/nav020-test-setup.sh`](pipeline/nav020-test-setup.sh), [`nav020-test-teardown.sh`](pipeline/nav020-test-teardown.sh), [`nav020_test.py`](pipeline/nav020_test.py), [`nav020-test.env.template`](pipeline/nav020-test.env.template) | dev-container test project `navmn-nav020` (seeded slots, read loop) |
+
+Offline search measurement (NAV-023; host Python, no Docker; the two builds go to a temporary directory that is
+always deleted). `ONLINE` must serve Photon from the slot the dump belongs to; only read-only `GET /v1/search` and
+`/v1/reverse` are sent, at most 2 per second. Exit 1 when the D168 gate fails or the two builds differ:
+```sh
+make search-eval DUMP=data/sources/photon-dump                                   # gate (all rows counted) + AC 5
+make search-eval DUMP=data/sources/photon-dump ONLINE=http://127.0.0.1:8080 OUT=/tmp/nav023   # + data gaps, held-out, reverse
+python3 pack/search_engine.py search --db <search.sqlite> --q "Сүхбаатар" --bias 47.9189,106.9176   # one query, JSON
+```
 
 Dev-container test (project `navmn-nav020`, gateway `127.0.0.1:18190`, root `/var/tmp/nav020-test`; the shared dev stack and `data/` are only read):
 ```sh

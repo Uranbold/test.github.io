@@ -541,7 +541,7 @@ cd mobile/android
 
 `-Pnav.gatewayBaseUrl` can be added when a reachable HTTPS gateway exists; without it the debug build's gateway is
 `127.0.0.1:8080` (unreachable from the phone), so online search, online routes and the online map do not work, while
-the installed pack gives the map and on-device routes (NAV-021). Offline **search** arrives with NAV-023.
+the installed pack gives the map, on-device routes (NAV-021) and on-device search and reverse (NAV-023, section 10).
 
 The static host must serve exactly the NAV-020 tree: `<base>/mn/manifest.json` and `<base>/mn/<fileVersion>/<file>.gz`
 (byte-identical `.gz` files, no recompression). Check it before the phone test (the app copes with a host that lacks
@@ -578,3 +578,40 @@ No phone or emulator here (no `/dev/kvm`): the WorkManager scheduling on a devic
 `:routing` self-test on a real `routing.tar`, the `sqlite-bundled` search self-test on a real `search.sqlite` (the
 Android native library does not load in JVM tests), the map switch and its 5 s budget, and every AC 46 device check.
 JVM tests cover sections A–G, I and J against a mock static `/packs/` server.
+
+## 10. Offline search and reverse geocoding (NAV-023, ADR-0017 §3, §5)
+
+Story [NAV-023](../../docs/requirements/stories/NAV-023-offline-search-reverse.md), task list
+[NAV-023](../../docs/architecture/tasks/NAV-023-offline-search-reverse.md). Without an installed search file nothing
+changes: `search` and `reverse` go to the gateway exactly as NAV-011 (AC 26).
+
+### 10.1 Code map
+
+| File | What | AC |
+|---|---|---|
+| `search/offline/SearchText.kt` | `clean`, `fold`, `skeleton` (AC 2), `words`; Latin "u"/"o" variants (task SM3 step 3) | 2, 3 |
+| `search/offline/OfflineSearchEngine.kt` | one planned query on `search.sqlite`: match → (Latin vowel) → edit distance → trigrams, RANKING_VERSION 1 (port of `backend/pack/search_engine.py`); `PhotonFeature` mapping; reverse (nearest named place ≤ 500 m, expanding box on `place_geo`) | 6, 7, 20 |
+| `search/offline/OfflineSearch.kt` | the host: `active.json` `search` kind (known schemas only), one read-only `BundledSQLiteDriver` connection per version (a running query keeps the old one), `meta.search_schema` check, failures → «Хайлт түр ажиллахгүй байна» | 10, 25, 28 |
+| `search/offline/SearchSources.kt` | online first for `search` and `reverse` (NAV-021 `OnlineFirstPolicy`): no validated network → device, 0 requests; 3.0 s header budget, 502/503/504/429 → device in the same attempt; 60 s stickiness for both; per-operation 429 window | 11–15 |
+| `search/SearchController.kt`, `search/reverse/Reverse.kt` | `Results(onDevice)`, `NoResultsOnDevice`, `ReverseView.Place(onDevice)`, `EmptyOnDevice` | 21, 23 |
+| `ui/screens/BrowseOverlay.kt`, `RoutePreviewSheet.kt` | OF24 chip: list header row (TalkBack «{count} илэрц олдлоо, Офлайн газрын зургаас»), after «Илэрц олдсонгүй», after «Ойролцоох газар» | 21, 23, 24 |
+| `pack/SelfTests.kt` | the install self-test now runs the server's `skel` expression (ADR-0017 A3 item 3) | NAV-022 16 |
+
+The typed-coordinate option, the debounce, the generation rule and the merge are the NAV-011 code, unchanged.
+
+### 10.2 Tests
+
+- JVM tests run the **production** `BundledSQLiteDriver` (Android artefact classes) with the host native library of the
+  same release's `sqlite-bundled-jvm` artefact (`extractSqliteHostNatives`, test-only; nothing is packaged), on
+  `src/test/resources/search/search-fixture.sqlite`, built by the real builder from `places.jsonl` next to it.
+- `SearchNormalisationVectorsTest` reads the shared vectors `backend/pack/vectors/search-normalisation.v1.json`.
+- Golden set (opt-in, needs a real file):
+  `./gradlew :app:testDebugUnitTest --tests '*OfflineGoldenHarnessTest*' -Pnav.searchDb=/path/search.sqlite`
+  runs rows A1–A14, A16, B1–B15 through `SearchController` with type labels and checks `passed × 10 ≥ counted × 9`.
+
+### 10.3 Not verified in this environment
+
+No phone: the AC 9 timings, the ≤ 3.2 s device fallback, TalkBack itself, and the arm64 `sqlite-bundled` library (the
+JVM tests use the x86-64 host build of the same release). The AC 17 gate with online comparison, the AC 19 held-out
+report and the AC 20 online/offline reverse comparison are QA's (same slot needed).
+

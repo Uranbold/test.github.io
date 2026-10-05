@@ -58,11 +58,15 @@ object CombineOutcomes {
             return SearchOutcome.RateLimited(s)
         }
         if (a is SearchOutcome.Ok || b is SearchOutcome.Ok) {
-            return SearchOutcome.Ok(Merge.merge((a as? SearchOutcome.Ok)?.features.orEmpty(), (b as? SearchOutcome.Ok)?.features.orEmpty()))
+            val okA = a as? SearchOutcome.Ok
+            val okB = b as? SearchOutcome.Ok
+            // NAV-023: a list that holds any on-device answer carries the indicator.
+            val onDevice = okA?.onDevice == true || okB?.onDevice == true
+            return SearchOutcome.Ok(Merge.merge(okA?.features.orEmpty(), okB?.features.orEmpty()), onDevice)
         }
         return a
     }
 
     /** A single response (`none`, or the response an `ifEmpty` plan ends with): merged on its own. */
-    fun single(a: SearchOutcome): SearchOutcome = if (a is SearchOutcome.Ok) SearchOutcome.Ok(Merge.merge(a.features, null)) else a
+    fun single(a: SearchOutcome): SearchOutcome = if (a is SearchOutcome.Ok) SearchOutcome.Ok(Merge.merge(a.features, null), a.onDevice) else a
 }

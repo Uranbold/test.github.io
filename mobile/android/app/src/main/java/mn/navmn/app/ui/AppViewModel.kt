@@ -59,10 +59,9 @@ import mn.navmn.app.routing.OnDeviceRouting
 import mn.navmn.app.route.RouteOutcome
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.search.PlaceDisplay
-import mn.navmn.app.search.SearchClient
 import mn.navmn.app.search.SearchController
 import mn.navmn.app.search.SearchCooldown
-import mn.navmn.app.search.reverse.ReverseClient
+import mn.navmn.app.search.offline.SearchSources
 import mn.navmn.app.search.reverse.ReverseController
 import mn.navmn.app.settings.SettingsRepository
 import mn.navmn.app.settings.ThemeChoice
@@ -124,10 +123,10 @@ class AppViewModel @Inject constructor(
     /** NAV-021: the preview goes online first with the on-device fallback (a pass-through without a routing file). */
     private val routes: FallbackRouteRequester,
     private val onDeviceRouting: OnDeviceRouting,
-    private val searchClient: SearchClient,
+    /** NAV-023: `search` and `reverse` go online first with the on-device fallback (pass-through without a search file). */
+    private val sources: SearchSources,
     private val session: GuidanceSession,
     private val voice: GuidanceVoice,
-    private val reverseClient: ReverseClient,
     lockFixes: LockFixSource,
     replayVariant: Optional<ReplayVariant>,
 ) : ViewModel() {
@@ -174,10 +173,11 @@ class AppViewModel @Inject constructor(
 
     val search = SearchController(
         scope = viewModelScope,
-        search = { q, l, b -> searchClient.search(q, l, b) },
+        search = { q, l, b -> sources.search(q, l, b) },
         lang = { settings.lang.value },
         bias = { biasPoint() },
-        isOnline = { network.isOnline() },
+        // NAV-023 AC 11 (D163): with an installed search file a search needs no network (answered on the device).
+        isOnline = { network.isOnline() || sources.onDeviceAvailable() },
         now = { SystemClock.elapsedRealtime() },
         cooldown = searchCooldown,
     )
@@ -188,10 +188,11 @@ class AppViewModel @Inject constructor(
      */
     val fieldSearch = SearchController(
         scope = viewModelScope,
-        search = { q, l, b -> searchClient.search(q, l, b) },
+        search = { q, l, b -> sources.search(q, l, b) },
         lang = { settings.lang.value },
         bias = { biasPoint() },
-        isOnline = { network.isOnline() },
+        // NAV-023 AC 11 (D163): with an installed search file a search needs no network (answered on the device).
+        isOnline = { network.isOnline() || sources.onDeviceAvailable() },
         now = { SystemClock.elapsedRealtime() },
         cooldown = searchCooldown,
     )
@@ -216,9 +217,10 @@ class AppViewModel @Inject constructor(
     /** NAV-011 AC 8–13: nearest place on the coordinate card (one `reverse` per card). */
     val reverse = ReverseController(
         scope = viewModelScope,
-        reverse = { p, l -> reverseClient.reverse(p, l) },
+        reverse = { p, l -> sources.reverse(p, l) },
         lang = { settings.lang.value },
-        isOnline = { network.isOnline() },
+        // NAV-023 AC 11: the coordinate card's nearest place also comes from the device without network.
+        isOnline = { network.isOnline() || sources.onDeviceAvailable() },
         now = { SystemClock.elapsedRealtime() },
     )
 

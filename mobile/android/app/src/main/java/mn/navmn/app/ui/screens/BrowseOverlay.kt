@@ -62,8 +62,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,6 +75,8 @@ import mn.navmn.app.R
 import mn.navmn.app.format.Formatters
 import mn.navmn.app.geo.LatLon
 import mn.navmn.app.i18n.Lang
+import mn.navmn.app.i18n.PluralKey
+import mn.navmn.app.i18n.Plurals
 import mn.navmn.app.i18n.StringKey
 import mn.navmn.app.i18n.Strings
 import mn.navmn.app.i18n.Templates
@@ -299,27 +304,78 @@ internal fun SearchResults(
             when (v) {
                 SearchView.Loading -> StateRow(stringResource(R.string.status_loading), progress = true)
                 SearchView.NoResults -> StateRow(stringResource(R.string.search_no_results))
+                SearchView.NoResultsOnDevice -> NoResultsOnDeviceRow(strings)
                 SearchView.Unavailable -> StateRow(stringResource(R.string.search_unavailable), retry = onRetry)
                 SearchView.Error -> StateRow(stringResource(R.string.status_generic_error))
                 SearchView.Offline -> StateRow(stringResource(R.string.status_offline))
                 is SearchView.RateLimited -> StateRow(stringResource(R.string.search_rate_limited), retry = onRetry, retryEnabled = v.retryEnabled)
-                is SearchView.Results -> LazyColumn {
-                    items(v.items) { info ->
-                        val name = info.name ?: strings[info.type]
-                        Column(
-                            Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { onResult(info, name) }.padding(horizontal = 16.dp, vertical = 8.dp),
-                        ) {
-                            Text(name, style = NavType.bodyLarge, color = t.uiOnSurface.c(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            val second = listOfNotNull(strings[info.type].takeIf { info.name != null }, info.context).joinToString(" · ")
-                            if (second.isNotEmpty()) Text(second, style = NavType.body, color = t.uiOnSurfaceVariant.c(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        HorizontalDivider(color = t.uiOutlineVariant.c())
-                    }
+                is SearchView.Results -> {
+                    if (v.onDevice) OnDeviceResultsHeader(v.items.size, strings)
+                    ResultItems(v, strings, onResult)
                 }
                 is SearchView.Coordinate -> CoordinateOptionRow(v.point, strings, onCoordinate)
                 SearchView.Closed -> Unit
             }
         }
+    }
+}
+
+@Composable
+private fun ResultItems(v: SearchView.Results, strings: Strings, onResult: (PlaceDisplay.Info, String) -> Unit) {
+    val t = LocalTokens.current
+    LazyColumn {
+        items(v.items) { info ->
+            val name = info.name ?: strings[info.type]
+            Column(
+                Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { onResult(info, name) }.padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(name, style = NavType.bodyLarge, color = t.uiOnSurface.c(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val second = listOfNotNull(strings[info.type].takeIf { info.name != null }, info.context).joinToString(" · ")
+                if (second.isNotEmpty()) Text(second, style = NavType.body, color = t.uiOnSurfaceVariant.c(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            HorizontalDivider(color = t.uiOutlineVariant.c())
+        }
+    }
+}
+
+/**
+ * NAV-023 AC 21, 24 (screen spec android-offline-pack F8, O7 `ind-results`): the header row above the first on-device
+ * result, once per list (start-aligned, padding 8/16/4), never over the field, a name or the attribution. TalkBack:
+ * after the results render it announces «{count} илэрц олдлоо» followed by OF25 «Офлайн газрын зургаас» (one polite
+ * live node; the chip itself is not focusable on its own).
+ */
+@Composable
+private fun OnDeviceResultsHeader(count: Int, strings: Strings) {
+    val n = count.toString()
+    val announcement = Templates.fill(strings.plural(PluralKey.SEARCH_RESULTS_COUNT, Plurals.isOne(n)), "count" to n) +
+        ", " + strings[StringKey.OFFLINE_INDICATOR_A11Y]
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 36.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+            .testTag("search-offline-header")
+            .clearAndSetSemantics {
+                contentDescription = announcement
+                liveRegion = LiveRegionMode.Polite
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OfflineIndicator(strings)
+    }
+}
+
+/** NAV-023 AC 21 (O7 `ind-noresult`): «Илэрц олдсонгүй» from the device, the chip after the text (wraps as a whole). */
+@Composable
+private fun NoResultsOnDeviceRow(strings: Strings) {
+    val t = LocalTokens.current
+    FlowRow(
+        verticalArrangement = Arrangement.Center,
+        itemVerticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp).semantics(mergeDescendants = true) { },
+    ) {
+        Text(stringResource(R.string.search_no_results), style = NavType.body, color = t.uiOnSurface.c())
+        OfflineIndicator(strings, Modifier.padding(start = 8.dp))
     }
 }
 

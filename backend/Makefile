@@ -26,7 +26,7 @@ endif
 .DEFAULT_GOAL := help
 .PHONY: help up down restart ps logs smoke smoke-backend perf contract rate-limit-check cors-check rebuild-data \
         clean-data stats tiles-info build-info rebuild rollback status slot-checksums nav006-up nav006-ps \
-        nav006-test-setup nav006-test-teardown pipeline-test pack-publish pack-status pack-test gate2-image \
+        nav006-test-setup nav006-test-teardown pipeline-test pack-publish pack-status pack-test search-eval gate2-image \
         nav020-test-setup nav020-test-teardown
 
 help: ## Show this help
@@ -159,6 +159,10 @@ pack-test: ## NAV-020/NAV-022 unit tests: pack step, static export, search DB bu
 	$(PYTHON) -m unittest discover -s pipeline/tests -p 'test_nav_pack*.py' -v
 	$(PYTHON) -m unittest discover -s pipeline/tests -p 'test_pack_export*.py' -v
 	$(PYTHON) -m unittest discover -s pack/tests -v
+
+search-eval: ## NAV-023: build search.sqlite twice from DUMP and measure the D168 gate, AC 5, D198 held-out, AC 20 (ONLINE=, OUT=)
+	@test -n "$(DUMP)" || { echo "usage: make search-eval DUMP=<photon dump> [ONLINE=<gateway base URL of the same slot>] [OUT=<report dir>]"; exit 2; }
+	PYTHON=$(PYTHON) pack/search-eval.sh "$(DUMP)" "$(ONLINE)" "$(OUT)"
 
 gate2-image: ## NAV-020 Gate 2 engine image (>= 20 GB free, 45-90 min; GATE2_VARIANT=upstream = ADR-0017 A1 item 2)
 	@avail=$$(df -Pk /var/lib/docker 2>/dev/null | awk 'NR==2{print int($$4/1048576)}'); \

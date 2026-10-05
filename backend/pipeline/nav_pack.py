@@ -133,7 +133,7 @@ class PackConfig:
         self.search_image = g("PACK_SEARCH_BUILDER_IMAGE", DEFAULT_SEARCH_IMAGE)
         if "@sha256:" not in self.search_image:
             raise base.ConfigError("PACK_SEARCH_BUILDER_IMAGE must be pinned by digest (image@sha256:...)")
-        self.search_builder_version = int(num("PACK_SEARCH_BUILDER_VERSION", 1))
+        self.search_builder_version = int(num("PACK_SEARCH_BUILDER_VERSION", 2))
         self.search_schema = int(num("PACK_SEARCH_SCHEMA", 1))
         self.gate2_mode = g("PACK_GATE2_MODE", "engine")
         if self.gate2_mode not in ("engine", "evidence"):

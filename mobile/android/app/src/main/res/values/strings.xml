@@ -14,6 +14,11 @@
     <string name="search_clear">Хайлтыг арилгах</string>
     <string name="search_results">Хайлтын илэрц</string>
     <string name="search_no_results">Илэрц олдсонгүй</string>
+    <!-- NAV-023 AC 21 (glossary 4 "Results count", NAV-003 T3): the announcement after on-device results render, then OF25. -->
+    <plurals name="search_results_count">
+        <item quantity="one">{count} илэрц олдлоо</item>
+        <item quantity="other">{count} илэрц олдлоо</item>
+    </plurals>
     <string name="search_unavailable">Хайлт түр ажиллахгүй байна</string>
     <string name="search_rate_limited">Түр хүлээгээд дахин оролдоно уу</string>
     <string name="place_selected_point">Сонгосон цэг</string>

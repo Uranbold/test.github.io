@@ -16,9 +16,11 @@ import mn.navmn.app.geo.LatLon
 import mn.navmn.app.i18n.Lang
 import mn.navmn.app.net.NetworkMonitor
 import mn.navmn.app.search.PhotonFeature
+import mn.navmn.app.search.PhotonListener
 import mn.navmn.app.search.SearchClient
 import mn.navmn.app.search.SearchOutcome
 import mn.navmn.app.search.photonGet
+import mn.navmn.app.search.photonStart
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -58,6 +60,9 @@ class ReverseClient(private val baseUrl: String, http: OkHttpClient, private val
         if (!isOnline()) return SearchOutcome.Offline
         return photonGet(client, url(p, lang), isOnline)
     }
+
+    /** NAV-023 (online first with the on-device fallback): the same request, with the header-level hooks. */
+    fun start(p: LatLon, lang: Lang, listener: PhotonListener): okhttp3.Call = photonStart(client, url(p, lang), isOnline, listener)
 }
 
 /** The nearest-place area of the coordinate card (screen spec › States › S2 coordinate card; QA hook `reverseState`). */
@@ -67,8 +72,11 @@ sealed interface ReverseView {
     data object Pending : ReverseView { override val id = "pending" }
     data object Loading : ReverseView { override val id = "loading" }
     /** The feature is kept, so a language switch only re-renders labels (AC 13, 0 requests). */
-    data class Place(val feature: PhotonFeature) : ReverseView { override val id = "place" }
+    data class Place(val feature: PhotonFeature, val onDevice: Boolean = false) : ReverseView { override val id = "place" }
     data object Empty : ReverseView { override val id = "empty" }
+
+    /** NAV-023 AC 23 (D208): no named place near the point, answered on the device (OF24 next to «Ойролцоох газар»). */
+    data object EmptyOnDevice : ReverseView { override val id = "empty" }
     data object Offline : ReverseView { override val id = "offline" }
     data object Unavailable : ReverseView { override val id = "unavailable" }
     data class RateLimited(val retryEnabled: Boolean) : ReverseView { override val id = "rate-limited" }
@@ -160,7 +168,8 @@ class ReverseController(
             loading.cancel()
             if (g != generation) return@launch
             _view.value = when (outcome) {
-                is SearchOutcome.Ok -> outcome.features.firstOrNull()?.let { ReverseView.Place(it) } ?: ReverseView.Empty
+                is SearchOutcome.Ok -> outcome.features.firstOrNull()?.let { ReverseView.Place(it, outcome.onDevice) }
+                    ?: if (outcome.onDevice) ReverseView.EmptyOnDevice else ReverseView.Empty
                 SearchOutcome.BadRequest -> ReverseView.Error
                 SearchOutcome.Offline -> ReverseView.Offline
                 SearchOutcome.Unavailable -> ReverseView.Unavailable

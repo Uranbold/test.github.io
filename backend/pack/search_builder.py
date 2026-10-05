@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""NAV-020 search DB builder v1: Photon dump -> search.sqlite (offline search, ADR-0017 §3).
+"""NAV-020 / NAV-023 search DB builder v2: Photon dump -> search.sqlite (offline search, ADR-0017 §3).
 
-    python3 search_builder.py build    --dump DUMP --out OUT.sqlite [--builder-version 1] [--schema 1]
+    python3 search_builder.py build    --dump DUMP --out OUT.sqlite [--builder-version 2] [--schema 1]
     python3 search_builder.py selftest --db DB --query Q [--schema 1]
     python3 search_builder.py skeleton TEXT...            # prints one skeleton per argument (test helper)
 
 Production spec: docs/architecture/tasks/NAV-020-offline-pack-build-publication.md §3 (port of the offline spike
 prototype). The schema, the normalisation rules and the shared test vectors are owned by NAV-023 (AC 1-5); a change
-that alters stored keys increments search_schema.
+that alters stored keys increments search_schema. Shared vectors: backend/pack/vectors/search-normalisation.v1.json
+(read by the builder tests and the Android engine tests). Reference query plan and ranking: search_engine.py.
+v2 (NAV-023, still search_schema 1: no published pack or engine consumed v1): context values from `<key>:mn` first
+(as Photon answers lang=mn), a `locality` column (address.neighbourhood, Photon `locality`), the skeleton
+joined-word keys also in vocab, host zstd fallback.
 
 Runtime: Python stdlib only. In the pack step it runs in PACK_SEARCH_BUILDER_IMAGE (python:3.14-slim pinned by
 digest: SQLite 3.46.1 with FTS5, R*Tree and the trigram tokenizer; compression.zstd for the dump) with
@@ -34,7 +38,7 @@ import sys
 import time
 import unicodedata
 
-BUILDER_VERSION = 1
+BUILDER_VERSION = 2                     # v2 (NAV-023): `<key>:mn` context, `locality`, joined keys in vocab
 SEARCH_SCHEMA = 1
 APPLICATION_ID = 0x4E41564D            # "NAVM"
 # ODbL notice inside the derivative database itself (NAV-020 review minor): the same values as the manifest's
@@ -55,7 +59,11 @@ CYR2LAT = {
     "ь": "", "ъ": "",
 }
 NAME_KEY = re.compile(r"^(name|alt_name|old_name|short_name|official_name|int_name|loc_name|reg_name)(:.+)?$")
-CONTEXT_KEYS = ("street", "suburb", "district", "city", "county", "state")
+# place column -> dump address key. `locality` is Photon's name for address.neighbourhood (where bag names live).
+# Each value is taken from `<key>:mn` when present, else the base key: Photon answers lang=mn that way, so the context
+# line equals the online one (the base `city` of Ulaanbaatar is the Russian «Улан-Батор»; `city:mn` is «Улаанбаатар»).
+CONTEXT_KEYS = ("street", "suburb", "locality", "district", "city", "county", "state")
+ADDRESS_KEY = {"locality": "neighbourhood"}
 NON_ALNUM = re.compile(r"[^0-9a-z ]+")
 SEP = re.compile(r"[^\w]+", re.UNICODE)
 
@@ -102,11 +110,17 @@ def open_dump(path):
         magic = f.read(4)
     if magic == ZSTD_MAGIC:
         try:
-            from compression import zstd   # Python >= 3.14
+            from compression import zstd   # Python >= 3.14 (the pinned pack image)
+            return io.TextIOWrapper(zstd.open(path, "rb"), encoding="utf-8")
         except ImportError:
-            sys.exit("search_builder: the dump is zstd-compressed and this Python has no compression.zstd "
-                     "(run it in PACK_SEARCH_BUILDER_IMAGE)")
-        return io.TextIOWrapper(zstd.open(path, "rb"), encoding="utf-8")
+            pass
+        try:
+            import zstandard               # host tools only (search_eval.py on a dev machine); same decoded bytes
+        except ImportError:
+            sys.exit("search_builder: the dump is zstd-compressed and this Python has neither compression.zstd nor "
+                     "zstandard (run it in PACK_SEARCH_BUILDER_IMAGE)")
+        return io.TextIOWrapper(zstandard.ZstdDecompressor().stream_reader(open(path, "rb"), closefd=True),
+                                encoding="utf-8")
     return open(path, encoding="utf-8")
 
 
@@ -171,7 +185,7 @@ def make_row(e):
         display = clean(names.get(k))
         if display:
             break
-    street = clean(addr.get("street"))
+    street = clean(addr.get("street:mn")) or clean(addr.get("street"))
     hn = clean(e.get("housenumber"))
     if not display and not (hn and street):
         return None
@@ -184,7 +198,10 @@ def make_row(e):
                     variants.add(c)
     if hn and street:
         variants.add(f"{street} {hn}")       # address points: findable as "<street> <number>"
-    ctx = {k: clean(addr.get(k)) or None for k in CONTEXT_KEYS}
+    ctx = {}
+    for k in CONTEXT_KEYS:
+        a = ADDRESS_KEY.get(k, k)
+        ctx[k] = clean(addr.get(a + ":mn")) or clean(addr.get(a)) or None
     lon, lat = e["centroid"][0], e["centroid"][1]
     bbox = e.get("bbox") or []
     ext = (None, None, None, None)
@@ -213,7 +230,7 @@ CREATE TABLE place (
   osm_type TEXT, osm_id INTEGER,
   osm_key TEXT NOT NULL, osm_value TEXT NOT NULL, type TEXT NOT NULL,
   name TEXT, name_en TEXT,
-  housenumber TEXT, street TEXT, postcode TEXT, suburb TEXT, district TEXT, city TEXT, county TEXT, state TEXT,
+  housenumber TEXT, street TEXT, postcode TEXT, suburb TEXT, locality TEXT, district TEXT, city TEXT, county TEXT, state TEXT,
   country_code TEXT,
   lat REAL NOT NULL, lon REAL NOT NULL,
   ext_w REAL, ext_n REAL, ext_e REAL, ext_s REAL,
@@ -240,7 +257,9 @@ def index_keys(row):
                 skels.add(s)
                 sw = s.split()
                 joined.update(joined_pairs(sw))
-    vocab = sorted({t for s in skels for t in s.split()})
+    # vocab (edit-distance expansion, NAV-023 AC 6): every Latin term of the skel column, i.e. the skeleton words AND
+    # the skeleton joined-word keys, so a typo in a joined form («Энхтайвны» for «Энх тайваны») can still expand
+    vocab = sorted({t for s in skels for t in s.split()} | {j for j in joined if j.isascii()})
     ctx = " ".join(fold(row[k]) for k in CONTEXT_KEYS if row[k])
     skel_col = " ".join(sorted(skels) + sorted(joined - skels))
     return " ".join(sorted(folded)), skel_col, ctx, vocab
@@ -263,9 +282,9 @@ def build(dump, out, builder_version=BUILDER_VERSION, schema=SEARCH_SCHEMA):
     db.execute("BEGIN")
     for i, r in enumerate(rows, 1):
         ext = r["ext"]
-        db.execute("INSERT INTO place VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        db.execute("INSERT INTO place VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (i, r["osm_type"], r["osm_id"], r["osm_key"], r["osm_value"], r["type"], r["name"], r["name_en"],
-                    r["housenumber"], r["street"], r["postcode"], r["suburb"], r["district"], r["city"], r["county"],
+                    r["housenumber"], r["street"], r["postcode"], r["suburb"], r["locality"], r["district"], r["city"], r["county"],
                     r["state"], r["country_code"], r["lat"], r["lon"], ext[0], ext[1], ext[2], ext[3],
                     r["importance"]))
         names, skel, ctx, toks = index_keys(r)
@@ -316,7 +335,8 @@ def selftest(db_path, query, schema=SEARCH_SCHEMA):
         hits = db.execute("SELECT count(*) FROM place_fts WHERE place_fts MATCH ?", (expr,)).fetchone()[0] if expr else 0
         trad = db.execute("SELECT count(*) FROM place WHERE "
                           + " OR ".join(f"{c} GLOB '*[\u1800-\u18af]*'" for c in
-                                        ("name", "name_en", "street", "suburb", "district", "city", "county", "state"))
+                                        ("name", "name_en", "street", "suburb", "locality", "district", "city", "county",
+                                         "state"))
                           ).fetchone()[0]
     finally:
         db.close()

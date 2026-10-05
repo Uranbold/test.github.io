@@ -12,6 +12,7 @@ import mn.navmn.app.route.RouteRequest
 import mn.navmn.app.route.TravelMode
 import mn.navmn.app.routing.EngineAnswer
 import mn.navmn.app.routing.GraphBuilderAllowList
+import mn.navmn.app.search.offline.SearchText
 import java.io.File
 
 /** NAV-022 AC 16 self-tests, run on the staged (verified, decompressed) files before anything is activated. */
@@ -95,19 +96,17 @@ class DefaultSelfTests(
 }
 
 /**
- * The server self-test query of the NAV-020 task file §3.6, on the `names` column with the simple fold (lower case,
- * «ү»→«у», «ө»→«о», «ё»→«е»): every token quoted, `*` on the last. The `skel` column needs the NAV-023 skeleton rules,
- * which arrive with NAV-023; `names` holds the folded name variants, so a name query proves the FTS5 index the same way.
+ * The server self-test query of the NAV-020 task file §3.6 (ADR-0017 A3 item 3: since NAV-023 the app runs the same
+ * expression as the server): the NAV-023 AC 2 skeleton of `self_test.search.q`, split into words, every word quoted,
+ * `*` on the last, on the `skel` column.
  */
 object SearchSelfTestQuery {
-    fun fold(s: String): String = s.lowercase().replace('ү', 'у').replace('ө', 'о').replace('ё', 'е')
-
-    /** null when the query has no token (the check then needs ≥ 1 `place` row only). */
+    /** null when the query has no word (the check then needs ≥ 1 `place` row only). */
     fun match(q: String): String? {
-        val tokens = fold(q).split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+        val tokens = SearchText.skeleton(q).split(' ').filter { it.isNotEmpty() }
         if (tokens.isEmpty()) return null
-        val quoted = tokens.mapIndexed { i, t -> "\"" + t.replace("\"", "") + "\"" + if (i == tokens.lastIndex) "*" else "" }
-        return "names : (" + quoted.joinToString(" ") + ")"
+        val quoted = tokens.mapIndexed { i, t -> "\"" + t + "\"" + if (i == tokens.lastIndex) "*" else "" }
+        return "skel : (" + quoted.joinToString(" ") + ")"
     }
 
     const val COUNT_SQL = "SELECT count(*) FROM place_fts WHERE place_fts MATCH ?"

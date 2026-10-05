@@ -69,6 +69,9 @@ valhalla-mobile = { module = "io.github.rallista:valhalla-mobile", version.ref =
 moshi = { module = "com.squareup.moshi:moshi", version.ref = "moshi" }
 androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }
 androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqliteBundled" }
+# NAV-023 (task SM1): JVM unit tests only. The same release's JVM artefact, used solely for its host native library
+# (natives/<os>/libsqliteJni), so the Android artefact's BundledSQLiteDriver runs the real SQL on the host.
+androidx-sqlite-bundled-jvm = { module = "androidx.sqlite:sqlite-bundled-jvm", version.ref = "sqliteBundled" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

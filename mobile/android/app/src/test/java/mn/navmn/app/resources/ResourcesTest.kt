@@ -50,7 +50,9 @@ class ResourcesTest {
             // Mongolian has no plural change (navigation-ux §4.1): both items carry the same glossary text.
             assertEquals("$k mn one/other differ", mnItems["one"], mnItems["other"])
             for (v in mnItems.values + enItems.values) {
-                assertEquals(k, setOf("{n}"), placeholder.findAll(v).map { it.value }.toSet())
+                // NAV-023: the results count keeps the glossary's own placeholder «{count} илэрц олдлоо».
+                val expected = if (k == PluralKey.SEARCH_RESULTS_COUNT.resName) "{count}" else "{n}"
+                assertEquals(k, setOf(expected), placeholder.findAll(v).map { it.value }.toSet())
                 assertTrue("$k uses String.format markers", !v.contains("%"))
             }
         }
