@@ -368,8 +368,8 @@ Story [NAV-021](../../docs/requirements/stories/NAV-021-android-on-device-routin
 [NAV-021](../../docs/architecture/tasks/NAV-021-android-on-device-routing-reroute.md). The engine is
 `io.github.rallista:valhalla-mobile:0.6.3` (Maven Central, MIT; AAR SHA-256 `ac6d7023…eb11cde`, the artefact recorded
 in ADR-0017 A1 F1), used as published. **Without an installed routing file nothing changes**: every request goes to
-the gateway exactly as before and the `:routing` process is never started (AC 13, 30). NAV-022 will install routing
-files; until then only the debug provisioning below does.
+the gateway exactly as before and the `:routing` process is never started (AC 13, 30). NAV-022 installs routing
+files from the offline pack (section 9); the debug provisioning below stays for development.
 
 ### 8.1 Code map
 
@@ -485,3 +485,86 @@ spike's 12/12 measurement with the upstream 3.6.3 engine (a stand-in, not the ga
 
 See the NAV-021 handoff for the measured numbers; the native library is stored uncompressed (`minSdk` 26, page-aligned)
 and is present for all four ABIs the app ships.
+
+## 9. Offline Mongolia map: download, update, map from the pack (NAV-022, ADR-0017 §5, §6)
+
+Story [NAV-022](../../docs/requirements/stories/NAV-022-android-offline-pack-download-update-map.md), task list
+[NAV-022](../../docs/architecture/tasks/NAV-022-android-offline-pack-download-update-map.md), UX
+[screen spec](../../docs/design/screens/android-offline-pack.md) and [flow](../../docs/design/flows/NAV-022-offline-download.md).
+The pack is the three files of openapi 0.6.1 `getOfflinePackManifest` / `getOfflinePackFile`. The demo build has no
+pack surface and sends no pack request (UX B7).
+
+### 9.1 Code map
+
+| Where (`app/src/main/java/mn/navmn/app/`) | What | AC |
+|---|---|---|
+| `pack/PackManifest.kt` | `OfflinePackManifest` model (unknown fields ignored), strict checks (region, slot IDs, paths inside their version, checksums) | 16, 24 |
+| `pack/PackRules.kt` | files to fetch by `sha256` (never `pack_version`), compatibility (allow-list, `search_schema`, PMTiles 3), required space, data dates (Asia/Ulaanbaatar), `StaleOfferRule` (14 days / 7 days), `FirstLaunchRule` | 1–6, 24, 25, 27–30, 39 |
+| `pack/PackHttp.kt` | manifest (`If-None-Match`, 304), resumable file download: `Range` + `If-Range` (strong ETag, else Last-Modified, else none), 206 must start at the asked byte, 200 restarts, 416, 404, 429 `Retry-After`, `Accept-Encoding: identity`, ENOSPC | 7, 11, 14, 15, 21, 42 |
+| `pack/PackVerifier.kt`, `SelfTests.kt`, `PlatformSelfTests.kt` | `download_sha256` → streaming gunzip to `bytes` with `sha256` → PMTiles header (z0–14, P1–P6), one route in the NAV-021 `:routing` process (`IOnDeviceRouting.selfTest`), `PRAGMA quick_check` + one FTS5 query with `sqlite-bundled` | 16, 17 |
+| `pack/PackStore.kt` | `noBackupFilesDir/packs/`: `<version>.partial/` → rename, `active.json` temp + rename (the format NAV-021's `PackFiles` reads), reconcile, garbage collection with consumer holds | 18–20, 36 |
+| `pack/PackJob.kt` | one run: manifest → plan → space (0 file requests when short) → per file network rule, download, verify → self-tests → install | 6–25 |
+| `pack/PackManager.kt` | app-wide state, first-launch offer, Settings refresh, user-started flow with the OF13 decision, cancel, delete, 14-day offer, outcomes, map/routing holds | 1–15, 19, 21–30, 36–41 |
+| `pack/PackWork.kt`, `PackNotifications.kt` | WorkManager: one unique user job (`UNMETERED`, or `CONNECTED` after OF13 / the 14-day offer) and the 24 h periodic check (`UNMETERED`, battery not low, storage not low); channel `offline_pack` (OF1, low importance), «Цуцлах» / «Дахин оролдох» actions | 8–15, 21–23, 41 |
+| `ui/screens/OfflinePack.kt`, `ui/PackViewModel.kt` | O1 / O4 offer sheet above R5, O2 section at the end of «Тохиргоо», O3 / O5 dialogs, O6 S1 message | 1–4, 8, 9, 12, 26–29, 36–41, 45 |
+| `ui/NavRoot.kt` | map style `pmtiles://file://<packs>/<version>/basemap.pmtiles` when a tiles file is installed, switched only outside guidance; online PMTiles otherwise | 19, 31–35 |
+
+**Deviation from task file P5 (`setForeground`):** WorkManager's `Processor.startForeground` takes a `WAKE_LOCK`, which
+the main manifest removes (ADR-0013, NAV-012 AC 48). The download therefore runs as a plain WorkManager job and the app
+posts the progress notification itself. A job that Android stops after its execution window is rescheduled and resumes
+with `Range`. `RECEIVE_BOOT_COMPLETED` is removed too (NAV-012 AC 25), so a download interrupted by a reboot resumes at
+the next app start, not right after the reboot. Both are listed for the architect in the NAV-022 handoff.
+
+### 9.2 Pack base URL (AC 47) and the PO's APK
+
+`BuildConfig.PACK_BASE_URL` is the directory that holds `mn/manifest.json`. Order: `-Pnav.packBaseUrl=…`, environment
+`NAV_PACK_BASE_URL`, `nav.packBaseUrl=` in the uncommitted `gateway.local.properties`. Unset: `<gateway>/packs`. It is
+never committed; release builds fail unless it is `https://` (task `checkReleasePackUrl`); the demo build ignores it.
+
+Build the debug APK for the PO's phone (no VPS, no adb needed on the phone side):
+
+```bash
+cd mobile/android
+./gradlew assembleDebug -Pnav.packBaseUrl=https://<po-static-host>/packs/
+# APK: app/build/outputs/apk/debug/app-debug.apk  → send it to the phone and install it (allow "install unknown apps")
+```
+
+`-Pnav.gatewayBaseUrl` can be added when a reachable HTTPS gateway exists; without it the debug build's gateway is
+`127.0.0.1:8080` (unreachable from the phone), so online search, online routes and the online map do not work, while
+the installed pack gives the map and on-device routes (NAV-021). Offline **search** arrives with NAV-023.
+
+The static host must serve exactly the NAV-020 tree: `<base>/mn/manifest.json` and `<base>/mn/<fileVersion>/<file>.gz`
+(byte-identical `.gz` files, no recompression). Check it before the phone test (the app copes with a host that lacks
+Range or ETag support, but then a resume downloads the file again):
+
+```bash
+B=https://<po-static-host>/packs/mn
+curl -sI "$B/manifest.json" | grep -iE '^(HTTP|etag|cache-control|content-type)'
+F=$(curl -s "$B/manifest.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"][0]["path"])')
+curl -sI "$B/$F" | grep -iE '^(HTTP|etag|content-length|content-encoding|accept-ranges)'   # no Content-Encoding wanted
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Range: bytes=100-199' "$B/$F"                   # 206 = Range works
+E=$(curl -sI "$B/$F" | awk 'tolower($1)=="etag:"{print $2}' | tr -d '\r')
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Range: bytes=100-199' -H "If-Range: $E" "$B/$F"  # 206 = If-Range works
+curl -s -o /dev/null -w '%{http_code}\n' -H "If-None-Match: $(curl -sI "$B/manifest.json" | awk 'tolower($1)=="etag:"{print $2}' | tr -d '\r')" "$B/manifest.json"  # 304
+```
+
+### 9.3 PO phone test (Redmi Note 8 Pro, Android 11, MIUI 12.5)
+
+1. Install the APK above. On first start on Wi-Fi the offer «Монголын газрын зураг татах» appears (once per
+   installation, AC 1–3); «Татах» starts the download. Without the offer: «Тохиргоо» (gear) → scroll to the end →
+   «Офлайн газрын зураг» → «Монголын газрын зураг татах».
+2. Progress shows in the section and in the notification («Татаж байна… N%», «Цуцлах»). Keep the app open for the first
+   download: MIUI may hold background jobs (battery saver → app → "No restrictions" helps).
+3. Mobile data instead of Wi-Fi: «Мобайл датагаар … татах уу?» asks first; «Wi-Fi хүлээх» queues the download.
+4. Resume: switch airplane mode on at about 50 %, off again: the download continues where it stopped.
+5. Done: «Офлайн газрын зураг бэлэн боллоо»; the section shows «Мэдээллийн огноо» with one date per file. The map now
+   comes from the phone: airplane mode on, pan to Darkhan, Khovd, Choibalsan, Ölgii, Dalanzadgad at zoom 14.
+6. Offline route: airplane mode on, long-press a destination, «Маршрут гаргах»: the route shows «Офлайн» (NAV-021).
+7. Delete: «Офлайн газрын зургийг устгах» → «Устгах»; the section returns to the download button.
+
+### 9.4 Not verified in this environment
+
+No phone or emulator here (no `/dev/kvm`): the WorkManager scheduling on a device, notifications, MIUI behaviour, the
+`:routing` self-test on a real `routing.tar`, the `sqlite-bundled` search self-test on a real `search.sqlite` (the
+Android native library does not load in JVM tests), the map switch and its 5 s budget, and every AC 46 device check.
+JVM tests cover sections A–G, I and J against a mock static `/packs/` server.

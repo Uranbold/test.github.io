@@ -13,6 +13,9 @@ import java.util.concurrent.TimeUnit
 /** NAV-005 AC 61: identical key sets, placeholders kept, glossary match, no hard-coded user-facing literals. */
 class ResourcesTest {
     private val placeholder = Regex("\\{[a-z]+\\}")
+    /** String.format / getString(id, args) markers (%s, %1${'$'}s, %d, %.1f, …). A literal percent sign after a placeholder
+     *  (NAV-022 OF8 «Татаж байна… {percent}%», glossary 2.7) is text, not a marker. */
+    private val formatMarker = Regex("%(\\d+\\$)?[-#+ 0,(]*\\d*(\\.\\d+)?[a-zA-Z]")
 
     @Test
     fun mnAndEnKeySetsAreIdentical() {
@@ -26,7 +29,7 @@ class ResourcesTest {
         for ((k, v) in TestStrings.en) {
             val mn = TestStrings.mn.getValue(k).value
             assertEquals(k, placeholder.findAll(mn).map { it.value }.toSet(), placeholder.findAll(v.value).map { it.value }.toSet())
-            assertTrue("$k uses String.format markers", !mn.contains("%") && !v.value.contains("%"))
+            assertTrue("$k uses String.format markers", !formatMarker.containsMatchIn(mn) && !formatMarker.containsMatchIn(v.value))
         }
     }
 

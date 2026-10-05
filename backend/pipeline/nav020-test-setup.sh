@@ -8,6 +8,7 @@
 # Then renders <root>/nav020.env from nav020-test.env.template. Slots are seeded with pipeline/nav020_test.py.
 #
 #   backend/pipeline/nav020-test-setup.sh [TEST_ROOT]        default /var/tmp/nav020-test
+#   NAV020_METHOD_URL=https://<public repo> ...              manifest licence.method_url (default: .test placeholder)
 #   make -C backend nav020-test-setup [NAV020_TEST_ROOT=...]
 # Undo: backend/pipeline/nav020-test-teardown.sh [TEST_ROOT]
 set -euo pipefail
@@ -50,7 +51,10 @@ for s in photon-dump.sha256 photon-dump.source photon-dump.last-modified; do
     [[ -s "$SRC/sources/$s" ]] && cp "$SRC/sources/$s" "$IN/$s"
 done
 : > "$IN/mongolia.osm.pbf"     # the NAV-006 config needs a source entry; no rebuild runs in this test
-sed "s|@ROOT@|$ROOT|g" "$HERE/nav020-test.env.template" > "$ROOT/nav020.env"
+# PACK_METHOD_URL (ODbL §4.6): NAV020_METHOD_URL=https://<public pipeline repository>, else a .test placeholder.
+METHOD_URL=${NAV020_METHOD_URL:-https://pipeline.navmn.test/osm-navigation}
+[[ "$METHOD_URL" =~ ^https://[^[:space:]@|]+$ ]] || die "NAV020_METHOD_URL must be an https:// URL without credentials"
+sed -e "s|@ROOT@|$ROOT|g" -e "s|@METHOD_URL@|$METHOD_URL|g" "$HERE/nav020-test.env.template" > "$ROOT/nav020.env"
 mode=$([[ "${NAV020_COPY_DATA:-0}" == 1 ]] && echo copies || echo "hard links (read-only use)")
 log "test root ready: $ROOT (tiles, graph, jars: $mode; dump and build-info: copies); config: $ROOT/nav020.env"
 log "next: python3 $HERE/nav020_test.py --env-file $ROOT/nav020.env seed <SLOT_ID>; ... activate <SLOT_ID>; make -C $BACKEND pack-publish NAV_ENV_FILE=$ROOT/nav020.env"

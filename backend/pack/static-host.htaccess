@@ -1,0 +1,57 @@
+# NAV-022 offline pack on a static web host (LiteSpeed or Apache 2.4). Written by `make pack-export` as DEST/.htaccess;
+# upload it to the directory behind the app's pack base URL (the one that contains mn/). Optional: hosts that already
+# meet the rules below do not need it. Verify the result with the curl checks in backend/README.md
+# ("Static pack hosting") or `make pack-static-check PACK_BASE_URL=...`; never assume a host honours this file.
+#
+# The app checks the SHA-256 of the bytes it receives, resumes with Range + If-Range, and revalidates the manifest
+# with If-None-Match (openapi 0.6.x getOfflinePackManifest / getOfflinePackFile). So the host must:
+#   - send the .gz files as they are: NO Content-Encoding header, NO on-the-fly compression (it would change the bytes,
+#     the length and the ETag, and break byte ranges)
+#   - not compress the manifest either (a compressed variant gets a different or weak ETag, so 304s stop working)
+#   - answer 404 for a missing file (never a 200 HTML page from a CMS)
+# Needs AllowOverride FileInfo (the usual shared-hosting setting). Nothing here is required for HTTP Range or ETag themselves:
+# both are on by default in LiteSpeed and Apache.
+
+# ---- 1. No compression of anything in this directory (LiteSpeed reads the no-gzip variable; Apache mod_deflate and
+#         mod_brotli read no-gzip / no-brotli). SetEnv is the form LiteSpeed documents for .htaccess.
+SetEnv no-gzip 1
+SetEnv no-brotli 1
+SetEnv dont-vary 1
+
+<IfModule mod_rewrite.c>
+    # Same switch for hosts that only honour it from mod_rewrite. "RewriteEngine On" here also stops rewrite rules of
+    # a parent directory (for example a CMS front controller) from turning a missing pack file into a 200 page.
+    RewriteEngine On
+    RewriteRule . - [E=no-gzip:1,E=no-brotli:1]
+</IfModule>
+
+# ---- 2. Content types; .gz is a file type here, never a content coding.
+<IfModule mod_mime.c>
+    RemoveEncoding .gz .pmtiles .tar .sqlite .json
+    AddType application/json .json
+    AddCharset utf-8 .json
+    AddType application/vnd.pmtiles .pmtiles
+    AddType application/x-tar .tar
+    AddType application/vnd.sqlite3 .sqlite
+    # Last extension wins: basemap.pmtiles.gz, routing.tar.gz and search.sqlite.gz are application/gzip.
+    AddType application/gzip .gz
+    AddType text/plain .txt
+    AddCharset utf-8 .txt
+</IfModule>
+
+# ---- 3. Caching: versioned files never change under their URL; the manifest and the notices are revalidated.
+<IfModule mod_expires.c>
+    ExpiresActive Off
+</IfModule>
+<IfModule mod_headers.c>
+    # `Header set` (not `always`) applies to 2xx answers only, so a 404 is never cached for a year.
+    <FilesMatch "\.(gz|pmtiles|tar|sqlite)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+    <FilesMatch "\.(json|txt)$">
+        Header set Cache-Control "no-cache"
+    </FilesMatch>
+    # Only for browser clients (the Android app does not need CORS). Uncomment if a web page reads the pack:
+    # Header set Access-Control-Allow-Origin "*"
+    # Header set Access-Control-Expose-Headers "ETag, Content-Length, Content-Range, Accept-Ranges"
+</IfModule>

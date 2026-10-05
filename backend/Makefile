@@ -12,7 +12,7 @@ CONTRACT_ARGS ?=
 # (RUNBOOK.md). Read-only targets (help, ps, logs, smoke, perf, contract, stats, build-info, tiles-info) still work.
 STAGING_ENV_FILE ?= ../infra/staging/.env
 STAGING_REFUSED  := .env up down restart cors-check rebuild-data clean-data nav006-up nav006-test-setup nav006-test-teardown \
-                    nav020-test-setup nav020-test-teardown
+                    nav020-test-setup nav020-test-teardown pack-export-test
 ifneq ($(wildcard $(STAGING_ENV_FILE)),)
 ifneq ($(filter $(STAGING_REFUSED),$(MAKECMDGOALS)),)
 ifneq ($(NAV_DEV_TARGETS_ON_STAGING),yes)
@@ -155,8 +155,9 @@ pack-publish: nav006-env-check ## NAV-020: pack step on the active slot, same lo
 pack-status: nav006-env-check ## NAV-020: the pack part of make status (published versions, last result, Gate 2 engine)
 	@$(PIPELINE) pack-status
 
-pack-test: ## NAV-020 unit tests: pack step, search DB builder (no Docker, a few seconds)
+pack-test: ## NAV-020/NAV-022 unit tests: pack step, static export, search DB builder (no Docker, a few seconds)
 	$(PYTHON) -m unittest discover -s pipeline/tests -p 'test_nav_pack*.py' -v
+	$(PYTHON) -m unittest discover -s pipeline/tests -p 'test_pack_export*.py' -v
 	$(PYTHON) -m unittest discover -s pack/tests -v
 
 gate2-image: ## NAV-020 Gate 2 engine image (>= 20 GB free, 45-90 min; GATE2_VARIANT=upstream = ADR-0017 A1 item 2)
@@ -170,3 +171,21 @@ nav020-test-setup: ## NAV-020 dev-container test root (separate project navmn-na
 
 nav020-test-teardown: ## NAV-020 test: remove the test project (containers, volumes, networks) and its root
 	pipeline/nav020-test-teardown.sh $(NAV020_TEST_ROOT)
+
+# ---------------------------------------------------------------- NAV-022 static pack hosting (README "Static pack hosting")
+# Source: PACKS_DIR=<NAV_DATA_ROOT>/packs, else the packs directory of NAV_ENV_FILE (staging .env automatic).
+# pack-export (reads the packs, writes only DEST) and pack-static-check (HTTP GETs) are allowed on staging.
+# The pack base URL of a real host is never committed: pass it on the command line only.
+PACK_EXPORT_FLAGS = $(if $(filter 0,$(HTACCESS)),--no-htaccess) $(if $(filter 1,$(LINK)),--link) $(if $(filter 1,$(QUICK)),--quick)
+
+pack-export: ## NAV-022: latest published pack -> static tree DEST=<dir> for a static host (PACKS_DIR=, HTACCESS=0, LINK=1)
+	@test -n "$(DEST)" || { echo "usage: make pack-export DEST=<dir> [PACKS_DIR=<NAV_DATA_ROOT>/packs | NAV_ENV_FILE=<file>] [HTACCESS=0] [LINK=1] [QUICK=1]"; exit 2; }
+	@test -n "$(PACKS_DIR)$(NAV_ENV_FILE)" || { echo "no pack source: set PACKS_DIR=<NAV_DATA_ROOT>/packs or NAV_ENV_FILE=<file>"; exit 2; }
+	$(PYTHON) pipeline/pack_export.py export --dest "$(DEST)" $(if $(PACKS_DIR),--packs-dir "$(PACKS_DIR)",--env-file "$(NAV_ENV_FILE)") $(PACK_EXPORT_FLAGS)
+
+pack-static-check: ## NAV-022: check a static host serving an export (PACK_BASE_URL=https://.../packs/ [PACK_LOCAL=<DEST>] [FULL=1])
+	@test -n "$(PACK_BASE_URL)" || { echo "usage: make pack-static-check PACK_BASE_URL=https://<host>/<path>/packs/ [PACK_LOCAL=<export dir>] [FULL=1]"; exit 2; }
+	$(PYTHON) scripts/pack_static_check.py --base-url "$(PACK_BASE_URL)" $(if $(PACK_LOCAL),--local "$(PACK_LOCAL)") $(if $(filter 1,$(FULL)),--full)
+
+pack-export-test: ## NAV-022: export + .htaccess on Apache httpd with shared-host defaults (project navmn-nav022, 127.0.0.1:18191; ~110 MB image, removed after)
+	pipeline/nav022-static-test.sh $(NAV022_TEST_ROOT)

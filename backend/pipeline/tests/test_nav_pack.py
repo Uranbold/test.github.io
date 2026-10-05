@@ -83,7 +83,7 @@ class Env:
                 "REBUILD_ALERT_CMD": f"'echo \"$NAV_RUN_RESULT|$NAV_RUN_STEP|$NAV_RUN_EXIT_CODE\" >> {self.alerts}'",
                 "PACK_ENABLED": "1", "PACK_WEEKLY_MIN_AGE_DAYS": "0", "PACK_TILES_MIN_AGE_DAYS": "28",
                 "PACK_MIN_FREE_GB": "0", "PACK_GATE2_MODE": "evidence", "PACK_GATE2_GOLDEN_SET": str(golden),
-                "PACK_METHOD_URL": "https://example.org/osm-navigation/pipeline"}
+                "PACK_METHOD_URL": "https://pipeline.navmn.test/osm-navigation"}
         vals.update(extra or {})
         self.env_file = self.dir / "test.env"
         self.env_file.write_text("".join(f"{k}={v}\n" for k, v in vals.items()))
@@ -239,6 +239,26 @@ class ConfigTests(unittest.TestCase):
                     {"PACK_GZIP_LEVEL": "0"}):
             with self.subTest(env=env), self.assertRaises(nav.ConfigError):
                 self.pc(**env)
+
+    def test_placeholder_method_url_refused(self):
+        """NAV-020 review minor: documentation / reserved names are never a public pipeline repository."""
+        for url in ("https://example.org/osm-navigation/pipeline", "https://example.invalid/x", "https://www.example.com/a",
+                    "https://git.example.net/a", "https://repo.example/a", "https://x.invalid", "https://localhost.localhost/a",
+                    "https://user@EXAMPLE.ORG./a"):
+            with self.subTest(url=url), self.assertRaises(nav.ConfigError) as cm:
+                self.pc(PACK_METHOD_URL=url)
+            self.assertIn("placeholder", str(cm.exception))
+        # .test: accepted in test projects, refused in navmn
+        self.assertEqual(self.pc(PACK_METHOD_URL="https://pipeline.navmn.test/x").method_url, "https://pipeline.navmn.test/x")
+        navmn = {"NAV_COMPOSE_PROJECT": "navmn", "PACK_WEEKLY_MIN_AGE_DAYS": "7", "PACK_TILES_MIN_AGE_DAYS": "28",
+                 "PACK_GATE2_MODE": "engine"}
+        with self.assertRaises(nav.ConfigError):
+            self.pc(PACK_METHOD_URL="https://pipeline.navmn.test/x", **navmn)
+        # real-looking hosts that merely contain the words pass
+        for url in ("https://examples.org.mn/p", "https://notexample.com/p", "https://code.example-org.mn/p"):
+            with self.subTest(url=url):
+                self.assertEqual(self.pc(PACK_METHOD_URL=url, **navmn).method_url, url)
+        self.assertEqual(nav_pack.placeholder_url(""), "")
 
 
 # ====================================================================== selection (AC 2-4, A1 items 6-7)

@@ -51,6 +51,10 @@ fun navSetting(property: String, env: String): String? {
 }
 val demoTilesFile: String? = navSetting("nav.demoTilesFile", "NAV_DEMO_TILES_FILE")
 val demoTilesUrl: String? = navSetting("nav.demoTilesUrl", "NAV_DEMO_TILES_URL")
+// NAV-022 AC 47 / P14: the offline-pack base URL, i.e. the directory that holds `mn/manifest.json` (for a static host such as
+// https://<host>/packs/). Gradle property → environment → the uncommitted gateway.local.properties, like the gateway URL.
+// Unset: the app uses <gateway>/packs (openapi 0.6.0 getOfflinePackManifest). Never committed (no hostname in the repo).
+val configuredPackBase: String? = navSetting("nav.packBaseUrl", "NAV_PACK_BASE_URL")?.trimEnd('/')
 // NAV-019 AC 4 (ADR-0016 §8.3): the NAV-017 route manifest; its picker routes and tracks are copied at build time.
 val demoManifestFile: File = webDir.resolve("src/demo/routes.manifest.json")
 
@@ -72,6 +76,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "GATEWAY_BASE_URL", quoted(configuredGateway ?: debugDefaultGateway))
+            buildConfigField("String", "PACK_BASE_URL", quoted(configuredPackBase.orEmpty())) // NAV-022 P14
             buildConfigField("boolean", "DEBUG_LOGS", "true")
             // B-NAV019-01: the last crash's stack trace is stored app-private and shown on the next launch (no adb needed).
             buildConfigField("boolean", "CRASH_DIAGNOSTICS", "true")
@@ -80,6 +85,7 @@ android {
             // Not minified in this slice (no store upload, D17); R8 rules for JNA/UniFFI come with NAV-012.
             isMinifyEnabled = false
             buildConfigField("String", "GATEWAY_BASE_URL", quoted(configuredGateway ?: ""))
+            buildConfigField("String", "PACK_BASE_URL", quoted(configuredPackBase.orEmpty())) // NAV-022 P14
             buildConfigField("boolean", "DEBUG_LOGS", "false")
             buildConfigField("boolean", "CRASH_DIAGNOSTICS", "false")
         }
@@ -96,6 +102,8 @@ android {
             isMinifyEnabled = false
             matchingFallbacks += listOf("release")
             buildConfigField("String", "GATEWAY_BASE_URL", quoted("https://127.0.0.1:9"))
+            // NAV-022 UX B7: the demo has no offline pack (0 pack requests); nav.packBaseUrl is ignored like the gateway URL.
+            buildConfigField("String", "PACK_BASE_URL", quoted(""))
             buildConfigField("boolean", "DEBUG_LOGS", "false")
             buildConfigField("boolean", "CRASH_DIAGNOSTICS", "true") // B-NAV019-01: the PO's phone has no adb
             buildConfigField("String", "DEMO_TILES_URL", quoted(if (demoTilesFile.isNullOrBlank()) demoTilesUrl.orEmpty() else ""))
@@ -179,6 +187,19 @@ val checkReleaseGatewayUrl by tasks.registering {
     }
 }
 tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(checkReleaseGatewayUrl) }
+
+// NAV-022 P14: a configured pack base URL must be https:// in release builds (debug may use loopback, AC 47).
+val checkReleasePackUrl by tasks.registering {
+    group = "verification"
+    description = "Fails if nav.packBaseUrl is set but not https:// (release builds)"
+    val url = configuredPackBase
+    doLast {
+        if (url != null && !url.startsWith("https://")) {
+            throw GradleException("Release builds need an https pack base URL: nav.packBaseUrl is $url")
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(checkReleasePackUrl) }
 
 // NAV-019 AC 3 (ADR-0016 §8.2): demo tasks fail early unless exactly one basemap source is set. Bound to preDemoBuild only,
 // so assembleDebug, assembleRelease and testDebugUnitTest never need the properties. The rule is navmn.buildlogic.DemoTilesGuard
@@ -459,6 +480,9 @@ dependencies {
     // NAV-021: the on-device engine (loaded only in the :routing process) and Moshi for its error envelope.
     implementation(libs.valhalla.mobile)
     implementation(libs.moshi)
+    // NAV-022 (ADR-0017 §5, §3): pack downloads and updates; the search-file self-test (FTS5).
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.sqlite.bundled)
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.viewmodel.compose)
     ksp(libs.hilt.compiler)

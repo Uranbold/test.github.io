@@ -83,6 +83,7 @@ required by protobuf), Boost algorithm / foreach / format / geometry / heap / op
 | `androidx.compose.ui` | `ui-util` | 1.11.4 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/compose-ui#1.11.4 |
 | `androidx.compose.ui` | `ui-util-android` | 1.11.4 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/compose-ui#1.11.4 |
 | `androidx.concurrent` | `concurrent-futures` | 1.1.0 | The Apache Software License, Version 2.0 | https://developer.android.com/topic/libraries/architecture/index.html |
+| `androidx.concurrent` | `concurrent-futures-ktx` | 1.1.0 | The Apache Software License, Version 2.0 | https://developer.android.com/topic/libraries/architecture/index.html |
 | `androidx.core` | `core` | 1.18.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/core#1.18.0 |
 | `androidx.core` | `core-ktx` | 1.18.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/core#1.18.0 |
 | `androidx.core` | `core-viewtree` | 1.0.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/core#1.0.0 |
@@ -142,13 +143,24 @@ required by protobuf), Boost algorithm / foreach / format / geometry / heap / op
 | `androidx.print` | `print` | 1.0.0 | The Apache Software License, Version 2.0 | http://developer.android.com/tools/extras/support-library.html |
 | `androidx.profileinstaller` | `profileinstaller` | 1.4.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/profileinstaller#1.4.0 |
 | `androidx.resourceinspection` | `resourceinspection-annotation` | 1.0.1 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/resourceinspection#1.0.1 |
+| `androidx.room` | `room-common` | 2.7.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/room#2.7.0 |
+| `androidx.room` | `room-common-jvm` | 2.7.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/room#2.7.0 |
+| `androidx.room` | `room-runtime` | 2.7.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/room#2.7.0 |
+| `androidx.room` | `room-runtime-android` | 2.7.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/room#2.7.0 |
 | `androidx.savedstate` | `savedstate` | 1.4.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/savedstate#1.4.0 |
 | `androidx.savedstate` | `savedstate-android` | 1.4.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/savedstate#1.4.0 |
 | `androidx.savedstate` | `savedstate-compose` | 1.4.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/savedstate#1.4.0 |
 | `androidx.savedstate` | `savedstate-compose-android` | 1.4.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/savedstate#1.4.0 |
 | `androidx.savedstate` | `savedstate-ktx` | 1.4.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/savedstate#1.4.0 |
+| `androidx.sqlite` | `sqlite` | 2.5.2 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/sqlite#2.5.2 |
+| `androidx.sqlite` | `sqlite-android` | 2.5.2 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/sqlite#2.5.2 |
+| `androidx.sqlite` | `sqlite-bundled` | 2.5.2 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/sqlite#2.5.2 |
+| `androidx.sqlite` | `sqlite-bundled-android` | 2.5.2 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/sqlite#2.5.2 |
+| `androidx.sqlite` | `sqlite-framework` | 2.5.2 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/sqlite#2.5.2 |
+| `androidx.sqlite` | `sqlite-framework-android` | 2.5.2 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/sqlite#2.5.2 |
 | `androidx.startup` | `startup-runtime` | 1.2.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/startup#1.2.0 |
 | `androidx.tracing` | `tracing` | 1.2.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/tracing#1.2.0 |
+| `androidx.tracing` | `tracing-ktx` | 1.2.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/tracing#1.2.0 |
 | `androidx.transition` | `transition` | 1.6.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/transition#1.6.0 |
 | `androidx.vectordrawable` | `vectordrawable` | 1.1.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx |
 | `androidx.vectordrawable` | `vectordrawable-animated` | 1.1.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx |
@@ -157,6 +169,7 @@ required by protobuf), Boost algorithm / foreach / format / geometry / heap / op
 | `androidx.window` | `window` | 1.5.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/window#1.5.0 |
 | `androidx.window` | `window-core` | 1.5.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/window#1.5.0 |
 | `androidx.window` | `window-core-android` | 1.5.0 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/window#1.5.0 |
+| `androidx.work` | `work-runtime` | 2.11.2 | The Apache Software License, Version 2.0 | https://developer.android.com/jetpack/androidx/releases/work#2.11.2 |
 | `com.google.code.findbugs` | `jsr305` | 3.0.2 | The Apache Software License, Version 2.0 | http://findbugs.sourceforge.net/ |
 | `com.google.code.gson` | `gson` | 2.10.1 | Apache-2.0 |  |
 | `com.google.dagger` | `dagger` | 2.58 | Apache 2.0 | https://github.com/google/dagger |

@@ -13,6 +13,9 @@
 # 7. NAV-020 (ADR-0017): /packs/ static locations (manifest no-cache + strong ETag + 304; files immutable, Range,
 #    If-Range, 416 no-store, no Content-Encoding; other /packs/ paths JSON 404), the "packs" rate-limit zone, the
 #    compose mount, pack + search-builder unit tests, and the Gate 2 recipe rules (no patching, never the upstream image)
+# 8. NAV-022 static pack hosting: the static-host test project renders (digest-pinned httpd, loopback port only,
+#    read-only document root); the export + .htaccess unit tests run with the pipeline tests. The full httpd run is
+#    `make -C backend pack-export-test` (pulls ~110 MB, not part of this script).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 B=$ROOT/backend
@@ -297,7 +300,22 @@ grep -q '^FROM \${BASE_IMAGE}' "$DF" && grep -q 'BASE_IMAGE=ubuntu:24.04@sha256:
     || fail "backend/gate2/default.json differs from the pinned AAR copy"
 echo "   Gate 2 recipe: pinned commits and base image, no patching, default.json = AAR copy"
 
-echo "== NAV-006 + NAV-020 pipeline unit tests, NAV-020 search builder tests"
+echo "== NAV-022 static-host test project (render only)"
+NAV022_WWW=/nonexistent-nav022 docker compose -f "$B/pack/static-host-test/compose.yaml" config --format json > "$TMP/nav022.json" \
+    || fail "pack/static-host-test/compose.yaml does not render"
+python3 - "$TMP/nav022.json" <<'PY' || fail "NAV-022 static-host test project rules"
+import json, sys
+c = json.load(open(sys.argv[1]))
+assert c["name"] == "navmn-nav022", c["name"]
+s = c["services"]["static"]
+assert "@sha256:" in s["image"], "httpd image must be pinned by digest"
+assert all(p.get("host_ip") == "127.0.0.1" for p in s["ports"]), "loopback only"
+assert all(p.get("published") != "8080" for p in s["ports"]), "never the dev gateway port"
+assert {v["target"]: v.get("read_only") for v in s["volumes"]}["/usr/local/apache2/htdocs"], "document root read-only"
+PY
+echo "   static-host test project: navmn-nav022, digest-pinned, 127.0.0.1 only, read-only docroot"
+
+echo "== NAV-006 + NAV-020 + NAV-022 pipeline unit tests, NAV-020 search builder tests"
 python3 -m unittest discover -s "$B/pipeline/tests" > "$TMP/ut.log" 2>&1 || { tail -n 30 "$TMP/ut.log"; fail "pipeline unit tests"; }
 tail -n 3 "$TMP/ut.log"
 python3 -m unittest discover -s "$B/pack/tests" > "$TMP/ut2.log" 2>&1 || { tail -n 30 "$TMP/ut2.log"; fail "search builder unit tests"; }

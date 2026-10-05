@@ -60,6 +60,8 @@ DEFAULT_VALHALLA_IMAGE = ("ghcr.io/valhalla/valhalla:3.9.0@sha256:"
 WRAPPER_COMMIT = "b47ad5a9aa5d907df329bd2a0bfcc9080220c9d8"
 VALHALLA_COMMIT = "e2f017b16080f49203de245a211b09efab09cf72"
 ODBL_URL = "https://opendatacommons.org/licenses/odbl/1-0/"
+ODBL_NAME = "ODbL-1.0"
+DEFAULT_ATTRIBUTION = "© OpenStreetMap contributors"     # also in pack/search_builder.py meta (LICENCE_META)
 KINDS = ("tiles", "routing", "search")
 FILE_NAME = {"tiles": "basemap.pmtiles", "routing": "routing.tar", "search": "search.sqlite"}
 SLOT_SOURCE = {"tiles": Path("tiles") / "basemap.pmtiles", "routing": Path("valhalla") / "valhalla_tiles.tar",
@@ -154,12 +156,16 @@ class PackConfig:
             raise base.ConfigError("PACK_GATE2_RATE must be > 0 and <= 5 requests/s (ADR-0017 A1 item 10)")
         self.self_test_route = parse_route(g("PACK_SELF_TEST_ROUTE", "47.9189,106.9176;49.4867,105.9228;auto"))
         self.self_test_query = g("PACK_SELF_TEST_QUERY", "Сүхбаатар")
-        self.attribution = g("PACK_ATTRIBUTION", "© OpenStreetMap contributors")
+        self.attribution = g("PACK_ATTRIBUTION", DEFAULT_ATTRIBUTION)
         if "OpenStreetMap" not in self.attribution:
             raise base.ConfigError("PACK_ATTRIBUTION must contain OpenStreetMap (AC 7)")
         self.method_url = g("PACK_METHOD_URL", "")
         if self.method_url and not re.match(r"^https://[^\s/]+\.[^\s]+$", self.method_url):
             raise base.ConfigError("PACK_METHOD_URL must be an https:// URL (public pipeline repository, ODbL §4.6)")
+        why = placeholder_url(self.method_url, allow_test_tld=test_project)
+        if self.method_url and why:
+            raise base.ConfigError(f"PACK_METHOD_URL is a placeholder ({why}); set the public pipeline repository "
+                                   f"(ODbL §4.6, NAV-020 AC 7)")
         self.test_fault = g("PACK_TEST_FAULT", "")
         self.pause_at = g("PACK_TEST_PAUSE_AT", "")
         self.pause_s = num("PACK_TEST_PAUSE_SECONDS", 20)
@@ -189,6 +195,28 @@ class PackConfig:
         if self.pause_at:
             out.append(f"PACK_TEST_PAUSE_AT={self.pause_at}")
         return out
+
+
+# Names that can never be a public repository (RFC 2606 / RFC 6761): the documentation domains and the reserved
+# TLDs. `.test` is accepted only outside navmn, so test projects can publish a recognisable non-resolvable value.
+PLACEHOLDER_DOMAINS = ("example.com", "example.net", "example.org")
+PLACEHOLDER_TLDS = ("example", "invalid", "localhost")
+
+
+def placeholder_url(url, allow_test_tld=False):
+    """'' when the host of `url` may be a real public host, else why it is a placeholder (NAV-020 review minor)."""
+    m = re.match(r"^[a-z][a-z0-9+.-]*://(?:[^@/\s]*@)?([^/:?#\s]+)", url or "", re.I)
+    if not m:
+        return ""
+    host = m.group(1).lower().rstrip(".")
+    labels = host.split(".")
+    if any(host == d or host.endswith("." + d) for d in PLACEHOLDER_DOMAINS):
+        return f"{host} is a documentation domain"
+    if labels[-1] in PLACEHOLDER_TLDS or host == "localhost":
+        return f"{host} uses the reserved .{labels[-1]} name"
+    if labels[-1] == "test" and not allow_test_tld:
+        return f"{host} uses the reserved .test TLD (accepted only in test projects, not navmn)"
+    return ""
 
 
 def parse_route(s):
@@ -1052,7 +1080,7 @@ class PackStep:
                                                                  "ODbL §4.6, AC 7); set it in the .env")
         m = {"pack_schema": 1, "region": pc.region, "pack_version": slot, "published_at": base.iso(),
              "attribution": pc.attribution,
-             "licence": {"name": "ODbL-1.0", "url": ODBL_URL, "method_url": pc.method_url},
+             "licence": {"name": ODBL_NAME, "url": ODBL_URL, "method_url": pc.method_url},
              "total_bytes": sum(e["bytes"] for e in entries),
              "total_download_bytes": sum(e["download_bytes"] for e in entries),
              "files": entries,

@@ -171,6 +171,8 @@ data class BrowseModel(
     val cardTitleFocus: Boolean = false,
     /** NAV-005 AC 76: waiting for the first showable fix after a my-location press (`location_searching`). */
     val locating: Boolean = false,
+    /** NAV-022 O6: the offline-map message (ready / failed / storage) in R2 under the search row (null: none). */
+    val packMessage: (@Composable (Modifier) -> Unit)? = null,
 )
 
 @Composable
@@ -364,15 +366,17 @@ private fun CoordinateOptionRow(p: LatLon, strings: Strings, onSelect: ((LatLon)
 private fun StatusMessages(m: BrowseModel, a: BrowseActions, modifier: Modifier = Modifier) {
     val problem = m.mapProblem
     val showProblem = problem != null && m.preview == null
-    if (!showProblem && !m.tilesFailed && !m.offline) return
+    val pack = m.packMessage.takeIf { m.preview == null }
+    if (!showProblem && !m.tilesFailed && !m.offline && pack == null) return
     Column(modifier.verticalScroll(rememberScrollState())) {
         if (showProblem) {
             LocationMessage(problem, a, a.onMyLocation, a.onDismissMapProblem, onMessageSurface = true, modifier = Modifier.padding(horizontal = 16.dp))
         } else if (m.tilesFailed) {
             MessageCard(R.drawable.ic_warning, stringResource(R.string.status_tiles_unavailable), null, listOf(stringResource(R.string.action_retry) to a.onRetryTiles), Modifier.padding(horizontal = 16.dp))
-        } else {
+        } else if (m.offline) {
             MessageCard(R.drawable.ic_cloud_off, stringResource(R.string.status_offline), null, emptyList(), Modifier.padding(horizontal = 16.dp))
         }
+        pack?.invoke(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
     }
 }
 

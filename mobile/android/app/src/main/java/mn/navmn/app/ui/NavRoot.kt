@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -74,6 +75,11 @@ import mn.navmn.app.ui.screens.BrowseModel
 import mn.navmn.app.ui.screens.BrowseOverlay
 import mn.navmn.app.ui.screens.Covered
 import mn.navmn.app.ui.screens.GuidanceOverlay
+import mn.navmn.app.ui.screens.MobileDataDialog
+import mn.navmn.app.ui.screens.OfflineOfferSheet
+import mn.navmn.app.ui.screens.OfflineSection
+import mn.navmn.app.ui.screens.PackActions
+import mn.navmn.app.ui.screens.PackMessageCard
 import mn.navmn.app.ui.screens.SettingsSheet
 import mn.navmn.app.ui.screens.preview.PointActions
 import mn.navmn.app.ui.theme.LocalTokens
@@ -91,10 +97,12 @@ class PlatformActions(
     val requireUnlocked: (() -> Unit) -> Unit = { it() },
     /** NAV-012 AC 27: system battery-optimisation settings (fallback: the app's details page). */
     val openBatterySettings: () -> Unit = {},
+    /** NAV-022 OF29: opens a web page (the ODbL text) in the browser; nothing happens when none can (screen spec). */
+    val openUrl: (String) -> Unit = {},
 )
 
 @Composable
-fun NavRoot(vm: AppViewModel, mapSurface: MapSurface, platform: PlatformActions, background: BackgroundUi? = null) {
+fun NavRoot(vm: AppViewModel, mapSurface: MapSurface, platform: PlatformActions, background: BackgroundUi? = null, pack: PackViewModel? = null) {
     val themeChoice by vm.theme.collectAsState()
     // NAV-012 AC 41: «Автомат» follows sunrise/sunset at the current position (system dark theme only without NAV-012 wiring).
     val systemDark = isSystemInDarkTheme()
@@ -103,14 +111,14 @@ fun NavRoot(vm: AppViewModel, mapSurface: MapSurface, platform: PlatformActions,
     NavTheme(night) {
         CompositionLocalProvider(LocalBackgroundUi provides background) {
             ProvideBatteryHint(background?.battery, vm.preview.state, vm.guidance, { vm.setSheetExpanded(true) }, platform.openBatterySettings) {
-                NavScreen(vm, mapSurface, platform, night)
+                NavScreen(vm, mapSurface, platform, night, pack)
             }
         }
     }
 }
 
 @Composable
-private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: PlatformActions, night: Boolean) {
+private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: PlatformActions, night: Boolean, packVm: PackViewModel?) {
     val ui by vm.ui.collectAsState()
     val lang by vm.lang.collectAsState()
     val muted by vm.muted.collectAsState()
@@ -151,8 +159,21 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     // ADR-0016 §3: a replay (demo) build; null in debug and release, where every branch below keeps today's path.
     val replay = vm.replay
     val replayTiles = replay?.tiles?.collectAsState()?.value
+    // NAV-022 (screen spec B7): no pack surface, request or map change in a replay (demo) build.
+    val pack = packVm?.takeIf { it.enabled && replay == null }
+    val packState = pack?.state?.collectAsState()?.value
+    val packOffer = pack?.offer?.collectAsState()?.value
+    val packMessage = pack?.message?.collectAsState()?.value
+    val packConfirm = pack?.confirm?.collectAsState()?.value
+    val packScroll = pack?.scrollToSection?.collectAsState()?.value ?: false
+    // NAV-022 AC 31, 19, 34: the installed basemap (`pmtiles://file://`, one path per version) or the online PMTiles. A
+    // change applies at the next style load, never during guidance (then at the first load after it ends).
+    val desiredBrowseUrl = pack?.tilesPath(packState)?.let { PMTILES_FILE + it } ?: AppConfig.pmtilesUrl()
+    var browseUrl by remember { mutableStateOf(desiredBrowseUrl) }
+    LaunchedEffect(desiredBrowseUrl, guiding) { if (!guiding) browseUrl = desiredBrowseUrl }
+    LaunchedEffect(browseUrl, pack) { pack?.setMapTilesInUse(browseUrl.takeIf { it.startsWith(PMTILES_FILE) }?.removePrefix(PMTILES_FILE)) }
     val pmtilesUrl: String? = when {
-        replay == null -> AppConfig.pmtilesUrl()
+        replay == null -> browseUrl
         replayTiles is TilesState.Ready -> replayTiles.pmtilesUrl
         else -> null // §9: copying or failed; the map waits (the start screen shows the state)
     }
@@ -168,6 +189,22 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
         if (guiding) return@LaunchedEffect
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) { vm.collectTypingLock() }
     }
+    // NAV-022 AC 27: a foreground session (Activity started) may show the 14-day offer once; AC 41 picks the S1 message
+    // or the notification by it.
+    LaunchedEffect(lifecycleOwner, pack) {
+        val p = pack ?: return@LaunchedEffect
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            p.onForeground()
+            try {
+                awaitCancellation()
+            } finally {
+                p.onBackground()
+            }
+        }
+    }
+    // NAV-022 AC 1: the first-launch decision once S1 (map and search) has rendered.
+    LaunchedEffect(controller, guiding, pack) { if (controller != null && !guiding) pack?.onBrowseShown() }
+    LaunchedEffect(ui.settingsOpen, pack) { if (ui.settingsOpen) pack?.onSettingsOpened() }
     // NAV-011 P4: with TalkBack touch exploration on, the preview sheet opens expanded.
     LaunchedEffect(Unit) {
         val am = context.getSystemService(AccessibilityManager::class.java)
@@ -415,6 +452,9 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                         locating = ui.locating,
                         reverse = reverseView, lock = lock, sheetExpanded = ui.sheetExpanded, focusSearch = ui.focusSearch,
                         points = points, fieldView = fieldView, cardTitleFocus = ui.cardTitleFocus,
+                        packMessage = packMessage?.takeIf { !ui.settingsOpen }?.let { msg ->
+                            { mod: Modifier -> PackMessageCard(msg, lang, onRetry = { pack.dismissMessage(); pack.download() }, onClose = pack::dismissMessage, modifier = mod) }
+                        },
                     ),
                     strings = strings,
                     a = BrowseActions(
@@ -483,6 +523,19 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     replayBadge = replay?.let { r -> { m: Modifier -> r.Badge(m) } },
                 )
             }
+            // NAV-022 O1 / O4 (rule B1): only on an idle S1, over the map region (R5 stays visible below it).
+            val s1Idle = !guiding && preview == null && ui.card == null && searchView is SearchView.Closed && !ui.settingsOpen &&
+                !ui.rationale && !lock.cardVisible && points.editor == null && packConfirm == null
+            if (pack != null && packOffer != null && s1Idle) {
+                val offer = packOffer
+                OfflineOfferSheet(
+                    offer = offer,
+                    lang = lang,
+                    onShown = { pack.onOfferShown(offer) },
+                    onAccept = { pack.onOfferClosed(offer, accepted = true) },
+                    onDecline = { pack.onOfferClosed(offer, accepted = false) },
+                )
+            }
         }
         AttributionStrip(showEsa = !guiding && zoom < 8, modifier = Modifier.navigationBarsPadding())
     }
@@ -508,7 +561,16 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
             onDismiss = { vm.openSettings(false) },
             batteryRestricted = LocalBackgroundUi.current?.battery?.restricted?.collectAsState()?.value, // NAV-012 H2
             onOpenBatterySettings = platform.openBatterySettings,
+            offlineSection = if (pack != null && packState != null) ({
+                OfflineSection(packState, lang, PackActions(onDownload = pack::download, onCancel = pack::cancel, onDelete = pack::delete, onOpenLicence = platform.openUrl))
+            }) else null,
+            scrollToOffline = packScroll,
+            onScrolledToOffline = { pack?.onSectionShown() },
         )
+    }
+    // NAV-022 O3 (AC 8, 9): over whatever is open (S7 or S1 after O1).
+    if (pack != null && packConfirm != null) {
+        MobileDataDialog(packConfirm.downloadBytes, lang, onConfirm = pack::confirmMobileData, onWait = pack::waitForWifi)
     }
 }
 
@@ -521,6 +583,9 @@ fun KeepScreenOn(enabled: Boolean) {
         onDispose { view.keepScreenOn = false }
     }
 }
+
+/** NAV-022 AC 31: the MapLibre 13.6.1 scheme for a local PMTiles archive (ADR-0016 F1). */
+private const val PMTILES_FILE = "pmtiles://file://"
 
 /** NAV-011 AC 16: wait for the sheet to re-measure for a new response before the one camera fit (well inside 1 s). */
 private const val FIT_SETTLE_MS = 150L

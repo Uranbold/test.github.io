@@ -18,6 +18,8 @@ Determinism (ADR-0017 A1 item 9): rows are inserted in a fixed order, every set 
 string hashing is randomised per process), no timestamps or random values are stored, and the file is finished
 with FTS5 optimize, ANALYZE and VACUUM. Same dump + same image digest => same SHA-256.
 
+ODbL: the meta table carries attribution, licence and licence_url (LICENCE_META); the self-test requires them.
+
 Output (stdout): one JSON line with the build facts (rows, seconds, sizes, sqlite_version, builder_version,
 search_schema, data_timestamp, source_sha256). Nothing else is printed; no query text, no coordinates.
 """
@@ -35,6 +37,12 @@ import unicodedata
 BUILDER_VERSION = 1
 SEARCH_SCHEMA = 1
 APPLICATION_ID = 0x4E41564D            # "NAVM"
+# ODbL notice inside the derivative database itself (NAV-020 review minor): the same values as the manifest's
+# `attribution` and `licence` (nav_pack.ODBL_URL), so a search.sqlite copied out of a pack still carries them.
+ATTRIBUTION = "© OpenStreetMap contributors"
+LICENCE = "ODbL-1.0"
+LICENCE_URL = "https://opendatacommons.org/licenses/odbl/1-0/"
+LICENCE_META = {"attribution": ATTRIBUTION, "licence": LICENCE, "licence_url": LICENCE_URL}
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 
 # ------------------------------------------------------------------ normalisation (NAV-023 AC 1-2)
@@ -271,7 +279,7 @@ def build(dump, out, builder_version=BUILDER_VERSION, schema=SEARCH_SCHEMA):
     meta = {"search_schema": str(int(schema)), "builder_version": str(int(builder_version)),
             "data_timestamp": norm_ts(header.get("data_timestamp")), "source_sha256": sha256_file(dump),
             "sqlite_version": sqlite3.sqlite_version, "place_rows": str(len(rows)),
-            "dump_database_version": str(header.get("database_version") or "")}
+            "dump_database_version": str(header.get("database_version") or ""), **LICENCE_META}
     db.executemany("INSERT INTO meta VALUES (?,?)", sorted(meta.items()))
     db.execute("COMMIT")
     db.execute("INSERT INTO place_fts (place_fts) VALUES ('optimize')")
@@ -319,6 +327,9 @@ def selftest(db_path, query, schema=SEARCH_SCHEMA):
         problems.append(f"search_schema meta={meta.get('search_schema')} user_version={user_version}, configured {schema}")
     if hits < 1:
         problems.append("self-test query returned 0 rows")
+    for k, v in LICENCE_META.items():
+        if meta.get(k) != v:
+            problems.append(f"meta.{k}={meta.get(k)!r}, expected {v!r}")
     if trad:
         problems.append(f"{trad} rows contain Traditional Mongolian script")
     return {"job": "search-selftest", "result": "ok" if not problems else "failed", "quick_check": quick,

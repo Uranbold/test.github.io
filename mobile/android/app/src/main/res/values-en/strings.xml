@@ -193,4 +193,33 @@
     <!-- NAV-021 / NAV-023 "offline" indicator (D201): glossary 2.7 OF24, OF25, needs native review. -->
     <string name="offline_indicator">Offline</string>
     <string name="offline_indicator_a11y">From the offline map</string>
+    <!-- NAV-022 offline Mongolia map (glossary 2.7). -->
+    <string name="offline_title">Offline map</string>
+    <string name="offline_download_action">Download Mongolia map</string>
+    <string name="offline_benefit">Map, routes and search work even without an internet connection</string>
+    <string name="offline_download">Download</string>
+    <string name="offline_not_now">Not now</string>
+    <string name="offline_download_size">Download size: {size}</string>
+    <string name="offline_space_needed">Space needed on phone: {size}</string>
+    <string name="offline_downloading">Downloading… {percent}%</string>
+    <string name="offline_waiting_wifi">Waiting for Wi-Fi</string>
+    <string name="offline_cancel">Cancel</string>
+    <string name="offline_ready">Offline map is ready</string>
+    <string name="offline_failed">The map could not be downloaded</string>
+    <string name="offline_mobile_data_question">Download {size} using mobile data?</string>
+    <string name="offline_wait_wifi">Wait for Wi-Fi</string>
+    <string name="offline_no_space">Not enough space on the phone. Free up {size}.</string>
+    <string name="offline_update">Update</string>
+    <string name="offline_stale_title">Route and search data are out of date</string>
+    <string name="offline_stale_question">Update {size} using mobile data?</string>
+    <string name="offline_data_date">Data date</string>
+    <string name="offline_date_map">Map: {date}</string>
+    <string name="offline_date_routes">Routes: {date}</string>
+    <string name="offline_date_search">Search: {date}</string>
+    <string name="offline_delete">Delete offline map</string>
+    <string name="offline_delete_question">Delete the offline map?</string>
+    <string name="offline_delete_confirm">Delete</string>
+    <string name="offline_space_used">Space used: {size}</string>
+    <string name="unit_mb">MB</string>
+    <string name="unit_gb">GB</string>
 </resources>

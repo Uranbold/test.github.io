@@ -122,6 +122,10 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(meta["place_rows"], "6")
         self.assertEqual(meta["source_sha256"], hashlib.sha256(self.dump.read_bytes()).hexdigest())
         self.assertNotIn("built_at", meta)
+        # ODbL notice in the derivative database (NAV-020 review minor), same values as the manifest
+        self.assertEqual(meta["attribution"], "© OpenStreetMap contributors")
+        self.assertEqual(meta["licence"], "ODbL-1.0")
+        self.assertEqual(meta["licence_url"], "https://opendatacommons.org/licenses/odbl/1-0/")
         self.assertEqual(self.q("PRAGMA user_version")[0][0], 1)
         self.assertEqual(self.q("PRAGMA application_id")[0][0], 0x4E41564D)
 
@@ -175,6 +179,26 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(bad["result"], "failed")
         none = sb.selftest(str(self.db1), "Хөвсгөл")
         self.assertIn("self-test query returned 0 rows", none["problems"])
+
+    def test_selftest_requires_licence_meta(self):
+        import shutil
+        db = Path(self.tmp.name) / "nolicence.sqlite"
+        shutil.copy(self.db1, db)
+        c = sqlite3.connect(db)
+        c.execute("DELETE FROM meta WHERE key = 'licence_url'")
+        c.execute("UPDATE meta SET value = 'someone' WHERE key = 'attribution'")
+        c.commit()
+        c.close()
+        r = sb.selftest(str(db), "Сүхбаатар")
+        self.assertEqual(r["result"], "failed")
+        self.assertTrue(any(x.startswith("meta.licence_url=") for x in r["problems"]), r["problems"])
+        self.assertTrue(any(x.startswith("meta.attribution=") for x in r["problems"]), r["problems"])
+
+    def test_licence_constants_match_the_pack_step(self):
+        sys.path.insert(0, str(HERE.parents[1] / "pipeline"))
+        import nav_pack
+        self.assertEqual(sb.LICENCE_URL, nav_pack.ODBL_URL)
+        self.assertEqual((sb.ATTRIBUTION, sb.LICENCE), (nav_pack.DEFAULT_ATTRIBUTION, nav_pack.ODBL_NAME))
 
     def test_cli_refuses_other_versions(self):
         rc = sb.main(["build", "--dump", str(self.dump), "--out", str(Path(self.tmp.name) / "c.sqlite"), "--schema", "2"])
