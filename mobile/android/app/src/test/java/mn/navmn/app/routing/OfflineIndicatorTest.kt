@@ -111,4 +111,15 @@ class OfflineIndicatorTest {
         assertTrue(rule.onAllNodesWithTag("offline-indicator-icon", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
         assertTrue(rule.onAllNodesWithTag("offline-indicator", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
     }
+
+    /** NAV-012 AC 54: a restored device route shows no indicator in the restore skeleton (before the first good fix). */
+    @Test
+    fun restoreSkeletonOfADeviceRouteShowsNoIndicator() {
+        show(state(onDevice = true).copy(restoring = true, banner = Banner.Restoring))
+        rule.onNodeWithTag("nav-progress-skeleton", useUnmergedTree = true).assertIsDisplayed()
+        assertTrue(rule.onAllNodesWithTag("offline-indicator-icon", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+        val descriptions = rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.ContentDescription), useUnmergedTree = true)
+            .fetchSemanticsNodes().flatMap { it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
+        assertTrue(descriptions.toString(), descriptions.none { it.contains("Офлайн газрын зургаас") })
+    }
 }

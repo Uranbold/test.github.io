@@ -141,7 +141,7 @@ class RestoreRulesTest {
         val json = String(RestoreCodec.encode(meta()))
         val keys = Regex("\"([A-Za-z0-9]+)\":").findAll(json).map { it.groupValues[1] }.toSet()
         assertEquals(
-            setOf("schema", "destination", "lat", "lon", "text", "costing", "avoidUnpaved", "language", "startedAtWallMs", "heartbeatWallMs", "routeSha256", "restoresWallMs"),
+            setOf("schema", "destination", "lat", "lon", "text", "costing", "avoidUnpaved", "language", "startedAtWallMs", "heartbeatWallMs", "routeSha256", "restoresWallMs", "routeSource"),
             keys,
         )
     }
@@ -247,5 +247,69 @@ class RestoreRulesTest {
         File(dir, "route.bin").writeText("{}")
         assertNull(fresh.load(d.meta))
         assertFalse(dir.exists())
+    }
+
+    // ------------------------------------------------------------------------------------------- route source (7c)
+
+    /** NAV-012 AC 16, 54, 55: the route source round-trips; a record without it (earlier build) reads as `gateway`. */
+    @Test
+    fun routeSourceRoundTripAndOlderRecordReadsAsGateway() {
+        for (source in listOf(RouteSource.DEVICE, RouteSource.GATEWAY)) {
+            val m = meta().copy(routeSource = source)
+            val back = RestoreCodec.decode(RestoreCodec.encode(m))
+            assertEquals(m, back)
+            assertEquals(source == RouteSource.DEVICE, back!!.routeFromDevice)
+        }
+        // A meta.json written before change 7c: no routeSource key. Still schema 1, readable, restorable (not deleted).
+        val old = String(RestoreCodec.encode(meta())).replace(",\"routeSource\":\"gateway\"", "")
+        assertFalse(old.contains("routeSource"))
+        val decoded = RestoreCodec.decode(old.encodeToByteArray())
+        assertNotNull(decoded)
+        assertEquals(RouteSource.GATEWAY, decoded!!.routeSource)
+        assertFalse(decoded.routeFromDevice)
+        val dir = File(tmp.root, "restore-old")
+        dir.mkdirs()
+        File(dir, RestoreStore.META).writeText(old)
+        val read = RestoreStore(dir).read()
+        assertTrue(read is StoredRecord.Present)
+        assertTrue(RestoreRules.decide(read, t0 + 60_000, sessionAlive = false, locationOk = true) is RestoreRules.Decision.Restore)
+        // An unknown value never marks the route as computed on the device.
+        assertFalse(meta().copy(routeSource = "satellite").routeFromDevice)
+        // The flag adds no coordinate, route body or text to the record (AC 17 / 47 scans).
+        val json = String(RestoreCodec.encode(meta().copy(routeSource = RouteSource.DEVICE)))
+        assertTrue(json.contains("\"routeSource\":\"device\""))
+    }
+
+    /** AC 16, 54: written from `ParsedRoute.onDevice` at «Эхлэх», follows every new route, and comes back on load. */
+    @Test
+    fun routeSourceIsWrittenFollowsReroutesAndIsRestored() {
+        val dir = File(tmp.root, "restore")
+        val processor = RouteProcessor(FakeRouteParser())
+        val client = mn.navmn.app.route.RouteClient("http://127.0.0.1:9", okhttp3.OkHttpClient(), { false }, processor)
+        val scope = TestScope(StandardTestDispatcher())
+        val manager = RestoreManager(RestoreStore(dir), client, { t0 }, CoroutineScope(scope.coroutineContext))
+        val device = route.asOnDevice()
+        manager.onGuidanceStarted(trip, device, Lang.MN)
+        scope.runCurrent()
+        assertEquals(RouteSource.DEVICE, (RestoreStore(dir).read() as StoredRecord.Present).meta.routeSource)
+        // A gateway reroute → gateway; a device reroute → device (within the same 2 s write, AC 16).
+        val reroute = (processor.process(Fixtures.route("g2-reroute-car-mn.json"), 1) as RouteOutcome.Ok).route
+        manager.onNewRoute(reroute, Lang.MN)
+        scope.runCurrent()
+        assertEquals(RouteSource.GATEWAY, (RestoreStore(dir).read() as StoredRecord.Present).meta.routeSource)
+        manager.onNewRoute(reroute.asOnDevice(), Lang.MN)
+        scope.runCurrent()
+        val stored = (RestoreStore(dir).read() as StoredRecord.Present).meta
+        assertEquals(RouteSource.DEVICE, stored.routeSource)
+        // A new process restores it as an on-device route (the OF24 indicator, AC 54) ...
+        val fresh = RestoreManager(RestoreStore(dir), client, { t0 + 60_000 }, CoroutineScope(scope.coroutineContext))
+        val loaded = fresh.load((fresh.decide(sessionAlive = false, locationOk = true) as RestoreRules.Decision.Restore).meta)!!
+        assertTrue(loaded.route.onDevice)
+        assertEquals(reroute.plan.steps.size, loaded.route.plan.steps.size)
+        // ... and a gateway record as a gateway route (no indicator).
+        manager.onNewRoute(reroute, Lang.MN)
+        scope.runCurrent()
+        val gw = fresh.load((fresh.decide(sessionAlive = false, locationOk = true) as RestoreRules.Decision.Restore).meta)!!
+        assertFalse(gw.route.onDevice)
     }
 }

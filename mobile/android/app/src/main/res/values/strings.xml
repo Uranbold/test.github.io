@@ -250,4 +250,15 @@
     <string name="unit_mb">МБ</string>
     <string name="unit_gb">ГБ</string>
     <string name="offline_licence" translatable="false">Open Database License (ODbL) 1.0</string>
+    <!-- NAV-005 section P licences screen (D195): glossary 2.8 LC1–LC8, needs native review. {version} is replaced by code.
+         Component names, versions, licence names, copyright lines and licence texts are generated assets (LC9), not
+         resources. -->
+    <string name="licences_title">Лиценз</string>
+    <string name="licences_section_data">Газрын зургийн мэдээлэл</string>
+    <string name="licences_section_software">Программ хангамж</string>
+    <string name="licences_section_fonts">Фонт, дүрс</string>
+    <string name="licences_version">Хувилбар {version}</string>
+    <string name="licences_text_heading">Лицензийн бичвэр</string>
+    <string name="licences_osm_notice">Газрын зургийн мэдээлэл OpenStreetMap төслөөс авсан бөгөөд Open Database License (ODbL) 1.0 лицензтэй.</string>
+    <string name="licences_pack_notice">Офлайн газрын зураг, маршрут, хайлтын мэдээлэл нь OpenStreetMap төслийн мэдээллээс бэлтгэсэн бөгөөд ижил лицензтэй.</string>
 </resources>

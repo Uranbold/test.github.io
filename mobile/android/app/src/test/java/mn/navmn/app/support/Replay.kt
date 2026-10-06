@@ -116,10 +116,16 @@ class Replay(
     private val liveRequester: RouteRequester? = null,
     /** NAV-021: a usable on-device routing file for the session (GuidanceCore `onDeviceAvailable`). */
     private val onDeviceAvailable: () -> Boolean = { false },
+    /** NAV-012 AC 54: the initial (stored) route was computed on the device, as a restore record marked `device`. */
+    initialOnDevice: Boolean = false,
 ) {
     val clock = VirtualClock()
     val processor = RouteProcessor(parser)
-    val initial: ParsedRoute = (processor.process(routeFixture, 0) as? RouteOutcome.Ok)?.route ?: error("fixture does not parse")
+    val initial: ParsedRoute = ((processor.process(routeFixture, 0) as? RouteOutcome.Ok)?.route ?: error("fixture does not parse"))
+        .let { if (initialOnDevice) it.asOnDevice() else it }
+
+    /** Every route that became active after the start (GuidanceCore `onNewRoute`, the restore-record rewrite). */
+    val newRoutes = ArrayList<ParsedRoute>()
     val trip = Trip(destination ?: initial.plan.end, destinationName, mode, avoidUnpaved = false)
 
     val spoken = ArrayList<Pair<Long, SpokenPrompt>>()
@@ -188,6 +194,7 @@ class Replay(
         onEvent = { events += clock.now to it },
         log = DebugLog { log += it },
         onDeviceAvailable = onDeviceAvailable,
+        onNewRoute = { newRoutes += it },
     )
 
     fun bannerText(b: Banner, l: Lang): String {

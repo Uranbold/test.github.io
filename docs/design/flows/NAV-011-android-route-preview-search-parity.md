@@ -184,12 +184,36 @@ flowchart LR
 
 QA's G10 replay (P4 → P5 at 4.5 m/s) checks the column with the NAV-005 AC 34 rules: every manoeuvre except `depart` (and the D68 `arrive` exemption) gets at least one prompt that starts while it is **15–150 m** ahead.
 
+## F6. Offline with an installed search file: search and reverse (change 7b, 2026-10-05) — NAV-023 AC 11–15, 21–25
+
+Applies only with a usable `search.sqlite` (installed, schema known). Without one, F1 and F2 are exactly as drawn (NAV-023 AC 26). The coordinate branch of F1 is checked first and never reaches the device (AC 8).
+
+```mermaid
+flowchart TD
+    Q(["Settled text query (F1) or reverse for the card (F2)"]) --> U{"Usable search file?"}
+    U -- no --> OLD["F1 / F2 as written: row «Интернэт холболт алга», 0 requests"]
+    U -- yes --> N{"Validated network, and no fallback in the last 60 s?"}
+    N -- no --> DEV["On-device engine answers at once, 0 HTTP requests"]
+    N -- yes --> ON["Gateway request(s) first; «Ачаалж байна…» after 300 ms"]
+    ON --> H{"Headers within 3.0 s, no 502 / 503 / 504 / 429, no connection failure?"}
+    H -- yes --> GW["Online answer handled as today: results, «Илэрц олдсонгүй» (200 with 0 results) and 400 are authoritative, never retried on the device"]
+    H -- no --> DEV
+    DEV --> R{"Device result"}
+    R -- "results" --> L["List (or place) from the device + chip «Офлайн» once<br/>no «Интернэт холболт алга» row, no «Түр хүлээгээд дахин оролдоно уу»"]
+    R -- "nothing found" --> E["«Илэрц олдсонгүй» + chip"]
+    R -- "file fails to open or answer" --> F["«Хайлт түр ажиллахгүй байна» + «Дахин оролдох», no chip, no crash"]
+    F -- "«Дахин оролдох»" --> Q
+    GW --> NI["No chip"]
+```
+
+The S1 message «Интернэт холболт алга» keeps showing under the search bar while the network is missing (rule X1 of the NAV-005 spec); the list itself is never replaced by it.
+
 ## AC coverage
 | AC | Flow step |
 |---|---|
-| 1–7 | F1 (AC 7 coordinate branch: before Online? and the cooldown) |
+| 1–7 | F1 (AC 7 coordinate branch: before Online? and the cooldown); **7b:** F6 (offline with a search file) |
 | 7a | F1 → F2 typed entry (Centre state) |
-| 8–13 | F2 |
+| 8–13 | F2; **7b:** F6 (AC 11: device answer instead of the offline state) |
 | 14–24 | F3 |
 | 25–26 | F5 (rules: navigation-ux §4.2, §4.4, §8) |
 | 27–37 | F4, F4a (AC 33: the coordinate option stays selectable while locked, F1) |

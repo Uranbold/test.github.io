@@ -70,11 +70,13 @@ import mn.navmn.app.route.alternatives.AlternativeHitTest
 import mn.navmn.app.search.SearchView
 import mn.navmn.app.ui.components.AttributionStrip
 import mn.navmn.app.ui.components.rememberStrings
+import mn.navmn.app.pack.PackSectionModel
 import mn.navmn.app.ui.screens.BrowseActions
 import mn.navmn.app.ui.screens.BrowseModel
 import mn.navmn.app.ui.screens.BrowseOverlay
 import mn.navmn.app.ui.screens.Covered
 import mn.navmn.app.ui.screens.GuidanceOverlay
+import mn.navmn.app.ui.screens.LicencesOverlay
 import mn.navmn.app.ui.screens.MobileDataDialog
 import mn.navmn.app.ui.screens.OfflineOfferSheet
 import mn.navmn.app.ui.screens.OfflineSection
@@ -155,6 +157,10 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
 
     val g: GuidanceState? = guidance
     val guiding = g != null && g.phase != GuidancePhase.ENDED
+    // NAV-005 section P: the licences page (S9/S10) and "reopen S7 at the «Лиценз» row" after it (UX P6).
+    var licencesOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var settingsAtLicencesRow by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var guidingAtLicences by remember { mutableStateOf(guiding) }
 
     // ADR-0016 §3: a replay (demo) build; null in debug and release, where every branch below keeps today's path.
     val replay = vm.replay
@@ -566,8 +572,30 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
             }) else null,
             scrollToOffline = packScroll,
             onScrolledToOffline = { pack?.onSectionShown() },
+            onOpenLicences = {
+                vm.openSettings(false)
+                licencesOpen = true
+            },
+            scrollToEnd = settingsAtLicencesRow,
         )
     }
+    // NAV-005 section P (AC 88–98): the licences page over everything (guidance keeps running underneath, AC 88). Back
+    // returns to S7 with the «Лиценз» row in view (UX P6). A guidance start while it is open (a restore) closes it.
+    LaunchedEffect(guiding) {
+        if (guiding && !guidingAtLicences) licencesOpen = false
+        guidingAtLicences = guiding
+    }
+    if (licencesOpen) {
+        LicencesOverlay(
+            packDates = packState?.let { PackSectionModel.of(it).dates }.orEmpty(),
+            onClose = {
+                licencesOpen = false
+                settingsAtLicencesRow = true
+                vm.openSettings(true)
+            },
+        )
+    }
+    LaunchedEffect(ui.settingsOpen) { if (!ui.settingsOpen && !licencesOpen) settingsAtLicencesRow = false }
     // NAV-022 O3 (AC 8, 9): over whatever is open (S7 or S1 after O1).
     if (pack != null && packConfirm != null) {
         MobileDataDialog(packConfirm.downloadBytes, lang, onConfirm = pack::confirmMobileData, onWait = pack::waitForWifi)

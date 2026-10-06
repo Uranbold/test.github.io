@@ -226,4 +226,13 @@
     <string name="offline_space_used">Space used: {size}</string>
     <string name="unit_mb">MB</string>
     <string name="unit_gb">GB</string>
+    <!-- NAV-005 section P licences screen (D195): glossary 2.8 LC1–LC8. -->
+    <string name="licences_title">Licences</string>
+    <string name="licences_section_data">Map data</string>
+    <string name="licences_section_software">Software</string>
+    <string name="licences_section_fonts">Fonts and icons</string>
+    <string name="licences_version">Version {version}</string>
+    <string name="licences_text_heading">Licence text</string>
+    <string name="licences_osm_notice">Map data is taken from the OpenStreetMap project and is under the Open Database License (ODbL) 1.0.</string>
+    <string name="licences_pack_notice">Offline map, route and search data are made from OpenStreetMap data and have the same licence.</string>
 </resources>

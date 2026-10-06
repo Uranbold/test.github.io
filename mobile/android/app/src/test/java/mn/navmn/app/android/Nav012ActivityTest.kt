@@ -21,6 +21,7 @@ import mn.navmn.app.background.restore.RestoreCodec
 import mn.navmn.app.background.restore.RestoreDestination
 import mn.navmn.app.background.restore.RestoreMeta
 import mn.navmn.app.background.restore.RestoreStore
+import mn.navmn.app.background.restore.RouteSource
 import mn.navmn.app.engine.Banner
 import mn.navmn.app.engine.GuidanceSession
 import mn.navmn.app.route.RouteOutcome
@@ -104,7 +105,7 @@ class Nav012ActivityTest {
         return (System.nanoTime() - start) / 1_000_000
     }
 
-    private fun writeRecord(heartbeat: Long) {
+    private fun writeRecord(heartbeat: Long, routeSource: String = RouteSource.GATEWAY) {
         val route = (RouteProcessor(FakeRouteParser()).process(Fixtures.route("p1-p3-car-mn.json"), 0) as RouteOutcome.Ok).route
         val bytes = route.source!!
         RestoreStore(recordDir).writeAll(
@@ -117,6 +118,7 @@ class Nav012ActivityTest {
                 startedAtWallMs = heartbeat - 120_000,
                 heartbeatWallMs = heartbeat,
                 routeSha256 = RestoreCodec.sha256(bytes),
+                routeSource = routeSource,
             ),
             bytes,
         )
@@ -142,6 +144,69 @@ class Nav012ActivityTest {
         assertEquals(0, FakeGateway.routeRequests.get())
         // The record was rewritten with this restore counted (AC 24 loop limit).
         waitFor { RestoreCodec.decode(File(recordDir, RestoreStore.META).readBytes())?.restoresWallMs?.size == 1 }
+    }
+
+    /**
+     * NAV-012 AC 54 (change 7c, the known gap): a record whose route came from the device restores with the OF24 icon in
+     * the trip progress panel after the first good fix (none in the skeleton); a gateway record shows none.
+     */
+    @Test
+    fun restoredDeviceRouteShowsTheOfflineIconAfterTheFirstGoodFixAndAGatewayRouteNone() {
+        for (source in listOf(RouteSource.DEVICE, RouteSource.GATEWAY)) {
+            writeRecord(System.currentTimeMillis() - 5 * 60_000L, source)
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            waitFor { session.engine.value?.state?.value != null }
+            compose.waitForIdle()
+            waitFor { exists(hasTestTag("nav-progress-skeleton")) }
+            assertFalse("no icon in the skeleton ($source)", exists(hasTestTag("offline-indicator-icon")))
+            assertEquals(source == RouteSource.DEVICE, session.engine.value!!.state.value!!.onDeviceRoute)
+            // The first good fix places the session on the stored route (fake navigator: step 0, 0 requests).
+            waitFor { FakeLocation.guidanceListeners.get() > 0 }
+            FakeLocation.guidanceFixes.tryEmit(FakeLocation.goodFix(47.9180, 106.9170))
+            waitFor { session.engine.value?.state?.value?.restoring == false }
+            compose.waitForIdle()
+            waitFor { exists(hasTestTag("nav-remaining")) }
+            assertEquals("icon for a $source route", source == RouteSource.DEVICE, exists(hasTestTag("offline-indicator-icon")))
+            assertEquals(0, FakeGateway.routeRequests.get())
+            // The rewritten record keeps the route source (AC 16, 54).
+            waitFor { RestoreCodec.decode(File(recordDir, RestoreStore.META).readBytes())?.restoresWallMs?.size == 1 }
+            assertEquals(source, RestoreCodec.decode(File(recordDir, RestoreStore.META).readBytes())!!.routeSource)
+            session.end()
+            waitFor { session.engine.value == null }
+            scenario?.close()
+            scenario = null
+            compose.waitForIdle()
+        }
+    }
+
+    /**
+     * NAV-005 AC 88, 89 (section P) during guidance: «Тохиргоо» (the progress-panel gear) → «Лиценз» → an entry → Back →
+     * Back returns to S7 with the row in view; guidance keeps running and 0 requests of any kind are sent.
+     */
+    @Test
+    fun licencesPageFromSettingsDuringGuidanceKeepsGuidanceAndSendsNothing() {
+        writeRecord(System.currentTimeMillis() - 60_000L)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        waitFor { session.engine.value?.state?.value != null }
+        compose.waitForIdle()
+        val before = FakeGateway.paths.size
+        compose.onNodeWithTag("nav-settings").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("licences-row").performScrollTo()
+        compose.onNodeWithTag("licences-row").performClick()
+        val ms = waitFor { exists(hasTestTag("licence-entry-ferrostar")) }
+        assertTrue("S9 within $ms ms (AC 88: ≤ 1 s on a phone; Robolectric is slower)", ms <= 3_000)
+        assertTrue(exists(hasTestTag("licences-notice")))
+        compose.onNodeWithTag("licence-entry-ferrostar").performClick()
+        waitFor { exists(hasTestTag("licence-paragraph")) }
+        scenario!!.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitFor { exists(hasTestTag("licences-list")) && !exists(hasTestTag("licences-detail")) }
+        scenario!!.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitFor { exists(hasTestTag("licences-row")) }
+        assertFalse(exists(hasTestTag("licences-list")))
+        assertTrue("guidance continues (AC 88)", session.engine.value?.state?.value != null)
+        assertEquals("0 requests while the licences page was open (AC 89)", before, FakeGateway.paths.size)
+        assertEquals(0, RecordingRequester.requests.size)
     }
 
     @Test

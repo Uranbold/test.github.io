@@ -1,0 +1,1320 @@
+{
+ "schema": 1,
+ "library": "libferrostar.so",
+ "ferrostar": "0.57.0",
+ "rustc": "1.98.1",
+ "target": "aarch64-linux-android",
+ "method": "cargo tree --locked --target aarch64-linux-android -e normal,no-proc-macro (published crate + Cargo.lock); Rust std from rust-lang/rust library/Cargo.lock at the rustc tag",
+ "crates": [
+  {
+   "name": "aho-corasick",
+   "version": "1.1.3",
+   "kind": "crate",
+   "license": "Unlicense OR MIT",
+   "elected": "MIT",
+   "file": "aho-corasick-1.1.3/LICENSE-MIT",
+   "copyright": [
+    "2015 Andrew Gallant"
+   ],
+   "sha256": "8e60d3430d3a69478ad0993f19238d2df97c507009a52b3c10addcd7f6bcb916",
+   "text_source": "crate",
+   "repository": "https://github.com/BurntSushi/aho-corasick"
+  },
+  {
+   "name": "allocator-api2",
+   "version": "0.2.21",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "allocator-api2-0.2.21/LICENSE-MIT",
+   "copyright": [
+    "Zakarum"
+   ],
+   "sha256": "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923",
+   "text_source": "crate",
+   "repository": "https://github.com/zakarumych/allocator-api2"
+  },
+  {
+   "name": "android_log-sys",
+   "version": "0.3.2",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "android_log-sys-0.3.2/LICENSE-MIT",
+   "copyright": [
+    "2016 The android_log_sys Developers"
+   ],
+   "sha256": "84521a3cf562bc62942e294181d9eef17eb38ceb8c68677bc49f144e4c3d4f8d",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-mobile/android_log-sys-rs"
+  },
+  {
+   "name": "android_logger",
+   "version": "0.15.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "android_logger-0.15.1/LICENSE-MIT",
+   "copyright": [
+    "2016 The android_logger Developers"
+   ],
+   "sha256": "dbb4e440d04be07da1f1bf44fb4495ebd58669372fe0cffa6e48595ac5bd88a3",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-mobile/android_logger-rs"
+  },
+  {
+   "name": "android_system_properties",
+   "version": "0.1.5",
+   "kind": "crate",
+   "license": "MIT/Apache-2.0",
+   "elected": "MIT",
+   "file": "android_system_properties-0.1.5/LICENSE-MIT",
+   "copyright": [
+    "2013 Nicolas Silva"
+   ],
+   "sha256": "819e7219dbd41043ac279b19830f2efc897156490d7fd6ea916720117ee66311",
+   "text_source": "crate",
+   "repository": "https://github.com/nical/android_system_properties"
+  },
+  {
+   "name": "anyhow",
+   "version": "1.0.100",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "anyhow-1.0.100/LICENSE-MIT",
+   "copyright": [
+    "David Tolnay"
+   ],
+   "sha256": "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61",
+   "text_source": "crate",
+   "repository": "https://github.com/dtolnay/anyhow"
+  },
+  {
+   "name": "approx",
+   "version": "0.5.1",
+   "kind": "crate",
+   "license": "Apache-2.0",
+   "elected": "Apache-2.0",
+   "file": "approx-0.5.1/LICENSE",
+   "copyright": [
+    "Brendan Zabarauskas"
+   ],
+   "sha256": "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6",
+   "text_source": "crate",
+   "repository": "https://github.com/brendanzab/approx"
+  },
+  {
+   "name": "bitflags",
+   "version": "2.10.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "bitflags-2.10.0/LICENSE-MIT",
+   "copyright": [
+    "2014 The Rust Project Developers"
+   ],
+   "sha256": "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3",
+   "text_source": "crate",
+   "repository": "https://github.com/bitflags/bitflags"
+  },
+  {
+   "name": "byteorder",
+   "version": "1.5.0",
+   "kind": "crate",
+   "license": "Unlicense OR MIT",
+   "elected": "MIT",
+   "file": "byteorder-1.5.0/LICENSE-MIT",
+   "copyright": [
+    "2015 Andrew Gallant"
+   ],
+   "sha256": "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b",
+   "text_source": "crate",
+   "repository": "https://github.com/BurntSushi/byteorder"
+  },
+  {
+   "name": "bytes",
+   "version": "1.11.1",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "bytes-1.11.1/LICENSE",
+   "copyright": [
+    "2018 Carl Lerche"
+   ],
+   "sha256": "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33",
+   "text_source": "crate",
+   "repository": "https://github.com/tokio-rs/bytes"
+  },
+  {
+   "name": "camino",
+   "version": "1.2.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "camino-1.2.1/LICENSE-MIT",
+   "copyright": [
+    "Without Boats",
+    "Ashley Williams",
+    "Steve Klabnik",
+    "Rain"
+   ],
+   "sha256": "276a59bf2b2c967788139340c9f0c5b12d7fd6630315c15c217e559de85d2609",
+   "text_source": "crate",
+   "repository": "https://github.com/camino-rs/camino"
+  },
+  {
+   "name": "cargo-platform",
+   "version": "0.1.9",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "cargo-platform-0.1.9/LICENSE-MIT",
+   "copyright": [
+    "The cargo-platform developers"
+   ],
+   "sha256": "e35af189006b9c0f00a064685c727031e3ed2d8020f7ba284d78cc2671bd36ea",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/cargo"
+  },
+  {
+   "name": "cargo_metadata",
+   "version": "0.19.2",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "cargo_metadata-0.19.2/LICENSE-MIT",
+   "copyright": [
+    "Oliver Schneider"
+   ],
+   "sha256": "dd5eb614ed4c27c5d706420e4320fbe3216ab31fa1c33cd8246ac36dae4479ba",
+   "text_source": "crate",
+   "repository": "https://github.com/oli-obk/cargo_metadata"
+  },
+  {
+   "name": "cfg-if",
+   "version": "1.0.4",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "cfg-if-1.0.4/LICENSE-MIT",
+   "copyright": [
+    "2014 Alex Crichton"
+   ],
+   "sha256": "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/cfg-if"
+  },
+  {
+   "name": "chacha20",
+   "version": "0.10.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "chacha20-0.10.0/LICENSE-MIT",
+   "copyright": [
+    "2019-2026 The RustCrypto Project Developers"
+   ],
+   "sha256": "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601",
+   "text_source": "crate",
+   "repository": "https://github.com/RustCrypto/stream-ciphers"
+  },
+  {
+   "name": "chrono",
+   "version": "0.4.45",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "chrono-0.4.45/LICENSE.txt",
+   "copyright": [
+    "2014, Kang Seonghoon."
+   ],
+   "sha256": "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327",
+   "text_source": "crate",
+   "repository": "https://github.com/chronotope/chrono"
+  },
+  {
+   "name": "crossbeam-deque",
+   "version": "0.8.6",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "crossbeam-deque-0.8.6/LICENSE-MIT",
+   "copyright": [
+    "2019 The Crossbeam Project Developers"
+   ],
+   "sha256": "9dd111b7b7f7d55b72c0a6ae361660ee5853c9af73f70c3c2ef6858b950e2e51",
+   "text_source": "crate",
+   "repository": "https://github.com/crossbeam-rs/crossbeam"
+  },
+  {
+   "name": "crossbeam-epoch",
+   "version": "0.9.18",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "crossbeam-epoch-0.9.18/LICENSE-MIT",
+   "copyright": [
+    "2019 The Crossbeam Project Developers"
+   ],
+   "sha256": "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e",
+   "text_source": "crate",
+   "repository": "https://github.com/crossbeam-rs/crossbeam"
+  },
+  {
+   "name": "crossbeam-utils",
+   "version": "0.8.21",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "crossbeam-utils-0.8.21/LICENSE-MIT",
+   "copyright": [
+    "2019 The Crossbeam Project Developers"
+   ],
+   "sha256": "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28",
+   "text_source": "crate",
+   "repository": "https://github.com/crossbeam-rs/crossbeam"
+  },
+  {
+   "name": "earcut",
+   "version": "0.4.5",
+   "kind": "crate",
+   "license": "ISC",
+   "elected": "ISC",
+   "file": "earcut-0.4.5/LICENSE.txt",
+   "copyright": [
+    "2016, Mapbox",
+    "2023, Taku Fukada"
+   ],
+   "sha256": "88459a2a8e3a514b6e6de38cf3aaa9250a894cb098f74a932db77fcc8341b6d0",
+   "text_source": "crate",
+   "repository": "https://github.com/ciscorn/earcut-rs"
+  },
+  {
+   "name": "either",
+   "version": "1.15.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "either-1.15.0/LICENSE-MIT",
+   "copyright": [
+    "2015 bluss"
+   ],
+   "sha256": "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719",
+   "text_source": "crate",
+   "repository": "https://github.com/rayon-rs/either"
+  },
+  {
+   "name": "env_filter",
+   "version": "0.1.4",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "env_filter-0.1.4/LICENSE-MIT",
+   "copyright": [
+    "Individual contributors"
+   ],
+   "sha256": "1bf3c259d255ca70051b30e2e95b5446cdb8949ac4cd22c0d7fd634d89f568e2",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-cli/env_logger"
+  },
+  {
+   "name": "equivalent",
+   "version": "1.0.2",
+   "kind": "crate",
+   "license": "Apache-2.0 OR MIT",
+   "elected": "MIT",
+   "file": "equivalent-1.0.2/LICENSE-MIT",
+   "copyright": [
+    "2016--2023 the equivalent developers"
+   ],
+   "sha256": "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f",
+   "text_source": "crate",
+   "repository": "https://github.com/indexmap-rs/equivalent"
+  },
+  {
+   "name": "errno",
+   "version": "0.3.14",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "errno-0.3.14/LICENSE-MIT",
+   "copyright": [
+    "2014 Chris Wong"
+   ],
+   "sha256": "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb",
+   "text_source": "crate",
+   "repository": "https://github.com/lambda-fairy/rust-errno"
+  },
+  {
+   "name": "fastrand",
+   "version": "2.3.0",
+   "kind": "crate",
+   "license": "Apache-2.0 OR MIT",
+   "elected": "MIT",
+   "file": "fastrand-2.3.0/LICENSE-MIT",
+   "copyright": [
+    "Stjepan Glavina"
+   ],
+   "sha256": "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be",
+   "text_source": "crate",
+   "repository": "https://github.com/smol-rs/fastrand"
+  },
+  {
+   "name": "float_next_after",
+   "version": "2.0.0",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "float_next_after-2.0.0/LICENSE",
+   "copyright": [
+    "2020 Scripta Qumranica Electronica"
+   ],
+   "sha256": "37007738a80ea34f969af54a3390dd72cacdef654974cfd449c9f6f72dbaac10",
+   "text_source": "crate",
+   "repository": "https://gitlab.com/bronsonbdevost/next_afterf"
+  },
+  {
+   "name": "foldhash",
+   "version": "0.1.5",
+   "kind": "crate",
+   "license": "Zlib",
+   "elected": "Zlib",
+   "file": "foldhash-0.1.5/LICENSE",
+   "copyright": [
+    "2024 Orson Peters"
+   ],
+   "sha256": "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2",
+   "text_source": "crate",
+   "repository": "https://github.com/orlp/foldhash"
+  },
+  {
+   "name": "geo",
+   "version": "0.33.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "geo-0.33.1/LICENSE-MIT",
+   "copyright": [
+    "2017 The GeoRust Project Developers"
+   ],
+   "sha256": "30eb1fdc57c1e5cfd11826fe0caec4b9dc7901f3758263bb506228d88c8d9e9a",
+   "text_source": "https://raw.githubusercontent.com/georust/geo/5ab50b072e34a915a33eaa46c80763d51d61295e/LICENSE-MIT",
+   "repository": "https://github.com/georust/geo"
+  },
+  {
+   "name": "geo-types",
+   "version": "0.7.19",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "geo-types-0.7.19/LICENSE-MIT",
+   "copyright": [
+    "2017 The GeoRust Project Developers"
+   ],
+   "sha256": "94776032c45f950d30a13af6113c2ad5625316c9abfbccee4dd5a6695f8fe0f5",
+   "text_source": "https://raw.githubusercontent.com/georust/geo/981be9feea12cdede572fb252064536cb8b287b1/LICENSE-MIT",
+   "repository": "https://github.com/georust/geo"
+  },
+  {
+   "name": "geographiclib-rs",
+   "version": "0.2.5",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "geographiclib-rs-0.2.5/LICENSE",
+   "copyright": [
+    "2019 the geographiclib-rs developers"
+   ],
+   "sha256": "f611040a2bb37eaa29a78a128d1e92a378a03e0b6e66ae27398d42b1ba9a7841",
+   "text_source": "crate",
+   "repository": "https://github.com/georust/geographiclib-rs"
+  },
+  {
+   "name": "getrandom",
+   "version": "0.3.4",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "getrandom-0.3.4/LICENSE-MIT",
+   "copyright": [
+    "2018-2025 The rust-random Project Developers",
+    "2014 The Rust Project Developers"
+   ],
+   "sha256": "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-random/getrandom"
+  },
+  {
+   "name": "getrandom",
+   "version": "0.4.2",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "getrandom-0.4.2/LICENSE-MIT",
+   "copyright": [
+    "2018-2026 The rust-random Project Developers",
+    "2014 The Rust Project Developers"
+   ],
+   "sha256": "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-random/getrandom"
+  },
+  {
+   "name": "hash32",
+   "version": "0.3.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "hash32-0.3.1/LICENSE-MIT",
+   "copyright": [
+    "2018 Jorge Aparicio"
+   ],
+   "sha256": "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606",
+   "text_source": "crate",
+   "repository": "https://github.com/japaric/hash32"
+  },
+  {
+   "name": "hashbrown",
+   "version": "0.15.5",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "hashbrown-0.15.5/LICENSE-MIT",
+   "copyright": [
+    "2016 Amanieu d'Antras"
+   ],
+   "sha256": "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/hashbrown"
+  },
+  {
+   "name": "hashbrown",
+   "version": "0.16.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "hashbrown-0.16.0/LICENSE-MIT",
+   "copyright": [
+    "2016 Amanieu d'Antras"
+   ],
+   "sha256": "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/hashbrown"
+  },
+  {
+   "name": "heapless",
+   "version": "0.8.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "heapless-0.8.0/LICENSE-MIT",
+   "copyright": [
+    "2017 Jorge Aparicio"
+   ],
+   "sha256": "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-embedded/heapless"
+  },
+  {
+   "name": "heck",
+   "version": "0.5.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "heck-0.5.0/LICENSE-MIT",
+   "copyright": [
+    "2015 The Rust Project Developers"
+   ],
+   "sha256": "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea",
+   "text_source": "crate",
+   "repository": "https://github.com/withoutboats/heck"
+  },
+  {
+   "name": "i_float",
+   "version": "1.16.0",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "i_float-1.16.0/LICENSE",
+   "copyright": [
+    "2023 iShape-Rust"
+   ],
+   "sha256": "813145bb0ad5b60f55cbbf3c74cdceda1c0a9d253b35c4cc36ae0df7887cb78f",
+   "text_source": "crate",
+   "repository": "https://github.com/iShape-Rust/iFloat"
+  },
+  {
+   "name": "i_key_sort",
+   "version": "0.10.1",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "i_key_sort-0.10.1/LICENSE",
+   "copyright": [
+    "2024 iShape-Rust"
+   ],
+   "sha256": "3c4d36ff9fb73dc62e163e25a07523ca5c2126660fb2485cdecf063e59b58f29",
+   "text_source": "https://raw.githubusercontent.com/iShape-Rust/iKeySort/79e82902a0db59f6c37f655619d3c113f3b79c31/LICENSE",
+   "repository": "https://github.com/iShape-Rust/iKeySort"
+  },
+  {
+   "name": "i_overlay",
+   "version": "4.5.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "i_overlay-4.5.1/LICENSE-MIT",
+   "copyright": [
+    "2023 iShape-Rust"
+   ],
+   "sha256": "934cba666ad1bf60436a190af6eaa3f58f57b5bad28268ce3fb45d9185862232",
+   "text_source": "https://raw.githubusercontent.com/iShape-Rust/iOverlay/625bb3badaad83e3da73c932c956596769e3ab54/LICENSE-MIT",
+   "repository": "https://github.com/iShape-Rust/iOverlay"
+  },
+  {
+   "name": "i_shape",
+   "version": "1.18.0",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "i_shape-1.18.0/LICENSE",
+   "copyright": [
+    "2023 iShape-Rust"
+   ],
+   "sha256": "bfa9eac533d7509a8ab87672b60ac610c17240f9ea4851d26227689fdfe349c8",
+   "text_source": "crate",
+   "repository": "https://github.com/iShape-Rust/iShape"
+  },
+  {
+   "name": "i_tree",
+   "version": "0.18.0",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "i_tree-0.18.0/LICENSE",
+   "copyright": [
+    "2024 iShape-Rust"
+   ],
+   "sha256": "4804bdc1dc124eb7e1aa9e144ecc04096bcf787a10a15fa44af682b51f0f6cce",
+   "text_source": "crate",
+   "repository": "https://github.com/iShape-Rust/iTree"
+  },
+  {
+   "name": "iana-time-zone",
+   "version": "0.1.64",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "iana-time-zone-0.1.64/LICENSE-MIT",
+   "copyright": [
+    "2020 Andrew D. Straw"
+   ],
+   "sha256": "33e57f83510bb73707521ebaffa789ec8caf86f9657cad665b092b581d40e9fb",
+   "text_source": "crate",
+   "repository": "https://github.com/strawlab/iana-time-zone"
+  },
+  {
+   "name": "indexmap",
+   "version": "2.12.0",
+   "kind": "crate",
+   "license": "Apache-2.0 OR MIT",
+   "elected": "MIT",
+   "file": "indexmap-2.12.0/LICENSE-MIT",
+   "copyright": [
+    "2016--2017 the indexmap developers"
+   ],
+   "sha256": "6717a8d2a5a929a1a2eb43a12812498ed141a0bcfb7e8f7844fbdbe4303bba9f",
+   "text_source": "crate",
+   "repository": "https://github.com/indexmap-rs/indexmap"
+  },
+  {
+   "name": "itoa",
+   "version": "1.0.15",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "itoa-1.0.15/LICENSE-MIT",
+   "copyright": [
+    "David Tolnay"
+   ],
+   "sha256": "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c",
+   "text_source": "crate",
+   "repository": "https://github.com/dtolnay/itoa"
+  },
+  {
+   "name": "libc",
+   "version": "0.2.177",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "libc-0.2.177/LICENSE-MIT",
+   "copyright": [
+    "2014-2020 The Rust Project Developers"
+   ],
+   "sha256": "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/libc"
+  },
+  {
+   "name": "libm",
+   "version": "0.2.15",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "libm-0.2.15/LICENSE.txt",
+   "copyright": [
+    "2018 Jorge Aparicio",
+    "2005-2020 Rich Felker, et al.",
+    "1993,2004 Sun Microsystems or",
+    "2003-2011 David Schultz or",
+    "2003-2009 Steven G. Kargl or",
+    "2003-2009 Bruce D. Evans or",
+    "2008 Stephen L. Moshier or",
+    "2017-2018 Arm Limited"
+   ],
+   "sha256": "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/compiler-builtins"
+  },
+  {
+   "name": "log",
+   "version": "0.4.34",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "log-0.4.34/LICENSE-MIT",
+   "copyright": [
+    "2014 The Rust Project Developers"
+   ],
+   "sha256": "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/log"
+  },
+  {
+   "name": "memchr",
+   "version": "2.7.6",
+   "kind": "crate",
+   "license": "Unlicense OR MIT",
+   "elected": "MIT",
+   "file": "memchr-2.7.6/LICENSE-MIT",
+   "copyright": [
+    "2015 Andrew Gallant"
+   ],
+   "sha256": "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273",
+   "text_source": "crate",
+   "repository": "https://github.com/BurntSushi/memchr"
+  },
+  {
+   "name": "num-traits",
+   "version": "0.2.19",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "num-traits-0.2.19/LICENSE-MIT",
+   "copyright": [
+    "2014 The Rust Project Developers"
+   ],
+   "sha256": "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-num/num-traits"
+  },
+  {
+   "name": "once_cell",
+   "version": "1.21.3",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "once_cell-1.21.3/LICENSE-MIT",
+   "copyright": [
+    "Aleksey Kladov"
+   ],
+   "sha256": "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d",
+   "text_source": "crate",
+   "repository": "https://github.com/matklad/once_cell"
+  },
+  {
+   "name": "polyline",
+   "version": "0.11.0",
+   "kind": "crate",
+   "license": "MIT/Apache-2.0",
+   "elected": "MIT",
+   "file": "polyline-0.11.0/LICENSE-MIT",
+   "copyright": [
+    "2017 The GeoRust Project Developers"
+   ],
+   "sha256": "f19cbf429afe5a5186d4c6ca7b246b446b2d18919eefdddb521792d57c874f67",
+   "text_source": "crate",
+   "repository": "https://github.com/georust/polyline"
+  },
+  {
+   "name": "rand",
+   "version": "0.10.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "rand-0.10.1/LICENSE-MIT",
+   "copyright": [
+    "2018 Developers of the Rand project",
+    "2014 The Rust Project Developers"
+   ],
+   "sha256": "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-random/rand"
+  },
+  {
+   "name": "rand_core",
+   "version": "0.10.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "rand_core-0.10.1/LICENSE-MIT",
+   "copyright": [
+    "2018-2026 The Rand Project Developers"
+   ],
+   "sha256": "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-random/rand_core"
+  },
+  {
+   "name": "rand_pcg",
+   "version": "0.10.2",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "rand_pcg-0.10.2/LICENSE-MIT",
+   "copyright": [
+    "2014-2017 Melissa O'Neill and PCG Project contributors",
+    "2018 Developers of the Rand project"
+   ],
+   "sha256": "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-random/rngs"
+  },
+  {
+   "name": "rayon",
+   "version": "1.11.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "rayon-1.11.0/LICENSE-MIT",
+   "copyright": [
+    "2010 The Rust Project Developers"
+   ],
+   "sha256": "368f01d005bf8fd9b1206fb6fa653e6c4a81ceb1466406b81792d87c5677a58f",
+   "text_source": "crate",
+   "repository": "https://github.com/rayon-rs/rayon"
+  },
+  {
+   "name": "rayon-core",
+   "version": "1.13.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "rayon-core-1.13.0/LICENSE-MIT",
+   "copyright": [
+    "2010 The Rust Project Developers"
+   ],
+   "sha256": "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91",
+   "text_source": "crate",
+   "repository": "https://github.com/rayon-rs/rayon"
+  },
+  {
+   "name": "regex",
+   "version": "1.12.2",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "regex-1.12.2/LICENSE-MIT",
+   "copyright": [
+    "2014 The Rust Project Developers"
+   ],
+   "sha256": "843bc0191f75f3e22651ae5f1e72939ab2f72a4bc30fa80a066bd66edefc24d4",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/regex"
+  },
+  {
+   "name": "regex-automata",
+   "version": "0.4.13",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "regex-automata-0.4.13/LICENSE-MIT",
+   "copyright": [
+    "2014 The Rust Project Developers"
+   ],
+   "sha256": "5276caf25ac86c8d810222b3dbb938e512c55c6831a10f3e6ed1c93b84041f1c",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/regex"
+  },
+  {
+   "name": "regex-syntax",
+   "version": "0.8.8",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "regex-syntax-0.8.8/LICENSE-MIT",
+   "copyright": [
+    "2014 The Rust Project Developers"
+   ],
+   "sha256": "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/regex"
+  },
+  {
+   "name": "robust",
+   "version": "1.2.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "robust-1.2.0/LICENSE-MIT",
+   "copyright": [
+    "2017 The Spade Developers",
+    "2020 The GeoRust Project Developers"
+   ],
+   "sha256": "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839",
+   "text_source": "crate",
+   "repository": "https://github.com/georust/robust"
+  },
+  {
+   "name": "rstar",
+   "version": "0.12.2",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "rstar-0.12.2/LICENSE-MIT",
+   "copyright": [
+    "2018 The rstar project developers"
+   ],
+   "sha256": "421400d13ccfd26dfa5858199c30a5d76f9c54e0dba7575273025b43c5175dbb",
+   "text_source": "https://raw.githubusercontent.com/georust/rstar/c8c5bf9e41468281d030869d409e3f67f1aaf5b7/LICENSE-MIT",
+   "repository": "https://github.com/georust/rstar"
+  },
+  {
+   "name": "rustix",
+   "version": "1.1.2",
+   "kind": "crate",
+   "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+   "elected": "MIT",
+   "file": "rustix-1.1.2/LICENSE-MIT",
+   "copyright": [
+    "Dan Gohman",
+    "Jakub Konka"
+   ],
+   "sha256": "cd15f8a2c5551a84d56efdc1cd049089e409ac19a3072d5037a17fd70719ff3e",
+   "text_source": "crate",
+   "repository": "https://github.com/bytecodealliance/rustix"
+  },
+  {
+   "name": "semver",
+   "version": "1.0.27",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "semver-1.0.27/LICENSE-MIT",
+   "copyright": [
+    "David Tolnay"
+   ],
+   "sha256": "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2",
+   "text_source": "crate",
+   "repository": "https://github.com/dtolnay/semver"
+  },
+  {
+   "name": "serde",
+   "version": "1.0.228",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "serde-1.0.228/LICENSE-MIT",
+   "copyright": [
+    "Erick Tryzelaar",
+    "David Tolnay"
+   ],
+   "sha256": "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e",
+   "text_source": "crate",
+   "repository": "https://github.com/serde-rs/serde"
+  },
+  {
+   "name": "serde_core",
+   "version": "1.0.228",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "serde_core-1.0.228/LICENSE-MIT",
+   "copyright": [
+    "Erick Tryzelaar",
+    "David Tolnay"
+   ],
+   "sha256": "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad",
+   "text_source": "crate",
+   "repository": "https://github.com/serde-rs/serde"
+  },
+  {
+   "name": "serde_json",
+   "version": "1.0.150",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "serde_json-1.0.150/LICENSE-MIT",
+   "copyright": [
+    "Erick Tryzelaar",
+    "David Tolnay"
+   ],
+   "sha256": "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9",
+   "text_source": "crate",
+   "repository": "https://github.com/serde-rs/json"
+  },
+  {
+   "name": "serde_with",
+   "version": "3.22.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "serde_with-3.22.0/LICENSE-MIT",
+   "copyright": [
+    "2015 Jonas Bushart, Marcin Kaźmierczak"
+   ],
+   "sha256": "ee78f1fbe43ac4a0e47aadb3dbd357b69eb0d3793e948624cd03dd2750ab1c0a",
+   "text_source": "crate",
+   "repository": "https://github.com/jonasbb/serde_with/"
+  },
+  {
+   "name": "sif-itree",
+   "version": "0.4.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "sif-itree-0.4.1/LICENSE-MIT",
+   "copyright": [
+    "2020 Adam Reichold"
+   ],
+   "sha256": "d7f45b8998ced5134fb1d75732c77842a3e888f19c1ff98481822e8fbfbf930b",
+   "text_source": "crate",
+   "repository": "https://codeberg.org/adamreichold/sif-itree"
+  },
+  {
+   "name": "smallvec",
+   "version": "1.15.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "smallvec-1.15.1/LICENSE-MIT",
+   "copyright": [
+    "2018 The Servo Project Developers"
+   ],
+   "sha256": "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03",
+   "text_source": "crate",
+   "repository": "https://github.com/servo/rust-smallvec"
+  },
+  {
+   "name": "spade",
+   "version": "2.15.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "spade-2.15.0/LICENSE-MIT",
+   "copyright": [
+    "2017 The Spade Developers"
+   ],
+   "sha256": "fb313e1c8afee5b5647e00ee0fe6855e3d529eb863a0fdae1d60006c4d1e9990",
+   "text_source": "crate",
+   "repository": "https://github.com/Stoeoef/spade"
+  },
+  {
+   "name": "stable_deref_trait",
+   "version": "1.2.1",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "stable_deref_trait-1.2.1/LICENSE-MIT",
+   "copyright": [
+    "2017 Robert Grosse"
+   ],
+   "sha256": "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596",
+   "text_source": "crate",
+   "repository": "https://github.com/storyyeller/stable_deref_trait"
+  },
+  {
+   "name": "static_assertions",
+   "version": "1.1.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "static_assertions-1.1.0/LICENSE-MIT",
+   "copyright": [
+    "2017 Nikolai Vazquez"
+   ],
+   "sha256": "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f",
+   "text_source": "crate",
+   "repository": "https://github.com/nvzqz/static-assertions-rs"
+  },
+  {
+   "name": "tempfile",
+   "version": "3.23.0",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "tempfile-3.23.0/LICENSE-MIT",
+   "copyright": [
+    "2015 Steven Allen"
+   ],
+   "sha256": "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16",
+   "text_source": "crate",
+   "repository": "https://github.com/Stebalien/tempfile"
+  },
+  {
+   "name": "thiserror",
+   "version": "2.0.18",
+   "kind": "crate",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "thiserror-2.0.18/LICENSE-MIT",
+   "copyright": [
+    "David Tolnay"
+   ],
+   "sha256": "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4",
+   "text_source": "crate",
+   "repository": "https://github.com/dtolnay/thiserror"
+  },
+  {
+   "name": "uniffi",
+   "version": "0.31.1",
+   "kind": "crate",
+   "license": "MPL-2.0",
+   "elected": "MPL-2.0",
+   "file": "uniffi-0.31.1/LICENSE",
+   "copyright": [
+    "The uniffi developers"
+   ],
+   "sha256": "dc5f2297ee5b893405bed1a6929faec4713a061df158ecf5198089f23910d470",
+   "text_source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+   "repository": "https://github.com/mozilla/uniffi-rs"
+  },
+  {
+   "name": "uniffi_core",
+   "version": "0.31.1",
+   "kind": "crate",
+   "license": "MPL-2.0",
+   "elected": "MPL-2.0",
+   "file": "uniffi_core-0.31.1/LICENSE",
+   "copyright": [
+    "The uniffi_core developers"
+   ],
+   "sha256": "77baf5d539fe2e1ad6805e942dbc5dbdeb2b83eb5f2b3a6535d422ca4b02a12f",
+   "text_source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+   "repository": "https://github.com/mozilla/uniffi-rs"
+  },
+  {
+   "name": "uniffi_pipeline",
+   "version": "0.31.1",
+   "kind": "crate",
+   "license": "MPL-2.0",
+   "elected": "MPL-2.0",
+   "file": "uniffi_pipeline-0.31.1/LICENSE",
+   "copyright": [
+    "The uniffi_pipeline developers"
+   ],
+   "sha256": "761ef74f6175e15603d0424cc5f98854c5baccfe7bf4ccb08e5816f9ab8af689",
+   "text_source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+   "repository": "https://github.com/mozilla/uniffi-rs"
+  },
+  {
+   "name": "uuid",
+   "version": "1.23.2",
+   "kind": "crate",
+   "license": "Apache-2.0 OR MIT",
+   "elected": "MIT",
+   "file": "uuid-1.23.2/LICENSE-MIT",
+   "copyright": [
+    "2014 The Rust Project Developers",
+    "2018 Ashley Mannix, Christopher Armstrong, Dylan DPC, Hunar Roop Kahlon"
+   ],
+   "sha256": "d258b83ceec21034727ecee8c382cfa6c3e133699b0742c64571814fb420c9f7",
+   "text_source": "crate",
+   "repository": "https://github.com/uuid-rs/uuid"
+  },
+  {
+   "name": "zmij",
+   "version": "1.0.6",
+   "kind": "crate",
+   "license": "MIT",
+   "elected": "MIT",
+   "file": "zmij-1.0.6/LICENSE-MIT",
+   "copyright": [
+    "David Tolnay"
+   ],
+   "sha256": "aac060176f7020d62c3bcc1cdbcec619d54f48b07ad1963a3f80ce7a0c17755f",
+   "text_source": "crate",
+   "repository": "https://github.com/dtolnay/zmij"
+  }
+ ],
+ "std": [
+  {
+   "name": "Rust standard library (std, core, alloc, panic_unwind, panic_abort, unwind, std_detect, rustc-std-workspace-core, rustc-std-workspace-alloc)",
+   "version": "1.98.1",
+   "kind": "std",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "rust-1.98.1/LICENSE-MIT",
+   "copyright": [
+    "The Rust Project Contributors"
+   ]
+  },
+  {
+   "name": "compiler_builtins",
+   "version": "0.1.160",
+   "kind": "std",
+   "license": "MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)",
+   "elected": "MIT AND Apache-2.0 WITH LLVM-exception",
+   "file": "rust-1.98.1/compiler-builtins-LICENSE.txt",
+   "copyright": [
+    "The Rust Project Contributors",
+    "LLVM Project contributors"
+   ]
+  },
+  {
+   "name": "addr2line",
+   "version": "0.25.1",
+   "kind": "std",
+   "license": "Apache-2.0 OR MIT",
+   "elected": "MIT",
+   "file": "addr2line-0.25.1/LICENSE-MIT",
+   "copyright": [
+    "2016-2018 The gimli Developers"
+   ],
+   "sha256": "1b5d307320b3181d6d7954e663bd7c774a838b8220fe0593c86d9fb09f498b4b",
+   "text_source": "crate",
+   "repository": "https://github.com/gimli-rs/addr2line"
+  },
+  {
+   "name": "gimli",
+   "version": "0.32.3",
+   "kind": "std",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "gimli-0.32.3/LICENSE-MIT",
+   "copyright": [
+    "2015 The Rust Project Developers"
+   ],
+   "sha256": "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7",
+   "text_source": "crate",
+   "repository": "https://github.com/gimli-rs/gimli"
+  },
+  {
+   "name": "object",
+   "version": "0.37.3",
+   "kind": "std",
+   "license": "Apache-2.0 OR MIT",
+   "elected": "MIT",
+   "file": "object-0.37.3/LICENSE-MIT",
+   "copyright": [
+    "2015 The Gimli Developers"
+   ],
+   "sha256": "ff76201f031d8863c38aa7f905eca4f53abbfa15f609db4277d44cd8938f33fe",
+   "text_source": "crate",
+   "repository": "https://github.com/gimli-rs/object"
+  },
+  {
+   "name": "memchr",
+   "version": "2.7.6",
+   "kind": "std",
+   "license": "Unlicense OR MIT",
+   "elected": "MIT",
+   "file": "memchr-2.7.6/LICENSE-MIT",
+   "copyright": [
+    "2015 Andrew Gallant"
+   ],
+   "sha256": "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273",
+   "text_source": "crate",
+   "repository": "https://github.com/BurntSushi/memchr"
+  },
+  {
+   "name": "miniz_oxide",
+   "version": "0.8.9",
+   "kind": "std",
+   "license": "MIT OR Zlib OR Apache-2.0",
+   "elected": "MIT",
+   "file": "miniz_oxide-0.8.9/LICENSE-MIT.md",
+   "copyright": [
+    "2013-2014 RAD Game Tools and Valve Software",
+    "2010-2014 Rich Geldreich and Tenacious Software LLC",
+    "2017 Frommi",
+    "2017-2024 oyvindln"
+   ],
+   "sha256": "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316",
+   "text_source": "crate",
+   "repository": "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide"
+  },
+  {
+   "name": "adler2",
+   "version": "2.0.1",
+   "kind": "std",
+   "license": "0BSD OR MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "adler2-2.0.1/LICENSE-MIT",
+   "copyright": [
+    "Jonas Schievink",
+    "oyvindln"
+   ],
+   "sha256": "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa",
+   "text_source": "crate",
+   "repository": "https://github.com/oyvindln/adler2"
+  },
+  {
+   "name": "hashbrown",
+   "version": "0.17.1",
+   "kind": "std",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "hashbrown-0.17.1/LICENSE-MIT",
+   "copyright": [
+    "2016 Amanieu d'Antras"
+   ],
+   "sha256": "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/hashbrown"
+  },
+  {
+   "name": "cfg-if",
+   "version": "1.0.4",
+   "kind": "std",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "cfg-if-1.0.4/LICENSE-MIT",
+   "copyright": [
+    "2014 Alex Crichton"
+   ],
+   "sha256": "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/cfg-if"
+  },
+  {
+   "name": "libc",
+   "version": "0.2.185",
+   "kind": "std",
+   "license": "MIT OR Apache-2.0",
+   "elected": "MIT",
+   "file": "libc-0.2.185/LICENSE-MIT",
+   "copyright": [
+    "The Rust Project Developers"
+   ],
+   "sha256": "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/libc"
+  },
+  {
+   "name": "rustc-demangle",
+   "version": "0.1.27",
+   "kind": "std",
+   "license": "MIT/Apache-2.0",
+   "elected": "MIT",
+   "file": "rustc-demangle-0.1.27/LICENSE-MIT",
+   "copyright": [
+    "2014 Alex Crichton"
+   ],
+   "sha256": "b50b8869d9fc858ce7266cce0194bd74df58b9d0e3f6df3a9fc8eb470d95c09d",
+   "text_source": "crate",
+   "repository": "https://github.com/rust-lang/rustc-demangle"
+  }
+ ]
+}

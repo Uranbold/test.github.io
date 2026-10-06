@@ -1,5 +1,6 @@
 package mn.navmn.app.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,12 +9,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
@@ -26,6 +29,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -59,15 +63,21 @@ fun SettingsSheet(
     /** NAV-022 B4: open scrolled to the pack section (from a pack notification or message). */
     scrollToOffline: Boolean = false,
     onScrolledToOffline: () -> Unit = {},
+    /** NAV-005 section P (AC 88, UX L1): the «Лиценз» row, the last item; null = not wired (previews, older callers). */
+    onOpenLicences: (() -> Unit)? = null,
+    /** Back from the licences page: reopen scrolled to the end, so the «Лиценз» row is in view again (UX P6). */
+    scrollToEnd: Boolean = false,
 ) {
     val t = LocalTokens.current
     val scroll = rememberScrollState()
-    if (offlineSection != null && scrollToOffline) {
+    if ((offlineSection != null && scrollToOffline) || scrollToEnd) {
         LaunchedEffect(Unit) {
             // The section is last: once the sheet's content is measured, scroll to its end.
             withTimeoutOrNull(2_000) { snapshotFlow { scroll.maxValue }.first { it in 1 until Int.MAX_VALUE } }
-            if (scroll.maxValue in 1 until Int.MAX_VALUE) scroll.animateScrollTo(scroll.maxValue)
-            onScrolledToOffline()
+            if (scroll.maxValue in 1 until Int.MAX_VALUE) {
+                if (scrollToEnd) scroll.scrollTo(scroll.maxValue) else scroll.animateScrollTo(scroll.maxValue)
+            }
+            if (scrollToOffline) onScrolledToOffline()
         }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = t.uiSurface.c(), modifier = Modifier.testTag("settings-sheet")) {
@@ -92,6 +102,7 @@ fun SettingsSheet(
             }
             if (batteryRestricted != null) BatterySettingsRow(batteryRestricted, onOpenBatterySettings)
             offlineSection?.invoke()
+            if (onOpenLicences != null) LicencesRow(onOpenLicences)
             Spacer(Modifier.height(8.dp))
         }
     }
@@ -106,5 +117,20 @@ private fun RadioRow(label: String, selected: Boolean, onClick: () -> Unit) {
     ) {
         RadioButton(selected = selected, onClick = null)
         Text(label, style = NavType.bodyLarge, color = t.uiOnSurface.c(), modifier = Modifier.padding(start = 16.dp))
+    }
+}
+
+/** NAV-005 AC 88 / UX L1: «Лиценз», last in S7 below a divider, ≥ 56 dp, the whole row is the target. */
+@Composable
+private fun LicencesRow(onClick: () -> Unit) {
+    val t = LocalTokens.current
+    HorizontalDivider(color = t.uiOutlineVariant.c())
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 24.dp).testTag("licences-row"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(R.drawable.ic_info), contentDescription = null, tint = t.uiOnSurfaceVariant.c(), modifier = Modifier.size(24.dp))
+        Text(stringResource(R.string.licences_title), style = NavType.bodyLarge, color = t.uiOnSurface.c(), modifier = Modifier.weight(1f).padding(start = 16.dp))
+        Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = t.uiOutline.c(), modifier = Modifier.size(24.dp))
     }
 }

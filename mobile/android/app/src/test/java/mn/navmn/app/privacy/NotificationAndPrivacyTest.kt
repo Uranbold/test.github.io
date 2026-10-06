@@ -69,6 +69,9 @@ class NotificationAndPrivacyTest {
         for (f in tracked.filter { it.extension in setOf("kt", "kts", "xml", "properties", "toml", "md", "sh", "mjs", "json") }) {
             if (f.path.contains("/src/test/resources/routes/")) continue
             if (f.name == "THIRD_PARTY_NOTICES.md") continue // library project URLs (licences), not hosts the app contacts
+            // NAV-005 section P: verbatim upstream licence and NOTICE texts (bundled for the offline licences screen); their
+            // URLs are part of the legal text, never contacted (the screen has no links, AC 89).
+            if (f.path.contains("/mobile/android/licenses/")) continue
             for (m in url.findAll(f.readText())) if (m.groupValues[1] !in allowedHosts) bad += "${f.relativeTo(android)}: ${m.value}"
         }
         assertEquals(bad.joinToString("\n"), 0, bad.size)

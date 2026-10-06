@@ -217,11 +217,36 @@ flowchart TD
     HY -- no --> WAIT["Wait until 10 min have passed (no flicker) — AC 42"]
 ```
 
+## F11. Restore and reroute with an installed routing file (change 7c, 2026-10-05) — AC 19, 20; NAV-021 AC 20, 28
+
+Extends F5 and F4. Without a usable `routing.tar`, F5 is exactly as drawn (NAV-005 AC 50 on the banner). Rule X1 of the NAV-005 screen spec: «Интернэт холболт алга» tells the connection, the icon OF24 tells the route came from the phone.
+
+```mermaid
+flowchart TD
+    W["F4: «Эхлэх» and every new route<br/>record = destination, options, route bytes + route source (gateway | device)<br/>rewritten with each new route, ≤ 2 s — AC 16"] --> K(["App killed, then opened inside the window (F5)"])
+    K --> RD["Record read: route bytes → parsed route, route source → indicator state<br/>absent source (record from before NAV-021) = gateway"]
+    RD --> RS["S5 restoring: banner «Ачаалж байна…», skeleton panel, no icon yet"]
+    RS --> FX{"First good fix, within 50 m of the stored route?"}
+    FX -- yes --> ON["Guidance on the stored route, 0 route requests, works offline — AC 20<br/>progress panel shows the numbers and, if the source is device, the icon OF24 in the same frame"]
+    FX -- no --> OR["Off route: banner «Маршрутыг дахин тооцоолж байна» within 1 s"]
+    OR --> U{"Usable routing file?"}
+    U -- no --> OLD["Offline: secondary line «Интернэт холболт алга» (NAV-005 AC 50)"]
+    U -- yes --> DEV{"Validated network?"}
+    DEV -- no --> LOC["Device reroute ≤ 2.0 s, no secondary line, 0 requests<br/>status area: «Интернэт холболт алга»"]
+    DEV -- yes --> ONL["Gateway first, device after ≤ 3.0 s (NAV-021 AC 9)"]
+    LOC --> NR["New route replaces the whole route; icon OF24 on; record rewritten with source = device"]
+    ONL -- "device answered" --> NR
+    ONL -- "gateway answered" --> GW["Icon off; record rewritten with source = gateway"]
+    LOC -- "engine failed" --> BO["Banner secondary «Маршрутын үйлчилгээ түр ажиллахгүй байна»; back-off (NAV-005 AC 48)"]
+```
+
+The notification N1 never carries the indicator; the lock screen L1 is S5 and shows the same icon.
+
 ## Error and edge paths covered (cross-reference)
 
 | Situation | Where |
 |---|---|
-| Offline during a restore | F5 (on the stored route: full offline guidance; off it: NAV-005 AC 50) |
+| Offline during a restore | F5 (on the stored route: full offline guidance; off it: NAV-005 AC 50); **with a usable routing file: F11 (device reroute, icon survives the restore)** |
 | GPS lost during a restore or a call | F5 (GPS-lost state, banner stays «Ачаалж байна…» until a good fix), F9 (no catch-up while GPS is lost) |
 | Permission revoked while the app was dead | F5 (S4 message, record kept until the window ends) |
 | Notification permission denied | F1, F6 (no notification; restore on open) |

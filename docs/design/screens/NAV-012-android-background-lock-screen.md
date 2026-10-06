@@ -4,6 +4,7 @@
 - **Platforms:** **Android only** (Kotlin, Jetpack Compose, Material 3, `NotificationCompat`). iOS is NAV-015.
 - **Delta on:** [`screens/NAV-005-android-navigation.md`](NAV-005-android-navigation.md) (S3, S5, S6, S7, S8) and the NAV-011 collapsed route-preview sheet ([`flows/NAV-011-…`](../flows/NAV-011-android-route-preview-search-parity.md) F3). Everything not named here stays as those specs say. NAV-005 itself is not edited (mid-flight rule); QA adapts the NAV-005 tests listed in the story Context table.
 - **Flow:** [`flows/NAV-012-android-background-lock-screen.md`](../flows/NAV-012-android-background-lock-screen.md) (F1–F10).
+- **Change 7c (2026-10-05, [D194](../../requirements/decisions.md)):** restore with an installed routing file: section "Offline with an installed pack" (restore rows, the restore record's route source, closing the NAV-021 review gap «Офлайн» icon after a restore). Prototype states `restored-offline`, `restored-offline-reroute`; flow F11.
 - **Rules:** [`navigation-ux.md` §12](../navigation-ux.md) owns the timing and voice rules of this story (notification cadence, restore prompt, call catch-up, output changes); §9 and [`map-style.md` §8](../map-style.md) own the «Автомат» theme. This spec owns layout, components, states, interactions and copy.
 - **Prototype:** [`prototypes/NAV-012-background.html`](../prototypes/NAV-012-background.html) (1 CSS px = 1 dp): lock-screen guidance, restoring, restored (incl. the worst case), GPS lost while restoring, arrival over the lock screen, route preview with the battery entry row (collapsed, B2 on one line cut with «…») and the hint (expanded), settings with the battery row (restricted / exempt), and 8 notification states. Hash example: `#state=restoring&theme=night&lang=mn&scale=1.3`. Checked by `prototypes/check-layout-nav012.mjs` (Evidence). No Figma file.
 - **Tokens:** [`tokens.json`](../tokens.json) v0.6.0 adds two durations: `motion.nav-resumed-notice` (3 s) and `motion.theme-auto-hold` (10 min). No new colours: every surface reuses NAV-005 tokens and contrast pairs.
@@ -201,8 +202,8 @@ All NAV-005 S5/S6 states apply unchanged (on route, Then, off-route, reroute fai
 | **Restoring** (≤ 10 s, waiting for a good fix) | `restoring`: «Ачаалж байна…» | «Замчлал сэргэлээ» (3 s) | Stored route fitted, no puck | skeleton + «Тохиргоо», «Дуусгах» | none (no depart prompt) | 18 |
 | **Restored, on route** | manoeuvre, live distance | «Замчлал сэргэлээ» until its 3 s end | follow camera, snapped puck | live values | **one** prompt for the next manoeuvre ≤ 3 s (if ≥ 30 m ahead) | 19, 20 |
 | **Restored, off route** (> 50 m) | recalculating (NAV-005 G) | — | raw puck, stored route dimmed | live values | «Та маршрутаас гарлаа» once, then catch-up after the new route | 19 |
-| **Restored, offline on route** | manoeuvre | «Интернэт холболт алга» (after the notice, or together where the band allows) | follow | live | one prompt | 20 |
-| **Restored, offline off route** | recalculating + «Интернэт холболт алга» (NAV-005 AC 50) | — | raw puck | live | once | 20 |
+| **Restored, offline on route** (icon OF24 when the stored route came from the device: Offline with an installed pack) | manoeuvre | «Интернэт холболт алга» (after the notice, or together where the band allows) | follow | live | one prompt | 20 |
+| **Restored, offline off route** (**no usable routing file**; with one: Offline with an installed pack) | recalculating + «Интернэт холболт алга» (NAV-005 AC 50) | — | raw puck | live | once | 20 |
 | **GPS lost while restoring** (no fix in 10 s) | stays «Ачаалж байна…» (there is no last manoeuvre to freeze) | «GPS дохио тасарлаа» | stored route, no puck | skeleton | «GPS дохио тасарлаа» once | 19 |
 | **No route at the restore reroute** | recalculating + «Маршрут олдсонгүй» | — | raw puck | live | — | NAV-005 AC 49 |
 | **Location permission revoked / services off / approximate** | — (S1 map, not S5) | S1 R2 message: NAV-005 S4 variant with «Тохиргоо нээх», «Хаах» | S1 | — | — | 23 |
@@ -223,6 +224,46 @@ All NAV-005 S5/S6 states apply unchanged (on route, Then, off-route, reroute fai
 
 ### T1 theme
 No visible states besides day and night. Position unknown → P1 (no message: the theme still switches, Tesler). Offline → unaffected (on-device calculation).
+
+## Offline with an installed pack (change 7c, 2026-10-05)
+
+**Why.** The BA's change 7c is **section K, AC 53–55** of the story (53: reroute after a restore, 54: the indicator and the route source in the record, 55: tests); AC 16 and AC 20 were changed in place. NAV-012 AC 19–20 and the R1 rows «Restored, offline off route» were written when an off-route reroute needed the gateway («Интернэт холболт алга» on the banner, NAV-005 AC 50). [NAV-021](../../requirements/stories/NAV-021-android-on-device-routing-reroute.md) AC 20 (built) answers that reroute on the device when a usable routing file is installed. Change 7c (D194) aligns this spec, and closes **one gap found in the NAV-021 review**: `ParsedRoute.onDevice` was not saved in the restore record, so a route that came from the pack lost its «Офлайн» icon after a restore. **Without a usable routing file every state of this spec is exactly as written** (NAV-021 AC 13, 30). Rule X1 and the reroute table of the [NAV-005 spec](NAV-005-android-navigation.md) › Offline with an installed pack apply unchanged; this section only adds what a restore changes.
+
+### Restore rows with a usable routing file (R1; NAV-021 AC 20, 28)
+The restore itself still makes **no route request** (it follows the stored route, D118); only the off-route reroute and the indicator are new.
+
+| State | Banner | Status area | Progress panel | AC |
+|---|---|---|---|---|
+| Restoring (waiting for the first fix) | «Ачаалж байна…» | «Замчлал сэргэлээ» 3 s | Skeleton only: **no icon** (it appears with the first numbers) | 18 |
+| **Restored, on route, the stored route came from the device** (`restored-offline` in the prototype, offline shown) | Manoeuvre, live distance | «Замчлал сэргэлээ», then «Интернэт холболт алга» while the network is missing (X1) | Remaining time and distance **+ icon OF24 from the first frame that shows the numbers** | 19, 20; NAV-021 28 |
+| Restored, on route, the stored route came from the gateway | As the row above | as above | **no icon** (also when the network is lost later) | 19 |
+| **Restored, off route, offline** (`restored-offline-reroute`) | «Маршрутыг дахин тооцоолж байна», **no secondary line** | «Интернэт холболт алга» (X1: the banner no longer says it) | As before; the icon appears with the new device route | 20; NAV-021 20 |
+| Restored, off route, offline, **no usable routing file** | «Маршрутыг дахин тооцоолж байна» + «Интернэт холболт алга» (NAV-005 AC 50, unchanged) | hidden (the banner says it) | — | 20 |
+| Restored, off route, online | Gateway first, device after ≤ 3.0 s (NAV-005 table) | — | Icon only if the device answered | NAV-021 9 |
+| A gateway reroute replaces a device route after the restore | Manoeuvre | — | Icon **leaves** | NAV-021 28 |
+| Record written before this change (no source field) | As restored from the gateway | — | no icon, which is **correct**: before NAV-021 no route came from the device | 21 |
+
+Status-area priority (Layout rule 8) is unchanged: GPS > «Замчлал сэргэлээ» > «Интернэт холболт алга», at most two visible. N1 (the notification) and L1 (the lock screen) follow the S5 rules: the lock-screen guidance shows the same icon; **the notification never shows an indicator** (no text change, no icon).
+
+### What the restore record must carry (design requirement, owner of the schema: architect / mobile)
+One value: **where the stored route came from** (`gateway` or `device`, or a boolean). It is data about the route, not about a place or a person: no coordinates, no identifiers, nothing that the NAV-012 AC 36 / AC 45 regex could match. Rules:
+1. Written with the record at «Эхлэх» and **rewritten with every new route** (reroute, within the same 2 s as the route bytes, AC 16), so it always describes the route in `route.bin`.
+2. Read back into the parsed route at the restore, so the progress panel shows the icon exactly as it did before the app was killed.
+3. **Absent means `gateway`.** Every record written before NAV-021 holds a gateway route, so the default is right and needs no migration. (NAV-012 AC 54: **no schema bump**; the architect confirms in ADR-0013 §3.1; the unreadable-record rule AC 24 stays.)
+4. NAV-012 AC 16 already lists this field since change 7c (the BA added it, 2026-10-05); the AC numbers of this change are **AC 53–55** (section K).
+
+### TalkBack and motion
+After a restore the progress node reads «…, Офлайн газрын зургаас» as it does for a fresh device route (the text is part of the node). **No extra live announcement** after a restore: the restoring banner and «Замчлал сэргэлээ» are already polite announcements within the same 3 s, and a third would queue behind them. A device route that starts *during* a restored session (the reroute) is announced once, as NAV-021 AC 28 says. The icon has no motion.
+
+### Design rationale: offline restore (change 7c)
+| UX law / heuristic | How 7c applies it | Deliberate trade-off |
+|---|---|---|
+| **Visibility of system status / consistency** | The restored screen tells the same truth as before the app was killed: a device route keeps its icon | One more stored value (a route source), no coordinates |
+| **Zeigarnik / peak–end** | A killed and restored trip must look like the same trip; losing the icon would change what the driver knows about the data | — |
+| **Tesler's law** | The system chooses the source; the restore asks nothing | — |
+| **Von Restorff / minimalist design** | Icon only (no label) in guidance; nothing in the notification; no new announcement | A user who never saw the labelled chip on the preview (trip started from a restore) sees the icon unexplained; the labelled chip is on every preview |
+| **Postel's law** | An old record (no source field) is accepted and treated as a gateway route | — |
+Nielsen heuristics checked: all pass.
 
 ## Interactions
 - **N1 tap:** S5 within 2 s (AC 6). **«Дууг хаах» / «Дууг нээх»:** toggles voice within 1 s without opening the app (AC 3). **«Дуусгах»:** ends guidance, deletes the record (AC 15, 17). **Swipe (Android 14+):** dismisses until the next instruction change (AC 5).
@@ -341,8 +382,9 @@ Nielsen heuristics checked: **visibility of system status** (restore notice, res
 | 7 | N1 states (permission denied); flow F1, F6 |
 | 8–12 | L1 surface, Layout rule 11, L1 states, N1 visibility/public version; flow F2 |
 | 13–15 | Interactions (swipe-away, reopen); flow F3 |
-| 16, 17, 21, 24 | No UI (record); R1 states (expired, crash loop); flow F4 |
-| 18–20 | R1 restoring/restored states, restoring banner, progress skeleton, restore notice, Layout rules 8–9; flow F5; navigation-ux §12.4 |
+| 16, 17, 21, 24 | No UI (record; **7c** adds the route source to the stored fields, Offline with an installed pack); R1 states (expired, crash loop); flow F4 |
+| 53–55 | **7c:** Offline with an installed pack (53: restore rows, reroute; 54: icon after a restore, route source in the record; 55: no UI); flow F11; prototype states `restored-offline`, `restored-offline-reroute` |
+| 18–20 | **7c:** Offline with an installed pack (restore rows, restore record route source, icon after a restore); R1 restoring/restored states, restoring banner, progress skeleton, restore notice, Layout rules 8–9; flow F5; navigation-ux §12.4 |
 | 22 | N2 component and states; Design note 6; flow F6 |
 | 23 | R1 states (location problems); flow F5 |
 | 25 | No UI (manifest) |
@@ -364,6 +406,7 @@ Nielsen heuristics checked: **visibility of system status** (restore notice, res
   - Collapsed entry row, B2 characters visible before «…» (mn 106 / en 89 characters), as designed (a) · with an icon ✕ (b) · with «Хаах» + «Тохиргоо нээх» (c): 360 dp **25 / 19 / 11** at 100 / 130 / 200 % · 22 / 16 / 9 · **2 / 0 / row overflows**; 412 dp 32 / 25 / 15 · 29 / 22 / 13 · 10 / 3 / overflows; 320 dp 19 / 14 / 8 · 16 / 11 / 6 · 0 / overflows / overflows. English (a) 28 / 21 / 13 at 360 dp. The text buttons alone take 56 + 115 dp (mn) at 100 % and 88 + 206 dp at 200 %. Map above the collapsed sheet unchanged (206 dp at 360×640, 100 %).
   - Collapsed notification, longest instruction: 28/36 characters at 360 dp 100 %, 36/36 at 412 dp; English "Take the exit on the right" complete up to 130 %. Recalculating title borderline at 360 dp 100 % (259/256 dp), fits at 412 dp; arrival side variant 28/33 (33/33 at 412 dp). Distance titles never clipped.
   - Iterations the checker forced: (1) the restored worst case had a 146 dp band on 360×640 with two messages → Layout rule 8 (only the higher-priority message shows); (2) the first hint layout (icon column) was 164 dp tall → full-width text with the icon in the action row (128 dp); (3) modelled on the NAV-011 collapsed sheet, the full hint broke NAV-011 P3 (about 100 dp of map) → entry row + hint in the expanded part; (4) the arrival sentence beside the flag was shortened as a title → moved to the text line, where the expanded card wraps it.
+- **Change 7c (2026-10-05):** the prototype gained two states, `restored-offline` (restored on a route that came from the device: «Замчлал сэргэлээ» + «Интернэт холболт алга» in the status area, the 20 dp icon after «25 мин · 12,4 км») and `restored-offline-reroute` (recalculating banner without a secondary line + the network message). The checker now runs 20 states: **960 combinations, 0 problems in the design target**, 190 INFO lines outside it (the same two causes as before plus the new states at 320×568 above 100 %). New rules: the icon is ≥ 20 dp (20 dp at 100 %, **26 dp at 130 % and 200 %: the 1.3 cap of the progress panel**), lies wholly inside the progress panel and on the meta line, carries the accessible name OF25 in the page language, and **the restored panel with the icon is exactly as high as without it** at every viewport, theme, language and scale (75.9 dp at 100 %, 127.8 / 91.5 dp at 130 / 200 % on 360×640 mn / en). The minimum portrait map band is **186 / 94 / 83 dp** at 100 / 130 / 200 % on 360×640 (rule 150 / 80 / 80; the earlier 204 dp at 100 % was set by the restored worst case, the new two-message states leave 186 dp). `--wide` (DejaVu Sans stress run): **78 problems of 960** (42 of 864 before); the 36 new ones are all in `restored-offline` at 360×640 with font scale 130–200 % (status messages against the control pair and the map band), the same pattern as the restored worst case; not a design target.
 - `--wide` stress run (DejaVu Sans): 42 problems of 864, all at 360×640 with font scale 130–200 % in the restored states (status message against the control pair and recenter), the same pattern as the NAV-005 stress run; not a design target.
 - `node docs/design/prototypes/check-contrast.mjs`: all checks pass (no new colour pairs; two new duration tokens).
 - Mermaid: the 11 diagrams of the flow parse with Mermaid 11 (checked in a headless browser).

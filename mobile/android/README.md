@@ -53,9 +53,23 @@ URL starts with `https://` (task `checkReleaseGatewayUrl`).
 
 ```bash
 cd mobile/android
-./gradlew assembleDebug testDebugUnitTest lint        # APK: app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:testDebugUnitTest -Pnav.hostFerrostar=required :app:lintDebug :app:assembleDebug   # the mobile checks (NAV-005 AC 71)
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+`assembleDebug` also runs, on every build (NAV-005 AC 96, 99–100), never skipped (a missing `python3`, `dexdump`,
+`api-versions.xml`, `javac` or `d8` fails the build):
+
+| Task | What it checks | Also in |
+|---|---|---|
+| `checkThirdPartyNotices` | `tools/gen-third-party-notices.py --check`: every shipped runtime artifact of the debug, demo and release classpaths has a licence rule, every licences-screen entry has a licence text and a copyright line, every licence is on the allow-list (Apache-2.0, MIT, BSD-2/3-Clause, BSL-1.0, SIL OFL 1.1, CC0-1.0, CC BY 4.0, ODbL 1.0, public domain) or pending the NAV-005 AC 96 amendment (reported as `PENDING`), no GPL/AGPL, the native notice lists match the resolved MapLibre, Ferrostar, valhalla-mobile, sqlite-bundled and JNA versions and are verbatim and complete (ADR-0017 A5 §2), and `THIRD_PARTY_NOTICES.md` equals the generated file | `check`; before every `generate<Variant>LicenceAssets` |
+| `checkReleaseLicenceGate` | `gen-third-party-notices.py --release-gate`: fails while a shipped licence is pending the NAV-005 AC 96 amendment (ISC, Zlib, FreeType, Unicode/ICU, HarfBuzz "Old MIT", curl, MPL-2.0, LLVM exception), so no release APK or bundle is packaged with an unapproved licence (AC 98) | `packageRelease`, `bundleRelease` only (`check`, debug and demo are not blocked) |
+| `generate<Variant>LicenceAssets` | writes the licences screen's `assets/licences/index.json` and the licence texts (each distinct text once) for that variant's classpath | every build |
+| `testApkApiLevelChecker` | `tools/test_apk_api_level_types.py`: the B-NAV012-01 fixture (`tools/fixtures/apk-api-level/fail`) exits 1 and names `AudioManager$OnModeChangedListener [API 31]` and rules T1/T3/T4; the same code in a `...Api31` holder exits 0; missing tools exit 2 | before every APK check |
+| `checkApkApiLevelTypes<Variant>` | `tools/apk_api_level_types.py` on the APK(s) of that variant (finalizes `assemble<Variant>`: debug, demo, release); fails with the checker's report (type, API level, location, rule) | `check` (`checkApkApiLevelTypes` = debug) |
+| `testThirdPartyNoticesGenerator` | `gen-third-party-notices.py --self-test`: an unmapped fixture library, a licence outside the allow-list, a native library version without its notice list, an upstream MapLibre component without a rule, and a pending licence at the release gate fail | `check` |
+
+Reports: `app/build/licences/check.txt`, `app/build/licences/release-gate.txt`, `app/build/apiLevelCheck/<variant>.txt`.
 
 - **Real Ferrostar in JVM tests (M-1).** `testDebugUnitTest` first runs `tools/build-host-ferrostar.sh`, which downloads
   `ferrostar-0.57.0.crate` from crates.io, checks its checksum, builds `libferrostar.so` for the host with cargo
@@ -69,7 +83,19 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   `res/values/strings.xml`; also run by `ResourcesTest` when node is available).
 - **Native style (ADR-0009 §6):** `node web/scripts/export-native-style.mjs` regenerates
   `app/src/main/assets/style/basemap-{day,night}.json` from the web `buildStyle`; `--check` fails if they are stale.
-- **Notices:** `python3 tools/gen-third-party-notices.py` regenerates `THIRD_PARTY_NOTICES.md`.
+- **Notices and the licences screen (NAV-005 section P):** after a dependency change, `python3 tools/gen-third-party-notices.py`
+  regenerates `THIRD_PARTY_NOTICES.md` (it runs `:app:writeLicenceDeps` for the resolved classpaths). A new library needs a
+  rule in that script's `ENTRIES` (the build fails and names it otherwise). Licence texts are verbatim upstream copies in
+  `licenses/` (sources in the script's `TEXTS` table), plus `web/licenses/` and `web/public/fonts/OFL.txt`; never edit them.
+- **Native notice lists (ADR-0017 A5).** The code statically linked into `libmaplibre.so` and `libferrostar.so` is listed
+  from committed lists that `tools/fetch-native-licences.py` makes (with network, never during a build):
+  `python3 tools/fetch-native-licences.py maplibre` writes `licenses/maplibre-native-android-v<version>/` (upstream's
+  `LICENSES.core.md` verbatim, one cut-out block per component, plus the vendored code upstream omits);
+  `python3 tools/fetch-native-licences.py ferrostar --apk app/build/outputs/apk/debug/app-debug.apk` writes
+  `licenses/ferrostar-<version>/crates.json` and the crates' licence files (`cargo tree` of the published crate and its
+  `Cargo.lock` for `aarch64-linux-android`, plus the Rust standard library of the rustc named in the shipped library). After
+  bumping MapLibre, Ferrostar, valhalla-mobile, sqlite-bundled or JNA, re-run the symbol scan and the fetch, then update
+  `NATIVE_PINS` in `gen-third-party-notices.py` in the same commit; `checkThirdPartyNotices` fails until then.
 - Maven Central rate-limited this build machine (ADR-0009 F12): `settings.gradle.kts` lists Google's mirror of Maven
   Central first. It is a build-time host only; the app never contacts it.
 - Robolectric downloads `android-all` from the same mirror (system property set in `app/build.gradle.kts`).
@@ -80,7 +106,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   the *call* is not enough. Put such code in a holder class named `…Api<N>` annotated `@RequiresApi(N)` (example:
   `ModeListenerApi31` in `audio/calls/CallSignals.kt`), pass values across as `Any`, and guard every call site. Check
   any APK with `python3 mobile/android/tools/apk_api_level_types.py --apk <apk>` (dex-level; works on debug and demo
-  APKs). The JVM twin is `CallSignalsApiLevelTest` (Robolectric SDK 26/28/29/30 with a class loader that hides
+  APKs). Gradle runs it on every APK it assembles (`checkApkApiLevelTypes<Variant>`, table above), so this class of
+  crash fails the build instead of the PO's phone. The JVM twin is `CallSignalsApiLevelTest` (Robolectric SDK 26/28/29/30 with a class loader that hides
   classes the SDK's framework jar lacks: AGP's mockable compileSdk `android.jar` on the unit-test classpath otherwise
   hides this bug class).
 

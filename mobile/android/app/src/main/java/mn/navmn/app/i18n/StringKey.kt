@@ -214,6 +214,15 @@ enum class StringKey(val resName: String) {
     UNIT_MB("unit_mb"),
     UNIT_GB("unit_gb"),
     OFFLINE_LICENCE("offline_licence"),
+    // NAV-005 section P licences screen (glossary 2.8 LC1–LC8, needs native review)
+    LICENCES_TITLE("licences_title"),
+    LICENCES_SECTION_DATA("licences_section_data"),
+    LICENCES_SECTION_SOFTWARE("licences_section_software"),
+    LICENCES_SECTION_FONTS("licences_section_fonts"),
+    LICENCES_VERSION("licences_version"),
+    LICENCES_TEXT_HEADING("licences_text_heading"),
+    LICENCES_OSM_NOTICE("licences_osm_notice"),
+    LICENCES_PACK_NOTICE("licences_pack_notice"),
     ;
 
     companion object {

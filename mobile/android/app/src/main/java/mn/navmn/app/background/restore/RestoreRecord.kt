@@ -35,10 +35,27 @@ data class RestoreMeta(
     val routeSha256: String? = null,
     /** Wall times of earlier restores of this record (AC 24 loop limit). */
     val restoresWallMs: List<Long> = emptyList(),
+    /**
+     * NAV-012 AC 16, 54 (change 7c): where the stored route came from, [RouteSource.GATEWAY] or [RouteSource.DEVICE]
+     * (`ParsedRoute.onDevice`, the OF24 indicator). A flag, not trip data. A record written before this field existed
+     * has none and reads as `gateway` (default), so it still restores: no schema bump (ADR-0013 §3.1).
+     */
+    val routeSource: String = RouteSource.GATEWAY,
 ) {
+    /** True when the stored route was computed by the on-device engine; any other or unknown value is the gateway. */
+    val routeFromDevice: Boolean get() = routeSource == RouteSource.DEVICE
+
     companion object {
         const val SCHEMA = 1
     }
+}
+
+/** NAV-012 AC 16 / 54: the values of [RestoreMeta.routeSource]. */
+object RouteSource {
+    const val GATEWAY = "gateway"
+    const val DEVICE = "device"
+
+    fun of(onDevice: Boolean): String = if (onDevice) DEVICE else GATEWAY
 }
 
 /** The JSON codec of `meta.json`. Unknown fields or an unknown schema make the record unreadable (AC 24). */

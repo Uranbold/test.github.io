@@ -290,11 +290,43 @@ stateDiagram-v2
 
 *d* = distance from the new fix to the shown position, *r* = max(the new fix's accuracy, 10 m). Fixes with unknown accuracy or worse than 100 m are ignored in every state: they move nothing and do not reset the 10 s timer (AC 76). Pending and discarded jumps do not count as "in a row" (AC 75). The circle radius is always the accuracy of the fix the dot shows (AC 74).
 
+## F13. Offline with an installed pack: preview, network loss and reroute — AC 54, 65 (change 7a, 2026-10-05)
+
+Applies per file: it needs a **usable** `routing.tar` (installed, accepted by the app, not switched off after 3 engine deaths in 10 minutes). Without one, F4, F6 and F8 are exactly as drawn above (NAV-021 AC 13, 30). Rule X1 (screen spec › Offline with an installed pack): the network message says *the phone has no network*; the indicator OF24 says *this route came from the phone*.
+
+```mermaid
+flowchart TD
+    Q(["Preview request (F4), reroute (F6) or NAV-012 restore reroute"]) --> U{"Usable routing file?"}
+    U -- no --> OLD["F4 / F6 / F8 as written: «Интернэт холболт алга», 0 requests"]
+    U -- yes --> N{"Validated network?"}
+    N -- no --> DEV["On-device engine answers at once; 0 HTTP requests<br/>(preview ≤ 1.5 s cold; reroute ≤ 2.0 s mid-range)"]
+    N -- yes --> ON["Gateway request first; loading row «Ачаалж байна…» after 300 ms (preview)<br/>or banner «Маршрутыг дахин тооцоолж байна» (reroute)"]
+    ON --> H{"Headers within 3.0 s, no 502 / 503 / 504 / 429, no connection failure?"}
+    H -- yes --> GW["Gateway answer handled as today<br/>authoritative answers (NoRoute, outside, too far, other 400) shown, never retried on the device"]
+    H -- no --> DEV
+    DEV --> R{"Device result"}
+    R -- "route" --> RT["Route shown / replaces the old route in full<br/>chip «Офлайн» on S3, icon in the S5 progress panel<br/>no «Интернэт холболт алга» on the banner, no 429 line"]
+    R -- "NoRoute / outside area / too far" --> AUT["The existing texts, no indicator"]
+    R -- "engine error, 10 s, process death" --> BOTH["Both sources failed: «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох» (S3)<br/>reroute: back-off 5, 10, 20, 30 … s (AC 48); old route still followed"]
+    GW --> NI["No indicator (an earlier icon goes away)"]
+```
+
+```mermaid
+flowchart LR
+    A["On route, network drops<br/>(usable routing file)"] --> B["Within 2 s: status «Интернэт холболт алга» (unchanged, AC 54)<br/>engine bound ≤ 5 s; 0 requests while on the route"]
+    B --> C{"Off-route meanwhile?"}
+    C -- yes --> D["Banner «Маршрутыг дахин тооцоолж байна» (no secondary line)<br/>device route ≤ 2.0 s → icon OF24 appears, status message stays"]
+    C -- no --> E["Network returns: status gone ≤ 2 s; 0 requests; the next off-route uses online first again"]
+    D --> E
+```
+
+Network host (AC 65 as amended, AC 86): pack requests go to the configured packs base URL (by default the gateway host), everything else to the gateway base URL; no other host. The licences screen sends nothing ([`screens/android-licences.md`](../screens/android-licences.md)).
+
 ## Error-path summary (every screen has offline, GPS-lost and no-result states)
 | Screen | Offline | GPS lost / no location | No result |
 |---|---|---|---|
 | S1 map | Message «Интернэт холболт алга»; loaded tiles stay | My-location button → F3 messages; no showable fix: no dot, «Байршил тодорхойлж чадсангүй» 10 s after a press (F12a); fixes stop: stale hollow grey dot, no message (F12b) | — |
-| S2 search / card | List row «Интернэт холболт алга», 0 requests | not needed (search works without location; bias falls back to the map centre, D30) | «Илэрц олдсонгүй» |
-| S3 preview | «Интернэт холболт алга», 0 requests, auto-request when back | F3 messages in the result region; «Эхлэх» disabled | «Маршрут олдсонгүй», N9, N11 |
-| S5 guidance | Status indicator (F8); off-route → banner secondary line (F6) | F7 | reroute «Маршрут олдсонгүй» (F6) |
+| S2 search / card | List row «Интернэт холболт алга», 0 requests (**with a usable search file: on-device results with the chip, NAV-011 flow F6**) | not needed (search works without location; bias falls back to the map centre, D30) | «Илэрц олдсонгүй» |
+| S3 preview | «Интернэт холболт алга», 0 requests, auto-request when back (**with a usable routing file: a route from the device with the chip, F13**) | F3 messages in the result region; «Эхлэх» disabled | «Маршрут олдсонгүй», N9, N11 |
+| S5 guidance | Status indicator (F8); off-route → banner secondary line (F6); **with a usable routing file the reroute is answered on the device, no secondary line, icon OF24 (F13)** | F7 | reroute «Маршрут олдсонгүй» (F6) |
 | S6 arrival | nothing needed (no network use) | nothing needed (guidance has ended) | — |

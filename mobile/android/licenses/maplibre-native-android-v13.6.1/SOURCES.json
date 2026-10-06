@@ -1,0 +1,13 @@
+{
+ "tag": "android-v13.6.1",
+ "LICENSES.core.md": "https://raw.githubusercontent.com/maplibre/maplibre-native/android-v13.6.1/LICENSES.core.md",
+ "extra": {
+  "icu-LICENSE": "https://raw.githubusercontent.com/maplibre/maplibre-native/android-v13.6.1/vendor/icu/LICENSE",
+  "icu-version.txt": "https://raw.githubusercontent.com/maplibre/maplibre-native/android-v13.6.1/vendor/icu/version.txt",
+  "sqlite-version.txt": "https://raw.githubusercontent.com/maplibre/maplibre-native/android-v13.6.1/vendor/sqlite/version.txt",
+  "PMTiles-LICENSE": "https://raw.githubusercontent.com/protomaps/PMTiles/e232df55745642b39f0cc1edfc85df2633bce29c/LICENSE",
+  "maplibre-tile-spec-LICENSE-MIT": "https://raw.githubusercontent.com/maplibre/maplibre-tile-spec/751ebb1837e4fd03c9074b91fce24727013c1868/LICENSE-MIT",
+  "unordered_dense-LICENSE": "https://raw.githubusercontent.com/martinus/unordered_dense/729896c7ba8bbd9da5573679270133086d05b5dd/LICENSE",
+  "jni.hpp-LICENSE.txt": "https://raw.githubusercontent.com/mapbox/jni.hpp/57ca9ed4bbeb22ed8d20a55063dcaa217ba47f42/LICENSE.txt"
+ }
+}

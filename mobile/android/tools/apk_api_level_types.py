@@ -292,7 +292,7 @@ def main():
     a = ap.parse_args()
     dexdump, aapt2 = find_dexdump(), find_aapt2()
     api = a.api_versions or find_api_versions()
-    if not dexdump or not api:
+    if not dexdump or not api or not os.path.isfile(api):
         print(f"FAIL  tools\n        expected: dexdump and api-versions.xml | actual: dexdump={dexdump} api-versions={api}")
         return 2
     levels = load_class_levels(api)
