@@ -692,6 +692,30 @@ def self_test():
         print(("PASS  " if passed else "FAIL  ") + "self_test." + name)
         ok = ok and passed
 
+    # AC 96/98 negative: a shipped dependency whose licence is off the allow-list (GPL-3.0-only fixture) makes the
+    # `--release-gate` run exit non-zero with a clear message (the real dependency set is covered by LicencesDataTest).
+    import contextlib
+    import io
+    import tempfile
+    ENTRIES.append({"id": "gpl-gate-fixture", "name": "x", "section": "software", "match": [("com.example.gpl", "*")],
+                    "parts": [P("x", "GPL-3.0-only", "apache-2.0", copyright=["x"])]})
+    saved_argv = sys.argv
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = os.path.join(tmp, "deps.json")
+            with open(fixture, "w") as f:
+                json.dump({"debug": [], "demo": [], "release": ["com.example.gpl:fixture:1.0"]}, f)
+            sys.argv = [saved_argv[0], "--release-gate", "--deps", fixture]
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = main()
+    finally:
+        sys.argv = saved_argv
+        ENTRIES.pop()
+    case("release_gate_fails_on_licence_outside_allow_list",
+         code != 0 and "THIRD-PARTY NOTICES CHECK FAILED" in err.getvalue()
+         and "licence GPL-3.0-only is not in the allow-list" in err.getvalue())
+
     # ADR-0017 A5 §2: a native library bump without a new notice list fails.
     pin = NATIVE_PINS["com.stadiamaps.ferrostar:core"]
     rows, _ = resolve({"debug": [f"com.stadiamaps.ferrostar:core:{pin}.1"]})

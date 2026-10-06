@@ -217,6 +217,7 @@ class LicencesDataTest {
             assertTrue(out2, out2.contains("differs from the generated notices"))
             val (code3, out3) = python("--self-test")
             assertEquals(out3, 0, code3)
+            assertTrue(out3, out3.contains("PASS  self_test.release_gate_fails_on_licence_outside_allow_list"))
             // ADR-0017 A5 §2: a Ferrostar bump without a new native notice list fails the check.
             val (code4, out4) = python("--check", "--deps", deps(emptyList(), bump = "com.stadiamaps.ferrostar:core").path)
             assertNotEquals(0, code4)
