@@ -83,7 +83,7 @@ class Env:
                 "REBUILD_ALERT_CMD": f"'echo \"$NAV_RUN_RESULT|$NAV_RUN_STEP|$NAV_RUN_EXIT_CODE\" >> {self.alerts}'",
                 "PACK_ENABLED": "1", "PACK_WEEKLY_MIN_AGE_DAYS": "0", "PACK_TILES_MIN_AGE_DAYS": "28",
                 "PACK_MIN_FREE_GB": "0", "PACK_GATE2_MODE": "evidence", "PACK_GATE2_GOLDEN_SET": str(golden),
-                "PACK_METHOD_URL": "https://example.org/osm-navigation/pipeline"}
+                "PACK_METHOD_URL": "https://pipeline.navmn.test/osm-navigation"}
         vals.update(extra or {})
         self.env_file = self.dir / "test.env"
         self.env_file.write_text("".join(f"{k}={v}\n" for k, v in vals.items()))
@@ -231,6 +231,22 @@ class ConfigTests(unittest.TestCase):
                 with self.assertRaises(nav.ConfigError):
                     self.pc(**base)
 
+    def test_partial_tiles_and_notes_test_only(self):
+        pc = self.pc(PACK_TEST_PARTIAL_TILES="1", PACK_TEST_NOTES="TEST ONLY")
+        self.assertEqual(set(pc.tiles_check_points), set(nav.REF_POINTS))
+        self.assertEqual(pc.notes, "TEST ONLY")
+        text = " ".join(pc.relaxations())
+        self.assertIn("PACK_TEST_PARTIAL_TILES=1", text)
+        self.assertIn("PACK_TEST_NOTES", text)
+        self.assertIn("X1", self.pc().tiles_check_points)
+        for env in ({"PACK_TEST_PARTIAL_TILES": "1"}, {"PACK_TEST_NOTES": "x"}):
+            with self.subTest(env=env):
+                with self.assertRaises(nav.ConfigError):
+                    self.pc(REBUILD_ALLOW_TEST_FAULTS="0", **env)
+                with self.assertRaises(nav.ConfigError):
+                    self.pc(NAV_COMPOSE_PROJECT="navmn", PACK_WEEKLY_MIN_AGE_DAYS="7", PACK_TILES_MIN_AGE_DAYS="28",
+                            PACK_GATE2_MODE="engine", **env)
+
     def test_bad_values(self):
         for env in ({"PACK_GATE2_IMAGE": "ghcr.io/valhalla/valhalla:3.6.3"}, {"PACK_SEARCH_BUILDER_IMAGE": "python:3.14-slim"},
                     {"PACK_REGION": "cn"}, {"PACK_ATTRIBUTION": "someone"}, {"PACK_METHOD_URL": "http://x.example"},
@@ -239,6 +255,26 @@ class ConfigTests(unittest.TestCase):
                     {"PACK_GZIP_LEVEL": "0"}):
             with self.subTest(env=env), self.assertRaises(nav.ConfigError):
                 self.pc(**env)
+
+    def test_placeholder_method_url_refused(self):
+        """NAV-020 review minor: documentation / reserved names are never a public pipeline repository."""
+        for url in ("https://example.org/osm-navigation/pipeline", "https://example.invalid/x", "https://www.example.com/a",
+                    "https://git.example.net/a", "https://repo.example/a", "https://x.invalid", "https://localhost.localhost/a",
+                    "https://user@EXAMPLE.ORG./a"):
+            with self.subTest(url=url), self.assertRaises(nav.ConfigError) as cm:
+                self.pc(PACK_METHOD_URL=url)
+            self.assertIn("placeholder", str(cm.exception))
+        # .test: accepted in test projects, refused in navmn
+        self.assertEqual(self.pc(PACK_METHOD_URL="https://pipeline.navmn.test/x").method_url, "https://pipeline.navmn.test/x")
+        navmn = {"NAV_COMPOSE_PROJECT": "navmn", "PACK_WEEKLY_MIN_AGE_DAYS": "7", "PACK_TILES_MIN_AGE_DAYS": "28",
+                 "PACK_GATE2_MODE": "engine"}
+        with self.assertRaises(nav.ConfigError):
+            self.pc(PACK_METHOD_URL="https://pipeline.navmn.test/x", **navmn)
+        # real-looking hosts that merely contain the words pass
+        for url in ("https://examples.org.mn/p", "https://notexample.com/p", "https://code.example-org.mn/p"):
+            with self.subTest(url=url):
+                self.assertEqual(self.pc(PACK_METHOD_URL=url, **navmn).method_url, url)
+        self.assertEqual(nav_pack.placeholder_url(""), "")
 
 
 # ====================================================================== selection (AC 2-4, A1 items 6-7)
@@ -332,6 +368,7 @@ class FileTests(unittest.TestCase):
         self.assertIn("zoom 0-13", " ".join(nav_pack.tiles_problems(nav_pack.pmtiles_header(pmtiles_bytes(maxz=13)[:127]))))
         ub_only = nav_pack.pmtiles_header(pmtiles_bytes(bounds=(106.5, 47.7, 107.2, 48.1))[:127])
         self.assertIn("X1", " ".join(nav_pack.tiles_problems(ub_only)))
+        self.assertEqual(nav_pack.tiles_problems(ub_only, dict(nav.REF_POINTS)), [])
         self.assertEqual(nav_pack.tiles_problems(nav_pack.pmtiles_header(b"x" * 127)), ["not a PMTiles archive (magic missing)"])
 
 

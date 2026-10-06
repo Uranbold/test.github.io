@@ -14,6 +14,11 @@
     <string name="search_clear">Хайлтыг арилгах</string>
     <string name="search_results">Хайлтын илэрц</string>
     <string name="search_no_results">Илэрц олдсонгүй</string>
+    <!-- NAV-023 AC 21 (glossary 4 "Results count", NAV-003 T3): the announcement after on-device results render, then OF25. -->
+    <plurals name="search_results_count">
+        <item quantity="one">{count} илэрц олдлоо</item>
+        <item quantity="other">{count} илэрц олдлоо</item>
+    </plurals>
     <string name="search_unavailable">Хайлт түр ажиллахгүй байна</string>
     <string name="search_rate_limited">Түр хүлээгээд дахин оролдоно уу</string>
     <string name="place_selected_point">Сонгосон цэг</string>
@@ -214,4 +219,46 @@
     <!-- NAV-021 / NAV-023 "offline" indicator (D201): glossary 2.7 OF24, OF25, needs native review. -->
     <string name="offline_indicator">Офлайн</string>
     <string name="offline_indicator_a11y">Офлайн газрын зургаас</string>
+    <!-- NAV-022 offline Mongolia map: glossary 2.7 OF1–OF23, OF26–OF28 (needs native review); OF29 below is not
+         translated. {size}, {percent}, {date} are replaced by code (Templates). -->
+    <string name="offline_title">Офлайн газрын зураг</string>
+    <string name="offline_download_action">Монголын газрын зураг татах</string>
+    <string name="offline_benefit">Интернэт холболтгүй үед ч газрын зураг, маршрут, хайлт ажиллана</string>
+    <string name="offline_download">Татах</string>
+    <string name="offline_not_now">Дараа</string>
+    <string name="offline_download_size">Татах хэмжээ: {size}</string>
+    <string name="offline_space_needed">Утсанд шаардлагатай зай: {size}</string>
+    <string name="offline_downloading">Татаж байна… {percent}%</string>
+    <string name="offline_waiting_wifi">Wi-Fi холболт хүлээж байна</string>
+    <string name="offline_cancel">Цуцлах</string>
+    <string name="offline_ready">Офлайн газрын зураг бэлэн боллоо</string>
+    <string name="offline_failed">Газрын зургийг татаж чадсангүй</string>
+    <string name="offline_mobile_data_question">Мобайл датагаар {size} татах уу?</string>
+    <string name="offline_wait_wifi">Wi-Fi хүлээх</string>
+    <string name="offline_no_space">Утсанд хангалттай зай алга. {size} зай чөлөөлнө үү.</string>
+    <string name="offline_update">Шинэчлэх</string>
+    <string name="offline_stale_title">Маршрут, хайлтын мэдээлэл хуучирсан байна</string>
+    <string name="offline_stale_question">Мобайл датагаар {size} шинэчлэх үү?</string>
+    <string name="offline_data_date">Мэдээллийн огноо</string>
+    <string name="offline_date_map">Газрын зураг: {date}</string>
+    <string name="offline_date_routes">Маршрут: {date}</string>
+    <string name="offline_date_search">Хайлт: {date}</string>
+    <string name="offline_delete">Офлайн газрын зургийг устгах</string>
+    <string name="offline_delete_question">Офлайн газрын зургийг устгах уу?</string>
+    <string name="offline_delete_confirm">Устгах</string>
+    <string name="offline_space_used">Эзэлж буй зай: {size}</string>
+    <string name="unit_mb">МБ</string>
+    <string name="unit_gb">ГБ</string>
+    <string name="offline_licence" translatable="false">Open Database License (ODbL) 1.0</string>
+    <!-- NAV-005 section P licences screen (D195): glossary 2.8 LC1–LC8, needs native review. {version} is replaced by code.
+         Component names, versions, licence names, copyright lines and licence texts are generated assets (LC9), not
+         resources. -->
+    <string name="licences_title">Лиценз</string>
+    <string name="licences_section_data">Газрын зургийн мэдээлэл</string>
+    <string name="licences_section_software">Программ хангамж</string>
+    <string name="licences_section_fonts">Фонт, дүрс</string>
+    <string name="licences_version">Хувилбар {version}</string>
+    <string name="licences_text_heading">Лицензийн бичвэр</string>
+    <string name="licences_osm_notice">Газрын зургийн мэдээлэл OpenStreetMap төслөөс авсан бөгөөд Open Database License (ODbL) 1.0 лицензтэй.</string>
+    <string name="licences_pack_notice">Офлайн газрын зураг, маршрут, хайлтын мэдээлэл нь OpenStreetMap төслийн мэдээллээс бэлтгэсэн бөгөөд ижил лицензтэй.</string>
 </resources>

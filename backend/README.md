@@ -26,6 +26,7 @@ Run everything from `backend/`. Requirements: Docker with Compose v2, `make`, an
 | Memory and disk (AC 39) | `make stats` |
 | Build record (sources, dates, versions) | `make build-info` (prints `data/build-info.json`) |
 | PMTiles header and metadata | `make tiles-info` |
+| Offline pack as a static tree for a static web host (NAV-022) | `make pack-export DEST=<dir>`, then `make pack-static-check PACK_BASE_URL=...` ([Static pack hosting](#static-pack-hosting-nav-022-test-without-a-vps)) |
 
 `BASE_URL` overrides the gateway URL for `smoke`, `perf` and `contract` (default `http://localhost:8080`).
 
@@ -131,16 +132,30 @@ After a NAV-006 `success` (and with `make pack-publish`), the pack step cuts the
 | File | What |
 |---|---|
 | [`pipeline/nav_pack.py`](pipeline/nav_pack.py) | the pack step, `pack-publish`, `pack-status`, the rollback hook (AC 28); results and exit codes in its docstring and RUNBOOK 7A.4 |
-| [`pack/search_builder.py`](pack/search_builder.py) | search DB builder v1 (stdlib; runs in `PACK_SEARCH_BUILDER_IMAGE`, network none): schema, NAV-023 normalisation, self-test |
+| [`pack/search_builder.py`](pack/search_builder.py) | search DB builder v2 (stdlib; runs in `PACK_SEARCH_BUILDER_IMAGE`, network none): schema (`search_schema` 1), NAV-023 normalisation, self-test |
+| [`pack/vectors/search-normalisation.v1.json`](pack/vectors/search-normalisation.v1.json) | NAV-023 AC 3 shared normalisation vectors (fold, clean, skeleton groups, words, joined keys); read by the builder tests **and** the Android engine tests |
+| [`pack/search_engine.py`](pack/search_engine.py), [`pack/search_eval.py`](pack/search_eval.py), [`pack/search-eval.sh`](pack/search-eval.sh) | NAV-023 reference on-device engine (ADR-0012 plan + AC 6 stages, `RANKING_VERSION` 1) and the measurement: D168 gate (AC 17), AC 5 determinism, D198 held-out report (AC 19), AC 20 reverse (`make search-eval`, below) |
+| [`pack/heldout/countryside-v1.json`](pack/heldout/countryside-v1.json) | D198 held-out countryside set (36 queries; **report only**, never tuned on) |
 | [`gate2/`](gate2/) | Gate 2 engine recipe (valhalla-mobile 0.6.3 host build + our `driver.cpp`), the AAR `default.json` copy. **Not built in the dev container** (6-12 GB) |
 | [`pack/gate2_evidence_driver.py`](pack/gate2_evidence_driver.py) | test-only stand-in (`PACK_GATE2_MODE=evidence`): the server's own Valhalla on both sides, exercises runner and comparator, **not the gate** |
 | [`pack/golden-routes.provisional.json`](pack/golden-routes.provisional.json) | provisional copy of the AC 9 golden route set until QA's fixture exists |
 | [`scripts/validate_manifest.py`](scripts/validate_manifest.py) | manifest vs `OfflinePackManifest` (jsonschema) |
 | [`pipeline/nav020-test-setup.sh`](pipeline/nav020-test-setup.sh), [`nav020-test-teardown.sh`](pipeline/nav020-test-teardown.sh), [`nav020_test.py`](pipeline/nav020_test.py), [`nav020-test.env.template`](pipeline/nav020-test.env.template) | dev-container test project `navmn-nav020` (seeded slots, read loop) |
 
+Offline search measurement (NAV-023; host Python, no Docker; the two builds go to a temporary directory that is
+always deleted). `ONLINE` must serve Photon from the slot the dump belongs to; only read-only `GET /v1/search` and
+`/v1/reverse` are sent, at most 2 per second. Exit 1 when the D168 gate fails or the two builds differ:
+```sh
+make search-eval DUMP=data/sources/photon-dump                                   # gate (all rows counted) + AC 5
+make search-eval DUMP=data/sources/photon-dump ONLINE=http://127.0.0.1:8080 OUT=/tmp/nav023   # + data gaps, held-out, reverse
+python3 pack/search_engine.py search --db <search.sqlite> --q "Сүхбаатар" --bias 47.9189,106.9176   # one query, JSON
+```
+
 Dev-container test (project `navmn-nav020`, gateway `127.0.0.1:18190`, root `/var/tmp/nav020-test`; the shared dev stack and `data/` are only read):
 ```sh
 make nav020-test-setup                                   # root + /var/tmp/nav020-test/nav020.env
+#   NAV020_METHOD_URL=https://<public repo> make nav020-test-setup   for a pack that leaves this machine (default: a .test
+#   placeholder, accepted only in test projects; example.org / *.invalid are refused everywhere)
 E=/var/tmp/nav020-test/nav020.env
 python3 pipeline/nav020_test.py --env-file $E seed 20261001T000000Z && python3 pipeline/nav020_test.py --env-file $E activate 20261001T000000Z
 make pack-publish NAV_ENV_FILE=$E                        # first publication: all three files, one version
@@ -150,6 +165,68 @@ make pack-test                                           # unit tests (no Docker
 make nav020-test-teardown
 ```
 Operator guide: [RUNBOOK section 7A](../infra/staging/RUNBOOK.md).
+
+### Static pack hosting (NAV-022 test without a VPS)
+
+The app reads packs from `<pack base URL>/mn/manifest.json` and the `path` of each file, exactly like the gateway's `/packs/` (openapi 0.6.x `getOfflinePackManifest`, `getOfflinePackFile`). Any static web host that serves the files unchanged with Range and ETag can stand in for the gateway. The base URL is a build property (`-Pnav.packBaseUrl=https://<your-site>/<path>/packs/`, or `NAV_PACK_BASE_URL`), **never committed**. When it is unset, the app uses `<gateway>/packs/`.
+
+| File | What |
+|---|---|
+| [`pipeline/pack_export.py`](pipeline/pack_export.py) | `make pack-export`: the latest published pack as a static tree, verified from disk |
+| [`pack/static-host.htaccess`](pack/static-host.htaccess) | optional `.htaccess` for LiteSpeed / Apache: content types, no compression, cache headers, 404 for missing files |
+| [`scripts/pack_static_check.py`](scripts/pack_static_check.py) | `make pack-static-check`: checks a host serving the export (stdlib only, never prints the host) |
+| [`pipeline/nav022-static-test.sh`](pipeline/nav022-static-test.sh), [`nav022_test_pack.py`](pipeline/nav022_test_pack.py), [`pack/static-host-test/`](pack/static-host-test/) | `make pack-export-test`: synthetic 0.5 MB pack, export, Apache httpd with typical shared-host defaults (project `navmn-nav022`, `127.0.0.1:18191`) |
+
+**1. Export** (on the machine that has the published pack; DEST must be outside the checkout and outside `packs/`):
+```sh
+make pack-export DEST=/var/tmp/pack-upload/packs PACKS_DIR=<NAV_DATA_ROOT>/packs    # or NAV_ENV_FILE=<pipeline .env>
+# options: HTACCESS=0 (no .htaccess), LINK=1 (hard links instead of copies), QUICK=1 (skip the decompression check)
+```
+DEST then holds (only the files of the current manifest, about 120 MB for Mongolia):
+```
+.htaccess                         optional, see 3.
+mn/manifest.json                  byte-for-byte copy of the published manifest
+mn/NOTICE.txt                     ODbL notice (© OpenStreetMap contributors, ODbL-1.0, method URL, file list)
+mn/<version>/basemap.pmtiles.gz   one or two version directories (tiles may be older than routing + search)
+mn/<version>/routing.tar.gz
+mn/<version>/search.sqlite.gz
+mn/<version>/NOTICE.txt
+```
+The export refuses a pack whose `licence.method_url` is a placeholder (`example.org`, `*.invalid`, ...). A `.test` method URL (test packs) is exported with a `test-only` warning: do not distribute such a pack. If the verification from disk fails, `mn/manifest.json` is removed from DEST so the tree cannot be uploaded by mistake. Exporting again into the same DEST keeps unchanged files and removes those the new manifest no longer lists.
+
+**2. Upload checklist** (the export prints the same order as `upload_order`):
+- [ ] Upload into the directory that the base URL points to, keeping the tree: the base URL directory must contain `mn/`.
+- [ ] Use FTP/SFTP in **binary** mode (ASCII mode corrupts the `.gz` files). Web file managers often cap uploads below the ~86 MB basemap.
+- [ ] Upload the `.gz` files and the `NOTICE.txt` files first, then `.htaccess`, and **`mn/manifest.json` last**. A phone that reads the manifest earlier would otherwise get 404s for its files.
+- [ ] `.htaccess` is a dotfile: turn on "show hidden files" in the FTP client or file manager, or it is silently skipped.
+- [ ] On an update, keep the older version directories on the host until the phone has the new files (the gateway keeps 3 manifests' worth). Delete them on the next upload.
+- [ ] Turn off any site-wide "optimise / compress / minify" or CDN option for this directory. It changes the bytes the app checks with SHA-256.
+- [ ] Do not rename, unpack or re-zip anything. The app checks each `.gz` against `download_sha256` and the unpacked file against `sha256`.
+
+**3. Check the host (do not assume Range or ETag work).** Either the script:
+```sh
+make pack-static-check PACK_BASE_URL=https://<your-site>/<path>/packs/ PACK_LOCAL=/var/tmp/pack-upload/packs   # FULL=1 also downloads all files (~120 MB)
+```
+or by hand with curl (replace `<file>` with a `path` from the manifest, for example `20261008T000000Z/routing.tar.gz`):
+```sh
+B=https://<your-site>/<path>/packs
+curl -sS -o /dev/null -D - "$B/mn/manifest.json" -H 'Accept-Encoding: gzip, br'
+#   want: 200, an ETag, NO Content-Encoding; recommended: Cache-Control: no-cache, Content-Type: application/json
+curl -sS -o /dev/null -w '%{http_code}\n' "$B/mn/manifest.json" -H 'If-None-Match: <ETag from above, with quotes>'
+#   want: 304
+curl -sS -o /dev/null -D - "$B/mn/<file>" -H 'Accept-Encoding: gzip, br'
+#   want: 200, Content-Length = download_bytes of the manifest, an ETag (strong: no W/), NO Content-Encoding;
+#   recommended: Accept-Ranges: bytes, Cache-Control with a long max-age
+curl -sS -o /dev/null -D - "$B/mn/<file>" -H 'Range: bytes=1000-'
+#   want: 206, Content-Range: bytes 1000-<size-1>/<size>
+curl -sS -o /dev/null -D - "$B/mn/<file>" -H 'Range: bytes=1000-' -H 'If-Range: <ETag of the file>'
+#   want: 206 (a 200 here means every resumed download restarts from zero)
+curl -sS -o /dev/null -w '%{http_code}\n' "$B/mn/19990101T000000Z/routing.tar.gz"
+#   want: 404 (not 200 with an HTML page)
+```
+A `Content-Encoding` header, a missing ETag, a 200 instead of 206, or a 200 page for a missing file means the `.htaccess` was not uploaded or the host ignores it (it needs `AllowOverride FileInfo`, which most shared hosts allow). Apache marks files written less than a second ago with a weak ETag. If `If-Range` answers 200, repeat after a few seconds.
+
+**What was verified where:** `make pack-export-test` runs the export and the `.htaccess` on Apache httpd 2.4 configured like a shared host (`.gz` as a content coding, compression on, 7-day expiry, a CMS fallback page). With the `.htaccess` every check passes. Without it, the same host fails (negative control). LiteSpeed reads the same directives (`SetEnv no-gzip`, `RemoveEncoding`, `AddType`, `Header set`), but that was **not** tested here. Run step 3 against the real host.
 
 ## How the stack starts
 

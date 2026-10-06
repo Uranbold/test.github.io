@@ -63,6 +63,7 @@ class RestoreManager internal constructor(
             heartbeatWallMs = now,
             routeSha256 = bytes?.let { RestoreCodec.sha256(it) },
             restoresWallMs = restored?.restoresWallMs ?: emptyList(),
+            routeSource = RouteSource.of(route.onDevice), // AC 16, 54 (change 7c)
         )
         synchronized(lock) {
             active = true
@@ -82,6 +83,7 @@ class RestoreManager internal constructor(
                 language = lang.tag,
                 heartbeatWallMs = wallNow(),
                 routeSha256 = bytes?.let { RestoreCodec.sha256(it) },
+                routeSource = RouteSource.of(route.onDevice), // AC 54: follows the new route's source
             ).also { current = it }
         }
         scope.launch { synchronized(lock) { if (active && current === meta) store.writeAll(meta, bytes) } }
@@ -131,11 +133,14 @@ class RestoreManager internal constructor(
     /**
      * Reads, checks and parses the stored route through the unchanged NAV-005 pipeline (generation 0 of this process).
      * A missing or mismatched route, a parse failure or a step-count mismatch deletes the record silently (AC 24).
+     * NAV-012 AC 54 (change 7c): a route the record marks `device` is restored as an on-device route, so the guidance
+     * screen shows the OF24 indicator again once trip progress shows.
      */
     fun load(meta: RestoreMeta): LoadedRecord? {
         val processor = routeClient?.processor
         val bytes = store.readRoute(meta)
-        val route = if (bytes != null && processor != null) (processor.process(bytes, 0) as? RouteOutcome.Ok)?.route else null
+        val parsed = if (bytes != null && processor != null) (processor.process(bytes, 0) as? RouteOutcome.Ok)?.route else null
+        val route = if (parsed != null && meta.routeFromDevice) parsed.asOnDevice() else parsed
         val mode = TravelMode.entries.firstOrNull { it.costing == meta.costing }
         val lang = Lang.fromTag(meta.language)
         if (route == null || mode == null || lang == null) {

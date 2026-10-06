@@ -570,13 +570,13 @@ internal fun NearestPlaceArea(card: LatLon, v: ReverseView?, strings: Strings, a
             ReverseView.Loading -> Text(stringResource(R.string.status_loading), style = NavType.body, color = t.uiOnSurfaceVariant.c())
             is ReverseView.Place -> {
                 val info = PlaceDisplay.info(state.feature)
-                Text(stringResource(R.string.place_nearest), style = NavType.caption, color = t.uiOnSurfaceVariant.c())
+                NearestLabel(state.onDevice, strings)
                 Text(info.name ?: strings[info.type], style = NavType.bodyLarge, color = t.uiOnSurface.c(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val second = listOfNotNull(strings[info.type].takeIf { info.name != null }, info.context).joinToString(" · ")
                 if (second.isNotEmpty()) Text(second, style = NavType.body, color = t.uiOnSurfaceVariant.c())
             }
-            ReverseView.Empty -> {
-                Text(stringResource(R.string.place_nearest), style = NavType.caption, color = t.uiOnSurfaceVariant.c())
+            ReverseView.Empty, ReverseView.EmptyOnDevice -> {
+                NearestLabel(state == ReverseView.EmptyOnDevice, strings)
                 Text(stringResource(R.string.search_no_results), style = NavType.body, color = t.uiOnSurface.c())
             }
             ReverseView.Offline -> NearestStateRow(R.drawable.ic_cloud_off, stringResource(R.string.status_offline), null)
@@ -584,6 +584,23 @@ internal fun NearestPlaceArea(card: LatLon, v: ReverseView?, strings: Strings, a
             is ReverseView.RateLimited -> NearestStateRow(R.drawable.ic_info, stringResource(R.string.search_rate_limited), a.onReverseRetry to state.retryEnabled)
             ReverseView.Error -> NearestStateRow(R.drawable.ic_info, stringResource(R.string.status_generic_error), null)
         }
+    }
+}
+
+/**
+ * «Ойролцоох газар»; for an answer from the device (NAV-023 AC 23, D208; screen spec O7 `ind-card`) the OF24 chip
+ * follows on the same line and wraps as a whole. Its name OF25 is read after the label (the area is one merged node).
+ */
+@Composable
+private fun NearestLabel(onDevice: Boolean, strings: Strings) {
+    val t = LocalTokens.current
+    if (!onDevice) {
+        Text(stringResource(R.string.place_nearest), style = NavType.caption, color = t.uiOnSurfaceVariant.c())
+        return
+    }
+    FlowRow(verticalArrangement = Arrangement.Center, itemVerticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.place_nearest), style = NavType.caption, color = t.uiOnSurfaceVariant.c())
+        OfflineIndicator(strings, Modifier.padding(start = 8.dp))
     }
 }
 

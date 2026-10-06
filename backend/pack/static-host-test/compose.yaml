@@ -1,0 +1,20 @@
+# NAV-022 static pack host test: Apache httpd 2.4 serving pack exports from a scratch directory, configured like a
+# typical shared host (compression on, .gz as a content coding, expiry headers, a CMS-style fallback rewrite), so the
+# exported .htaccess has something to undo. Separate Compose project `navmn-nav022`, loopback port 18191 by default.
+# Never part of the dev stack or staging. Driven by pipeline/nav022-static-test.sh (make pack-export-test).
+name: navmn-nav022
+services:
+  static:
+    image: ${NAV022_HTTPD_IMAGE:-httpd:2.4.69-alpine@sha256:3440c39d8d6f54fa9ad2549e5a60c19ddd435faadc29c1ad28aa795f71888889}
+    command: ["httpd-foreground", "-c", "Include /etc/nav022/hosting.conf"]
+    ports:
+      - "127.0.0.1:${NAV022_STATIC_PORT:-18191}:80"
+    volumes:
+      - ${NAV022_WWW:?set NAV022_WWW to the scratch document root}:/usr/local/apache2/htdocs:ro
+      - ./hosting.conf:/etc/nav022/hosting.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/index.html"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    restart: "no"

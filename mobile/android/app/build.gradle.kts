@@ -1,5 +1,7 @@
 import groovy.json.JsonSlurper
 import java.util.Properties
+import org.gradle.process.ExecOperations
+import java.io.ByteArrayOutputStream
 
 plugins {
     alias(libs.plugins.android.application)
@@ -51,6 +53,10 @@ fun navSetting(property: String, env: String): String? {
 }
 val demoTilesFile: String? = navSetting("nav.demoTilesFile", "NAV_DEMO_TILES_FILE")
 val demoTilesUrl: String? = navSetting("nav.demoTilesUrl", "NAV_DEMO_TILES_URL")
+// NAV-022 AC 47 / P14: the offline-pack base URL, i.e. the directory that holds `mn/manifest.json` (for a static host such as
+// https://<host>/packs/). Gradle property → environment → the uncommitted gateway.local.properties, like the gateway URL.
+// Unset: the app uses <gateway>/packs (openapi 0.6.0 getOfflinePackManifest). Never committed (no hostname in the repo).
+val configuredPackBase: String? = navSetting("nav.packBaseUrl", "NAV_PACK_BASE_URL")?.trimEnd('/')
 // NAV-019 AC 4 (ADR-0016 §8.3): the NAV-017 route manifest; its picker routes and tracks are copied at build time.
 val demoManifestFile: File = webDir.resolve("src/demo/routes.manifest.json")
 
@@ -72,6 +78,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "GATEWAY_BASE_URL", quoted(configuredGateway ?: debugDefaultGateway))
+            buildConfigField("String", "PACK_BASE_URL", quoted(configuredPackBase.orEmpty())) // NAV-022 P14
             buildConfigField("boolean", "DEBUG_LOGS", "true")
             // B-NAV019-01: the last crash's stack trace is stored app-private and shown on the next launch (no adb needed).
             buildConfigField("boolean", "CRASH_DIAGNOSTICS", "true")
@@ -80,6 +87,7 @@ android {
             // Not minified in this slice (no store upload, D17); R8 rules for JNA/UniFFI come with NAV-012.
             isMinifyEnabled = false
             buildConfigField("String", "GATEWAY_BASE_URL", quoted(configuredGateway ?: ""))
+            buildConfigField("String", "PACK_BASE_URL", quoted(configuredPackBase.orEmpty())) // NAV-022 P14
             buildConfigField("boolean", "DEBUG_LOGS", "false")
             buildConfigField("boolean", "CRASH_DIAGNOSTICS", "false")
         }
@@ -96,6 +104,8 @@ android {
             isMinifyEnabled = false
             matchingFallbacks += listOf("release")
             buildConfigField("String", "GATEWAY_BASE_URL", quoted("https://127.0.0.1:9"))
+            // NAV-022 UX B7: the demo has no offline pack (0 pack requests); nav.packBaseUrl is ignored like the gateway URL.
+            buildConfigField("String", "PACK_BASE_URL", quoted(""))
             buildConfigField("boolean", "DEBUG_LOGS", "false")
             buildConfigField("boolean", "CRASH_DIAGNOSTICS", "true") // B-NAV019-01: the PO's phone has no adb
             buildConfigField("String", "DEMO_TILES_URL", quoted(if (demoTilesFile.isNullOrBlank()) demoTilesUrl.orEmpty() else ""))
@@ -179,6 +189,19 @@ val checkReleaseGatewayUrl by tasks.registering {
     }
 }
 tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(checkReleaseGatewayUrl) }
+
+// NAV-022 P14: a configured pack base URL must be https:// in release builds (debug may use loopback, AC 47).
+val checkReleasePackUrl by tasks.registering {
+    group = "verification"
+    description = "Fails if nav.packBaseUrl is set but not https:// (release builds)"
+    val url = configuredPackBase
+    doLast {
+        if (url != null && !url.startsWith("https://")) {
+            throw GradleException("Release builds need an https pack base URL: nav.packBaseUrl is $url")
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(checkReleasePackUrl) }
 
 // NAV-019 AC 3 (ADR-0016 §8.2): demo tasks fail early unless exactly one basemap source is set. Bound to preDemoBuild only,
 // so assembleDebug, assembleRelease and testDebugUnitTest never need the properties. The rule is navmn.buildlogic.DemoTilesGuard
@@ -376,6 +399,193 @@ tasks.withType<Test>().matching { it.name == "testDemoUnitTest" }.configureEach 
     }
 }
 
+// ------------------------------------------------------------------------------------------------ licences (NAV-005 P, Q)
+// NAV-005 AC 88–98: the licences screen's data is generated, never written by hand. writeLicenceDeps records the resolved
+// runtime classpath of every variant; checkThirdPartyNotices (part of every build through the asset tasks, and of
+// `check`) runs tools/gen-third-party-notices.py --check, which fails on an artifact without a rule, an entry without a
+// licence text or copyright line, a licence outside the allow-list, or a THIRD_PARTY_NOTICES.md that differs from the
+// generated one, or a native library whose version differs from its pinned notice list (AC 96, ADR-0017 A5 §2).
+// generate<Variant>LicenceAssets writes that variant's index and texts into its assets (AC 90, 98).
+val licenceVariants = listOf("debug", "demo", "release")
+
+fun runtimeCoordinates(root: org.gradle.api.artifacts.result.ResolvedComponentResult): List<String> {
+    val out = sortedSetOf<String>()
+    val visited = HashSet<org.gradle.api.artifacts.component.ComponentIdentifier>()
+    val queue = ArrayDeque(listOf(root))
+    while (queue.isNotEmpty()) {
+        val c = queue.removeFirst()
+        if (!visited.add(c.id)) continue
+        (c.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier)?.let { out += "${it.group}:${it.module}:${it.version}" }
+        c.dependencies.filterIsInstance<org.gradle.api.artifacts.result.ResolvedDependencyResult>().forEach { queue += it.selected }
+    }
+    return out.toList()
+}
+
+abstract class WriteLicenceDeps : DefaultTask() {
+    @get:Input abstract val variants: MapProperty<String, List<String>>
+    @get:OutputFile abstract val output: RegularFileProperty
+
+    @TaskAction
+    fun write() {
+        output.get().asFile.writeText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(variants.get().toSortedMap())) + "\n")
+    }
+}
+
+val writeLicenceDeps by tasks.registering(WriteLicenceDeps::class) {
+    group = "verification"
+    description = "Writes the resolved runtime classpath of every variant for tools/gen-third-party-notices.py (NAV-005 AC 90, 96)"
+    for (v in licenceVariants) {
+        variants.put(v, configurations.named("${v}RuntimeClasspath").flatMap { it.incoming.resolutionResult.rootComponent }.map(::runtimeCoordinates))
+    }
+    output.set(layout.buildDirectory.file("licences/deps.json"))
+}
+
+/** Runs a Python tool of mobile/android/tools; a non-zero exit fails the build with the tool's output (never a skip). */
+abstract class PythonCheck : DefaultTask() {
+    @get:Input abstract val toolArgs: ListProperty<String>
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val toolInputs: ConfigurableFileCollection
+    @get:Input @get:Optional abstract val androidHome: Property<String>
+    @get:Input abstract val failureTitle: Property<String>
+    @get:OutputFile abstract val report: RegularFileProperty
+    @get:Inject abstract val exec: ExecOperations
+
+    @TaskAction
+    fun run() {
+        val out = ByteArrayOutputStream()
+        val result = try {
+            exec.exec {
+                commandLine(listOf("python3") + toolArgs.get())
+                androidHome.orNull?.let { environment("ANDROID_HOME", it) }
+                standardOutput = out
+                errorOutput = out
+                isIgnoreExitValue = true
+            }
+        } catch (e: Exception) {
+            throw GradleException("${failureTitle.get()}: python3 could not be started (${e.message}). Python 3 is required; this check is never skipped.")
+        }
+        val text = out.toString(Charsets.UTF_8)
+        report.get().asFile.writeText(text)
+        if (result.exitValue != 0) throw GradleException("${failureTitle.get()} (exit ${result.exitValue}):\n$text")
+        logger.lifecycle(text.trim().lines().lastOrNull().orEmpty())
+    }
+}
+
+val licenceToolInputs = files(
+    rootProject.file("tools/gen-third-party-notices.py"),
+    rootProject.file("THIRD_PARTY_NOTICES.md"),
+    rootProject.file("licenses"),
+    webDir.resolve("licenses"),
+    webDir.resolve("public/fonts/OFL.txt"),
+    webDir.resolve("public/fonts/BASEMAPS_ASSETS_COMMIT"),
+    webDir.resolve("package.json"),
+)
+
+val checkThirdPartyNotices by tasks.registering(PythonCheck::class) {
+    group = "verification"
+    description = "Fails when THIRD_PARTY_NOTICES.md or the licence rules drift from the shipped runtime classpath (NAV-005 AC 96)"
+    val deps = writeLicenceDeps.flatMap { it.output }
+    toolInputs.from(licenceToolInputs, deps)
+    toolArgs.set(deps.map { listOf(rootProject.file("tools/gen-third-party-notices.py").absolutePath, "--check", "--deps", it.asFile.absolutePath) })
+    failureTitle.set("checkThirdPartyNotices failed (NAV-005 AC 96)")
+    report.set(layout.buildDirectory.file("licences/check.txt"))
+}
+
+// AC 98 release gate (ADR-0017 A5 §1): while a shipped licence waits for the NAV-005 AC 96 amendment (PENDING_AC96 in the
+// generator), packaging a release APK or bundle fails. `check`, debug and demo builds are not blocked.
+val checkReleaseLicenceGate by tasks.registering(PythonCheck::class) {
+    group = "verification"
+    description = "Fails while a shipped licence is outside the NAV-005 AC 96 allow-list (release packaging only, AC 98)"
+    val deps = writeLicenceDeps.flatMap { it.output }
+    toolInputs.from(licenceToolInputs, deps)
+    toolArgs.set(deps.map { listOf(rootProject.file("tools/gen-third-party-notices.py").absolutePath, "--release-gate", "--deps", it.asFile.absolutePath) })
+    failureTitle.set("checkReleaseLicenceGate failed (NAV-005 AC 96, AC 98)")
+    report.set(layout.buildDirectory.file("licences/release-gate.txt"))
+}
+tasks.matching { it.name == "packageRelease" || it.name == "bundleRelease" }.configureEach { dependsOn(checkReleaseLicenceGate) }
+
+val testThirdPartyNoticesGenerator by tasks.registering(PythonCheck::class) {
+    group = "verification"
+    description = "Self-test of tools/gen-third-party-notices.py: an unmapped library, a disallowed licence, a native version bump without a new list and a pending licence at the release gate fail (NAV-005 AC 96)"
+    toolInputs.from(rootProject.file("tools/gen-third-party-notices.py"))
+    toolArgs.set(listOf(rootProject.file("tools/gen-third-party-notices.py").absolutePath, "--self-test"))
+    failureTitle.set("testThirdPartyNoticesGenerator failed (NAV-005 AC 96)")
+    report.set(layout.buildDirectory.file("licences/self-test.txt"))
+}
+
+abstract class GenerateLicenceAssets : DefaultTask() {
+    @get:Input abstract val variantName: Property<String>
+    @get:InputFile abstract val deps: RegularFileProperty
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val sources: ConfigurableFileCollection
+    @get:InputFile abstract val generator: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+    @get:Inject abstract val exec: ExecOperations
+
+    @TaskAction
+    fun generate() {
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        out.mkdirs()
+        exec.exec {
+            commandLine("python3", generator.get().asFile.absolutePath, "--deps", deps.get().asFile.absolutePath, "--variant", variantName.get(), "--assets", out.absolutePath)
+        }
+    }
+}
+
+// NAV-005 AC 99–100 (bug B-NAV012-01): tools/apk_api_level_types.py on every APK a build produces. assemble<Variant> is
+// finalized by checkApkApiLevelTypes<Variant>, so `assembleDebug` (one of the mobile checks, AC 71) runs it on the debug
+// APK and `assembleDemo` on the demo APK; `check` depends on the debug one. The checker's self-test (B-NAV012-01 fixture
+// exits 1, the ...Api31 holder exits 0, missing tools exit 2) runs first. A missing tool fails the task, never skips it.
+val androidSdkDir: Provider<String> = androidComponents.sdkComponents.sdkDirectory.map { it.asFile.absolutePath }
+val testApkApiLevelChecker by tasks.registering(PythonCheck::class) {
+    group = "verification"
+    description = "Self-test of tools/apk_api_level_types.py with the B-NAV012-01 fixtures (NAV-005 AC 100)"
+    toolInputs.from(rootProject.file("tools/apk_api_level_types.py"), rootProject.file("tools/test_apk_api_level_types.py"), rootProject.file("tools/fixtures/apk-api-level"))
+    toolArgs.set(listOf(rootProject.file("tools/test_apk_api_level_types.py").absolutePath))
+    androidHome.set(androidSdkDir)
+    failureTitle.set("testApkApiLevelChecker failed (NAV-005 AC 100)")
+    report.set(layout.buildDirectory.file("apiLevelCheck/self-test.txt"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        val cap = variant.name.replaceFirstChar { it.uppercase() }
+        val assets = tasks.register<GenerateLicenceAssets>("generate${cap}LicenceAssets") {
+            description = "Licences screen data for the ${variant.name} variant (NAV-005 AC 88–98)"
+            variantName.set(variant.name)
+            deps.set(writeLicenceDeps.flatMap { it.output })
+            sources.from(licenceToolInputs)
+            generator.set(rootProject.file("tools/gen-third-party-notices.py"))
+            outputDir.set(layout.buildDirectory.dir("generated/licenceAssets/${variant.name}"))
+            dependsOn(checkThirdPartyNotices)
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(assets, GenerateLicenceAssets::outputDir)
+
+        val apkCheck = tasks.register<PythonCheck>("checkApkApiLevelTypes$cap") {
+            group = "verification"
+            description = "B-NAV012-01: no framework type above minSdk outside ...Api<N> holders in the ${variant.name} APK (NAV-005 AC 99)"
+            val apkDir = variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.APK)
+            toolInputs.from(apkDir, rootProject.file("tools/apk_api_level_types.py"))
+            toolArgs.set(apkDir.map { dir ->
+                val apks = dir.asFile.walkTopDown().filter { it.isFile && it.extension == "apk" }.map { it.absolutePath }.sorted().toList()
+                listOf(rootProject.file("tools/apk_api_level_types.py").absolutePath) + apks.flatMap { listOf("--apk", it) }
+                    .ifEmpty { listOf("--apk", dir.asFile.resolve("missing.apk").absolutePath) }
+            })
+            androidHome.set(androidSdkDir)
+            failureTitle.set("checkApkApiLevelTypes$cap failed (NAV-005 AC 99, bug B-NAV012-01)")
+            report.set(layout.buildDirectory.file("apiLevelCheck/${variant.name}.txt"))
+            dependsOn(testApkApiLevelChecker)
+        }
+        tasks.matching { it.name == "assemble$cap" }.configureEach { finalizedBy(apkCheck) }
+    }
+}
+
+tasks.register("checkApkApiLevelTypes") {
+    group = "verification"
+    description = "Runs the APK API-level checker on the debug APK (NAV-005 AC 99)"
+    dependsOn("checkApkApiLevelTypesDebug")
+}
+tasks.named("check") { dependsOn("checkApkApiLevelTypes", checkThirdPartyNotices, testThirdPartyNoticesGenerator) }
+
 androidComponents {
     beforeVariants(selector().withBuildType("demo")) { it.enableUnitTest = demoUnitTestsEnabled }
     onVariants { variant ->
@@ -421,8 +631,39 @@ val buildHostFerrostar by tasks.registering(Exec::class) {
     isIgnoreExitValue = hostFerrostarMode != "required"
 }
 
+// NAV-023 (ADR-0017 §3, task SM1): JVM tests run the shipped androidx.sqlite BundledSQLiteDriver (the Android artefact's
+// classes, which call System.loadLibrary("sqliteJni")) on the host. The native library comes from the same release's JVM
+// artefact (same JNI, same bundled SQLite with FTS5, R*Tree and trigram); nothing of it is packaged into the app.
+val sqliteHostNatives: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies { sqliteHostNatives(libs.androidx.sqlite.bundled.jvm) }
+val sqliteHostNativesDir: File = layout.buildDirectory.dir("sqlite-host-natives").get().asFile
+val extractSqliteHostNatives by tasks.registering(Sync::class) {
+    group = "verification"
+    description = "Extracts the host libsqliteJni of androidx.sqlite:sqlite-bundled-jvm for JVM unit tests (NAV-023)"
+    val os = System.getProperty("os.name").lowercase()
+    val arm = System.getProperty("os.arch").let { it == "aarch64" || it == "arm64" }
+    val dir = when {
+        os.contains("mac") -> if (arm) "osx_arm64" else "osx_x64"
+        os.contains("win") -> "windows_x64"
+        else -> if (arm) "linux_arm64" else "linux_x64"
+    }
+    from({ sqliteHostNatives.map { zipTree(it) } }) {
+        include("natives/$dir/*")
+        eachFile { path = name }
+        includeEmptyDirs = false
+    }
+    into(sqliteHostNativesDir)
+}
+
 tasks.withType<Test>().configureEach {
     dependsOn(buildHostFerrostar)
+    dependsOn(extractSqliteHostNatives)
+    systemProperty("java.library.path", sqliteHostNativesDir.absolutePath + File.pathSeparator + System.getProperty("java.library.path"))
+    // NAV-023 opt-in: run the engine on a real search.sqlite (OfflineGoldenHarnessTest), e.g. -Pnav.searchDb=/path/search.sqlite
+    systemProperty("nav.searchDb", providers.gradleProperty("nav.searchDb").orNull ?: "")
     systemProperty("jna.library.path", hostFerrostarCache.resolve(ferrostarVersion).absolutePath)
     systemProperty("nav.hostFerrostar", hostFerrostarMode)
     systemProperty("nav.repoRoot", repoRoot.absolutePath)
@@ -459,6 +700,9 @@ dependencies {
     // NAV-021: the on-device engine (loaded only in the :routing process) and Moshi for its error envelope.
     implementation(libs.valhalla.mobile)
     implementation(libs.moshi)
+    // NAV-022 (ADR-0017 §5, §3): pack downloads and updates; the search-file self-test (FTS5).
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.sqlite.bundled)
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.viewmodel.compose)
     ksp(libs.hilt.compiler)

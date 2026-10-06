@@ -1,0 +1,90 @@
+{
+  "name": "NAV-023 search normalisation test vectors",
+  "vectors_version": 1,
+  "search_schema": 1,
+  "story": "NAV-023 AC 2, AC 3 (shared by the search DB builder tests and the Android on-device engine tests)",
+  "owner": "backend-engineer (backend/pack/vectors/); readers: backend/pack/tests/test_search_builder.py, mobile/android engine unit tests",
+  "change_rule": "Append-only within a vectors_version. A change to the NAV-023 AC 2 rules or to an expected value is a change to NAV-023 (through the BA): bump vectors_version (new file search-normalisation.v<N>.json) and, when stored keys change, search_schema.",
+  "rules": {
+    "clean": "Remove Traditional Mongolian script U+1800-U+18AF and U+202F (each run replaced by one space), collapse whitespace runs to one space, trim (NAV-003 AC 18). Applied to every stored or displayed string before fold/skeleton.",
+    "fold": "Lower case (Unicode, locale-independent), then ү -> у, ө -> о, ё -> е (NAV-023 Terms).",
+    "skeleton": [
+      "1. fold, then Unicode NFD and drop every combining mark (Latin diacritics: ü -> u, ö -> o; this also turns й into и, which step 2 maps to i either way)",
+      "2. map Cyrillic: а a, б b, в v, г g, д d, е e, ж j, з z, и i, й i, к k, л l, м m, н n, о o, п p, р r, с s, т t, у u, ф f, х h, ц c, ч ch, ш sh, щ sh, ы i, э e, ю yu, я ya; ь and ъ dropped; every other character kept as is",
+      "3. on the result, in this order: kh -> h, ts -> c, zh -> j, then y -> i (each a global left-to-right replace)",
+      "4. collapse every run of the same letter a-z to one letter (digits are not collapsed), THEN drop every character other than a-z, 0-9 and space; finally collapse spaces and trim. The order is pinned by vector K02 (Баян-Нуур -> baiannur)"
+    ],
+    "words": "Split on every run of characters that are not a Unicode letter, digit or underscore (Python \\w, re.UNICODE); empty parts dropped. Used for the joined-word keys and for the name tokens of a query.",
+    "joined_pairs": "Each pair of adjacent words concatenated without the separator (the builder stores these for folded words and for skeleton words)."
+  },
+  "fold": [
+    {"id": "F01", "in": "ҮӨЁ", "out": "уое"},
+    {"id": "F02", "in": "Сүхбаатар", "out": "сухбаатар"},
+    {"id": "F03", "in": "ӨЛГИЙ", "out": "олгий"},
+    {"id": "F04", "in": "Ulaanbaatar", "out": "ulaanbaatar"},
+    {"id": "F05", "in": "Ёс", "out": "ес"}
+  ],
+  "clean": [
+    {"id": "C01", "in": "Халхгол ᠬᠠᠯᠬ᠎ᠠ ᠭᠣᠣᠯ", "out": "Халхгол"},
+    {"id": "C02", "in": "  Их   дэлгүүр ", "out": "Их дэлгүүр"},
+    {"id": "C03", "in": "Дорнод ᠳᠣᠷᠤᠨᠠᠳᠤ", "out": "Дорнод"}
+  ],
+  "skeleton_groups": [
+    {"id": "G01", "source": "NAV-023 AC 3", "forms": ["Сүхбаатар", "Сухбаатар", "Sukhbaatar", "Suhbaatar", "Sükhbaatar", "SUKHBAATAR"], "skeleton": "suhbatar"},
+    {"id": "G02", "source": "NAV-023 AC 3", "forms": ["Зайсан", "Zaisan", "Zaysan"], "skeleton": "zaisan"},
+    {"id": "G03", "source": "NAV-023 AC 3", "forms": ["Баянзүрх", "Bayanzurkh", "Bayanzurh"], "skeleton": "baianzurh"},
+    {"id": "G04", "source": "NAV-023 AC 3", "forms": ["Чингэлтэй", "Chingeltei"], "skeleton": "chingeltei"},
+    {"id": "G05", "source": "NAV-023 AC 3", "forms": ["Их дэлгүүр", "Ikh delguur"], "skeleton": "ih delgur"},
+    {"id": "G06", "source": "NAV-023 AC 3", "forms": ["Эрдэнэт", "Erdenet"], "skeleton": "erdenet"},
+    {"id": "G07", "source": "NAV-023 AC 3", "forms": ["Гандан", "Gandan"], "skeleton": "gandan"},
+    {"id": "G08", "source": "backend (AC 2 rules applied)", "forms": ["Тэрэлж", "Terelj", "Terelzh"], "skeleton": "terelj"},
+    {"id": "G09", "source": "backend (AC 2 rules applied)", "forms": ["Цэцэрлэг", "Tsetserleg"], "skeleton": "cecerleg"},
+    {"id": "G10", "source": "backend (AC 2 rules applied)", "forms": ["Мөрөн", "Mörön", "Moron"], "skeleton": "moron"},
+    {"id": "G11", "source": "backend (AC 2 rules applied)", "forms": ["Ховд", "Khovd", "Hovd"], "skeleton": "hovd"},
+    {"id": "G12", "source": "backend (AC 2 rules applied)", "forms": ["Чойбалсан", "Choibalsan", "Choybalsan"], "skeleton": "choibalsan"},
+    {"id": "G13", "source": "backend (AC 2 rules applied)", "forms": ["Улаанбаатар", "Ulaanbaatar", "ULAANBAATAR"], "skeleton": "ulanbatar"},
+    {"id": "G14", "source": "backend (AC 2 rules applied)", "forms": ["Баян-Өлгий", "Bayan-Ölgii", "Bayan-Olgii"], "skeleton": "baianolgi"},
+    {"id": "G15", "source": "backend (AC 2 rules applied)", "forms": ["Хөвсгөл", "Khövsgöl", "Хөвсгол"], "skeleton": "hovsgol"},
+    {"id": "G16", "source": "backend (AC 2 rules applied)", "forms": ["Өлгий", "Ölgii", "Олгий"], "skeleton": "olgi"},
+    {"id": "G17", "source": "backend (AC 2 rules applied)", "forms": ["Зуунмод", "Zuunmod", "Züünmod"], "skeleton": "zunmod"},
+    {"id": "G18", "source": "backend (AC 2 rules applied)", "forms": ["Сүхбатар", "Сухбатар"], "skeleton": "suhbatar"}
+  ],
+  "skeleton_distinct": [
+    {"id": "D01", "a": "Хөвсгөл", "b": "Khuvsgul", "a_skeleton": "hovsgol", "b_skeleton": "huvsgul", "note": "Latin u for ө: the skeleton does NOT join them (NAV-020 task §3.6). Query-side variants must cover it (ADR-0012 / NAV-023 SM3 step 3); open request to the BA for an AC 3 group or a statement."},
+    {"id": "D02", "a": "Өлгий", "b": "Ulgii", "a_skeleton": "olgi", "b_skeleton": "ulgi", "note": "as D01"},
+    {"id": "D03", "a": "Мөрөн", "b": "Murun", "a_skeleton": "moron", "b_skeleton": "murun", "note": "as D01"},
+    {"id": "D04", "a": "Энх тайваны", "b": "Энхтайвны", "a_skeleton": "enh taivani", "b_skeleton": "enhtaivni", "note": "joined-word key enhtaivani is stored; enhtaivni is 1 edit from it (edit-distance expansion, AC 6)"}
+  ],
+  "skeleton": [
+    {"id": "K01", "in": "Халхгол ᠬᠠᠯᠬ᠎ᠠ ᠭᠣᠣᠯ", "out": "halhgol"},
+    {"id": "K02", "in": "Баян-Нуур", "out": "baiannur"},
+    {"id": "K03", "in": "11-р хороо", "out": "11r horo"},
+    {"id": "K04", "in": "100 айл", "out": "100 ail"},
+    {"id": "K05", "in": "Д.Сүхбаатарын гудамж", "out": "dsuhbatarin gudamj"},
+    {"id": "K06", "in": "Морьтон", "out": "morton"},
+    {"id": "K07", "in": "Объект", "out": "obekt"},
+    {"id": "K08", "in": "Щедрин", "out": "shedrin"},
+    {"id": "K09", "in": "Ардын", "out": "ardin"},
+    {"id": "K10", "in": "Ерөөл", "out": "erol"},
+    {"id": "K11", "in": "Юу", "out": "iu"},
+    {"id": "K12", "in": "Яармаг", "out": "iarmag"},
+    {"id": "K13", "in": "Шинэ", "out": "shine"},
+    {"id": "K14", "in": "Цэцэг", "out": "ceceg"},
+    {"id": "K15", "in": "  Их   дэлгүүр ", "out": "ih delgur"},
+    {"id": "K16", "in": "Энх тайваны", "out": "enh taivani"},
+    {"id": "K17", "in": "Enkhtaivan", "out": "enhtaivan"},
+    {"id": "K18", "in": "Улсын их дэлгүүр", "out": "ulsin ih delgur"},
+    {"id": "K19", "in": "ШТС №5", "out": "shc 5"},
+    {"id": "K20", "in": "!!!", "out": ""}
+  ],
+  "words": [
+    {"id": "W01", "in": "БЗД-ийн 4-р хороо", "out": ["БЗД", "ийн", "4", "р", "хороо"]},
+    {"id": "W02", "in": "Д.Сүхбаатарын гудамж", "out": ["Д", "Сүхбаатарын", "гудамж"]},
+    {"id": "W03", "in": "Хан-Уул", "out": ["Хан", "Уул"]}
+  ],
+  "joined_pairs": [
+    {"id": "J01", "in": ["энх", "тайваны", "гуур"], "out": ["энхтайваны", "тайваныгуур"]},
+    {"id": "J02", "in": ["enh", "taivani"], "out": ["enhtaivani"]},
+    {"id": "J03", "in": ["гандан"], "out": []}
+  ]
+}

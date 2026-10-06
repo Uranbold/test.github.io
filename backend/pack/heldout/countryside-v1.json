@@ -1,0 +1,471 @@
+{
+ "name": "NAV-023 held-out countryside query set",
+ "version": 1,
+ "story": "NAV-023 AC 18-19, D198",
+ "status": "REPORT ONLY (D198): not a launch gate; the PO sets a pass mark after the first report. Never tune the builder or the ranking on this set before that report.",
+ "written": "2026-10-05 by backend-engineer, AFTER the reference ranking was frozen (search_engine.RANKING_VERSION 1, tuned on the NAV-003 golden set only). AC 18 says QA writes the set; this is the backend draft for the first measurement, QA may replace or extend it (bump version).",
+ "source": "Objects picked from the dev Photon dump (photon-dump-mongolia-1.0-latest, data 2026-09-26; place=city/town/village/hamlet rows, sampled by OSM id order before any offline result was seen). Latin rows are common road-sign / tourist spellings typed by hand (ө and ү as o/u, х as kh); Russian-layout rows replace ү with у and ө with о.",
+ "pass_rule": "A row passes when the OSM object that online Photon on the same slot ranks first (same query, same bias, same plan and merge as the app) is in the offline top 5. Rows with 0 online results are excluded and listed.",
+ "bias_rule": "The aimag centre of the place (coordinates of the aimag-centre place node/way in the dump, 4 decimals), or none.",
+ "composition": {
+  "rows": 36,
+  "soum_centre": 20,
+  "bag": 8,
+  "aimag_centre": 8,
+  "latin": 13,
+  "ru_layout": 5
+ },
+ "rows": [
+  {
+   "id": "H01",
+   "q": "Даланзадгад",
+   "ui": "mn",
+   "group": "aimag_centre",
+   "script": "cyrillic",
+   "bias": null,
+   "bias_name": null,
+   "target": "Даланзадгад (Өмнөговь)"
+  },
+  {
+   "id": "H02",
+   "q": "Arvaikheer",
+   "ui": "en",
+   "group": "aimag_centre",
+   "script": "latin",
+   "bias": null,
+   "bias_name": null,
+   "target": "Арвайхээр (Өвөрхангай)"
+  },
+  {
+   "id": "H03",
+   "q": "Murun",
+   "ui": "en",
+   "group": "aimag_centre",
+   "script": "latin",
+   "bias": null,
+   "bias_name": null,
+   "target": "Мөрөн (Хөвсгөл)",
+   "note": "common spelling writes ө as u"
+  },
+  {
+   "id": "H04",
+   "q": "Ulgii",
+   "ui": "en",
+   "group": "aimag_centre",
+   "script": "latin",
+   "bias": null,
+   "bias_name": null,
+   "target": "Өлгий (Баян-Өлгий)",
+   "note": "common spelling writes ө as u"
+  },
+  {
+   "id": "H05",
+   "q": "Улиастай",
+   "ui": "mn",
+   "group": "aimag_centre",
+   "script": "cyrillic",
+   "bias": null,
+   "bias_name": null,
+   "target": "Улиастай (Завхан)"
+  },
+  {
+   "id": "H06",
+   "q": "Choibalsan",
+   "ui": "en",
+   "group": "aimag_centre",
+   "script": "latin",
+   "bias": null,
+   "bias_name": null,
+   "target": "Чойбалсан (Дорнод)"
+  },
+  {
+   "id": "H07",
+   "q": "Морон",
+   "ui": "mn",
+   "group": "aimag_centre",
+   "script": "ru_layout",
+   "bias": [
+    49.6285,
+    100.1746
+   ],
+   "bias_name": "Мөрөн",
+   "target": "Мөрөн (Хөвсгөл)",
+   "note": "Russian layout: о for ө"
+  },
+  {
+   "id": "H08",
+   "q": "Мандалговь",
+   "ui": "mn",
+   "group": "aimag_centre",
+   "script": "cyrillic",
+   "bias": null,
+   "bias_name": null,
+   "target": "Мандалговь (Дундговь)"
+  },
+  {
+   "id": "H09",
+   "q": "Хүрмэн",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "cyrillic",
+   "bias": [
+    43.5717,
+    104.426
+   ],
+   "bias_name": "Даланзадгад",
+   "target": "Хүрмэн сум (Өмнөговь)"
+  },
+  {
+   "id": "H10",
+   "q": "Zuungovi",
+   "ui": "en",
+   "group": "soum_centre",
+   "script": "latin",
+   "bias": [
+    49.98,
+    92.0689
+   ],
+   "bias_name": "Улаангом",
+   "target": "Зүүнговь сум (Увс)"
+  },
+  {
+   "id": "H11",
+   "q": "Сумбэр",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "ru_layout",
+   "bias": [
+    47.7083,
+    106.9545
+   ],
+   "bias_name": "Зуунмод",
+   "target": "Сүмбэр сум (Төв)",
+   "note": "Russian layout: у for ү"
+  },
+  {
+   "id": "H12",
+   "q": "Дөргөн",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "cyrillic",
+   "bias": [
+    48.0006,
+    91.6452
+   ],
+   "bias_name": "Ховд",
+   "target": "Дөргөн сум (Ховд)"
+  },
+  {
+   "id": "H13",
+   "q": "Замын-Үүд",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "cyrillic",
+   "bias": [
+    44.898,
+    110.1383
+   ],
+   "bias_name": "Сайншанд",
+   "target": "Замын-Үүд сум (Дорноговь)"
+  },
+  {
+   "id": "H14",
+   "q": "Zamyn-Uud",
+   "ui": "en",
+   "group": "soum_centre",
+   "script": "latin",
+   "bias": [
+    44.898,
+    110.1383
+   ],
+   "bias_name": "Сайншанд",
+   "target": "Замын-Үүд сум (Дорноговь)"
+  },
+  {
+   "id": "H15",
+   "q": "Галуут",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "cyrillic",
+   "bias": [
+    46.1937,
+    100.7143
+   ],
+   "bias_name": "Баянхонгор",
+   "target": "Галуут сум (Баянхонгор)"
+  },
+  {
+   "id": "H16",
+   "q": "Ikh Tamir",
+   "ui": "en",
+   "group": "soum_centre",
+   "script": "latin",
+   "bias": [
+    47.4766,
+    101.4533
+   ],
+   "bias_name": "Цэцэрлэг",
+   "target": "Их тамир сум (Архангай)"
+  },
+  {
+   "id": "H17",
+   "q": "Дашинчилэн",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "cyrillic",
+   "bias": [
+    48.8129,
+    103.5323
+   ],
+   "bias_name": "Булган",
+   "target": "Дашинчилэн сум (Булган)"
+  },
+  {
+   "id": "H18",
+   "q": "Bornuur",
+   "ui": "en",
+   "group": "soum_centre",
+   "script": "latin",
+   "bias": [
+    47.7083,
+    106.9545
+   ],
+   "bias_name": "Зуунмод",
+   "target": "Борнуур сум (Төв)"
+  },
+  {
+   "id": "H19",
+   "q": "Алтанцогц",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "ru_layout",
+   "bias": [
+    48.9682,
+    89.9621
+   ],
+   "bias_name": "Өлгий",
+   "target": "Алтанцөгц сум (Баян-Өлгий)",
+   "note": "Russian layout: о for ө"
+  },
+  {
+   "id": "H20",
+   "q": "Биндэр",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "cyrillic",
+   "bias": [
+    47.3256,
+    110.6649
+   ],
+   "bias_name": "Чингис хот",
+   "target": "Биндэр сум (Хэнтий)"
+  },
+  {
+   "id": "H21",
+   "q": "Монххаан",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "ru_layout",
+   "bias": [
+    46.6808,
+    113.2846
+   ],
+   "bias_name": "Баруун-Урт",
+   "target": "Мөнххаан сум (Сүхбаатар)",
+   "note": "Russian layout: о for ө"
+  },
+  {
+   "id": "H22",
+   "q": "Santmargats",
+   "ui": "en",
+   "group": "soum_centre",
+   "script": "latin",
+   "bias": [
+    47.7416,
+    96.8475
+   ],
+   "bias_name": "Улиастай",
+   "target": "Сантмаргац сум (Завхан)"
+  },
+  {
+   "id": "H23",
+   "q": "Ондор-Улаан",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "ru_layout",
+   "bias": [
+    47.4766,
+    101.4533
+   ],
+   "bias_name": "Цэцэрлэг",
+   "target": "Өндөр-Улаан сум (Архангай)",
+   "note": "Russian layout: о for ө"
+  },
+  {
+   "id": "H24",
+   "q": "Buregkhangai",
+   "ui": "en",
+   "group": "soum_centre",
+   "script": "latin",
+   "bias": [
+    48.8129,
+    103.5323
+   ],
+   "bias_name": "Булган",
+   "target": "Бүрэгхангай сум (Булган)"
+  },
+  {
+   "id": "H25",
+   "q": "Шивээговь",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "cyrillic",
+   "bias": [
+    46.3581,
+    108.3616
+   ],
+   "bias_name": "Чойр",
+   "target": "Шивээговь сум (Говьсүмбэр)"
+  },
+  {
+   "id": "H26",
+   "q": "Bayan-Ovoo",
+   "ui": "en",
+   "group": "soum_centre",
+   "script": "latin",
+   "bias": [
+    47.3256,
+    110.6649
+   ],
+   "bias_name": "Чингис хот",
+   "target": "Баян-Овоо сум (Хэнтий)"
+  },
+  {
+   "id": "H27",
+   "q": "Дэлгэрцогт",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "cyrillic",
+   "bias": [
+    45.763,
+    106.2704
+   ],
+   "bias_name": "Мандалговь",
+   "target": "Дэлгэрцогт сум (Дундговь)"
+  },
+  {
+   "id": "H28",
+   "q": "Халзан",
+   "ui": "mn",
+   "group": "soum_centre",
+   "script": "cyrillic",
+   "bias": null,
+   "bias_name": null,
+   "target": "Халзан сум (Сүхбаатар)"
+  },
+  {
+   "id": "H29",
+   "q": "Цагаан арал баг",
+   "ui": "mn",
+   "group": "bag",
+   "script": "cyrillic",
+   "bias": [
+    48.9682,
+    89.9621
+   ],
+   "bias_name": "Өлгий",
+   "target": "Цагаан арал баг (Баяннуур сум, Баян-Өлгий)"
+  },
+  {
+   "id": "H30",
+   "q": "Адрага баг",
+   "ui": "mn",
+   "group": "bag",
+   "script": "cyrillic",
+   "bias": [
+    47.3256,
+    110.6649
+   ],
+   "bias_name": "Чингис хот",
+   "target": "Адрага баг (Баян-Адарга сум, Хэнтий)"
+  },
+  {
+   "id": "H31",
+   "q": "Тохой баг",
+   "ui": "mn",
+   "group": "bag",
+   "script": "cyrillic",
+   "bias": [
+    49.98,
+    92.0689
+   ],
+   "bias_name": "Улаангом",
+   "target": "Тохой баг (Зүүнговь сум, Увс)"
+  },
+  {
+   "id": "H32",
+   "q": "Tsakhiurt bag",
+   "ui": "en",
+   "group": "bag",
+   "script": "latin",
+   "bias": [
+    45.763,
+    106.2704
+   ],
+   "bias_name": "Мандалговь",
+   "target": "Цахиурт баг (Дэлгэрцогт сум, Дундговь)"
+  },
+  {
+   "id": "H33",
+   "q": "Барчин баг",
+   "ui": "mn",
+   "group": "bag",
+   "script": "cyrillic",
+   "bias": [
+    48.0688,
+    114.5241
+   ],
+   "bias_name": "Чойбалсан",
+   "target": "Барчин баг (Сэргэлэн сум, Дорнод)"
+  },
+  {
+   "id": "H34",
+   "q": "Долоод баг",
+   "ui": "mn",
+   "group": "bag",
+   "script": "cyrillic",
+   "bias": [
+    47.3256,
+    110.6649
+   ],
+   "bias_name": "Чингис хот",
+   "target": "Долоод баг (Дэлгэрхаан сум, Хэнтий)"
+  },
+  {
+   "id": "H35",
+   "q": "Mardai",
+   "ui": "en",
+   "group": "bag",
+   "script": "latin",
+   "bias": [
+    48.0688,
+    114.5241
+   ],
+   "bias_name": "Чойбалсан",
+   "target": "Мардай баг (Дашбалбар сум, Дорнод)"
+  },
+  {
+   "id": "H36",
+   "q": "Гунийн баг",
+   "ui": "mn",
+   "group": "bag",
+   "script": "cyrillic",
+   "bias": [
+    47.7083,
+    106.9545
+   ],
+   "bias_name": "Зуунмод",
+   "target": "Гунийн баг (Баянцогт сум, Төв)"
+  }
+ ]
+}

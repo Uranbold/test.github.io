@@ -338,9 +338,9 @@ The spike prototype was throwaway code and is not in the repository. This sectio
 2. Display name by the label rule: `name:mn` → `name` → `name:en`, after cleaning.
 3. Keep an entry if it has a display name, **or** it has `housenumber` and `address.street` (address points).
 4. Name variants for indexing: every `name`, `name:*`, `alt_name`, `old_name`, `short_name` and `official_name` value, plus `alt_name:*` and similar. Split on `;`, clean, and remove duplicates.
-5. Context fields come from the base-language keys of `address` (keys without `:`), cleaned: `street`, `suburb`, `district`, `city`, `county`, `state`.
+5. Context fields come from `address`, cleaned: `street`, `suburb`, `locality`, `district`, `city`, `county`, `state`. **Builder v2 (NAV-023, 2026-10-05):** each value is taken from `<key>:mn` first, else the base key, as Photon answers `lang=mn` (the base `city` of Ulaanbaatar is the Russian «Улан-Батор»). `locality` comes from `address.neighbourhood` (Photon's `locality`, where bag names live). An address point's `street` follows the same rule.
 
-### 3.4 Schema (`search_schema` = 1)
+### 3.4 Schema (`search_schema` = 1; builder v2 additions marked, ADR-0017 A4 item 1)
 ```sql
 PRAGMA page_size = 4096;  PRAGMA application_id = 1312904781;  -- 0x4E41564D "NAVM"
 PRAGMA user_version = 1;                                       -- = search_schema
@@ -352,7 +352,8 @@ CREATE TABLE place (
   osm_type TEXT, osm_id INTEGER,     -- N/W/R, may be NULL (entries without object_type)
   osm_key TEXT NOT NULL, osm_value TEXT NOT NULL, type TEXT NOT NULL,   -- type = address_type
   name TEXT, name_en TEXT,
-  housenumber TEXT, street TEXT, postcode TEXT, suburb TEXT, district TEXT, city TEXT, county TEXT, state TEXT,
+  housenumber TEXT, street TEXT, postcode TEXT, suburb TEXT, locality TEXT,   -- locality: builder v2 (NAV-023)
+  district TEXT, city TEXT, county TEXT, state TEXT,
   country_code TEXT,
   lat REAL NOT NULL, lon REAL NOT NULL,                    -- centroid, rounded to 7 decimals
   ext_w REAL, ext_n REAL, ext_e REAL, ext_s REAL,          -- Photon extent order; NULL for a point bbox
@@ -361,7 +362,7 @@ CREATE TABLE place (
 CREATE VIRTUAL TABLE place_fts USING fts5(names, skel, ctx, content='',
   tokenize = 'unicode61 remove_diacritics 2', prefix = '1 2 3');   -- rowid = place.id
 CREATE VIRTUAL TABLE place_tri USING fts5(name, content='', tokenize='trigram');  -- folded display name
-CREATE TABLE vocab (term TEXT PRIMARY KEY, n INTEGER NOT NULL) WITHOUT ROWID;    -- skeleton tokens, frequency
+CREATE TABLE vocab (term TEXT PRIMARY KEY, n INTEGER NOT NULL) WITHOUT ROWID;    -- skeleton tokens + skeleton joined-word keys (v2), frequency
 CREATE VIRTUAL TABLE place_geo USING rtree(id, min_lon, max_lon, min_lat, max_lat); -- point boxes on centroids
 ```
 - `names`: the folded form (NAV-023 Terms) of every name variant, space-separated.
@@ -378,7 +379,7 @@ CREATE VIRTUAL TABLE place_geo USING rtree(id, min_lon, max_lon, min_lat, max_la
 ### 3.6 Normalisation and the server self-test query
 - `fold(s)`: lower case, then «ү»→«у», «ө»→«о», «ё»→«е».
 - `skeleton(s)`: NAV-023 AC 2, steps 1–4, exactly. Builder v1 was checked against all seven NAV-023 AC 3 vector groups here (scratch script, 0 mismatches).
-- When QA's shared vector file exists, the B3 unit tests read it. Until then they use the AC 3 groups from the story text.
+- The B3 unit tests and the Android engine tests read the shared vector file `backend/pack/vectors/search-normalisation.v1.json` (ADR-0017 A4 item 3; it holds the AC 3 groups and more).
 - Self-test (B7): run `skeleton(q)`, split into tokens, quote each token, put `*` on the last one, and query `SELECT count(*) FROM place_fts WHERE place_fts MATCH 'skel : ("<t1>" "<t2>"*)'` (syntax checked on SQLite 3.45). The result must be ≥ 1. The full ranking is the app's job (NAV-023).
 - Note for NAV-023: Latin spellings that write «ө» / «ү» as "u" ("Khuvsgul", "Ulgii") give a different skeleton (`huvsgul`, `ulgi`) from the Cyrillic (`hovsgol`, `olgi`). The ADR-0012 query-side vowel variants must cover this. The AC 3 vectors have no such group yet (request to the BA and QA in the handoff).
 

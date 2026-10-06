@@ -35,6 +35,7 @@ import mn.navmn.app.log.CrashLog
 import mn.navmn.app.lockscreen.LockScreenGate
 import mn.navmn.app.map.MapSurface
 import mn.navmn.app.permission.LocationAction
+import mn.navmn.app.pack.PackNotifications
 import mn.navmn.app.permission.PermissionStatus
 import mn.navmn.app.theme.sun.SunTheme
 import mn.navmn.app.ui.screens.CrashReportScreen
@@ -48,6 +49,8 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
     private val vm: AppViewModel by viewModels()
+    /** NAV-022: the offline map (first-launch offer, «Тохиргоо» section, dialogs). */
+    private val packVm: PackViewModel by viewModels()
     @Inject lateinit var location: LocationSource
     @Inject lateinit var mapSurface: MapSurface
 
@@ -99,6 +102,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        openOfflineSectionIfAsked(intent)
         // B-NAV019-01 diagnostic (debug and demo builds only): the last crash report is shown before the map until closed.
         val crashLog = CrashLog.of(this)
         val lastCrash = if (BuildConfig.CRASH_DIAGNOSTICS) crashLog.read() else null
@@ -128,10 +132,26 @@ class MainActivity : AppCompatActivity() {
                     moveToBack = { moveTaskToBack(true) },
                     requireUnlocked = { action -> lockGate.requireUnlocked(action) },
                     openBatterySettings = { BatterySettings.open(this) },
+                    openUrl = { url -> runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } },
                 ),
                 background = BackgroundUi(sunTheme.night, battery),
+                pack = packVm,
             )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openOfflineSectionIfAsked(intent)
+    }
+
+    /** NAV-022 B4: a pack notification opens «Тохиргоо» scrolled to the pack section (guidance continues underneath). */
+    private fun openOfflineSectionIfAsked(intent: Intent?) {
+        if (intent?.getBooleanExtra(PackNotifications.EXTRA_OPEN_OFFLINE, false) != true || !packVm.enabled) return
+        intent.removeExtra(PackNotifications.EXTRA_OPEN_OFFLINE)
+        packVm.requestSection()
+        lockGate.requireUnlocked { vm.openSettings(true) }
     }
 
     override fun onStart() {

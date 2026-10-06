@@ -10,4 +10,7 @@ enum class PluralKey(val resName: String) {
     VOICE_PREFIX_KM("voice_prefix_km"),
     VOICE_APPROACHING("voice_approaching"),
     VOICE_CONTINUE_ON("voice_continue_on"),
+
+    /** NAV-023 AC 21: «{count} илэрц олдлоо» (glossary "Results count"; placeholder `{count}` as in the glossary). */
+    SEARCH_RESULTS_COUNT("search_results_count"),
 }

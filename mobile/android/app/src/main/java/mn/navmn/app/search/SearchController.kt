@@ -21,8 +21,12 @@ import mn.navmn.app.search.assist.Settle
 sealed interface SearchView {
     data object Closed : SearchView
     data object Loading : SearchView
-    data class Results(val items: List<PlaceDisplay.Info>) : SearchView
+    /** [onDevice]: answered from the installed search file (NAV-023 AC 21: the OF24 indicator, once per list). */
+    data class Results(val items: List<PlaceDisplay.Info>, val onDevice: Boolean = false) : SearchView
     data object NoResults : SearchView
+
+    /** NAV-023 AC 21: «Илэрц олдсонгүй» from the on-device engine (shown with the OF24 indicator). */
+    data object NoResultsOnDevice : SearchView
     data object Unavailable : SearchView
     data class RateLimited(val retryEnabled: Boolean) : SearchView
     data object Offline : SearchView
@@ -179,7 +183,11 @@ class SearchController(
         _view.value = when (outcome) {
             is SearchOutcome.Ok -> {
                 val items = outcome.features.map { PlaceDisplay.info(it) }
-                if (items.isEmpty()) SearchView.NoResults else SearchView.Results(items)
+                when {
+                    items.isNotEmpty() -> SearchView.Results(items, outcome.onDevice)
+                    outcome.onDevice -> SearchView.NoResultsOnDevice
+                    else -> SearchView.NoResults
+                }
             }
             SearchOutcome.BadRequest -> SearchView.Error
             SearchOutcome.Offline -> SearchView.Offline

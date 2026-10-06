@@ -62,10 +62,10 @@
 - Checks: a flipped byte in `routing.tar.gz` and a valid gzip of a wrong file both fail without activation (AC 16, 17).
 
 **P5. WorkManager jobs.**
-- **User-started job:** long-running with `setForeground` (notification channel OF1, low importance, OF8 progress at least every 2 s, OF10 cancel action). Foreground service type `dataSync` (Android 14+): an install-time normal permission, so no runtime prompt (AC 41 "no new permission" holds). Constraint `UNMETERED`, or `CONNECTED` only for a download confirmed with OF13 or the 14-day offer.
+- **User-started job:** a plain (non-foreground) WorkManager job with an app-posted progress notification (channel OF1, low importance, OF8 progress at least every 2 s, OF10 cancel action). No `setForeground` / `dataSync`: it needs `WAKE_LOCK`, which ADR-0013 removes (ADR-0017 Amendment A3 item 1). A job stopped at the end of its execution window resumes with `Range`. Constraint `UNMETERED`, or `CONNECTED` only for a download confirmed with OF13 or the 14-day offer.
 - **Periodic job:** 24 h, `UNMETERED`, battery not low, storage not low. Manifest with `If-None-Match`; 304 → done. Fetch only installed kinds (AC 38). `routing` and `search` in one job. No dialog, no completion notification.
 - Cancel: all transfers stop, 0 partial files, the state is as before, within 5 s.
-- Survives reboot (WorkManager persistence).
+- Survives reboot: the work and the partial files persist, and WorkManager reschedules them at the next app start (no `RECEIVE_BOOT_COMPLETED`, NAV-012 AC 25; ADR-0017 Amendment A3 item 2).
 - Checks: WorkManager test harness; AC 23 (48 h on a metered network → 0 file requests); AC 12, 13, 21, 22.
 
 **P6. Network rules.**

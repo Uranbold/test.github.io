@@ -29,6 +29,7 @@ const font = process.argv.includes("--wide") ? "wide" : "narrow";
 const url = pathToFileURL(join(here, "NAV-012-background.html")).href;
 const viewports = [[360, 640], [412, 915], [320, 568], [640, 360]];
 const states = ["lock-guidance", "restoring", "restored", "restored-worst", "restoring-gps-lost", "lock-arrival",
+  "restored-offline", "restored-offline-reroute",
   "preview-battery", "preview-battery-expanded", "settings-restricted", "settings-exempt",
   "notif-collapsed", "notif-expanded", "notif-muted", "notif-reroute", "notif-gps-lost", "notif-arrival", "notif-interrupted", "notif-public"];
 const scales = [1, 1.3, 2];
@@ -38,6 +39,7 @@ const page = await browser.newPage();
 await page.goto(`${url}#toolbar=0`);
 let runs = 0;
 const failures = [], outside = [], infos = new Map();
+const panelHeights = new Map(); // change 7c: panel height per viewport/theme/lang/scale/state
 const addInfo = (k, v) => { if (!infos.has(k)) infos.set(k, v); };
 
 for (const [w, h] of viewports) {
@@ -111,6 +113,19 @@ for (const [w, h] of viewports) {
           info.band = Math.round(band);
           const need = innerWidth < 360 ? 0 : window.__scale > 1 ? 80 : 150;
           if (band < need) out.push(`map band ${band.toFixed(0)}dp < ${need}dp`);
+          // Change 7c: the icon-only indicator adds no panel height (android-offline-pack F9) and is wholly inside the panel
+          const panel = document.querySelector('[data-box="progress"]');
+          info.panelH = Math.round(panel.getBoundingClientRect().height * 10) / 10;
+          const oi = document.querySelector('[data-check="offline-icon"]');
+          if (oi) {
+            const ob = oi.getBoundingClientRect(), pb = panel.getBoundingClientRect(), meta = oi.closest(".meta").getBoundingClientRect();
+            info.iconPx = Math.round(ob.width * 10) / 10;
+            if (ob.left < pb.left - 0.5 || ob.right > pb.right + 0.5 || ob.top < pb.top - 0.5 || ob.bottom > pb.bottom + 0.5) out.push("offline icon outside the progress panel");
+            if (ob.right > meta.right + 0.5) out.push("offline icon wraps out of the meta line");
+            if (ob.width < 19.5) out.push(`offline icon ${ob.width.toFixed(1)}dp < 20dp`);
+            const of25 = document.documentElement.lang === "en" ? "From the offline map" : "Офлайн газрын зургаас";
+            if (oi.getAttribute("aria-label") !== of25) out.push("offline icon accessible name is not OF25");
+          }
           const puck = document.getElementById("puck");
           if (puck) { const pr = rect(puck), cy = (pr.top + pr.bottom) / 2; if (cy < topBottom || cy > bottomTop) out.push("puck centre is under the UI"); }
         }
@@ -202,6 +217,8 @@ for (const [w, h] of viewports) {
       return { out, info, kind };
     });
     const key = `${w}x${h} ${lang} scale ${scale}`;
+    if (r.info.panelH != null) panelHeights.set(`${w}x${h} ${theme} ${lang} scale=${scale} ${state}`, r.info.panelH);
+    if (r.info.iconPx != null && theme === "day") addInfo(`offline icon ${state} ${key}`, `${r.info.iconPx}dp, panel ${r.info.panelH}dp`);
     if (r.info.collapsedChars && theme === "day") addInfo(`collapsed notification ${state}: text chars visible ${key}`, r.info.collapsedChars);
     if (r.info.titleEllipsis && theme === "day") addInfo(`notification title ellipsised ${key} ${state}`, r.info.titleEllipsis);
     if (r.info.band != null && theme === "day") { const k = `min portrait map band ${w}x${h} scale ${scale}`; infos.set(k, Math.min(infos.get(k) ?? 1e9, r.info.band)); }
@@ -218,6 +235,14 @@ for (const [w, h] of viewports) {
   }
 }
 await browser.close();
+// Change 7c: the restored panel with the offline icon is exactly as high as the restored panel without it (F9: "adds no height")
+for (const [k, v] of panelHeights) {
+  if (!k.endsWith(" restored-offline")) continue;
+  const base = panelHeights.get(k.replace(/ restored-offline$/, " restored"));
+  const [vp] = k.split(" ");
+  const target = !(Number(vp.split("x")[0]) < 360 && /scale=(1\.3|2)/.test(k));
+  if (base != null && Math.abs(base - v) > 0.5) (target ? failures : outside).push(`${k}: panel with the offline icon is ${v}dp, without ${base}dp`);
+}
 for (const [k, v] of infos) console.log(`INFO  ${k}: ${v}`);
 for (const f of outside) console.log(`INFO  outside target: ${f}`);
 for (const f of failures) console.log(`FAIL  ${f}`);

@@ -151,7 +151,17 @@ class BoundRoutingEngine(
         service
     }
 
-    override fun route(routing: InstalledRouting, requestJson: String, timeoutMs: Long): EngineAnswer {
+    override fun route(routing: InstalledRouting, requestJson: String, timeoutMs: Long): EngineAnswer =
+        call(routing, requestJson, timeoutMs, selfTest = false)
+
+    /**
+     * NAV-022 install self-test (AC 16): [requestJson] on a fresh engine for [routing] in `:routing`, closed afterwards
+     * (the service's cached engine is not touched). Same transport, budget and failure kinds as [route].
+     */
+    fun selfTest(routing: InstalledRouting, requestJson: String, timeoutMs: Long): EngineAnswer =
+        call(routing, requestJson, timeoutMs, selfTest = true)
+
+    private fun call(routing: InstalledRouting, requestJson: String, timeoutMs: Long, selfTest: Boolean): EngineAnswer {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         val svc = try {
             awaitService(deadline)
@@ -176,7 +186,11 @@ class BoundRoutingEngine(
         val (read, write) = pipe[0] to pipe[1]
         try {
             try {
-                svc.route(routing.tar.absolutePath, routing.version, requestJson, write)
+                if (selfTest) {
+                    svc.selfTest(routing.tar.absolutePath, routing.version, requestJson, write)
+                } else {
+                    svc.route(routing.tar.absolutePath, routing.version, requestJson, write)
+                }
             } catch (e: RemoteException) {
                 onBinderDied()
                 return EngineAnswer.Failed(EngineError.PROCESS_DIED)

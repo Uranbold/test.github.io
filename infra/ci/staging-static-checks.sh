@@ -212,7 +212,9 @@ assert not bad, bad
 assert "@sha256:" in kv["PACK_SEARCH_BUILDER_IMAGE"], "builder image not pinned by digest"
 assert not kv["PACK_GATE2_IMAGE"].startswith("ghcr.io/valhalla/"), "upstream Valhalla image as the Gate 2 engine"
 assert "OpenStreetMap" in kv["PACK_ATTRIBUTION"]
+assert kv.get("PACK_METHOD_URL") == "", "PACK_METHOD_URL must stay empty in the example (no hostnames, no placeholder)"
 assert not kv.get("PACK_TEST_FAULT") and not kv.get("PACK_TEST_PAUSE_AT"), "test switches in the staging example"
+assert kv.get("PACK_TEST_PARTIAL_TILES", "0") in ("", "0") and not kv.get("PACK_TEST_NOTES"), "test switches in the staging example"
 print("   NAV-020: pack keys at their staging defaults (disabled until the RUNBOOK 7A.8 checklist, Gate 2 mode engine)")
 PY
 cat > "$TMP/t.env" <<'EOF'

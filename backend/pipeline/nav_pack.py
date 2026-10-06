@@ -60,6 +60,8 @@ DEFAULT_VALHALLA_IMAGE = ("ghcr.io/valhalla/valhalla:3.9.0@sha256:"
 WRAPPER_COMMIT = "b47ad5a9aa5d907df329bd2a0bfcc9080220c9d8"
 VALHALLA_COMMIT = "e2f017b16080f49203de245a211b09efab09cf72"
 ODBL_URL = "https://opendatacommons.org/licenses/odbl/1-0/"
+ODBL_NAME = "ODbL-1.0"
+DEFAULT_ATTRIBUTION = "© OpenStreetMap contributors"     # also in pack/search_builder.py meta (LICENCE_META)
 KINDS = ("tiles", "routing", "search")
 FILE_NAME = {"tiles": "basemap.pmtiles", "routing": "routing.tar", "search": "search.sqlite"}
 SLOT_SOURCE = {"tiles": Path("tiles") / "basemap.pmtiles", "routing": Path("valhalla") / "valhalla_tiles.tar",
@@ -131,7 +133,7 @@ class PackConfig:
         self.search_image = g("PACK_SEARCH_BUILDER_IMAGE", DEFAULT_SEARCH_IMAGE)
         if "@sha256:" not in self.search_image:
             raise base.ConfigError("PACK_SEARCH_BUILDER_IMAGE must be pinned by digest (image@sha256:...)")
-        self.search_builder_version = int(num("PACK_SEARCH_BUILDER_VERSION", 1))
+        self.search_builder_version = int(num("PACK_SEARCH_BUILDER_VERSION", 2))
         self.search_schema = int(num("PACK_SEARCH_SCHEMA", 1))
         self.gate2_mode = g("PACK_GATE2_MODE", "engine")
         if self.gate2_mode not in ("engine", "evidence"):
@@ -154,12 +156,24 @@ class PackConfig:
             raise base.ConfigError("PACK_GATE2_RATE must be > 0 and <= 5 requests/s (ADR-0017 A1 item 10)")
         self.self_test_route = parse_route(g("PACK_SELF_TEST_ROUTE", "47.9189,106.9176;49.4867,105.9228;auto"))
         self.self_test_query = g("PACK_SELF_TEST_QUERY", "Сүхбаатар")
-        self.attribution = g("PACK_ATTRIBUTION", "© OpenStreetMap contributors")
+        self.attribution = g("PACK_ATTRIBUTION", DEFAULT_ATTRIBUTION)
         if "OpenStreetMap" not in self.attribution:
             raise base.ConfigError("PACK_ATTRIBUTION must contain OpenStreetMap (AC 7)")
         self.method_url = g("PACK_METHOD_URL", "")
         if self.method_url and not re.match(r"^https://[^\s/]+\.[^\s]+$", self.method_url):
             raise base.ConfigError("PACK_METHOD_URL must be an https:// URL (public pipeline repository, ODbL §4.6)")
+        why = placeholder_url(self.method_url, allow_test_tld=test_project)
+        if self.method_url and why:
+            raise base.ConfigError(f"PACK_METHOD_URL is a placeholder ({why}); set the public pipeline repository "
+                                   f"(ODbL §4.6, NAV-020 AC 7)")
+        # TEST ONLY (e.g. a small phone-test pack): accept a basemap whose header bounds cover Ulaanbaatar (P1-P6) but
+        # not X1, and/or write a free-text `notes` string into the manifest (OfflinePackManifest allows extra keys).
+        self.partial_tiles = g("PACK_TEST_PARTIAL_TILES", "0") == "1"
+        self.tiles_check_points = dict(base.REF_POINTS) if self.partial_tiles else CHECK_POINTS
+        self.notes = g("PACK_TEST_NOTES", "").strip()
+        if (self.partial_tiles or self.notes) and (not cfg.allow_faults or not test_project):
+            raise base.ConfigError("PACK_TEST_PARTIAL_TILES / PACK_TEST_NOTES are honoured only with "
+                                   "REBUILD_ALLOW_TEST_FAULTS=1 and a Compose project other than navmn")
         self.test_fault = g("PACK_TEST_FAULT", "")
         self.pause_at = g("PACK_TEST_PAUSE_AT", "")
         self.pause_s = num("PACK_TEST_PAUSE_SECONDS", 20)
@@ -184,11 +198,37 @@ class PackConfig:
             out.append(f"PACK_RETAIN_MANIFESTS={self.retain} (staging 3)")
         if self.gate2_mode == "evidence":
             out.append("PACK_GATE2_MODE=evidence: NOT the Gate 2 engine (test only, AC 35)")
+        if self.partial_tiles:
+            out.append("PACK_TEST_PARTIAL_TILES=1: tiles bounds checked against P1-P6 only (test basemap, not Mongolia)")
+        if self.notes:
+            out.append("PACK_TEST_NOTES set: manifest carries a test `notes` string")
         if self.test_fault:
             out.append(f"PACK_TEST_FAULT={self.test_fault}")
         if self.pause_at:
             out.append(f"PACK_TEST_PAUSE_AT={self.pause_at}")
         return out
+
+
+# Names that can never be a public repository (RFC 2606 / RFC 6761): the documentation domains and the reserved
+# TLDs. `.test` is accepted only outside navmn, so test projects can publish a recognisable non-resolvable value.
+PLACEHOLDER_DOMAINS = ("example.com", "example.net", "example.org")
+PLACEHOLDER_TLDS = ("example", "invalid", "localhost")
+
+
+def placeholder_url(url, allow_test_tld=False):
+    """'' when the host of `url` may be a real public host, else why it is a placeholder (NAV-020 review minor)."""
+    m = re.match(r"^[a-z][a-z0-9+.-]*://(?:[^@/\s]*@)?([^/:?#\s]+)", url or "", re.I)
+    if not m:
+        return ""
+    host = m.group(1).lower().rstrip(".")
+    labels = host.split(".")
+    if any(host == d or host.endswith("." + d) for d in PLACEHOLDER_DOMAINS):
+        return f"{host} is a documentation domain"
+    if labels[-1] in PLACEHOLDER_TLDS or host == "localhost":
+        return f"{host} uses the reserved .{labels[-1]} name"
+    if labels[-1] == "test" and not allow_test_tld:
+        return f"{host} uses the reserved .test TLD (accepted only in test projects, not navmn)"
+    return ""
 
 
 def parse_route(s):
@@ -287,7 +327,10 @@ def pmtiles_header(b):
             "max_lon": struct.unpack_from("<i", b, 110)[0] / 1e7, "max_lat": struct.unpack_from("<i", b, 114)[0] / 1e7}
 
 
-def tiles_problems(hdr):
+def tiles_problems(hdr, points=None):
+    """AC 12 header checks. `points` defaults to CHECK_POINTS (P1-P6 and X1); PACK_TEST_PARTIAL_TILES=1 (test projects
+    only) passes P1-P6, so an Ulaanbaatar-only test basemap passes."""
+    points = CHECK_POINTS if points is None else points
     if not hdr:
         return ["not a PMTiles archive (magic missing)"]
     out = []
@@ -295,7 +338,7 @@ def tiles_problems(hdr):
         out.append(f"PMTiles version {hdr['version']} != 3")
     if hdr["min_zoom"] != 0 or hdr["max_zoom"] != 14:
         out.append(f"zoom {hdr['min_zoom']}-{hdr['max_zoom']} != 0-14 (D170)")
-    miss = [k for k, (lat, lon) in CHECK_POINTS.items()
+    miss = [k for k, (lat, lon) in points.items()
             if not (hdr["min_lon"] <= lon <= hdr["max_lon"] and hdr["min_lat"] <= lat <= hdr["max_lat"])]
     if miss:
         out.append(f"bounds miss {','.join(miss)}")
@@ -844,7 +887,7 @@ class PackStep:
                 hdr = pmtiles_header(files["tiles"]["head"])
                 if pc.test_fault == "self_test_tiles" and hdr:
                     hdr["max_zoom"] = 13
-                problems += [f"tiles: {x}" for x in tiles_problems(hdr)]
+                problems += [f"tiles: {x}" for x in tiles_problems(hdr, pc.tiles_check_points)]
                 done.append("tiles header")
                 s["tiles_header"] = hdr
             if "search" in files:
@@ -1052,11 +1095,13 @@ class PackStep:
                                                                  "ODbL §4.6, AC 7); set it in the .env")
         m = {"pack_schema": 1, "region": pc.region, "pack_version": slot, "published_at": base.iso(),
              "attribution": pc.attribution,
-             "licence": {"name": "ODbL-1.0", "url": ODBL_URL, "method_url": pc.method_url},
+             "licence": {"name": ODBL_NAME, "url": ODBL_URL, "method_url": pc.method_url},
              "total_bytes": sum(e["bytes"] for e in entries),
              "total_download_bytes": sum(e["download_bytes"] for e in entries),
              "files": entries,
              "self_test": {"route": pc.self_test_route, "search": {"q": pc.self_test_query}}}
+        if pc.notes:
+            m["notes"] = pc.notes
         problems = manifest_problems(m, self.pl.region, self.partial)
         if problems:
             raise PackOutcome("failed (build)", "pack.manifest", "manifest rules (AC 7): " + "; ".join(problems))

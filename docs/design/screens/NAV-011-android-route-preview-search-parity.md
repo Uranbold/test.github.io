@@ -8,6 +8,7 @@
 - **Prototype:** [`prototypes/NAV-011-android-preview.html`](../prototypes/NAV-011-android-preview.html) (1 CSS px = 1 dp; hash example `#state=preview-expanded&theme=night&lang=mn&scale=2`), checked by [`prototypes/check-layout-nav011.mjs`](../prototypes/check-layout-nav011.mjs) (Evidence). No Figma file.
 - **Tokens:** [`tokens.json`](../tokens.json) v0.5.0, **unchanged**. Every colour used here already exists with a checked contrast pair (`ui.*`, `ui.message-*`, `route.*`).
 - **API:** `openapi.yaml` 0.5.2 `search`, `reverse`, `postRoute`. No contract change for the design. Section A (assistance) looks the same on screen for either ADR option.
+- **Change 7b (2026-10-05, [D194](../../requirements/decisions.md)):** offline with an installed search file: section "Offline with an installed search file" (S2 list and coordinate card states, AC 7 and 11 wording). Flow addition: F6 in the flow file. No new string, no new component, no token change.
 - **Change 2026-10-04 (typed coordinates, D140–D146; change request run 2, PO "All as recommended"):** a typed coordinate pair shows one option «Сонгосон цэг» with 0 `search` requests; selecting it closes the field, centres the camera once (camera rule **C1**) and opens the existing coordinate card (web parity with NAV-003 AC 26). It supersedes the D115 "sent as typed" path. New or changed here: Context row, Alternatives 6–7, Layout (S2 coordinate option), Layout rule **P8** (wide-window card column), C1, Components › Coordinate option, States › S2 typed coordinate option, Interactions, Accessibility, Design rationale (typed coordinates), Design notes 10–13, Known limitations 6–8, AC traceability and Evidence. Ferrostar, tokens, copy keys and the API are unchanged.
 
 ## Purpose
@@ -200,7 +201,7 @@ No change from NAV-005 (ADR-0009 §1: only `core` is used). The preview, sheet, 
 ## States
 
 ### S2 search (AC 7): list states for text queries (unchanged)
-For text the coordinate rule does not recognise: «Ачаалж байна…» (after 300 ms), list, «Илэрц олдсонгүй», «Хайлт түр ажиллахгүй байна» + «Дахин оролдох», «Түр хүлээгээд дахин оролдоно уу» (retry disabled for `Retry-After`), «Интернэт холболт алга» (0 requests). With a request pair: both fail → the failure state; one returns → its results, with no error shown (AC 7). GPS lost or no permission: search works with the map-centre bias (D30).
+For text the coordinate rule does not recognise: «Ачаалж байна…» (after 300 ms), list, «Илэрц олдсонгүй», «Хайлт түр ажиллахгүй байна» + «Дахин оролдох», «Түр хүлээгээд дахин оролдоно уу» (retry disabled for `Retry-After`), «Интернэт холболт алга» (0 requests; **with a usable search file the device answers instead**, see Offline with an installed search file). With a request pair: both fail → the failure state; one returns → its results, with no error shown (AC 7). GPS lost or no permission: search works with the map-centre bias (D30).
 
 ### S2 search: typed coordinate option (AC 7, 7a, 13, 33; D140)
 | State | List shows | Requests | AC |
@@ -239,7 +240,7 @@ For text the coordinate rule does not recognise: «Ачаалж байна…» 
 | Loading > 300 ms | «Ачаалж байна…» (no icon, text only, as NAV-005 loading rows) | — | 8 |
 | Place | «Ойролцоох газар» / name / type · context | — | 9 |
 | Empty (X2) | «Ойролцоох газар» / «Илэрц олдсонгүй» (not an error) | — | 10 |
-| Offline | Offline icon + «Интернэт холболт алга» within 500 ms; 1 request ≤ 2 s after the network returns | — | 11 |
+| Offline (**no usable search file**; with one: Offline with an installed search file) | Offline icon + «Интернэт холболт алга» within 500 ms; 1 request ≤ 2 s after the network returns | — | 11 |
 | Unavailable (network, 502–504, 8 s) | Info icon + «Хайлт түр ажиллахгүй байна» | «Дахин оролдох» (sends once) | 11 |
 | Rate-limited (429) | Info icon + «Түр хүлээгээд дахин оролдоно уу» | disabled for N s (5 s default), then enabled; nothing auto-sent | 11 |
 | Error (400) | Info icon + «Алдаа гарлаа» | none | 11 |
@@ -265,6 +266,53 @@ The S3 surfaces have no text field, so the typing lock has nothing to block ther
 
 ### S5 guidance on «Дугуй» (AC 25–26)
 Same screen and states as NAV-005 S5. Only the voice schedule (navigation-ux §4.2 «Дугуй» column, §4.4 chaining ≤ 60 m) and the camera zoom (17.5) differ. Off-route reroutes keep `bicycle` with `alternates: 0`.
+
+## Offline with an installed search file (change 7b, 2026-10-05)
+
+**Why.** NAV-011 AC 7 and 11 say: without network, search and reverse show «Интернэт холболт алга» with 0 requests. The BA's change 7b is **section G, AC 48–55** of the story (48: search without a validated network, 49: online first then the device, 50: the device cannot answer, 51: reverse on the card, 52: typed coordinates and language switch, 53: privacy, 54: nothing changes without the file, 55: verification); the **AC column below cites the NAV-023 AC** that each row implements, which AC 48–51 repeat. [NAV-023](../../requirements/stories/NAV-023-offline-search-reverse.md) (built) answers both from the device when `search.sqlite` is installed, so change 7b (D194) replaces those two states **only with a usable search file** (installed, schema known to the app, [NAV-022](../../requirements/stories/NAV-022-android-offline-pack-download-update-map.md)). **Without the file every state in this spec is exactly as written** (NAV-023 AC 26). The indicator's look, copy and placement (chip once per list, after «Ойролцоох газар», after «Илэрц олдсонгүй») are in [`android-offline-pack.md`](android-offline-pack.md) F7–F8 and do not change. Rule X1 of the [NAV-005 spec](NAV-005-android-navigation.md) applies: «Интернэт холболт алга» tells the connection status (the S1 message below the list stays), and the chip tells where the answer came from; the offline *failure rows* of this spec are skipped while a source exists.
+
+### S2 search with a search file (text queries; NAV-023 AC 11–15, 21, 25)
+| Condition | List shows | Requests | Chip | AC |
+|---|---|---|---|---|
+| No validated network | The on-device list (same rows, type labels and order rules as an online list, NAV-023 AC 7); **not** the row «Интернэт холболт алга» | 0 | yes, once above the first result | 11, 21 |
+| Network, gateway answers headers within 3.0 s | Online list, as today | 1–2 | no | 12, 13 |
+| Network, no headers within 3.0 s, connection failure, 502 / 503 / 504 or 429 | Loading row «Ачаалж байна…» after 300 ms (up to 3.0 s), then the on-device list. **Not** «Хайлт түр ажиллахгүй байна», **not** «Түр хүлээгээд дахин оролдоно уу» | online cancelled | yes | 12, 15 |
+| Gateway 200 with 0 results, or 400 | «Илэрц олдсонгүй» / «Алдаа гарлаа» as today; **never** retried on the device | 1–2 online | no | 13 |
+| Device finds nothing | «Илэрц олдсонгүй» followed by the chip | 0 online | yes | 21 |
+| After a timeout or connection failure, next queries within 60 s | Straight to the device: each settled query answers within the device time, not after 3.0 s | 0 online | yes | 14 |
+| **The search file fails** to open or answer (damaged after install) | Info icon + «Хайлт түр ажиллахгүй байна» + «Дахин оролдох» (sends once; same row as the online "unavailable" state); **with or without network** | the retry runs the normal order | no (nothing came from the device) | 25 |
+| Typing: an older answer arrives after a newer settled query | Never replaces the newer list (unchanged rule); the chip belongs to the list it was drawn with and is replaced with it | — | per list | 9 |
+| Typed coordinate pair | The coordinate option, **0** `search` requests and **0** search-file queries, as today | 0 | no | 8 |
+
+Typing keeps the 250 ms debounce. The header row that carries the chip is part of the list content, so a switch from a gateway list to a device list (or back) changes the list **once**, with the list, and the first result moves by the row's height (about 36 dp at 100 %, F8) in that single replacement. *Trade-off:* on a flapping connection the first result can move between two keystrokes; keeping a reserved empty row for every online list would waste 36 dp on every normal search, so it is not done.
+
+### S2 coordinate card: nearest-place area with a search file (NAV-023 AC 11, 20, 23, 25)
+| State | Area shows | Retry | AC |
+|---|---|---|---|
+| Pending ≤ 300 ms | Reserved space, empty | — | 8 |
+| Place from the device (no network, or fallback after 3.0 s / failure / 502–504 / 429) | «Ойролцоох газар» + chip / name / type · context | — | 20, 23 |
+| Empty from the device | «Ойролцоох газар» + chip / «Илэрц олдсонгүй» | — | 20, 23 |
+| Place or empty from the gateway | As the table above, no chip | — | 9, 10 |
+| Gateway 400 | Info icon + «Алдаа гарлаа» (authoritative, no device query) | none | 11 |
+| **Offline** (the row of the table above) | **Skipped** while the file is usable: the area shows the device answer instead of the offline icon and «Интернэт холболт алга» | — | 11 |
+| **Rate-limited** (429) | **Skipped**: the device answers; «Түр хүлээгээд дахин оролдоно уу» is not shown | — | 15 |
+| Search file fails | Info icon + «Хайлт түр ажиллахгүй байна» | «Дахин оролдох» (sends once) | 25 |
+| Network returns while the card is open (device answer shown) | Nothing changes, **no request** (the card already holds an answer; NAV-011 AC 51) | — | — |
+In every state: heading, coordinates, pin, camera and «Маршрут гаргах» are unchanged and **do not move** (the chip sits on the label's line and grows the area upwards, P6; the label line grows from 16 to 24 dp at 100 %). Reverse from a typed coordinate offline shows the device answer too.
+
+### S3 route preview
+No row of this spec changes for 7b. The routing file rules (change 7a) are in the NAV-005 spec › Offline with an installed pack; the chip on the summary is `ind-preview` / `ind-preview-k2`.
+
+### Design rationale: offline search and reverse (change 7b)
+| UX law / heuristic | How 7b applies it | Deliberate trade-off |
+|---|---|---|
+| **Visibility of system status / match with the real world** | Two signals: the connection message says the network is missing, the chip says the answer came from the phone | The S1 message stays while results show, so a driver sees both; accepted, it is true |
+| **Tesler's law** | The system picks the source (gateway, device) and falls back silently; the user never chooses or sees "trying offline" | A ≤ 3.0 s wait on a slow connection with only the loading row (D199) |
+| **Hick's law / Jakob's law** | No new control, no new string, same list, rows and card as online | — |
+| **Doherty threshold** | Loading row after 300 ms; device list within 150 ms p95 (NAV-023 AC 9, QA); retry always available on the failure row | — |
+| **Help users recover from errors / peak–end** | A damaged search file shows the existing «Хайлт түр ажиллахгүй байна» + «Дахин оролдох», never a crash or a blank list | The retry cannot repair a damaged file; the way out is deleting the offline map and downloading it again in «Тохиргоо» (NAV-022 AC 36); a repair prompt would need a new product rule (Open question 3 of the 7a–7c handoff) |
+| **Von Restorff** | The chip is neutral and appears once per list; nothing competes with the first result | A neutral chip is easy to overlook; accepted (android-offline-pack alternative 5) |
+Nielsen heuristics checked: all pass. Measured evidence: no new region or component, so no layout was re-measured (Evidence).
 
 ## Interactions
 - **Tap an alternative line** (48×48 dp box, map-style §7.6): selects it ≤ 200 ms, 0 requests, no camera move. A tap on the selected line or on empty map does nothing. A tap that ends a pan is not a tap. Long-press on a line opens the coordinate card (NAV-005).
@@ -399,9 +447,10 @@ Two needed a design change during the work: error prevention (the card's button 
 | AC | Where |
 |---|---|
 | 1–6 | Content rules (assisted search); States › S2 search; flow F1. No visual change |
-| 7 | States › S2 search and S2 typed coordinate option; Components › Coordinate option; Content rules (typed coordinates, coordinates); Copy (no new key); Accessibility (option description); flow F1 coordinate branch |
+| 48–55 | **7b:** Offline with an installed search file (S2 list rows: AC 48–50; coordinate card rows: AC 51; typed coordinates: AC 52, States › S2 typed coordinate option; 53–55: no UI); flow F6 |
+| 7 | **7b:** Offline with an installed search file (S2 list rows). States › S2 search and S2 typed coordinate option; Components › Coordinate option; Content rules (typed coordinates, coordinates); Copy (no new key); Accessibility (option description); flow F1 coordinate branch |
 | 7a | Interactions (tap the coordinate option); Layout rules C1 and P8; Accessibility (focus to the card title); Design notes 10–12; flow F1 → F2 typed entry |
-| 8–13 | Coordinate card component (two entry points); Layout rules P6, P8; States › nearest-place area ("after the card has opened"); States › S2 typed coordinate option (AC 13 row); Accessibility (live region); flow F2 |
+| 8–13 | **7b:** Offline with an installed search file (nearest-place rows for AC 11). Coordinate card component (two entry points); Layout rules P6, P8; States › nearest-place area ("after the card has opened"); States › S2 typed coordinate option (AC 13 row); Accessibility (live region); flow F2 |
 | 14 | Interactions (mode tab, request profile); flow F3 |
 | 15–16 | map-style §7.6; Layout rule P3 (camera fit uses the collapsed sheet); flow F3 |
 | 17 | map-style §7.6 tap box; Route options; Interactions |

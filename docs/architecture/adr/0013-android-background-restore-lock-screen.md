@@ -97,6 +97,7 @@ The decision table is a pure function `restartAction(sdkInt, recordState, permis
   | `startedAtWallMs`, `heartbeatWallMs` | Session start and heartbeat |
   | `routeSha256` | Hash of `route.bin` (absent under Open question 2 (b)) |
   | `restoresWallMs` | Wall times of earlier restores of this record (loop limit, AC 24) |
+  | `routeSource` | `gateway` or `device` (Amendment 5; absent or unknown reads as `gateway`, no schema bump) |
 
   It holds no origin, no position, no step index, no search text and no request body.
 
@@ -348,3 +349,11 @@ The PO decided (D123, "All as recommended", item 14) that the **R8 keep rules (B
 - enable `isMinifyEnabled = true` with the Ferrostar AAR consumer rules (G3), plus kotlinx-serialization rules for the app's `@Serializable` models if R8 reports them;
 - run the **minified smoke test**: one instrumented test on a device that runs a short replay on the minified APK (the "needs validation" note in ferrostar#185);
 - record the result here as an amendment. Implementation goes to the mobile-engineer (`mobile/android`) through the architect's handoff; the gate itself (D17/D91) is unchanged. Until then release builds stay unminified (ADR-0009 Amendment 1).
+
+### Amendment 5 (2026-10-06, NAV-012 change 7c, AC 16 / 53–55): route source in the restore record
+Requested by the business-analyst and the mobile-engineer; accepted as built in `RestoreRecord.kt` / `RestoreManager.kt`.
+
+- **§3.1 `meta.json` gains one field**, `routeSource`: `"gateway"` or `"device"`. It is `ParsedRoute.onDevice` of the route being followed, written at «Эхлэх» (`onStart`) and rewritten with every new route (`onNewRoute`, AC 54), so it always describes the bytes in `route.bin`. It is a technical flag, not trip data: §3.1's "no origin, no position, no step index, no search text, no request body" still holds, and the §3.6 privacy scan is unchanged.
+- **No schema bump.** `schema` stays `1`. A record without the field (written by an earlier build) or with any value other than `"device"` reads as `"gateway"` and restores normally; it is **not** deleted. This is the only exception to "unknown content makes the record unreadable": a missing optional field is not unknown content. A record written by this build and read by an older build (downgrade) contains an unknown field and is deleted silently under the existing AC 24 rule; that is acceptable for a record that lives at most 30 min.
+- **§3.4 step 1:** after the unchanged parse, a record marked `"device"` is restored as an on-device route (`asOnDevice()`), so OF24 shows again once trip progress shows (NAV-005 AC 85). The restore skeleton and the notification show no OF24 (D203).
+- **Reroute after a restore** follows ADR-0017 / NAV-021 unchanged: without a validated network and with a usable routing file it is answered on the device (0 HTTP requests); with no routing file AC 20 applies as before. The route source of the restored route does not choose the reroute engine; only the network state and the installed files do.

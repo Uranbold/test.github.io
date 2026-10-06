@@ -2,6 +2,7 @@
 
 - **Stories:** NAV-005 (AC 1–79; UI-relevant AC 1–39, 41–64, 74–77). Traceability per AC at the end. **Section N (2026-10-04, [D171–D178](../../requirements/decisions.md)):** the browse-map location dot (accuracy circle, hold while standing, poor fixes hidden, stale state, jump rejection): S1 › Location dot on the browse map, Interactions, Accessibility, Design rationale (section N), Known limitations 9–11.
 - **Platforms:** **Android only** (Kotlin, Jetpack Compose, Material 3, MapLibre Native, Ferrostar Android). iOS is NAV-015 (D24); it reuses this spec with HIG controls.
+- **Change 7a (2026-10-05, [D194](../../requirements/decisions.md)):** offline with an installed pack: section "Offline with an installed pack" (rule X1, S3 and S5 tables, AC 54 and AC 65 wording), cross-referenced from the S1, S3 and S5 rows below. Flow additions: F13 in the flow file.
 - **Flow:** [`flows/NAV-005-android-navigation.md`](../flows/NAV-005-android-navigation.md) (F1–F11).
 - **Rules:** [`navigation-ux.md`](../navigation-ux.md) (banner, voice text and schedule, off-route, GPS loss, camera, arrival). This spec owns the layout, components, states, interactions and copy; navigation-ux owns the timing and the voice.
 - **Prototype:** [`prototypes/NAV-005-guidance.html`](../prototypes/NAV-005-guidance.html), a static wireframe in dp (1 CSS px = 1 dp) of S3, S4, S5 and S6 states, day/night, mn/en, font scale 100/130/200 %, portrait and landscape. Hash example: `#state=reroute-failed&theme=night&lang=mn&scale=2` (the viewport is the browser window size). Checked by `prototypes/check-layout-nav005.mjs` (Verification). Section N: [`prototypes/NAV-005-location-dot.html`](../prototypes/NAV-005-location-dot.html) (12 dot states as 200 dp map tiles, day/night, mn/en; `#theme=night&lang=mn&raw=1` also draws the raw fixes the filter does not show) and `prototypes/check-location-dot.mjs`. No Figma file.
@@ -208,7 +209,7 @@ Left column width = `clamp(40 %, 320 dp, 400 dp)`: banner, Then strip and status
 | Default | Map at P1 z12, flavor by theme, search bar, settings, controls, attribution. No location prompt | 1, 2 |
 | Loading (tiles not ready) | NAV-002 loading pill «Ачаалж байна…» after 300 ms in R2 | 1 |
 | Tiles unavailable | Message «Газрын зургийг ачаалж чадсангүй» + «Дахин оролдох» (R2); search and long-press still work | NAV-002 rule |
-| Offline | Message «Интернэт холболт алга» (R2); loaded tiles stay | 54 (same indicator) |
+| Offline | Message «Интернэт холболт алга» (R2); loaded tiles stay. **With the map from an installed pack the message is unchanged (rule X1)** and the whole map stays available | 54 (same indicator) |
 | Following my location | My-location button in `ui.primary-container`; location dot and accuracy circle at the shown position (map-style §7.8); the camera follows the shown position. Every dot state: the table below | 74, 75 |
 | Location problem (my-location tapped) | S4 rationale or message card in R2 (F3) | 8–12 |
 
@@ -248,7 +249,7 @@ As NAV-003 for every list state (Components › Search results); coordinate card
 | Outside the area | «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна» | disabled | 7 |
 | Too far on foot | «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» | disabled | 7 |
 | Routing unavailable | «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох» | disabled | 7 |
-| Offline | «Интернэт холболт алга»; 1 request by itself within 2 s after the network returns | disabled | 7 |
+| Offline (**no usable routing file**; with one, a route from the device replaces this row, see Offline with an installed pack) | «Интернэт холболт алга»; 1 request by itself within 2 s after the network returns | disabled | 7 |
 | Rate-limited | «Түр хүлээгээд дахин оролдоно уу» + «Дахин оролдох» disabled for `Retry-After` (5 s default) | disabled | 7 |
 | Error | «Алдаа гарлаа» | disabled | 7 |
 Precedence (NAV-004): location problem > same point > offline > rate-limited > unavailable > no route / outside / too far / error > loading > route.
@@ -260,11 +261,12 @@ Precedence (NAV-004): location problem > same point > offline > rate-limited > u
 | **Then** (close pair) | + Then strip | — | — | chained prompt | 32 (chaining) |
 | **Not following** (after a gesture) | unchanged | unchanged | Camera free; «Байршил руу буцах» shown; back after 15 s | unchanged | 25 |
 | **Off-route, requesting / 429 wait** | Recalculating variant, no secondary line | — | Raw puck; old route dimmed | «Та маршрутаас гарлаа» once | 41–44, 47 |
-| **Off-route, reroute failing** | Recalculating + secondary «Маршрутын үйлчилгээ түр ажиллахгүй байна» / «Маршрут олдсонгүй» / «Алдаа гарлаа» / «Интернэт холболт алга» | offline indicator hidden while the banner says it | same | — | 48–50 |
+| **Off-route, reroute failing** (with a usable routing file: table in Offline with an installed pack) | Recalculating + secondary «Маршрутын үйлчилгээ түр ажиллахгүй байна» / «Маршрут олдсонгүй» / «Алдаа гарлаа» / «Интернэт холболт алга» | offline indicator hidden while the banner says it | same | — | 48–50 |
 | **New route** | Manoeuvre variant ≤ 500 ms | — | New line, snapped puck | catch-up prompt | 45 |
 | **GPS lost** | Last manoeuvre, distance frozen and dimmed | «GPS дохио тасарлаа» (stays) | Stale grey puck at the last position | once | 51, 53 |
 | **GPS restored** | Correct next manoeuvre ≤ 2 s | «GPS дохио сэргэлээ» 3 s | Blue puck | once + catch-up | 52, 53 |
-| **Offline on route** | unchanged | «Интернэт холболт алга» ≤ 2 s, gone ≤ 2 s after return | Loaded tiles; missing tiles = map background | unchanged | 54 |
+| **Offline on route** | unchanged | «Интернэт холболт алга» ≤ 2 s, gone ≤ 2 s after return (also with a pack, rule X1) | Loaded tiles (with the map from the pack: all tiles of Mongolia); missing tiles = map background | unchanged | 54 |
+| **Guidance on a route from the device** | unchanged | unchanged | Icon OF24 after «25 мин · 12,4 км» in RP (android-offline-pack F9); gone when a gateway route replaces it | unchanged | NAV-021 28 |
 | **No usable voice** | unchanged | — (the A1 voice notice shows above RP once per session, 8 s) | — | chime per prompt | 39 |
 | **Muted** | unchanged | — | — | 0 utterances, 0 chimes; button «Дууг нээх» | 37 |
 | **Notification permission dialog** (first start, Android 13+) | visible under the OS dialog scrim | — | — | depart prompt still plays | 13 |
@@ -278,6 +280,67 @@ Banner arrival variant; arrival panel with destination text and «Хаах»; st
 
 ### S7 Settings and S8 Notification
 S7 has no loading or error state (local settings only). S8 states follow the banner (Components › Notification); with notification permission denied there is no notification and guidance works unchanged (AC 13).
+
+## Offline with an installed pack (change 7a, 2026-10-05)
+
+**Why this section exists.** NAV-005 AC 54 and AC 65 and the story's "Out of scope" line (offline regions and offline routing) were written before the offline epic. The BA's change 7a is **section O, AC 80–87** of the story; this section is its design (AC 81 → the S3 table, AC 82–83 → the S5 reroute table, AC 84 → network loss, AC 85 → the indicator in guidance, AC 86 → network host, AC 87 → "without the file nothing changes"; AC 80, the map from the pack, changes no state text). [NAV-021](../../requirements/stories/NAV-021-android-on-device-routing-reroute.md) (on-device routing and reroute, built), [NAV-022](../../requirements/stories/NAV-022-android-offline-pack-download-update-map.md) (the pack and the map from it, built) and [NAV-023](../../requirements/stories/NAV-023-offline-search-reverse.md) (offline search and reverse, built) changed what the S1, S3 and S5 states do **when the matching file is installed**. Change 7a (D194) aligns this spec. Look and copy of the indicator, the offers and the Settings section stay in [`android-offline-pack.md`](android-offline-pack.md); nothing there changes.
+
+**What "with a pack" means: per file, not per pack.** A rule applies when *its* file is installed **and usable** (not refused as too new for the app, not switched off after 3 engine deaths in 10 minutes, NAV-021 AC 24, 29):
+
+| File | Surfaces it changes |
+|---|---|
+| `routing.tar` (routing file) | S3 preview, S5 reroute, the NAV-012 restore reroute |
+| `search.sqlite` (search file) | S2 results, coordinate card, place card (change 7b, [NAV-011 spec](NAV-011-android-route-preview-search-parity.md) › Offline with an installed pack) |
+| `tiles.pmtiles` (map) | S1 and every screen with a map (no state text changes; the map just keeps working) |
+
+**Without the file, every state in this spec is exactly as written above** (NAV-021 AC 13, 30; NAV-023 AC 26). The GPX replays G1–G9 and the `testDebugUnitTest` suite prove it.
+
+### Rule X1: two signals, two jobs
+| Signal | Says | Component | Rule |
+|---|---|---|---|
+| **Network message** «Интернэт холболт алга» | The phone has no validated network | S1 message card in R2, S5 status area RS | Shown whenever the network is missing, as AC 54 says (≤ 2 s on, ≤ 2 s off). Never the *failure text of a feature that still works* |
+| **Offline indicator** OF24 / OF25 | This route or result was computed from the data on the phone | Chip on S3 / S2 / cards; icon in the S5 progress panel ([android-offline-pack.md](android-offline-pack.md) F7–F9) | Shown while the data on screen came from the device; independent of the network at that moment |
+
+Why two: a driver in a dead zone with the pack sees the first (honest status, no new string) and, after a reroute, the second (where the numbers came from). Measured cost of showing both on S5: zero extra height (the icon adds no panel height, F9) and one status slot of the two (Layout rule 4, GPS keeps priority). *Alternatives:* (b) hide the network message whenever a pack is installed (rejected: AC 54 asks for the message, tiles from the network stay missing for layers the pack lacks, and a vanished status reads as a bug); (c) replace it by an "offline mode" label (rejected: needs a new term, adds a third state name). *Trade-off accepted:* on a long trip without signal the message stays on screen the whole time (Open question 1).
+
+### S3 route preview with a routing file (NAV-021 AC 8–13, 27)
+Result-region rows. The precedence stays as in the S3 table above; only its **offline step is skipped**, because with a usable routing file a source exists:
+
+| Condition | Result region | Chip OF24 | «Эхлэх» | AC |
+|---|---|---|---|---|
+| No validated network | Loading row «Ачаалж байна…» after 300 ms, then the route from the device; **not** «Интернэт холболт алга» | yes | enabled | NAV-021 8, 27 |
+| Network, gateway answers headers within 3.0 s | Route from the gateway (today's flow) | **no** | enabled | NAV-021 9, 10 |
+| Network, no headers within 3.0 s, or connection failure, 502/503/504 or 429 | The loading row stays up to 3.0 s, then the device answers in the same attempt; **not** «Маршрутын үйлчилгээ түр ажиллахгүй байна» and **not** «Түр хүлээгээд дахин оролдоно уу» | yes | enabled | NAV-021 9, 12 |
+| Gateway authoritative answer (NoRoute, outside area, too far, other 400) | The existing text; never retried on the device | no | disabled | NAV-021 10 |
+| Device answers NoRoute / outside area / too far | The existing texts («Маршрут олдсонгүй», N9, N11) | no (no route to mark) | disabled | NAV-021 6 |
+| Both sources failed (engine error, 10 s timeout, process death) | «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох», or «Түр хүлээгээд дахин оролдоно уу» if the gateway said 429, **also when the phone has no network** (the engine, not the network, is the thing that failed) | no | disabled | NAV-021 6, 22–24 |
+| Mode tab or avoid switch changed | A new request, same rules; the chip leaves with the old route and returns with a new device route | per answer | disabled while loading | NAV-005 AC 7 |
+
+Camera, snap notice, alternatives (NAV-011) and the points block behave as today for a device route (same parsed model, NAV-021 AC 5–7). *Trade-off (Doherty):* on a slow connection the user can wait up to 3.0 s plus the device time (≤ 1.5 s cold on the benchmark phone, NAV-021 AC 34) with only the loading row; 3.0 s is the PO's number (D199), and a "trying offline" text would need a new term.
+
+### S5 guidance: network loss and reroute with a routing file (NAV-021 AC 14–21, 28; NAV-005 AC 54)
+**Network lost on the route.** AC 54 is unchanged: banner, voice, progress and arrival keep working from the route already in hand; status «Интернэт холболт алга» ≤ 2 s; gone ≤ 2 s after the network returns; 0 route requests while on the route (also with the network back, NAV-021 AC 19). New: the `:routing` engine is bound ≤ 5 s after the loss (NAV-021 AC 21), which has no visible effect.
+
+**Indicator in guidance (OF24 icon, [android-offline-pack.md](android-offline-pack.md) F9).** Visible while the followed route came from the device (preview or reroute) and until guidance ends or a gateway route replaces it. A route from the preview that was computed online shows no icon, even when the network later drops.
+
+**Off-route reroute: what the banner and the status area show** (the banner is always «Маршрутыг дахин тооцоолж байна» within 1 s, AC 42):
+
+| Routing file | Network | Source and timing | Banner secondary line | Status area RS | Icon after the new route | AC |
+|---|---|---|---|---|---|---|
+| none or unusable | none | 0 requests (today) | «Интернэт холболт алга» | hidden (the banner says it) | — | NAV-005 50; NAV-021 13 |
+| usable | none | Device, new route ≤ 2.0 s mid-range, ≤ 4.0 s low-end (BA proposal) | **none** | «Интернэт холболт алга» (X1) | **yes** | NAV-021 8, 15 |
+| usable | ok, gateway answers in time | Gateway | none | — | **no** (an earlier icon goes away) | NAV-021 9, 10 |
+| usable | ok but slow (> 3.0 s), connection failure, 5xx, 429 | Device after ≤ 3.0 s, new route ≤ 5.0 s after detection | none (no 429 or «Маршрутын үйлчилгээ…» line while the device is working) | — | **yes** | NAV-021 9, 12, 16 |
+| usable | any | Gateway or device says NoRoute / outside / too far | «Маршрут олдсонгүй» (or «Алдаа гарлаа» for other 400 / 413 / bad body) as AC 49 | as before | unchanged | NAV-021 6, 10 |
+| usable | any | **Both** failed | «Маршрутын үйлчилгээ түр ажиллахгүй байна»; NAV-005 AC 48 back-off (5, 10, 20, 30 … s) | as before | unchanged (old route still followed) | NAV-021 14, 22–24 |
+| usable, then disabled after 3 deaths in 10 min | none | As the first row from then on | «Интернэт холболт алга» | hidden | — | NAV-021 24 |
+
+Pacing (NAV-005 AC 44) counts one attempt = the online try plus its device fallback, so the banner never shows two "recalculating" cycles for one off-route episode. The new route replaces the **whole** remaining route, no join with the old one (NAV-021 AC 18), and the catch-up prompt follows within 500 ms (AC 45). A routing file installed or updated during guidance is used from the next guidance session (NAV-021 AC 17): no visible change.
+
+**Restored guidance** (NAV-012) is specified in [`NAV-012-android-background-lock-screen.md`](NAV-012-android-background-lock-screen.md) › Offline with an installed pack (change 7c): the same table applies after a restore, and the indicator survives the restore.
+
+### Network host and the pack (NAV-005 AC 65, AC 86)
+Pack requests (manifest and files) go to the **configured packs base URL** (`PACK_BASE_URL`; by default the same host as the gateway, a static host is possible, ADR-0017 follow-up 4), and everything else to the configured gateway base URL. AC 65 as amended by 7a: **0** requests go to any other host. For the UI that means no screen starts a request of its own to a third host: the licences screen ([`android-licences.md`](android-licences.md)) shows its texts from the APK, its URLs are plain selectable text, and it sends **0** requests and opens **no** browser (works in airplane mode, AC 89). The O2 licence line OF29 keeps opening the manifest URL in the browser (NAV-022 AC 4); that is the user's browser, not an app request.
 
 ## Interactions
 - **S1 long-press** (600 ms, ≤ 10 dp movement): coordinate card; haptic `LONG_PRESS`. A second long-press moves the card's point.
@@ -470,12 +533,15 @@ Change on NAV-005 from the triage row 2026-10-04 "Location position jumps or dri
 | 32–40 | Copy › Voice texts (incl. English plural forms, D4; rounded 1000 m → «1 километрт», D67); navigation-ux §4 (AC 34 `arrive` exemption, D68: §4.2 rule 6, §4.4); flow F9 |
 | 41–50 | S5 states (off-route rows); navigation-ux §5; flow F6 |
 | 51–53 | S5 states (GPS rows); navigation-ux §6; flow F7 |
-| 54 | S5 states (offline on route); flow F8 |
+| 54 | S5 states (offline on route); flow F8; **7a:** Offline with an installed pack (rule X1, S5 table: network loss with a routing file, 0 requests while on the route) |
 | 55–57 | S6; navigation-ux §7; flow F10 |
 | 58–60 | S7; navigation-ux §9; flow F11; tokens night mode |
 | 61 | Copy (keys, glossary sources) |
 | 62–64 | Accessibility; Layout rules 4–5; Verification |
-| 65–73 | No UI (privacy, build, verification); S8 never shows coordinates. AC 73 browse-dot phone checks: not verified until a real-GPS build on the PO's own server (D178) |
+| 80–87 | **7a:** Offline with an installed pack (80: S1 row, no state text changes; 81: S3 table; 82–83: S5 reroute table; 84: network loss on the route; 85: indicator in guidance, android-offline-pack F9; 86: Network host; 87: "without the file nothing changes"); flow F13 |
+| 88–98 | The licences screen: [`android-licences.md`](android-licences.md) (S7 row, S9, S10); AC 99–100 (APK API-level check) have no UI |
+| 65 | **7a:** Offline with an installed pack › Network host (`/packs/` on the same gateway host; no in-app link to another host; the licences screen sends 0 requests) |
+| 66–73 | No UI (privacy, build, verification); S8 never shows coordinates. AC 73 browse-dot phone checks: not verified until a real-GPS build on the PO's own server (D178) |
 | 74–77 | S1 › Location dot on the browse map (every state); Components › Map controls (waiting icon), Browse location dot; Interactions › S1 my-location button; Accessibility; Design rationale (section N); map-style §7.8; flow F12; prototype `NAV-005-location-dot.html` |
 | 78 | S2 states (search bias = shown position, D174); S1 table, S3 row (route starts at the raw fix, D177); Known limitations 10–11; demo build row |
 | 79 | No UI (the filter state is never shown, stored or sent) |
