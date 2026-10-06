@@ -51,6 +51,17 @@ ALLOWED = {
     "CC-BY-4.0": "CC BY 4.0",
     "ODbL-1.0": "ODbL 1.0",
     "public-domain": "Public domain",
+    # Added by the PO decision of 2026-10-06 (AC 96 amendment); counsel review before the first external release.
+    "ISC": "ISC",
+    "Zlib": "Zlib",
+    "FTL": "FreeType Project License",
+    "Unicode-3.0": "Unicode License v3",
+    "Unicode-DFS-2016": "Unicode License (ICU)",
+    "MIT-Modern-Variant": "MIT-Modern-Variant",
+    "curl": "curl",
+    "MPL-2.0": "MPL-2.0",
+    "Apache-2.0 WITH LLVM-exception": "Apache-2.0 WITH LLVM-exception",
+    "MIT AND Apache-2.0 WITH LLVM-exception": "MIT AND Apache-2.0 WITH LLVM-exception",
 }
 
 # Licence texts: id → (repository path, upstream source). Verbatim copies; never edited by hand.
@@ -85,22 +96,12 @@ TEXTS = {
 EXTRACT_COPYRIGHT = {"ferrostar", "osrm-openapi", "maplibre-native", "maplibre-gestures", "valhalla-mobile", "valhalla-models",
                      "valhalla", "protobuf", "lz4", "robin-hood", "unordered-dense", "tangrams-icons"}
 
-# Licences outside the AC 96 allow-list that code statically linked into the shipped native libraries carries (ADR-0017
-# A5 §1). None is GPL. Listing them is required (AC 90, 91); allowing them is a BA/PO amendment of NAV-005 AC 96 that has
-# not been made. Until it is: `--check` passes and reports them as pending, and `--release-gate` (Gradle
-# checkReleaseLicenceGate, which packageRelease and bundleRelease depend on) fails, so no release APK or bundle can be built
-# with an unapproved licence (AC 98 release gate). When AC 96 is amended, move the approved ids into ALLOWED; whatever is
-# left here keeps blocking release packaging.
-PENDING_AC96 = {
-    "ISC": "ISC",
-    "Zlib": "Zlib",
-    "FTL": "FreeType Project License",
-    "Unicode-DFS-2016": "Unicode License (ICU)",
-    "MIT-Modern-Variant": "MIT-Modern-Variant",
-    "curl": "curl",
-    "MPL-2.0": "MPL-2.0",
-    "MIT AND Apache-2.0 WITH LLVM-exception": "MIT AND Apache-2.0 WITH LLVM-exception",
-}
+# Licences outside the AC 96 allow-list that are shipped but not yet approved. Empty since the PO decision of 2026-10-06
+# (chat "Ok", NAV-005 AC 96 amendment): ISC, Unicode (3.0 / DFS / ICU), FTL, Zlib, curl, MIT-Modern-Variant, MPL-2.0 (uniffi
+# runtime, used unmodified) and Apache-2.0 WITH LLVM-exception moved into ALLOWED; counsel review before the first external
+# release stays planned. The mechanism is kept: an id added here passes `--check` as pending and makes `--release-gate`
+# (Gradle checkReleaseLicenceGate, a dependency of packageRelease and bundleRelease) fail (AC 98).
+PENDING_AC96 = {}
 SHOWN = {**ALLOWED, **PENDING_AC96}
 
 # Native notice lists, pinned to the library version each was made for (ADR-0017 A5 §2). When the resolved artifact has

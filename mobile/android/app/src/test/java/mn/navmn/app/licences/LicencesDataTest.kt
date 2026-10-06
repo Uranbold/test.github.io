@@ -26,8 +26,8 @@ import java.util.zip.DeflaterOutputStream
  *    the SHA-256 the index names; each distinct text is stored once; valhalla-mobile and OFL lines;
  *  - AC 96: the generator refuses a library without a licence rule (a fixture), a stale notices file, and a native library
  *    whose version differs from its pinned notice list (ADR-0017 A5 §2);
- *  - AC 90 / A5 §1: the code statically linked into libmaplibre.so and libferrostar.so is listed; licences outside the
- *    allow-list are only the pending ones (awaiting the AC 96 amendment), and they close the release gate;
+ *  - AC 90 / A5 §1: the code statically linked into libmaplibre.so and libferrostar.so is listed; licences beyond the
+ *    original allow-list were approved by the 2026-10-06 AC 96 amendment, so the release gate is open;
  *  - AC 97: the licence assets are ≤ 0.5 MB compressed.
  */
 @RunWith(AndroidJUnit4::class)
@@ -54,7 +54,7 @@ class LicencesDataTest {
     /** (group:artifact) → version column of the committed notices file, §3. */
     private fun noticesVersions(): Map<String, String> = noticesTable().associate { "${it[1]}:${it[2]}" to it[3] }
 
-    /** Licence names shown for licences that wait for the NAV-005 AC 96 amendment (generator PENDING_AC96, A5 §1). */
+    /** Licence names added to the allow-list by the 2026-10-06 AC 96 amendment (generator ALLOWED, A5 §1); native parts only. */
     private val pending = setOf("ISC", "Zlib", "FreeType Project License", "Unicode License (ICU)", "MIT-Modern-Variant", "curl", "MPL-2.0",
         "MIT AND Apache-2.0 WITH LLVM-exception")
 
@@ -221,10 +221,10 @@ class LicencesDataTest {
             val (code4, out4) = python("--check", "--deps", deps(emptyList(), bump = "com.stadiamaps.ferrostar:core").path)
             assertNotEquals(0, code4)
             assertTrue(out4, out4.contains("native licence list of com.stadiamaps.ferrostar:core is pinned to ${versions.getValue("com.stadiamaps.ferrostar:core")}"))
-            // AC 98: while licences wait for the AC 96 amendment, the release gate is closed; the check itself passes.
+            // AC 98: since the AC 96 amendment of 2026-10-06 no shipped licence is pending, so the release gate is open.
             val (code5, out5) = python("--release-gate", "--deps", deps(emptyList()).path)
-            assertNotEquals(0, code5)
-            assertTrue(out5, out5.contains("release packaging blocked"))
+            assertEquals(out5, 0, code5)
+            assertTrue(out5, out5.contains("release licence gate open"))
         } finally {
             dir.deleteRecursively()
         }

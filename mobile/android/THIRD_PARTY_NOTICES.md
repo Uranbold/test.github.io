@@ -181,11 +181,6 @@ aarch64-linux-android -e normal,no-proc-macro` of the published crate and its `C
 the rustc that built the AAR, with their verbatim licence files in `mobile/android/licenses/ferrostar-0.57.0/` (`crates.json`, made by
 `tools/fetch-native-licences.py`). Crates offered under "A OR B" are used under the MIT option where offered, else Apache-2.0.
 
-**Licences awaiting the NAV-005 AC 96 amendment** (outside the allow-list, none GPL; ADR-0017 A5 §1): FreeType Project License, ISC, MIT AND Apache-2.0 WITH LLVM-exception, MIT-Modern-Variant, MPL-2.0, Unicode License (ICU), Zlib, curl.
-They are listed and their texts are bundled, `checkThirdPartyNotices` reports them as pending, and
-`checkReleaseLicenceGate` (a dependency of `packageRelease` and `bundleRelease`) fails until the BA/PO amend AC 96
-(AC 98 release gate). Debug and demo builds and `check` are not blocked.
-
 `valhalla-mobile` (NAV-021, ADR-0017 §2, §7) bundles `libvalhalla-wrapper.so` for arm64-v8a, armeabi-v7a, x86 and x86_64,
 loaded only in the `:routing` process; the statically linked libraries above follow its `src/vcpkg.json` at tag 0.6.3
 (commit b47ad5a) and a symbol scan of the shipped library. The system `libz`, `liblog`, `libm`, `libdl` and `libc` are not

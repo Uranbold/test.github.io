@@ -58,7 +58,10 @@ object RouteSource {
     fun of(onDevice: Boolean): String = if (onDevice) DEVICE else GATEWAY
 }
 
-/** The JSON codec of `meta.json`. Unknown fields or an unknown schema make the record unreadable (AC 24). */
+/**
+ * The JSON codec of `meta.json`. Unknown fields or an unknown schema make the record unreadable (AC 24); the one lenient
+ * field is [RestoreMeta.routeSource], which is optional and whose unknown value reads as the gateway.
+ */
 object RestoreCodec {
     private val json = Json { encodeDefaults = true }
 
