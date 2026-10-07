@@ -78,7 +78,7 @@ flowchart TB
 Runs on every new issue in **minutes, not days**:
 
 1. **Validate:** real issue? Duplicate (search open and closed issues and stories)? "Works as designed", which is really a change request, not a bug? Already fixed?
-2. **Classify:** type, `area:*` (routing / search / tiles / android / ios / web / design / data-OSM), linked story ID.
+2. **Classify:** type, `area:*` (routing / search / tiles / gateway / android / ios / web / design / data-OSM / ci-infra / security; security items also get a security-engineer review in their lane), linked story ID.
 3. **Assess:**
    - Bugs: **severity** S1–S4 (see matrix), reproducible yes/no.
    - Features and CRs: size S/M/L, affected artifacts.
