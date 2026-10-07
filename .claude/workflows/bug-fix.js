@@ -1,11 +1,11 @@
 export const meta = {
   name: 'bug-fix',
-  description: 'Bug lane: QA reproduces with a failing test -> owner fixes -> QA verifies + regression (-> architect review if the contract is touched) -> fix loop',
+  description: 'Bug lane: QA reproduces with a failing test -> owner fixes -> QA verifies + regression (-> architect review if the contract is touched, security review if a security-sensitive surface is touched) -> fix loop',
   whenToUse: 'After triage routed a bug and the PO confirmed priority. Args: {title, brief, storyId?, issue?, severity?, areas?, mode?: "bug"|"hotfix"}.',
   phases: [
     { title: 'Reproduce', detail: 'qa-engineer writes a failing test and confirms severity' },
     { title: 'Fix', detail: 'owner agent finds the root cause and fixes it' },
-    { title: 'Verify', detail: 'failing test passes, regression green; architect review if needed' },
+    { title: 'Verify', detail: 'failing test passes, regression green; architect and security review if needed' },
   ],
 }
 
@@ -14,6 +14,7 @@ if (!input.title || !input.brief) throw new Error('Pass {title, brief, ...} as a
 const HOTFIX = input.mode === 'hotfix'
 const MAX_ROUNDS = 2
 const OWNERS = ['backend-engineer', 'mobile-engineer', 'ux-designer']
+const SECURITY_RE = /secur|privacy|leak|secret|token|auth|tls|https|cert|permission|location|gateway|nginx|caddy|infra\/|manifest|AndroidManifest|network_security|pack|\.env|crash/i
 
 const HANDOFF_PROPS = {
   status: { type: 'string', enum: ['done', 'partial', 'blocked'] },
@@ -118,6 +119,8 @@ let fixes = (await parallel(owners.map(o => () =>
 const verify = async (round) => {
   const needArch = !HOTFIX && fixes.some(f => f.touched_contract_or_architecture ||
     (f.requests_to_other_agents || []).some(r => r.to === 'architect'))
+  // Security review when the bug or the fix touches a security-sensitive surface.
+  const needSec = SECURITY_RE.test(JSON.stringify([input, fixes.map(f => f.files_changed)]))
   const fixText = JSON.stringify(fixes.map(f => ({ summary: f.summary, root_cause: f.root_cause, files: f.files_changed })), null, 2)
   const res = await parallel([
     () => agent(`${ctx}\n\nFixes:\n${fixText}\n\nVerify: the failing test ${repro.failing_test || ''} must now pass unchanged, then run the
@@ -127,6 +130,12 @@ ${HOTFIX ? 'smoke tests' : 'full regression suite'}. Set passed=true only if bot
       ? agent(`${ctx}\n\nFixes:\n${fixText}\n\nReview these fixes: contract conformance, architecture, side effects. Apply any contract change
 the owners requested if it is correct. passed=true only if there are no blocker/major issues.`,
         { label: `architect: review (round ${round})`, phase: 'Verify', agentType: 'architect', schema: REVIEW })
+      : Promise.resolve(null),
+    () => needSec
+      ? agent(`${ctx}\n\nFixes:\n${fixText}\n\nSecurity review of these fixes: did the fix introduce or leave a security or privacy risk
+(secrets, input validation, transport, permissions, location data, pack integrity)? Map critical/high to blocker, medium to major,
+low/info to minor. passed=true only if there are no blocker/major issues.`,
+        { label: `security-engineer: review (round ${round})`, phase: 'Verify', agentType: 'security-engineer', schema: REVIEW })
       : Promise.resolve(null),
   ])
   if (!res[0]) res[0] = { passed: false, issues: [], summary: 'qa-engineer returned no result; not verified' }

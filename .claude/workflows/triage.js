@@ -15,7 +15,7 @@ const TRIAGE = {
     close_reason: { type: 'string', enum: ['duplicate', 'already_fixed', 'wont_fix', 'not_a_problem', 'n/a'] },
     duplicate_of: { type: 'string' },
     type: { type: 'string', enum: ['feature', 'change', 'bug', 'spike', 'tech-debt'] },
-    areas: { type: 'array', items: { type: 'string', enum: ['routing', 'search', 'tiles', 'gateway', 'android', 'ios', 'web', 'design', 'data-osm', 'ci-infra'] } },
+    areas: { type: 'array', items: { type: 'string', enum: ['routing', 'search', 'tiles', 'gateway', 'android', 'ios', 'web', 'design', 'data-osm', 'ci-infra', 'security'] } },
     story_id: { type: 'string' },
     severity: { type: 'string', enum: ['S1', 'S2', 'S3', 'S4', 'n/a'] },
     severity_rationale: { type: 'string' },

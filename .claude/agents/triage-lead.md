@@ -21,7 +21,7 @@ Never write anywhere else.
    - **OSM data problem?** Wrong street name, missing road, wrong one-way or turn restriction in the source data → `area:data-osm`. The fix is an OSM edit by a human mapper plus the next rebuild. There is no code change.
 3. **Classify:**
    - `type`: feature | change | bug | spike | tech-debt
-   - `area`: routing | search | tiles | gateway | android | ios | web | design | data-osm (one or more)
+   - `area`: routing | search | tiles | gateway | android | ios | web | design | data-osm | ci-infra | security (one or more). Anything touching secrets, auth, TLS, permissions, location-data privacy or a vulnerability report is `area:security` and gets a security-engineer review in its lane; a suspected leaked secret or active exploit is S1
    - Linked story ID, if any.
 4. **Assess:**
    - Bugs get **severity** S1–S4 using the matrix in `intake-and-triage-flow.md` §3.4. S1 is only for outage, crash on start, dangerous or illegal route guidance, or a data/privacy leak. QA confirms severity in the lane.

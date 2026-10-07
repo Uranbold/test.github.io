@@ -31,6 +31,7 @@ The main session is the **orchestrator**. It breaks work down, calls the subagen
 | `backend-engineer` | Valhalla/Photon/tiles services, API gateway, data pipeline | `backend/**`, `infra/**` |
 | `mobile-engineer` | Android (Kotlin/Compose), iOS (SwiftUI), web demo | `mobile/**`, `web/**` |
 | `qa-engineer` | Test plans, GPX route simulation, E2E and API tests | `tests/**`, `docs/qa/**` |
+| `security-engineer` | Threat model, security and privacy review in every lane's Verify stage, whole-project audits, release security checklist | `docs/security/**` |
 
 ## Intake procedure (orchestrator)
 
@@ -46,7 +47,7 @@ Every new item goes through **triage first** (details: `docs/team/intake-and-tri
 | 🚨 Hotfix | `hotfix` | S1 only, one at a time. Afterwards, create the 48 h follow-up item it returns |
 | 🐞 Bug | `bug-fix` | QA reproduces with a failing test first. `works_as_designed` → re-triage as a change |
 | 🔁 Change | `change-request` | Run 1 returns the impact → **PO approves** → run 2 with `rerun_with` (includes `approvedImpact`) |
-| ✨ Feature / tech debt | `feature-delivery` | BA → (UX ∥ Architect) → (Backend ∥ Mobile) → (QA ∥ review) → fix loop |
+| ✨ Feature / tech debt | `feature-delivery` | BA → (UX ∥ Architect) → (Backend ∥ Mobile) → (QA ∥ architect review ∥ security review) → fix loop |
 | 🔬 Spike | `spike` | Result + skeptic review go to the PO; follow-up items go back through triage |
 
 5. **Mid-flight changes:** if the PO changes a story that is in progress, don't pass it to the running agents. Triage it as a change request and ask the PO: finish first (default), restart from the affected stage, or drop.
@@ -77,6 +78,7 @@ Every agent that writes user-facing Mongolian (UI copy, voice prompts, test expe
 7. **Localisation:** all user-facing strings go through resource files (`mn` default, `en`). Never hard-code them. Mongolian wording must match the glossary. Map labels use `name:mn` → `name` → `name:en`.
 8. **OSM attribution** "© OpenStreetMap contributors" must be visible on every map screen.
 9. No secrets in the repo. Use `.env.example` for configuration keys.
+10. **Security findings** from the `security-engineer` are fixed by the owner of the code. `critical`/`high` block the story or release; `medium` must be fixed before a public release.
 
 ## Repository layout
 

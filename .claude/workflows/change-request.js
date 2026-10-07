@@ -7,7 +7,7 @@ export const meta = {
     { title: 'Story', detail: 'business-analyst updates the story, AC and change log' },
     { title: 'Design', detail: 'ux-designer and architect update specs and contract' },
     { title: 'Build', detail: 'backend and mobile implement' },
-    { title: 'Verify', detail: 'QA updates affected tests + full regression; architect review' },
+    { title: 'Verify', detail: 'QA updates affected tests + full regression; architect and security review' },
   ],
 }
 
@@ -149,6 +149,10 @@ or deleted without replacement), then run the FULL regression suite. passed=true
     () => agent(`${bctx}\n\nReview: story, specs, contract, code and tests must now be consistent with each other. passed=true only
 if there are no blocker/major issues.`,
       { label: `architect: review (round ${round})`, phase: 'Verify', agentType: 'architect', schema: REVIEW }),
+    () => agent(`${bctx}\n\nSecurity and privacy review of this change (secrets, input validation, transport security, permissions,
+location data, pack integrity, dependencies). Update docs/security/threat-model.md if a data flow or endpoint changed. Map
+critical/high to blocker, medium to major, low/info to minor. passed=true only if there are no blocker/major issues.`,
+      { label: `security-engineer: review (round ${round})`, phase: 'Verify', agentType: 'security-engineer', schema: REVIEW }),
   ])
   if (!res[0]) res[0] = { passed: false, issues: [], summary: 'qa-engineer returned no result; not verified' }
   return res.filter(Boolean)

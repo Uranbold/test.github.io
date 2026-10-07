@@ -14,6 +14,7 @@ How the AI agent team builds the OSM navigation product. The agents are Claude C
 | **backend-engineer** | Valhalla, Photon/Nominatim, PMTiles, gateway, data pipeline, traffic | Contract, stories | `backend/**`, `infra/**` |
 | **mobile-engineer** | Android, iOS, web demo using Ferrostar + MapLibre | Contract, UX specs, stories | `mobile/**`, `web/**` |
 | **qa-engineer** | Test plans, GPX simulation, API/E2E tests, defect reports | Stories, contract, code | `tests/**`, `docs/qa/**` |
+| **security-engineer** | Threat model, security/privacy review in Verify, audits, release security checklist | Everything (read-only on code) | `docs/security/**` |
 
 Each agent **only writes in its own paths**. Cross-area changes go through `requests_to_other_agents` in the handoff block (`docs/templates/handoff.md`).
 
@@ -89,7 +90,7 @@ Every new item is triaged first. The lane depends on the type (full design: `int
 | 1. Requirements | business-analyst | Story has testable AC; blocking open questions answered by the user |
 | 2. Design | ux-designer ∥ architect | Screen specs cover all states, carry a **Design rationale** (UX laws + Nielsen heuristics, see `.claude/agents/ux-designer.md`) and measured **Evidence** (prototype layout checker, contrast); `openapi.yaml` updated; backend/mobile task list exists |
 | 3. Build | backend-engineer ∥ mobile-engineer | Builds and tests run green; handoff lists verification |
-| 4. Verify | qa-engineer ∥ architect (review) | All AC pass; no `blocker`/`major` issues |
+| 4. Verify | qa-engineer ∥ architect (review) ∥ security-engineer (review) | All AC pass; no `blocker`/`major` issues; no `critical`/`high`/`medium` security findings |
 | 5. Fix loop | owners of each issue | Re-verify; max 2 automatic rounds, then escalate to the user |
 | 6. Accept | orchestrator | Commit, PR, story status → `done` |
 
@@ -108,17 +109,18 @@ Automated as a saved workflow: `.claude/workflows/feature-delivery.js`.
 
 R = Responsible, A = Accountable, C = Consulted, I = Informed.
 
-| Activity | Orch. | BA | UX | Arch | BE | Mobile | QA |
-|---|---|---|---|---|---|---|---|
-| Stories & AC | A | R | C | C | I | I | C |
-| Flows & screens | A | C | R | C | I | C | I |
-| API contract / ADRs | A | I | C | R | C | C | I |
-| Backend services | A | I | I | C | R | I | C |
-| Mobile / web apps | A | I | C | C | I | R | C |
-| Tests & defects | A | C | I | C | C | C | R |
-| Integration review | A | I | C | R | C | C | C |
-| Product decisions | R | C | C | C | I | I | I |
-| **User** is the final approver of product decisions | | | | | | | |
+| Activity | Orch. | BA | UX | Arch | BE | Mobile | QA | Sec |
+|---|---|---|---|---|---|---|---|---|
+| Stories & AC | A | R | C | C | I | I | C | C |
+| Flows & screens | A | C | R | C | I | C | I | I |
+| API contract / ADRs | A | I | C | R | C | C | I | C |
+| Backend services | A | I | I | C | R | I | C | C |
+| Mobile / web apps | A | I | C | C | I | R | C | C |
+| Tests & defects | A | C | I | C | C | C | R | C |
+| Integration review | A | I | C | R | C | C | C | C |
+| Security review & threat model | A | I | C | C | C | C | C | R |
+| Product decisions | R | C | C | C | I | I | I | I |
+| **User** is the final approver of product decisions | | | | | | | | |
 
 ## 5. Suggested first backlog (Phase 0 → 1)
 
