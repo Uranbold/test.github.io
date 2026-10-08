@@ -32,14 +32,14 @@ Container image CVE scans and image default users (no scanner or daemon in the a
 | BE-8 | medium | Image pinning gaps and a superseded nginx line | backend-engineer | open |
 | BE-9 | medium | deploy.sh runs a git tag's own code as root without signature check; tags can move | backend-engineer | open |
 | SP-3 | medium | GitHub secret scanning, push protection and Dependabot are all disabled on a public repo | orchestrator | open |
-| SP-4 | medium | No vulnerability disclosure channel; reports can only arrive as public issues | orchestrator; business-analyst | open |
-| SP-5 | medium | Bug issue form collects precise location, GPX tracks and logs in a public repo | business-analyst | open |
+| SP-4 | medium | No vulnerability disclosure channel; reports can only arrive as public issues | orchestrator; business-analyst | docs done (`docs/security/security-policy.md`, to be copied to root `SECURITY.md`); PO must enable private reporting |
+| SP-5 | medium | Bug issue form collects precise location, GPX tracks and logs in a public repo | business-analyst | fixed 2026-10-08 (issue-form privacy warning) |
 | SP-6 | medium | No least-privilege controls for agents; path-ownership rule is prompt-only | orchestrator | open |
 | SP-7 | medium | Release signing key: no decision on custody, backup or rotation; demo APK has no verifiable identity | orchestrator | open |
-| SP-8 | medium | No threat model, release security checklist or release gate | security-engineer; orchestrator | in progress (this register) |
+| SP-8 | medium | No threat model, release security checklist or release gate | security-engineer; orchestrator | done (threat model + checklist) 2026-10-08 |
 | SP-9 | medium | Offline packs are verified by hash only; publisher authenticity is not checked | architect | duplicate of BE-6 |
 | SP-10 | medium | Partner (Hamuga) evaluation API key handed over through chat; no rotation evidence | orchestrator | open |
-| SP-11 | medium | Privacy and incident-response documentation is missing at project level | business-analyst; security-engineer; orchestrator | open |
+| SP-11 | medium | Privacy and incident-response documentation is missing at project level | business-analyst; security-engineer; orchestrator | partly done (incident runbook `docs/security/incident-response.md`; privacy notice draft with BA) |
 | SP-12 | medium | Security review is missing or only regex-triggered in some lanes | orchestrator | fixed 2026-10-07 |
 | WS-1 | medium | No Content-Security-Policy or other security headers on the public web demo / demo mode | mobile-engineer | open |
 | WS-2 | medium | Internet-path gateway image is on a frozen tag line and not pinned by digest | backend-engineer | duplicate of BE-8 |

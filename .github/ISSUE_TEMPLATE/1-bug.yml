@@ -10,6 +10,10 @@ body:
         **Гудамжны нэр буруу, зам байхгүй, нэг чиглэлийн зам буруу байна уу?** Энэ нь OpenStreetMap-ийн өгөгдлийн алдаа байж магадгүй. Гэсэн ч энд мэдээлээрэй, бид зөв газар нь чиглүүлнэ.
 
         *Thanks for reporting! Triage will reply with severity and next steps. Wrong street name or missing road? It may be OpenStreetMap data. Report it here anyway.*
+
+        **Таны бичсэн бүх зүйл нийтэд нээлттэй.** Хэн ч уншиж болох бөгөөд засварласан ч түүхэнд үлдэнэ. Гэр, ажлын болон бусад хувийн байршил, өөрийн GPX файл, таны байршил, утасны дугаар, и-мэйл, нэр харагдах лог, дэлгэцийн зургийг бүү оруулаарай. Аюулгүй байдлын асуудлыг энд бүү мэдээлээрэй, SECURITY.md-г үзнэ үү.
+
+        *Everything you write here is public. Anyone can read it, and it stays in the history even after editing. Do not post your home, work or other private locations, your own GPX recordings, or logs and screenshots that show your position, phone number, email or names. Do not report security problems here; see SECURITY.md.*
   - type: textarea
     id: what
     attributes:
@@ -37,8 +41,8 @@ body:
     id: location
     attributes:
       label: Байршил / маршрут · Location / route
-      description: Эхлэх ба очих цэгийн координат (өргөрөг, уртраг) эсвэл газрын нэр. · Start/end coordinates (lat, lon) or place names.
-      placeholder: "47.9189, 106.9176 → 47.6469, 106.8197"
+      description: Нийтэд харагдана. Ойролцоох нийтийн газар, уулзвар эсвэл 3 оронтой бутархай хүртэл тоймлосон координат (ойролцоогоор 100 м) бичнэ үү. Гэр, ажлын хаягаа бүү бичээрэй. · Public. Use a nearby public place or intersection, or round coordinates to 3 decimals (about 100 m). Never your home or work address.
+      placeholder: "47.919, 106.918 → 47.647, 106.820"
   - type: dropdown
     id: platform
     attributes:
@@ -66,7 +70,7 @@ body:
     id: evidence
     attributes:
       label: Дэлгэцийн зураг, бичлэг, GPX зам эсвэл лог · Screenshots, recording, GPX track or logs
-      description: Файлаа энд чирж оруулна уу. Хувийн мэдээллээ эхлээд устгана уу. · Drag files here. Remove personal data first.
+      description: Нийтэд харагдана. Эхлээд хувийн мэдээллээ устгана уу. GPX файлыг зөвхөн асуудалтай хэсгээр нь тасалж, гэр, ажлаасаа хол эхлүүлж дуусгана уу; дэлгэцийн зургийг тайрч, логоос координат, утасны дугаар, и-мэйл, нэрийг устгана уу. · Public. Remove personal data first. Cut GPX files to the problem section so they start and end away from your home or work, crop screenshots, and delete coordinates, phone numbers, emails and names from logs.
   - type: input
     id: story
     attributes:
