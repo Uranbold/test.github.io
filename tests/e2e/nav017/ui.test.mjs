@@ -4,7 +4,7 @@
 // (AC 28). Production demo-mode build, Playwright clock installed before navigation, stubs from helpers.qaInit.
 import { expect } from '@playwright/test';
 import { test } from './helpers.mjs';
-import { S, ROUTES, openDemo, selectRoute, startReplay, qa, spoken, tick, tid, golden, netLog, site, routeBody, readGpx, intersects } from './helpers.mjs';
+import { S, ROUTES, hideCanvas, openDemo, selectRoute, startReplay, qa, spoken, tick, tid, golden, netLog, site, routeBody, readGpx, intersects } from './helpers.mjs';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -16,7 +16,6 @@ const dist = (page) => tid(page, 'demo-nav-distance').textContent();
 // Interpretation recorded in the test plan §5; the BA may tighten it.
 const MAP_ASSET = /\/tiles\/basemap\.pmtiles$|\/sprites\/v4\/[^/]+\.(json|png)$|\/fonts\/.+\.pbf$/;
 const nonTile = (reqs, from = 0) => reqs.slice(from).filter((r) => !/^(data|blob):/.test(r.url) && !(r.url.startsWith(site().origin) && MAP_ASSET.test(new URL(r.url).pathname))).map((r) => r.url);
-const hideCanvas = (page) => page.addStyleTag({ content: '.maplibregl-canvas{visibility:hidden !important}' });
 
 test('AC27: depart prompt starts ≤ 2 s after «Эхлэх»; the first speak() and the AudioContext creation/resume happen inside the «Эхлэх» click handler', async ({ page }) => {
   await openDemo(page, { voices: ['mn-MN'] });

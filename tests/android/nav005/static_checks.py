@@ -33,7 +33,16 @@ DOC_HOSTS = {"dl.google.com", "maven.google.com", "developer.android.com", "gith
              "scripts.sil.org", "openfontlicense.org", "creativecommons.org", "json-schema.org",
              # licence texts and build tooling named in THIRD_PARTY_NOTICES.md and tools/ (not app endpoints)
              "findbugs.sourceforge.net", "jspecify.org", "square.github.io", "index.crates.io", "rustup.rs",
-             "maven.apache.org"}
+             "maven.apache.org",
+             # SEC-4B (2026-10-08): the XML namespace Gradle writes into gradle/verification-metadata.xml (never contacted)
+             # and the Boost licence URL quoted in THIRD_PARTY_NOTICES.md / tools/gen-third-party-notices.py
+             "schema.gradle.org", "www.boost.org"}
+# Verbatim third-party licence texts (upstream copyright lines and URLs, never app endpoints). Excluded from the AC 66
+# host/IP scan exactly as the app's own guard does (NotificationAndPrivacyTest skips /mobile/android/licenses/).
+LICENCE_TEXTS = "mobile/android/licenses/"
+# SEC-4B: Gradle's verification metadata lists Maven versions such as com.google.android:annotations:4.1.1.4, which
+# look like IPv4 literals. Only version="…" and artifact name="…" attribute values of that one file are ignored.
+VERIFICATION_METADATA = "mobile/android/gradle/verification-metadata.xml"
 LOOPBACK = {"127.0.0.1", "localhost", "10.0.2.2"}
 FORBIDDEN_DEPS = re.compile(r"firebase|crashlytics|analytics|sentry|bugsnag|appcenter|instabug|amplitude|mixpanel|"
                             r"segment\.analytics|play-services|gms:|mapbox|telemetry|newrelic|datadog", re.I)
@@ -118,6 +127,10 @@ def main():
         except (UnicodeDecodeError, IsADirectoryError):
             continue
         rel = os.path.relpath(f, REPO)
+        if rel.startswith(LICENCE_TEXTS):
+            continue
+        if rel == VERIFICATION_METADATA:
+            text = re.sub(r'\b(version|name)="[^"]*"', r'\1=""', text)
         for h in re.findall(r"https?://([A-Za-z0-9.-]+)", text):
             hl = h.lower().rstrip(".")
             if "." not in hl.strip(".") or hl in LOOPBACK or hl in DOC_HOSTS or hl.endswith((".invalid", ".example", "example.com", "example.org")) or hl.startswith("{"):

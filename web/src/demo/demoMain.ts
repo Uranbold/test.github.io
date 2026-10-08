@@ -14,7 +14,6 @@ import { GuidanceCore, type GuidanceState } from "../guidance/guidanceCore";
 import { ReplayClock, ReplayEngine } from "../guidance/replay";
 import type { I18n, Lang } from "../i18n/i18n";
 import { LocationController } from "../location/locationController";
-import { colourGroup, type Theme } from "../style/tokens";
 import { App, type AppDeps } from "../ui/app";
 import { AudioOut, loadMuted, saveMuted } from "./audio";
 import { VoiceDiagnostics } from "./diagnostics";
@@ -37,16 +36,6 @@ const COLUMNS_QUERY = "(min-width: 840px), (orientation: landscape) and (max-hei
 
 const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-/** nav.* and demo.* token colours as custom properties (day on :root, night on [data-theme="night"]). */
-function demoTokenCss(): string {
-  const decl = (theme: Theme) =>
-    [
-      ...Object.entries(colourGroup(theme, "nav")).map(([k, v]) => `--nav-${k}:${v}`),
-      ...Object.entries(colourGroup(theme, "demo")).map(([k, v]) => `--demo-${k}:${v}`),
-    ].join(";");
-  return `:root{${decl("day")}}\n:root[data-theme="night"]{${decl("night")}}\n`;
-}
-
 interface Replay {
   prepared: PreparedRoute;
   core: GuidanceCore;
@@ -61,10 +50,8 @@ interface Replay {
 }
 
 export function startDemoMode(deps: AppDeps): DemoController {
-  const style = document.createElement("style");
-  style.id = "demo-tokens";
-  style.textContent = demoTokenCss();
-  document.head.append(style);
+  // The nav.* and demo.* token colours are in index.html already (<style id="demo-tokens">, vite.config.ts bootIndicator,
+  // style/tokens.ts demoTokensCss): a <style> created here would be blocked by the build's Content-Security-Policy (SEC-4B).
   const layers = new DemoMapLayers();
   const app = new App({
     ...deps,

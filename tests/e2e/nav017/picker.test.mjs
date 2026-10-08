@@ -15,7 +15,13 @@ test.describe('A. Sub-folder hosting and public folder', () => {
       const reqs = [];
       page.on('requestfinished', async (r) => { const res = await r.response(); reqs.push({ url: r.url(), status: res?.status() }); });
       const failed = [];
-      page.on('requestfailed', (r) => failed.push(r.url()));
+      // A tile Range request that MapLibre cancels itself when the camera moves to the picked route ends as
+      // net::ERR_ABORTED: a client-side cancel, not a load failure (SEC-4B run 3, mobile-engineer request). Only that
+      // case is ignored; every other failure still counts, and every finished tile request must be 206 (below).
+      page.on('requestfailed', (r) => {
+        const aborted = r.failure()?.errorText === 'net::ERR_ABORTED' && new URL(r.url()).pathname === '/tiles/basemap.pmtiles';
+        if (!aborted) failed.push(`${r.url()} ${r.failure()?.errorText}`);
+      });
       await page.addInitScript(qaInit, { voices: [] });
       await page.goto(demoUrl(folder));
       await expect(tid(page, 'demo-picker')).toBeVisible({ timeout: 20_000 });

@@ -21,7 +21,7 @@ Container image CVE scans and image default users (no scanner or daemon in the a
 | SP-1 | high | Prompt injection: untrusted public issue text is processed by an agent with write and shell tools | orchestrator | fixed (process) 2026-10-07 |
 | SP-2 | high | `master` and tags are unprotected while staging deploys run the tag's own script as root | orchestrator | open |
 | AN-1 | medium | Offline packs are trusted only through TLS: the manifest is not signed | architect | duplicate of BE-6 |
-| AN-2 | medium | No Gradle dependency verification or lockfile, and the native libraries come from single-maintainer publishers | mobile-engineer | open |
+| AN-2 | medium | No Gradle dependency verification or lockfile, and the native libraries come from single-maintainer publishers | mobile-engineer | fixed 2026-10-08 (SEC-4B: sha256 verification metadata, STRICT release lockfile, native provenance documented; single-maintainer risk documented, not removed) |
 | BE-1 | medium | Route request cost is unbounded: Valhalla DoS | backend-engineer | open |
 | BE-2 | medium | IPv6 address rotation bypasses the per-IP rate limit | backend-engineer | open |
 | BE-3 | medium | Large static downloads have no connection or bandwidth limits | backend-engineer | open |
@@ -41,7 +41,7 @@ Container image CVE scans and image default users (no scanner or daemon in the a
 | SP-10 | medium | Partner (Hamuga) evaluation API key handed over through chat; no rotation evidence | orchestrator | open |
 | SP-11 | medium | Privacy and incident-response documentation is missing at project level | business-analyst; security-engineer; orchestrator | partly done (incident runbook `docs/security/incident-response.md`; privacy notice draft with BA) |
 | SP-12 | medium | Security review is missing or only regex-triggered in some lanes | orchestrator | fixed 2026-10-07 |
-| WS-1 | medium | No Content-Security-Policy or other security headers on the public web demo / demo mode | mobile-engineer | open |
+| WS-1 | medium | No Content-Security-Policy or other security headers on the public web demo / demo mode | mobile-engineer | partly fixed 2026-10-08 (SEC-4B: CSP and referrer meta in every build); open until the PO sets the documented web-root headers and the `web/README.md` checks pass (checklist C9) |
 | WS-2 | medium | Internet-path gateway image is on a frozen tag line and not pinned by digest | backend-engineer | duplicate of BE-8 |
 | WS-3 | medium | Java base image floats: no version, no digest | backend-engineer | duplicate of BE-8 |
 | WS-4 | medium | Android build has no Gradle dependency verification | mobile-engineer | duplicate of AN-2 |
@@ -70,7 +70,7 @@ Container image CVE scans and image default users (no scanner or daemon in the a
 | WS-5 | low | Dev-only dependency with a high advisory: `source-map-js` 1.2.1 | mobile-engineer | open |
 | WS-6 | low | GitHub Actions pinned to mutable tags | orchestrator | open |
 | WS-7 | low | No automated supply-chain or secret checks in CI | orchestrator | open |
-| WS-8 | low | Gradle wrapper JAR not validated against Gradle's published checksum | mobile-engineer | open |
+| WS-8 | low | Gradle wrapper JAR not validated against Gradle's published checksum | mobile-engineer | fixed 2026-10-08 (SEC-4B: JAR and distribution equal the published sha256, recorded in the README) |
 | WS-9 | low | Download helper fails open and follows redirects to any scheme | backend-engineer | duplicate of BE-7 |
 | WS-10 | low | Data inputs and the Protomaps Maven build have no integrity anchor beyond TLS | backend-engineer | duplicate of BE-7 |
 | WS-11 | low | Python dev/test deps pinned at top level only, no hashes | backend-engineer, qa-engineer | open |
@@ -85,8 +85,8 @@ Container image CVE scans and image default users (no scanner or daemon in the a
 | BE-21 | info | Log retention and PII: compliant; re-check on every pin change | backend-engineer, business-analyst | open |
 | SP-19 | info | GitHub Pages is enabled on the public repo | orchestrator | open |
 | SP-20 | info | Public-repo decision rests on an ambiguous relayed message | orchestrator | open |
-| WS-13 | info | Test fixture page shipped in the public builds | mobile-engineer | open |
+| WS-13 | info | Test fixture page shipped in the public builds | mobile-engineer | fixed 2026-10-08 (SEC-4B) |
 | WS-14 | info | Vendored glyph/sprite checksums are trust-on-first-use | mobile-engineer | open |
 | WS-15 | info | `aircompressor` 0.27 has CVE-2025-67721 (not reachable here) | backend-engineer | duplicate of BE-19 |
-| WS-16 | info | Production HTML keeps the developer comment | mobile-engineer | open |
+| WS-16 | info | Production HTML keeps the developer comment | mobile-engineer | fixed 2026-10-08 (SEC-4B) |
 | WS-17 | info | Host-only native builds are partly unlocked | mobile-engineer, backend-engineer | open |

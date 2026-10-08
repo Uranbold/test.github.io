@@ -13,7 +13,7 @@ Mongolian banners and voice (or the D23 chime), off-route reroute, GPS loss, arr
 | Navigation | Ferrostar `core` 0.57.0 only: the app drives `NavigationSession` from one engine thread (no `FerrostarCore`, no Ferrostar UI, recorder, cache or logger) |
 | Map | MapLibre Native Android 13.6.1 through an `AndroidView`; style JSON generated from the web style; fonts and sprites copied from `web/public` at build time |
 | Network | OkHttp 5.3.2 to the gateway only (`POST /v1/route`, `GET /v1/search`, `pmtiles://…/tiles/basemap.pmtiles`) |
-| Build | AGP 8.13.2, Gradle 8.14.3 (wrapper pinned with checksum), compileSdk/targetSdk 36, **minSdk 26**, Java 17 bytecode |
+| Build | AGP 8.13.2, Gradle 8.14.3 (wrapper pinned with checksum, §11.3), sha256 dependency verification and a release lockfile (§11), compileSdk/targetSdk 36, **minSdk 26**, Java 17 bytecode |
 | App ID | `mn.navmn.app` (+ `.debug`), a placeholder until the PO fixes the store ID (story Open question 8) |
 
 ## 1. Android SDK (outside the repository)
@@ -70,6 +70,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | `testThirdPartyNoticesGenerator` | `gen-third-party-notices.py --self-test`: an unmapped fixture library, a licence outside the allow-list, a native library version without its notice list, an upstream MapLibre component without a rule, and a pending licence at the release gate fail | `check` |
 
 Reports: `app/build/licences/check.txt`, `app/build/licences/release-gate.txt`, `app/build/apiLevelCheck/<variant>.txt`.
+
+Every Gradle run checks each downloaded file against `gradle/verification-metadata.xml` (sha256) and the release
+runtime classpath against `app/gradle.lockfile` (SEC-4B). After a dependency change follow **§11.2** before committing;
+the native-library table in §11.4 is checked with `python3 tools/check_native_provenance.py --apk <release APK>`.
 
 - **Real Ferrostar in JVM tests (M-1).** `testDebugUnitTest` first runs `tools/build-host-ferrostar.sh`, which downloads
   `ferrostar-0.57.0.crate` from crates.io, checks its checksum, builds `libferrostar.so` for the host with cargo
@@ -642,3 +646,154 @@ No phone: the AC 9 timings, the ≤ 3.2 s device fallback, TalkBack itself, and 
 JVM tests use the x86-64 host build of the same release). The AC 17 gate with online comparison, the AC 19 held-out
 report and the AC 20 online/offline reverse comparison are QA's (same slot needed).
 
+
+## 11. Dependency verification, release lockfile and native-library provenance (SEC-4B, ADR-0018 §5–§7)
+
+Story [SEC-4B](../../docs/requirements/stories/SEC-4B-client-security-hardening.md), design
+[ADR-0018](../../docs/architecture/adr/0018-client-csp-and-android-dependency-verification.md) (audit register IDs AN-2 =
+WS-4, WS-8). The aim: the app is built only from library files the team has checked, so a tampered file on a mirror
+fails the build instead of ending up in the APK.
+
+### 11.1 What is checked on every build
+
+- **`gradle/verification-metadata.xml`**: Gradle checks every file it downloads (jar, aar, pom, Gradle module file,
+  plugin marker) against a pinned **sha256** before using it, for the app, `buildSrc` and the plugin classpath, in
+  every task: `assembleDebug`, `assembleRelease`, `assembleDemo`, `testDebugUnitTest`, `lintDebug` and the rest.
+  `verify-metadata` is `true`, `verify-signatures` is `false` (PGP is out of scope, SEC-4B). Verification is **strict**
+  (Gradle's default): nothing in this repository sets `org.gradle.dependency.verification`, and no command here passes
+  `--dependency-verification`. Never make it lenient to get past a failure.
+- **One trust rule**: files named `*-sources.jar` and `*-javadoc.jar` are not checked. Android Studio downloads them
+  only to show library source code and documentation in the editor; they are never on a build, test or runtime
+  classpath. Without the rule every IDE sync fails, and developers would learn to switch verification off. The same
+  reason is written as a comment in the XML file. Nothing else is trusted.
+- **`app/gradle.lockfile`** (`dependencyLocking`, `LockMode.STRICT`, `app/build.gradle.kts`): the **release runtime
+  classpath** (`releaseRuntimeClasspath`, everything packaged into the release APK) is locked to the module versions
+  resolved on 2026-10-08 (180 modules). If a dependency change would move any module of that classpath to another
+  version, resolution fails until the lock is regenerated on purpose (11.2). Debug, demo, test and plugin classpaths are
+  not locked, but the verification file still pins every file of them.
+  `settings-gradle.lockfile` is written by Gradle in the same run; it only records that the version catalog's
+  configuration has no lockable dependency (`empty=incomingCatalogForLibs0`) and is committed with the lockfile.
+- **What a failure looks like.** Verification: `Dependency verification failed for configuration …` with
+  `artifact … (group:module:version) checksum is missing from verification metadata` or `… expected a 'sha256' checksum
+  of '…' but was '…'`. Lock: `Did not resolve 'group:module:version' which is part of the dependency lock state` or
+  `Locking strict mode: Configuration ':app:releaseRuntimeClasspath' is locked but does not have lock state`.
+- **A verification failure you did not cause by changing a version** (same versions, different file) is treated as a
+  possible **supply-chain incident**: do not regenerate the file, report it to the security-engineer
+  ([incident response](../../docs/security/incident-response.md)) with the Gradle output.
+
+### 11.2 Updating dependencies (verification metadata and lockfile)
+
+In this order, in one branch:
+
+1. Change the **exact** version in `gradle/libs.versions.toml` (no `+` and no ranges, NAV-005 AC 70).
+2. Regenerate the verification metadata with the full task list, and update the lock. Gradle only **adds** entries to
+   an existing file, so first delete everything **inside** `<components>…</components>` of
+   `gradle/verification-metadata.xml` (keep the header comment and the `<configuration>` block with the trust rule),
+   then run, from `mobile/android`:
+   ```bash
+   # debug build, unit tests, lint (no extra properties; tests then run with their normal settings)
+   ./gradlew --refresh-dependencies --write-verification-metadata sha256 \
+     help :app:assembleDebug :app:testDebugUnitTest :app:lintDebug -Pnav.hostFerrostar=required
+   # release and demo builds; https://127.0.0.1:9 is the never-contacted placeholder the demo build also uses
+   ./gradlew --refresh-dependencies --write-verification-metadata sha256 \
+     help :app:assembleRelease :app:assembleDemo \
+     -Pnav.gatewayBaseUrl=https://127.0.0.1:9 -Pnav.demoTilesUrl=https://127.0.0.1:9/basemap.pmtiles
+   # the release runtime classpath lock (or: --update-locks group:module for one module)
+   ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --write-locks
+   ```
+   Do **not** use `--dry-run`: it skips task execution and misses files resolved only then (lint, aapt2,
+   `sqliteHostNatives`). `--refresh-dependencies` (or an empty `GRADLE_USER_HOME`) makes Gradle check the cached files
+   against the repositories instead of trusting an old local cache.
+3. **Review the diff** of `verification-metadata.xml` and `app/gradle.lockfile`: only the artifacts you expect are
+   added or changed. For each new or changed artifact, compare the sha256 with the checksum the publisher's repository
+   serves next to the file: the same URL plus `.sha256` (or `.sha1`) on Google Maven (host `maven.google.com`, path
+   `<group path>/<module>/<version>/<file>`) or on Maven Central (host `repo.maven.apache.org`, path
+   `maven2/<group path>/<module>/<version>/<file>`), or the checksum on the project's release page. For a `.sha1`,
+   compare the SHA-1 of the downloaded file. (Gradle fetched through Google's Maven Central mirror; checking against
+   Maven Central itself is an independent second source.)
+4. Re-run the licence notices and the native notice lists as described in §3 (`tools/gen-third-party-notices.py`,
+   `tools/fetch-native-licences.py`, `NATIVE_PINS`), and `python3 tools/check_native_provenance.py --apk <release APK>`
+   (11.4) if a native library changed.
+5. Commit the version change, `verification-metadata.xml`, `app/gradle.lockfile` and the notices **in one commit**.
+6. **Never** regenerate the metadata only to make a failing build pass. A verification failure without a planned
+   version change is treated as a possible supply-chain incident and reported to the security-engineer (11.1).
+7. **Dependabot pull requests** (once the PO enables them, SP-3) change only the version, not the metadata or the lock,
+   so they fail until a developer regenerates both on that branch with steps 2–5.
+
+**Merge rule.** Two branches that both change dependencies (for example NAV-019 and the offline stories NAV-021 to
+NAV-023) conflict in `verification-metadata.xml` and `gradle.lockfile`. Never merge these two files by hand: take one
+side, then regenerate both with step 2 after the merge, and review as in step 3.
+
+**Other operating systems.** AGP downloads `com.android.tools.build:aapt2` with an OS classifier (`linux`, `osx`,
+`windows`). The file was generated on Linux, the reference build host, so it pins the Linux `aapt2` only, and a build on
+macOS or Windows fails verification for `aapt2-<version>-osx.jar` / `-windows.jar`. To build there, add that one entry in
+a reviewed commit (step 2 on that machine, then step 3 against Google Maven's `.sha256`); never make the build lenient
+for it.
+
+### 11.3 Gradle wrapper checksum (WS-8)
+
+`gradle/wrapper/gradle-wrapper.jar` must be the wrapper JAR Gradle published for the version in `distributionUrl`
+(8.14.3). Checked on **2026-10-08**:
+
+| File | Expected sha256 | Source |
+|---|---|---|
+| `gradle/wrapper/gradle-wrapper.jar` | `7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172` | `https://services.gradle.org/distributions/gradle-8.14.3-wrapper.jar.sha256` |
+| `gradle-8.14.3-bin.zip` (`distributionSha256Sum` in `gradle-wrapper.properties`) | `bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531` | `https://services.gradle.org/distributions/gradle-8.14.3-bin.zip.sha256` |
+
+Both values equal Gradle's published files. `distributionSha256Sum` and `validateDistributionUrl=true` make the wrapper
+refuse a different distribution. Repeat the check at every Gradle upgrade (with the new version number):
+
+```bash
+cd mobile/android
+sha256sum gradle/wrapper/gradle-wrapper.jar
+curl -sSfL https://services.gradle.org/distributions/gradle-8.14.3-wrapper.jar.sha256; echo
+grep distributionSha256Sum gradle/wrapper/gradle-wrapper.properties
+curl -sSfL https://services.gradle.org/distributions/gradle-8.14.3-bin.zip.sha256; echo
+```
+
+If the JAR differs, regenerate it with
+`./gradlew wrapper --gradle-version 8.14.3 --gradle-distribution-sha256-sum <the value in gradle-wrapper.properties>`
+and compare again. Update this table in the same commit.
+
+### 11.4 Where the native libraries come from
+
+Every `.so` file in the release APK (`unzip -l app/build/outputs/apk/release/app-release-unsigned.apk 'lib/*'`,
+2026-10-08). None is built by this team: each comes prebuilt inside the named Maven artifact. There is no separate C++
+runtime (`libc++_shared.so`): the libraries link it statically.
+
+| File | ABIs | Maven artifact (version) | Publisher | Upstream source | Who builds the binary | Note (AN-2) |
+|---|---|---|---|---|---|---|
+| `libmaplibre.so` | arm64-v8a, armeabi-v7a, x86, x86_64 | `org.maplibre.gl:android-sdk` (13.6.1) | MapLibre (open-source community organisation) | https://github.com/maplibre/maplibre-native | the publisher (MapLibre's release builds), not this team | community project with several maintainers |
+| `libferrostar.so` | arm64-v8a, armeabi-v7a, x86, x86_64 | `com.stadiamaps.ferrostar:core` (0.57.0) | Stadia Maps | https://github.com/stadiamaps/ferrostar | the publisher (Stadia Maps' release builds), not this team | **small team** (one company) |
+| `libvalhalla-wrapper.so` | arm64-v8a, armeabi-v7a, x86, x86_64 | `io.github.rallista:valhalla-mobile` (0.6.3) | Rallista | https://github.com/Rallista/valhalla-mobile | the publisher (upstream `build.sh` with the Android NDK in CI), not this team | **single maintainer** (ADR-0017); the largest native trust risk |
+| `libsqliteJni.so` | arm64-v8a, armeabi-v7a, x86, x86_64 | `androidx.sqlite:sqlite-bundled-android` (2.5.2, through `androidx.sqlite:sqlite-bundled`) | Google (AndroidX) | https://github.com/androidx/androidx (mirror of AOSP `platform/frameworks/support`) | Google's AndroidX build, not this team | |
+| `libjnidispatch.so` | arm64-v8a, armeabi, armeabi-v7a, mips, mips64, x86, x86_64 | `net.java.dev.jna:jna` (5.18.1, `@aar`) | Java Native Access project | https://github.com/java-native-access/jna | the JNA maintainers (prebuilt per-platform binaries in the source repository's `lib/native/`), not this team | **small team** |
+| `libandroidx.graphics.path.so` | arm64-v8a, armeabi-v7a, x86, x86_64 | `androidx.graphics:graphics-path` (1.0.1, through Compose) | Google (AndroidX) | https://github.com/androidx/androidx (mirror of AOSP `platform/frameworks/support`) | Google's AndroidX build, not this team | |
+| `libdatastore_shared_counter.so` | arm64-v8a, armeabi-v7a, x86, x86_64 | `androidx.datastore:datastore-core-android` (1.2.1, through `androidx.datastore:datastore-preferences`) | Google (AndroidX) | https://github.com/androidx/androidx (mirror of AOSP `platform/frameworks/support`) | Google's AndroidX build, not this team | |
+
+The publishers' build pipelines were not inspected for this table (the GitHub API was not reachable from the build
+machine on 2026-10-08); the column records who produces the binary, as AN-2 asks, not an audit of their CI.
+
+**Check:** `python3 tools/check_native_provenance.py --apk app/build/outputs/apk/release/app-release-unsigned.apk`
+compares the set of file names under `lib/` in the APK with the first column of this table and fails on any difference.
+Run it with the §3 checks after a dependency change.
+
+**Test only, not shipped** (JVM unit tests on the build machine; nothing of it is packaged into any APK):
+
+- host `libferrostar.so`: built on this machine by `tools/build-host-ferrostar.sh` from the crates.io crate
+  `ferrostar-0.57.0.crate` (checksum checked) into `~/.cache/navmn/ferrostar-host/0.57.0/` (§3, M-1);
+- `natives/<os>/libsqliteJni.*` from `androidx.sqlite:sqlite-bundled-jvm` (2.5.2), extracted by
+  `extractSqliteHostNatives` (§10.2);
+- the desktop `libjnidispatch` inside `net.java.dev.jna:jna` (5.18.1, plain jar) that JNA loads in JVM tests.
+
+### 11.5 Known gaps (what verification does not cover)
+
+- **Robolectric's `android-all`** jars are downloaded at test time by Robolectric itself (from Google's Maven Central
+  mirror, §3), not by Gradle, so the verification file does not check them.
+- **The host crates** that `tools/build-host-ferrostar.sh` compiles with cargo (WS-17): only the top crate's checksum is
+  checked by the script; its dependency crates come from crates.io through cargo's own `Cargo.lock` checksums. They are
+  used by JVM tests only.
+- **Trust on first use.** The checksums pin the files the repositories served on 2026-10-08. They show that a file has
+  not changed since; they do not prove that the publishers' builds were trustworthy (PGP signature verification is out
+  of scope). The single-maintainer and small-team risk in 11.4 is documented, not removed.
+- **`aapt2` on macOS and Windows** is not pinned yet (11.2, "Other operating systems").

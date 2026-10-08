@@ -17,8 +17,9 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0015: Android route preview points (chosen start, swap) and turn list (NAV-018)
 - ADR-0016: Android demo build (offline replay through the real guidance engine, NAV-019)
 - ADR-0017: offline Mongolia pack for Android (PMTiles monthly, Valhalla graph + SQLite search DB weekly, per-file versioned; online first with on-device routing and search as fallback; engine in a separate process). **Accepted** (PO 2026-10-04); openapi 0.6.0 `packs` operations
+- ADR-0018: client security hardening (SEC-4B): per-build CSP meta tag with build-time hashes and a header policy that carries only `frame-ancestors`; strict Gradle dependency verification (sha256) and a strict lock on the Android release runtime classpath. No contract change
 
-HTTP contract: `api/openapi.yaml` 0.6.1 (0.6.0 added the `packs` operations; 0.6.1 is documentation only). Task breakdowns per story: `tasks/` (NAV-020 to NAV-023).
+HTTP contract: `api/openapi.yaml` 0.6.1 (0.6.0 added the `packs` operations; 0.6.1 is documentation only). Task breakdowns per story: `tasks/` (NAV-020 to NAV-023, SEC-4B).
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 

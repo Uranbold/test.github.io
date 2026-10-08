@@ -239,6 +239,8 @@ export function isDemoMode(mode: string, webRoot: string): boolean {
  *  - demo mode only: relative base "./" (any sub-folder, AC 2), no module preload and one CSS file (no runtime-created
  *    `<link crossorigin>`, ADR-0011 W5/W7), repo files readable by the dev server, the demo index.html and the route
  *    emitter. Public builds keep base "/" (ADR-0004 §4).
+ * The label-rule fixture page is left out of every build by vite.config.ts (noFixturesInBuild, SEC-4B AC 13), the demo
+ * build included (ADR-0011 §2).
  */
 export function demoModePlugins(o: { webRoot: string; repoRoot: string; parseStaticDemo: (raw: string | undefined) => boolean | null }): Plugin[] {
   const demoOnly = (p: Plugin): Plugin => ({ ...p, apply: (_c, env) => isDemoMode(env.mode, o.webRoot) });
@@ -252,11 +254,6 @@ export function demoModePlugins(o: { webRoot: string; repoRoot: string; parseSta
           define: { __NAVMN_DEMO_MODE__: JSON.stringify(demo) },
           ...(demo ? { base: "./", build: { modulePreload: false, cssCodeSplit: false }, server: { fs: { allow: [o.repoRoot] } } } : {}),
         };
-      },
-      configResolved(config) {
-        // ADR-0011 §2: the NAV-002 label-rule fixture page is not part of the demo-mode build.
-        const input = config.build.rollupOptions.input;
-        if (isDemoMode(config.mode, o.webRoot) && input && typeof input === "object" && !Array.isArray(input)) delete (input as Record<string, string>).labelRule;
       },
     },
     demoOnly(demoHtml()),

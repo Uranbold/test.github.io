@@ -351,6 +351,21 @@ export async function openDemo(page, cfg = {}, folder = 'a') {
   await waitPicker(page);
 }
 
+/**
+ * Hides the MapLibre canvas for logic replays (visibility only: tiles still load, layout unchanged). Software WebGL
+ * painting dominates the wall time on this machine (measured 0.6 s vs 0.2 s per replay second).
+ */
+export async function hideCanvas(page) {
+  // SEC-4B (2026-10-08): the build's meta CSP allows only hashed inline styles, so page.addStyleTag (an inline <style>)
+  // is refused. A constructable stylesheet (CSSOM, document.adoptedStyleSheets) is not an inline style and is not subject
+  // to style-src; it keeps the old semantics (one rule, also matches canvases created later). Never bypassCSP.
+  await page.evaluate(() => {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync('.maplibregl-canvas{visibility:hidden !important}');
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  });
+}
+
 export async function waitPicker(page, maxMs = 30_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < maxMs) {
@@ -506,7 +521,7 @@ async function fullReplayLive(browser, project, opts) {
   await openDemo(page, { voices: opts.voices ?? [], lang: opts.lang ?? 'mn', ...(opts.cfg ?? {}) });
   // Logic replays: the map canvas is not painted (visibility only; tiles still load, layout unchanged). Software WebGL
   // painting dominates the wall time on this machine (measured 0.6 s vs 0.2 s per replay second).
-  if (opts.hideCanvas !== false) await page.addStyleTag({ content: '.maplibregl-canvas{visibility:hidden !important}' });
+  if (opts.hideCanvas !== false) await hideCanvas(page);
   await selectRoute(page, opts.label);
   await startReplay(page, opts.period ?? 1000);
   const total = opts.seconds ?? ROUTES[opts.label].length + 15;

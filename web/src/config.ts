@@ -44,22 +44,53 @@ export const SAME_ORIGIN = "same-origin";
 const stripTrailingSlashes = (s: string): string => s.replace(/\/+$/, "");
 
 /**
- * Resolves VITE_GATEWAY_BASE_URL against the page origin:
- *  - "same-origin" (any case) or "/"          → `origin` (so is "//" etc.)
- *  - "/path" (one leading slash)              → `origin` + "/path"
+ * Where VITE_GATEWAY_BASE_URL points, before the page origin is known. The one rule shared by the runtime
+ * (resolveGatewayBaseUrl) and the build-time Content-Security-Policy (gatewayConnectOrigin, SEC-4B / ADR-0018 §2), so the
+ * policy and the requests can never drift apart:
+ *  - "same-origin" (any case) or "/"          → the page origin (so is "//" etc.)
+ *  - "/path" (one leading slash)              → the page origin + "/path"
  *  - an absolute URL                          → that URL (trailing slashes trimmed)
  *  - unset or empty                           → `fallback` (http://localhost:8080 unless the static demo is on)
  */
+export type GatewayTarget = { kind: "page"; path: string } | { kind: "absolute"; url: string };
+
+export function gatewayTarget(raw: string | undefined | null, fallback: string = DEFAULT_GATEWAY_BASE_URL): GatewayTarget {
+  const trimmed = (raw ?? "").trim();
+  if (trimmed === "") return fallback === SAME_ORIGIN ? { kind: "page", path: "" } : { kind: "absolute", url: normalizeGatewayBaseUrl(fallback) };
+  if (trimmed.toLowerCase() === SAME_ORIGIN || /^\/+$/.test(trimmed)) return { kind: "page", path: "" };
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return { kind: "page", path: stripTrailingSlashes(trimmed) };
+  return { kind: "absolute", url: normalizeGatewayBaseUrl(trimmed) };
+}
+
+/** Resolves VITE_GATEWAY_BASE_URL against the page origin (rules: gatewayTarget). */
 export function resolveGatewayBaseUrl(
   raw: string | undefined | null,
   origin: string,
   fallback: string = DEFAULT_GATEWAY_BASE_URL,
 ): string {
-  const trimmed = (raw ?? "").trim();
-  if (trimmed === "") return fallback === SAME_ORIGIN ? stripTrailingSlashes(origin) : normalizeGatewayBaseUrl(fallback);
-  if (trimmed.toLowerCase() === SAME_ORIGIN || /^\/+$/.test(trimmed)) return stripTrailingSlashes(origin);
-  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return stripTrailingSlashes(origin) + stripTrailingSlashes(trimmed);
-  return normalizeGatewayBaseUrl(trimmed);
+  const t = gatewayTarget(raw, fallback);
+  return t.kind === "page" ? stripTrailingSlashes(origin) + t.path : t.url;
+}
+
+/** The gateway fallback for an unset VITE_GATEWAY_BASE_URL: the static demo is served next to its basemap archive. */
+export function gatewayFallback(staticDemo: boolean): string {
+  return staticDemo ? SAME_ORIGIN : DEFAULT_GATEWAY_BASE_URL;
+}
+
+/**
+ * SEC-4B (ADR-0018 §2): the origin a build connects to for the gateway, for the CSP `connect-src`; `null` when the
+ * gateway is the page origin (`'self'`). Same inputs and fallback as loadConfig. Throws when an absolute value is not an
+ * http(s) URL, so a value the policy cannot express fails the build instead of shipping a page that cannot load tiles.
+ */
+export function gatewayConnectOrigin(env: Pick<ConfigEnv, "VITE_GATEWAY_BASE_URL" | "VITE_STATIC_DEMO">): string | null {
+  const staticDemo = parseStaticDemo(env.VITE_STATIC_DEMO) ?? true;
+  const t = gatewayTarget(env.VITE_GATEWAY_BASE_URL, gatewayFallback(staticDemo));
+  if (t.kind === "page") return null;
+  const u = URL.canParse(t.url) ? new URL(t.url) : null;
+  if (!u || (u.protocol !== "http:" && u.protocol !== "https:")) {
+    throw new Error(`VITE_GATEWAY_BASE_URL=${JSON.stringify(env.VITE_GATEWAY_BASE_URL)} is not an http(s) URL, "same-origin" or a path starting with "/" (web/.env.example)`);
+  }
+  return u.origin;
 }
 
 // ---------------------------------------------------------------- static demo and feature switches (NAV-002 AC 53–54)
@@ -111,7 +142,7 @@ export interface ConfigEnv {
 export function loadConfig(env: ConfigEnv, origin: string, documentBaseUri?: string): AppConfig {
   const staticDemo = parseStaticDemo(env.VITE_STATIC_DEMO) ?? true;
   // The static demo is served next to its basemap archive, so an unset gateway URL means the page origin there.
-  const gatewayBaseUrl = resolveGatewayBaseUrl(env.VITE_GATEWAY_BASE_URL, origin, staticDemo ? SAME_ORIGIN : DEFAULT_GATEWAY_BASE_URL);
+  const gatewayBaseUrl = resolveGatewayBaseUrl(env.VITE_GATEWAY_BASE_URL, origin, gatewayFallback(staticDemo));
   return {
     gatewayBaseUrl,
     tilesUrl: tilesUrl(gatewayBaseUrl),
