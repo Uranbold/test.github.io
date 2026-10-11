@@ -54,7 +54,8 @@ Secondary personas:
    - `object-src 'none'` and `base-uri 'none'` (or `'self'`) are present;
    - `form-action 'none'` is present (the pages have no form that submits);
    - `connect-src` is `'self'` in B1 and B2 (0 other hosts, NAV-002 AC 46 / AC 53, NAV-017 AC 42). In B3 it is `'self'` plus **exactly** the origin of `VITE_GATEWAY_BASE_URL` when that value is an absolute URL, read from the build environment (never written into a committed file);
-   - `img-src` may add only `data:` and `blob:`; `worker-src` may add only `blob:` (if MapLibre GL JS needs a blob worker); no directive contains `*` or a host name.
+   - `img-src` may add only `data:` and `blob:`; `worker-src` may add only `blob:` (if MapLibre GL JS needs a blob worker); no directive contains `*` or a host name;
+   - `media-src` is `'self' data:` in **B2 only** (the demo-mode voice chime is a runtime-generated `data:audio/wav` source primed when «Эхлэх» is pressed; ADR-0018 F6). In B1 and B3 there is **no** `media-src` directive (it falls back to `default-src`) and the policy contains **0** `data:` sources outside `img-src`.
 6. **Given** the meta policy of any build, **When** it is read, **Then** it contains **none** of `frame-ancestors`, `report-uri`, `report-to` or `sandbox` (ignored in a meta tag; `frame-ancestors` is set as a response header, AC 19).
 7. **Given** a build, **When** its HTML is generated, **Then** the hashes are **computed at build time from the final bytes** of each inline `<script>` and `<style>` element (after minification and every `transformIndexHtml` step). Nobody maintains a hash by hand.
 8. **Given** a build whose output HTML has an inline `<script>` or `<style>` whose hash is not in the policy (for example a plugin added one after the hash step), **When** the build runs, **Then** it **fails** with a message naming the file and the element. A unit test in `web/` proves this with a fixture.
@@ -164,7 +165,7 @@ Secondary personas:
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
 |---|---|---|---|---|---|
-| AC 1–10 | n/a | n/a | `web/vite.config.ts`, `web/buildtools/**` (CSP plugin and build check), `web/index.html` | `web/src/**` build test (mobile); AC 17–18 spec (QA) | WS-1 |
+| AC 1–10 | n/a | n/a | `web/vite.config.ts`, `web/buildtools/**` (CSP plugin and build check), `web/index.html` | `web/src/**` build test (mobile); AC 17–18 spec (QA) | WS-1; AC 5 B2 `media-src` per ADR-0018 F6 (change log 2026-10-11) |
 | AC 11–12 | n/a | n/a | `web/vite.config.ts` / `web/buildtools/demoMode.ts` | build test (mobile) | WS-1; NAV-017 AC 3 |
 | AC 13–15 | n/a | n/a | `web/vite.config.ts` (`rollupOptions.input`), HTML comment strip | build test (mobile); `tests/e2e/nav002/basemap.test.mjs` TC-08-01 | WS-13, WS-16 |
 | AC 16 | n/a | n/a | — | existing web suites | — |
@@ -179,3 +180,4 @@ Secondary personas:
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-08 | triage log 2026-10-08 (SEC-4 row); PO "Go" 2026-10-08 | Created: 34 AC in sections A–I, one non-blocking open question (HSTS value) | Client part (B) of the SEC-4 split; D215 release gate for WS-1 and AN-2; WS-8, WS-13 and WS-16 added by the PO-confirmed scope |
+| 2026-10-11 | Follow-up from the SEC-2 change-request review; ADR-0018 F6 (request to BA in Consequences) | **AC 5:** new bullet allowing `media-src 'self' data:` in the **B2** demo-mode build only; B1 and B3 have no `media-src` directive and no `data:` source outside `img-src`. Traceability AC 1–10 notes F6. No other AC changed | B2 primes an `HTMLAudioElement` with a runtime-generated `data:audio/wav` chime when «Эхлэх» is pressed; without `media-src data:` Chromium reports a CSP violation (which would fail AC 17). This matches what shipped and was tested (ADR-0018 §2 policy matrix). No behaviour or user-facing string changes |
