@@ -22,9 +22,12 @@ Groups (default: smoke):
   logs       No PII in logs: sends requests with marker coordinates/text, then greps service logs (needs --compose-dir)
   stats      AC 39 steady-state memory and data/ size (needs --compose-dir)
   sec2       SEC-2 route request limits, AC 44-47 (POST and GET ?json=); also part of full. Read-only, ~45 requests
-  ac48       AC 48 Valhalla timeout: run against a gateway whose Valhalla has VALHALLA_TIMEOUT_SECONDS=1 and is slow
-             enough to hit it (tests/api/nav001/sec2-harness.sh valhalla-slow). If no request runs over 1 s, the AC 48
-             asserts are SKIPPED with the reason (precondition not met), never passed
+  ac48       AC 48 (amended 2026-10-11): isolated gateway (isolated-gateway.sh) in front of the QA stub, which replays
+             Valhalla 3.9.0's timeout answer (504, plain text, no Content-Type; modes timeout = 2 s delay, timeoutnow).
+             POST, GET and no-delay must become 504 UpstreamTimeout JSON <= 3 s with single CORS headers. Fails its
+             precondition check if the upstream is not the QA stub. One command: sec2-harness.sh ac48-run
+  ac48-real  AC 48 INFO bullet: gateway whose Valhalla has VALHALLA_TIMEOUT_SECONDS=1 (sec2-harness.sh valhalla-slow);
+             P1->X1 pedestrian and L1->L2 auto alternates=2 as INFO lines; only a 504 that occurs is shape-checked
   ac48-hang  AC 48 last sentence: an upstream that never answers ends as 504 UpstreamTimeout JSON after the 10 s gateway
              read timeout (sec2-harness.sh stub upstream, mode hang)
   ac49-ip    AC 49 per-IP cap: 4 slow requests in flight from one IP, the 5th (POST and GET) gets 503 RoutingBusy within
@@ -712,27 +715,66 @@ class Nav001:
         self.r.check(cid + ".within", r.elapsed <= hi_s, f"<= {hi_s:g} s from the request start", f"{r.elapsed:.2f} s")
         self._cors_once(cid, r)
 
+    # The QA stub's 200 body has distance 1 (stub-upstream/stub.js); real Valhalla never answers P1->P3 with 1 m.
+    def _behind_qa_stub(self):
+        body = self.c.route_body("P1", "P3")
+        body["qa_stub"] = "probe"
+        r = self.c.request("POST", "/v1/route", body, headers={"Origin": ORIGIN}, timeout=10)
+        j = r.json() if isinstance(r.json(), dict) else {}
+        routes = j.get("routes") or [{}]
+        return r.status == 200 and routes[0].get("distance") == 1, f"{r.status} {r.body[:90]!r}"
+
     def ac48(self):
+        """AC 48 (amended 2026-10-11, commit 58e65aa): the gateway shapes Valhalla 3.9.0's own timeout answer (504,
+        plain text "The server didn't respond in time", no Content-Type) into 504 GatewayError UpstreamTimeout JSON.
+        Runs against tests/api/nav001/isolated-gateway.sh with QA_VALHALLA_UPSTREAM pointed at the QA stub
+        (sec2-harness.sh stub-up, or sec2-harness.sh ac48-run which does all of it)."""
+        ok, got = self._behind_qa_stub()
+        self.r.check("AC48.precondition_isolated_gateway_with_qa_stub", ok,
+                     "the /v1/route upstream is the QA stub (tests/api/nav001/isolated-gateway.sh with "
+                     "QA_VALHALLA_UPSTREAM=qa-sec2-upstream:8002; see sec2-harness.sh ac48-run)", got)
+        if not ok:
+            return
         h = {"Origin": ORIGIN}
-        used, r = None, None
+        for cid, mode, method, delay in (("AC48", "timeout", "POST", 2.0), ("AC48.GET", "timeout", "GET", 2.0),
+                                         ("AC48.nodelay", "timeoutnow", "POST", 0.0)):
+            body = self.c.route_body("P1", "P3")
+            body["qa_stub"] = mode
+            if method == "GET":
+                r = self.c.route_get(body, headers=h, timeout=15)
+            else:
+                r = self.c.request("POST", "/v1/route", body, headers=h, timeout=15)
+            self.r.note(cid + ".stub_replay", f"Valhalla 3.9.0 timeout replay (504, text/plain body, no Content-Type), "
+                                              f"stub delay {delay:g} s, {method}: HTTP {r.status} in {r.elapsed * 1000:.0f} ms")
+            self._timeout_shape(cid, r, 3)
+            self.r.check(cid + ".not_stub_body", b"didn't respond in time" not in r.body,
+                         "the stub's plain-text body is not passed through", r.body[:80])
+            self.r.check(cid + ".never_later_than_10s", r.elapsed <= 10, "<= 10 s", f"{r.elapsed:.2f} s")
+
+    def ac48_real(self):
+        """AC 48 INFO bullet: real Valhalla with VALHALLA_TIMEOUT_SECONDS=1. Never a pass/fail on its own; only if a
+        504 does occur its JSON shape is checked (a mismatch is a defect in the story's fix loop)."""
+        h = {"Origin": ORIGIN}
+        got504 = None
         for name, body in (("P1_X1_pedestrian", self.c.route_body("P1", "X1", costing="pedestrian")),
                            ("L1_L2_auto_alternates_2", self.c.route_body("L1", "L2", alternates=2))):
             r = self.c.request("POST", "/v1/route", body, headers=h, timeout=15)
-            self.r.note(f"AC48.try_{name}", f"HTTP {r.status} in {r.elapsed * 1000:.0f} ms")
-            if r.status != 200:
-                used = name
-                break
-        if used is None:
-            for cid in ("AC48.status_504", "AC48.json_UpstreamTimeout", "AC48.within", "AC48.cors_once"):
-                self.r.skip(cid, "precondition not met: no request ran over the Valhalla timeout (both answered 200); "
-                                 "start Valhalla with VALHALLA_TIMEOUT_SECONDS=1 and a CPU limit (sec2-harness.sh valhalla-slow)")
+            self.r.note(f"AC48.real.{name}", f"HTTP {r.status} in {r.elapsed * 1000:.0f} ms")
+            if r.status == 504 and got504 is None:
+                got504 = (name, r)
+        if got504 is None:
+            self.r.note("AC48.real.no_504", "no request ran past the Valhalla timeout; informational, does not fail AC 48")
             return
-        self.r.note("AC48.request_used", used)
-        self._timeout_shape("AC48", r, 3)
-        self.r.check("AC48.never_later_than_10s", r.elapsed <= 10, "<= 10 s", f"{r.elapsed:.2f} s")
+        name, r = got504
+        j = r.json()
+        ctype = (r.header("content-type") or "").split(";")[0].strip()
+        self.r.check("AC48.real.504_json_UpstreamTimeout", ctype == "application/json" and isinstance(j, dict)
+                     and j.get("code") == "UpstreamTimeout", "504 application/json {code: UpstreamTimeout}",
+                     f"{name}: {r.header('content-type')!r} {r.body[:100]!r}")
+        self._cors_once("AC48.real", r)
         time.sleep(1)
         r2 = self.c.request("POST", "/v1/route", self.c.route_body("P1", "P3"), headers=h, timeout=15)
-        self.r.note("AC48.P1_P3_1s_after_504", f"HTTP {r2.status} in {r2.elapsed * 1000:.0f} ms (informational: worker release, ADR-0019)")
+        self.r.note("AC48.real.P1_P3_1s_after_504", f"HTTP {r2.status} in {r2.elapsed * 1000:.0f} ms (informational: worker release, ADR-0019)")
 
     def ac48_hang(self):
         body = self.c.route_body("P1", "P3")
@@ -967,6 +1009,8 @@ class Nav001:
             self.sec2()
         if "ac48" in groups:
             self.ac48()
+        if "ac48-real" in groups:
+            self.ac48_real()
         if "ac48-hang" in groups:
             self.ac48_hang()
         if "ac49-ip" in groups:
@@ -981,7 +1025,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8080"))
     ap.add_argument("--group", action="append", choices=["smoke", "full", "perf", "ac43", "cors-allowlist", "tiles-missing", "outage", "logs", "stats",
-                                                   "sec2", "ac48", "ac48-hang", "ac49-ip", "ac49-global", "ac49-live"])
+                                                   "sec2", "ac48", "ac48-real", "ac48-hang", "ac49-ip", "ac49-global", "ac49-live"])
     ap.add_argument("--compose-dir", help="backend/ directory (for outage, logs, stats)")
     ap.add_argument("--compose-project", help="docker compose project name if not the default")
     ap.add_argument("--json-out", help="write results as JSON here")

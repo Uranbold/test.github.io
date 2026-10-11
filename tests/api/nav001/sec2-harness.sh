@@ -8,6 +8,10 @@
 #                                                            # VALHALLA_TIMEOUT_SECONDS=1 and --cpus CPUS (default 0.02), so
 #                                                            # a normal request runs past 1 s and hits Valhalla's own timeout
 #   tests/api/nav001/sec2-harness.sh down
+#   tests/api/nav001/sec2-harness.sh ac48-run [PORT]         # AC 48 in one command: stub-up, isolated gateway on PORT
+#                                                            # (default 18281) with QA_VALHALLA_UPSTREAM=qa-sec2-upstream:8002,
+#                                                            # checks.py --group ac48 --group ac48-hang, then stop + down
+#                                                            # (always, also on failure). Exit code = checks.py's
 #
 # Then, for example (AC 49 per IP, default cap 4/8):
 #   QA_VALHALLA_UPSTREAM=qa-sec2-upstream:8002 QA_EXTRA_NETWORK=navmn_default \
@@ -42,5 +46,13 @@ case "${1:-}" in
     wait_status qa-sec2-valhalla 240 && { echo "qa-sec2-valhalla:8002 up (cpus $cpus)"; docker logs qa-sec2-valhalla 2>&1 | grep -m1 'route limits applied' || true; } ;;
   down)
     docker rm -f qa-sec2-upstream qa-sec2-valhalla >/dev/null 2>&1 || true ;;
-  *) sed -n '2,17p' "$0"; exit 2 ;;
+  ac48-run)
+    port="${2:-18281}"
+    trap 'docker rm -f qa-sec2-upstream >/dev/null 2>&1 || true; "$here/isolated-gateway.sh" stop qa-gw-ac48' EXIT
+    "$0" stub-up
+    QA_VALHALLA_UPSTREAM=qa-sec2-upstream:8002 "$here/isolated-gateway.sh" start qa-gw-ac48 "$port" "$be/gateway/templates" "$be/data"
+    rc=0
+    python3 "$here/checks.py" --base-url "http://localhost:$port" --group ac48 --group ac48-hang ${QA_JSON_OUT:+--json-out "$QA_JSON_OUT"} || rc=$?
+    exit "$rc" ;;
+  *) sed -n '2,21p' "$0"; exit 2 ;;
 esac

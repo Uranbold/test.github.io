@@ -21,6 +21,11 @@
 #   QA_VALHALLA_UPSTREAM   upstream for /v1/route (default valhalla:8002), e.g. the QA stub qa-sec2-upstream:8002
 #   QA_EXTRA_NETWORK       also attach the gateway to this network (e.g. navmn_default, so photon:2322 resolves)
 #   GATEWAY_ROUTE_MAX_INFLIGHT, GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP   passed through when set (17-route-limits.sh)
+# SEC-4A (final QA 2026-10-11):
+#   GATEWAY_RATE_LIMIT, GATEWAY_REAL_IP_FROM, GATEWAY_RATE_*, GATEWAY_BURST_*, GATEWAY_PACKS_*, GATEWAY_TILES_*
+#                          passed through when set (16-rate-limits.sh, 18-download-limits.sh)
+#   QA_PACKS_DIR           mounted read-only at /srv/packs like compose.slots.yaml (a pack tree: mn/manifest.json +
+#                          mn/<slot-id>/*.gz), so /packs/ can be tested without the NAV-020 slot project
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 be="$(cd "$here/../../../backend" && pwd)"
@@ -28,7 +33,7 @@ net=navmn-qa-iso
 image="$(sed -n 's/^ *image: \${GATEWAY_IMAGE:-\([^}]*\)}.*/\1/p' "$be/compose.yaml" | head -1)"
 
 cmd="${1:-}"; name="${2:-}"
-[ -n "$cmd" ] && [ -n "$name" ] || { sed -n '2,23p' "$0"; exit 2; }
+[ -n "$cmd" ] && [ -n "$name" ] || { sed -n '2,28p' "$0"; exit 2; }
 case "$cmd" in
   start)
     port="$3"; tpl="$(cd "$4" && pwd)"; data="$(cd "$5" && pwd)"; cors="${6:-*}"
@@ -39,9 +44,13 @@ case "$cmd" in
     extra=()
     [ -d "$be/gateway/njs" ] && extra+=(-v "$be/gateway/njs:/etc/nginx/njs:ro")
     for f in "$be"/gateway/entrypoint/*.sh; do extra+=(-v "$f:/docker-entrypoint.d/$(basename "$f"):ro"); done
-    for k in GATEWAY_ROUTE_MAX_INFLIGHT GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP; do
+    for k in GATEWAY_ROUTE_MAX_INFLIGHT GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP GATEWAY_RATE_LIMIT GATEWAY_REAL_IP_FROM \
+             GATEWAY_RATE_ROUTE GATEWAY_BURST_ROUTE GATEWAY_RATE_SEARCH GATEWAY_BURST_SEARCH GATEWAY_RATE_PACKS GATEWAY_BURST_PACKS \
+             GATEWAY_PACKS_MAX_CONN_PER_IP GATEWAY_PACKS_MAX_CONN GATEWAY_PACKS_LIMIT_RATE_AFTER GATEWAY_PACKS_LIMIT_RATE \
+             GATEWAY_TILES_LIMIT_RATE_AFTER GATEWAY_TILES_LIMIT_RATE GATEWAY_TILES_MAX_CONN_PER_IP; do
       if [ -n "${!k:-}" ]; then extra+=(-e "$k=${!k}"); fi
     done
+    if [ -n "${QA_PACKS_DIR:-}" ]; then extra+=(-v "$(cd "$QA_PACKS_DIR" && pwd):/srv/packs:ro"); fi
     docker run -d --name "$name" --network "$net" -p "127.0.0.1:$port:8080" \
       -e CORS_ALLOWED_ORIGINS="$cors" -e GATEWAY_ERROR_LOG_LEVEL=crit \
       -e VALHALLA_UPSTREAM="${QA_VALHALLA_UPSTREAM:-valhalla:8002}" -e PHOTON_UPSTREAM=photon:2322 -e NGINX_ENTRYPOINT_QUIET_LOGS=1 \
