@@ -107,7 +107,7 @@ class Env:
         p.begin()
         return p
 
-    def add_slot(self, sid, tiles_seed=b"t", tar_seed=b"r", activate=True):
+    def add_slot(self, sid, tiles_seed=b"t", tar_seed=b"r", activate=True, hashes=True):
         s = self.root / "slots" / sid
         for d in ("tiles", "valhalla", "sources"):
             (s / d).mkdir(parents=True, exist_ok=True)
@@ -117,7 +117,8 @@ class Env:
         (s / "build-info.json").write_text(json.dumps({
             "osm": {"http_last_modified": "Tue, 29 Sep 2026 08:02:53 GMT"},
             "photon_dump": {"data_timestamp": "2026-09-26T22:59:05.000+00:00"}, "versions": {"valhalla": "3.9.0"}}))
-        (s / ".slot-complete").write_text("{}\n")
+        # SEC-4A BE-5: the build records the pack sources' sha256 (hashes=False = a slot built before SEC-4A)
+        (s / ".slot-complete").write_text(json.dumps({"slot": sid, **({"sha256": nav.slot_hashes(s)} if hashes else {})}) + "\n")
         if activate:
             (self.root / "pointer" / "public").mkdir(parents=True, exist_ok=True)
             nav.write_pointer(self.root / "pointer" / "public" / "active.json", sid, "blue")
@@ -552,6 +553,30 @@ class StepTests(PackBase):
         rec, _ = self.publish(step_cls=NoRoute)
         self.assertEqual(rec["result"], "failed (self-test)")
         self.assertEqual(len(self.env.alert_lines()), 3)
+
+    def test_slot_file_hashes_are_verified(self):
+        """SEC-4A BE-5: the pack refuses slot files whose bytes differ from the build-time sha256, and slots
+        without recorded hashes (built before SEC-4A); nothing is published, the alert hook runs."""
+        s = self.env.add_slot(slot_id(10), hashes=False)
+        rec, _ = self.publish()
+        self.assertEqual((rec["result"], rec["step"]), ("failed (build)", "copy"))
+        self.assertIn("no build-time sha256", rec["reason"])
+        self.assertFalse((self.env.root / "packs" / "mn" / "manifest.json").exists())
+        # recorded at build time, then the routing graph changes in the slot (e.g. written by a compromised lane)
+        (s / ".slot-complete").write_text(json.dumps({"sha256": nav.slot_hashes(s)}) + "\n")
+        tar = s / "valhalla" / "valhalla_tiles.tar"
+        tar.write_bytes(tar.read_bytes()[:-1] + b"X")
+        rec, _ = self.publish()
+        self.assertEqual((rec["result"], rec["step"]), ("failed (build)", "copy"))
+        self.assertIn("valhalla/valhalla_tiles.tar", rec["reason"])
+        self.assertIn("changed after the build", rec["reason"])
+        self.assertFalse((self.env.root / "packs" / "mn" / "manifest.json").exists())
+        self.assertFalse(list((self.env.root / "packs" / "mn").glob("*.partial")), "partial version dir left behind")
+        self.assertEqual(len(self.env.alert_lines()), 2)
+        # with matching hashes the same slot publishes
+        (s / ".slot-complete").write_text(json.dumps({"sha256": nav.slot_hashes(s)}) + "\n")
+        rec, _ = self.publish()
+        self.assertEqual(rec["result"], "published")
 
     def test_low_disk_and_not_eligible(self):
         self.env.add_slot(slot_id(10))

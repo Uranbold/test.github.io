@@ -7,10 +7,24 @@
 #                                valhalla-build -> valhalla,  photon-import -> photon
 # Everything lives in ./data (git-ignored). Builders reuse complete artefacts (marker files)
 # and rebuild partial or outdated ones. Only the gateway publishes a port.
+#
+# SEC-4A (BE-4, BE-5, BE-8): every image is pinned as tag@sha256 (infra/ci/backend-static-checks.sh refuses
+# anything else). Every service drops all capabilities and sets no-new-privileges, with memory and PID limits
+# sized for the 16 GB staging host (table in README.md "Container hardening"). Serving services run as non-root
+# users on a read-only root file system with tmpfs where they write: gateway 101 (image user), valhalla 65534
+# (nobody), photon 101 (the JDK image's "app" user; photon-import hands data/photon to it). One-shot builders run
+# as root (they own data/) on a writable root file system (Maven, Planetiler and unzip use /tmp heavily), with
+# only the capabilities they need added back. Photon gets ./data read-only and only ./data/photon read-write.
 name: navmn
+
+x-hardened: &hardened
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
 
 x-build-env: &build-env
   BUILD_HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+  # SEC-4A BE-7: 1 = a tool checksum set to the literal value "skip" is accepted (dev escape hatch, logged).
+  ALLOW_UNVERIFIED_TOOLS: ${ALLOW_UNVERIFIED_TOOLS:-0}
   BUILD_THREADS: ${BUILD_THREADS:-}
   PROTOMAPS_COMMIT: ${PROTOMAPS_COMMIT:-42ffaaa4a85a41bfcb23e43cc0f5b492a5eca123}
   PHOTON_LANGUAGES: ${PHOTON_LANGUAGES:-mn,en,ru}
@@ -44,12 +58,17 @@ x-extra-ca: &extra-ca
 services:
   # ------------------------------------------------------------------ one-shot builders
   data-fetch:
+    <<: *hardened
     image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
     entrypoint: ["/bin/bash", "/scripts/data-fetch.sh"]
     command: ["fetch"]
+    # `clean` (make rebuild-data) deletes data/photon, which belongs to the photon user (uid 101).
+    cap_add: [DAC_OVERRIDE]
+    mem_limit: 512m
+    pids_limit: 256
     environment:
       <<: *build-env
-      OSM_PBF_URL: ${OSM_PBF_URL:-https://geo2day.com/asia/mongolia.pbf}
+      OSM_PBF_URL: ${OSM_PBF_URL:-https://download.geofabrik.de/asia/mongolia-latest.osm.pbf}
       OSM_PBF_FILE: ${OSM_PBF_FILE:-}
       PHOTON_DUMP_URL: ${PHOTON_DUMP_URL:-https://download1.graphhopper.com/public/asia/mongolia/photon-dump-mongolia-1.0-latest.jsonl.zst}
       PHOTON_DUMP_FILE: ${PHOTON_DUMP_FILE:-}
@@ -84,9 +103,13 @@ services:
     restart: "no"
 
   tiles-build:
-    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    <<: *hardened
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu@sha256:1f8b75e6a48bfb5bb4e6b367dac83b52b42f6e9d33570ca44e88ba8fd92a6321}
     entrypoint: ["/bin/bash", "/scripts/tiles-build.sh"]
     working_dir: /
+    # TILES_JAVA_OPTS -Xmx3g + Maven + Planetiler off-heap; raise together with -Xmx.
+    mem_limit: ${TILES_BUILD_MEM_LIMIT:-6g}
+    pids_limit: 1024
     environment: *build-env
     volumes: [*scripts, *data, *extra-ca]
     depends_on:
@@ -94,8 +117,11 @@ services:
     restart: "no"
 
   valhalla-build:
+    <<: *hardened
     image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
     entrypoint: ["/bin/bash", "/scripts/valhalla-build.sh"]
+    mem_limit: ${VALHALLA_BUILD_MEM_LIMIT:-4g}
+    pids_limit: 512
     environment:
       <<: *build-env
       # SEC-2: written into a fresh valhalla.json (make_config); the serve-time overlay is authoritative.
@@ -106,8 +132,13 @@ services:
     restart: "no"
 
   photon-import:
-    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    <<: *hardened
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu@sha256:1f8b75e6a48bfb5bb4e6b367dac83b52b42f6e9d33570ca44e88ba8fd92a6321}
     entrypoint: ["/bin/bash", "/scripts/photon-import.sh"]
+    # CHOWN: hand data/photon to the photon user (101); DAC_OVERRIDE: replace an index that user owns.
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    mem_limit: ${PHOTON_IMPORT_MEM_LIMIT:-3g}
+    pids_limit: 1024
     environment: *build-env
     volumes: [*scripts, *data]
     depends_on:
@@ -115,8 +146,11 @@ services:
     restart: "no"
 
   build-info:
+    <<: *hardened
     image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
     entrypoint: ["python3", "/scripts/build_info.py"]
+    mem_limit: 512m
+    pids_limit: 64
     environment: *build-env
     volumes: [*scripts, *data]
     depends_on:
@@ -127,8 +161,14 @@ services:
 
   # ------------------------------------------------------------------ long-running services
   valhalla:
+    <<: *hardened
     image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
     entrypoint: ["/bin/bash", "/scripts/valhalla-serve.sh"]
+    user: "65534:65534"
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    mem_limit: ${VALHALLA_MEM_LIMIT:-2g}
+    pids_limit: 256
     environment:
       VALHALLA_THREADS: ${VALHALLA_THREADS:-}
       # SEC-2 (ADR-0019 §2): Valhalla processing timeout, 1-9 s (invalid = the service refuses to start).
@@ -148,13 +188,25 @@ services:
     restart: unless-stopped
 
   photon:
-    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    <<: *hardened
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu@sha256:1f8b75e6a48bfb5bb4e6b367dac83b52b42f6e9d33570ca44e88ba8fd92a6321}
     entrypoint: ["/bin/bash", "/scripts/photon-serve.sh"]
+    user: "101:101"
+    read_only: true
+    # exec: OpenSearch (embedded) loads its JNA native library from /tmp; noexec disables its native methods.
+    tmpfs: ["/tmp:exec,size=256m"]
+    # PHOTON_JAVA_OPTS -Xmx1g + embedded OpenSearch off-heap; raise together with -Xmx.
+    mem_limit: ${PHOTON_MEM_LIMIT:-2g}
+    pids_limit: 512
     environment:
       PHOTON_JAVA_OPTS: ${PHOTON_JAVA_OPTS:--Xms256m -Xmx1g}
       PHOTON_DEFAULT_LANGUAGE: ${PHOTON_DEFAULT_LANGUAGE:-mn}
       PHOTON_MAX_RESULTS: ${PHOTON_MAX_RESULTS:-20}
-    volumes: [*scripts, *data]
+    volumes:
+      - *scripts
+      # SEC-4A BE-5: the data read-only; only the index directory read-write (OpenSearch lock and state files).
+      - { type: bind, source: ./data, target: /data, read_only: true }
+      - { type: bind, source: ./data/photon, target: /data/photon, bind: { create_host_path: false } }
     depends_on:
       photon-import: { condition: service_completed_successfully }
     healthcheck:
@@ -167,7 +219,14 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: ${GATEWAY_IMAGE:-ghcr.io/nginxinc/nginx-unprivileged:1.27.4-alpine}
+    <<: *hardened
+    image: ${GATEWAY_IMAGE:-ghcr.io/nginx/nginx-unprivileged:1.30.5-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3}
+    user: "101:101"
+    read_only: true
+    # conf.d is generated at start by the entrypoint scripts (envsubst template + 15/16/17/18-*.sh).
+    tmpfs: ["/tmp:uid=101,gid=101,mode=0755,size=64m", "/etc/nginx/conf.d:uid=101,gid=101,mode=0755,size=1m"]
+    mem_limit: 256m
+    pids_limit: 128
     ports:
       - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080"
     environment:
@@ -184,6 +243,14 @@ services:
       # SEC-2 /v1/route concurrency cap (entrypoint/17-route-limits.sh), always on: 503 RoutingBusy over the cap.
       GATEWAY_ROUTE_MAX_INFLIGHT: ${GATEWAY_ROUTE_MAX_INFLIGHT:-8}
       GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP: ${GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP:-4}
+      # SEC-4A BE-3 download limits (entrypoint/18-download-limits.sh), only with GATEWAY_RATE_LIMIT=on.
+      GATEWAY_PACKS_MAX_CONN_PER_IP: ${GATEWAY_PACKS_MAX_CONN_PER_IP:-2}
+      GATEWAY_PACKS_MAX_CONN: ${GATEWAY_PACKS_MAX_CONN:-64}
+      GATEWAY_PACKS_LIMIT_RATE_AFTER: ${GATEWAY_PACKS_LIMIT_RATE_AFTER:-10m}
+      GATEWAY_PACKS_LIMIT_RATE: ${GATEWAY_PACKS_LIMIT_RATE:-2m}
+      GATEWAY_TILES_LIMIT_RATE_AFTER: ${GATEWAY_TILES_LIMIT_RATE_AFTER:-4m}
+      GATEWAY_TILES_LIMIT_RATE: ${GATEWAY_TILES_LIMIT_RATE:-1m}
+      GATEWAY_TILES_MAX_CONN_PER_IP: ${GATEWAY_TILES_MAX_CONN_PER_IP:-0}
       VALHALLA_UPSTREAM: valhalla:8002
       PHOTON_UPSTREAM: photon:2322
       NGINX_ENTRYPOINT_QUIET_LOGS: "1"
@@ -195,6 +262,7 @@ services:
       - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/16-rate-limits.sh, target: /docker-entrypoint.d/16-rate-limits.sh, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/17-route-limits.sh, target: /docker-entrypoint.d/17-route-limits.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/18-download-limits.sh, target: /docker-entrypoint.d/18-download-limits.sh, read_only: true }
       - { type: bind, source: ./data, target: /srv/data, read_only: true }
     # Starts once the data is built, but NOT gated on valhalla/photon health (AC 34: one upstream down
     # must not take the gateway or the other endpoints down).

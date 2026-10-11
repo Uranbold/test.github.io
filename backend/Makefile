@@ -97,7 +97,7 @@ build-info: ## Print data/build-info.json (sources, dates, versions)
 	@cat data/build-info.json
 
 tiles-info: ## pmtiles show on the built archive (go-pmtiles image)
-	docker run --rm -v "$(CURDIR)/data/tiles:/t:ro" $${PMTILES_IMAGE:-ghcr.io/protomaps/go-pmtiles:v1.31.2} show /t/basemap.pmtiles
+	docker run --rm -v "$(CURDIR)/data/tiles:/t:ro" $${PMTILES_IMAGE:-ghcr.io/protomaps/go-pmtiles:v1.31.2@sha256:06574f01f55a78f78f887bc7ebf729a5c093c0d6e17d9876300cfcb0758b59d3} show /t/basemap.pmtiles
 
 # ---------------------------------------------------------------- NAV-006 daily rebuild pipeline (ADR-0014)
 # Config file: staging = ../infra/staging/.env (automatic); dev-container test = $(NAV006_TEST_ROOT)/nav006.env

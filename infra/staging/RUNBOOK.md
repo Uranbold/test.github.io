@@ -129,14 +129,14 @@ cd /opt/nav
 cp infra/staging/.env.example infra/staging/.env && chmod 600 infra/staging/.env
 nano infra/staging/.env     # STAGING_HOST, ACME_EMAIL (role mailbox), CORS_ALLOWED_ORIGINS; push URLs and RESTIC_* later
 ```
-Every key is explained in `.env.example`. `infra/staging/.env` is the only config file on the server (git-ignored, backed up encrypted). `deploy.sh` refuses `*` in `CORS_ALLOWED_ORIGINS` and an error-log level other than `crit`.
+Every key is explained in `.env.example`. `infra/staging/.env` is the only config file on the server (git-ignored, backed up encrypted). `deploy.sh` refuses `*` in `CORS_ALLOWED_ORIGINS` and an error-log level other than `crit`. Before the second deploy, set up the allowed-signers file (`DEPLOY_ALLOWED_SIGNERS`, section 6.1): from then on only signed tags are deployed.
 
 > **Warning: no `make` service targets and no plain `docker compose` in `/opt/nav/backend` on staging.** Staging runs `backend/compose.slots.yaml` (NAV-006) under the project name `navmn`; `backend/compose.yaml` is the dev stack and has the same project name. `make up`, `down`, `restart`, `rebuild-data`, `clean-data`, `cors-check` or a plain `docker compose up/down` there would create `backend/.env` from the **dev** example (CORS `*`, dev OSM mirror), stop the staging gateway, delete the live data (`rebuild-data`) and start the gateway **without rate limits and off the `edge` network**: Caddy then answers `502` to everyone. `backend/Makefile` refuses those targets while `infra/staging/.env` exists. On staging use `infra/staging/bin/nav-compose <compose args>` (the same compose command with the staging files and `.env`), `deploy.sh`, and the NAV-006 targets `sudo make -C /opt/nav/backend rebuild | rollback | status` (they use `infra/staging/.env` automatically, section 7). Read-only targets (`make smoke`, `contract`, `ps`, `logs`) are harmless; `make stats`, `build-info` and `tiles-info` read the old `backend/data/`, use `make status` instead. If it happened anyway: `sudo rm -f /opt/nav/backend/.env && sudo /opt/nav/infra/staging/bin/deploy.sh "$(cat /var/lib/nav/deployed-tag)"` (rebuilds the data if it was deleted, about 10 min).
 
 ## 6. Deploy and roll back
 
 ```sh
-sudo /opt/nav/infra/staging/bin/deploy.sh <tag>        # fetch, checkout tag, units, pull pinned images, up --wait, rate-limit check, smoke
+sudo /opt/nav/infra/staging/bin/deploy.sh <tag>        # fetch tag, refuse a moved tag, verify its signature (6.1), checkout, units, pull pinned images, up --wait, rate-limit check, smoke
 sudo /opt/nav/infra/staging/bin/deploy.sh --status     # deployed / previous tag, last deployments
 sudo /opt/nav/infra/staging/bin/deploy.sh --rollback   # deploy the previous tag again
 ```
@@ -145,6 +145,58 @@ sudo /opt/nav/infra/staging/bin/deploy.sh --rollback   # deploy the previous tag
 - Only Caddy publishes ports (80, 443 TCP). The gateway listens on `127.0.0.1:8080` (`curl -s localhost:8080/health` on the host works). The private verify gateway listens on `127.0.0.1:8089` only while a new slot is checked. Valhalla and Photon lanes publish nothing.
 - `sudo infra/staging/bin/nav-compose ps` / `logs --tail=50 caddy gateway` / `restart gateway` = docker compose with the staging files.
 - After the first deploy: `curl -sS https://staging.<domain>/health` -> `{"status":"ok"}`, and `curl -sI http://staging.<domain>/` -> `308` to `https://`.
+- SEC-4A: every container runs with all capabilities dropped, `no-new-privileges`, memory and PID limits; the gateway, Valhalla and Photon run as non-root users on a read-only root file system (table in `backend/README.md` "Security hardening"). Photon (uid 101) may write only its slot's `photon/`; `deploy.sh` and the pipeline hand that directory to uid 101 before a lane starts (slots built earlier included). Check: `sudo docker inspect -f '{{.Name}} {{.Config.User}} ro={{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} mem={{.HostConfig.Memory}}' $(sudo docker ps -q)`.
+
+### 6.1 Signed tags (SEC-4A BE-9)
+
+`deploy.sh` runs the tag's own code as root, so it deploys **only annotated tags signed with an SSH key listed in the
+allowed-signers file** `DEPLOY_ALLOWED_SIGNERS` (default `/etc/nav/allowed_signers`). It fetches only that tag (never
+`--force`), refuses a tag that already exists on the host but points elsewhere at origin ("was moved at origin"),
+runs `git verify-tag` with the verification settings forced on the command line, and only then checks out the tag's
+commit and re-runs its `deploy.sh`. The signer (principal + key fingerprint) is logged and written to
+`/var/lib/nav/deployments.log`. `--rollback` verifies the previous tag the same way. The first deploy of a SEC-4A tag
+is still done by the previous `deploy.sh`; every later deploy is verified.
+
+**A. The PO creates a signing key (once, on the PO's own computer; git >= 2.34, OpenSSH >= 8.2):**
+```sh
+ssh-keygen -t ed25519 -C "nav release signing (<PO role>)" -f ~/.ssh/nav_release_signing   # set a passphrase
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/nav_release_signing.pub
+cat ~/.ssh/nav_release_signing.pub        # the PUBLIC line for step B; the private key never leaves this computer
+```
+Keep a backup of the private key (password manager or offline medium). A hardware key works too:
+`ssh-keygen -t ed25519-sk ...`.
+
+**B. The operator installs the allowed-signers file on the staging host (root-owned, outside the checkout):**
+```sh
+sudo install -d -m 755 -o root -g root /etc/nav
+printf '%s namespaces="git" %s\n' 'release@<company domain>' 'ssh-ed25519 AAAA...(public line from A)...' \
+  | sudo tee /etc/nav/allowed_signers >/dev/null
+sudo chown root:root /etc/nav/allowed_signers && sudo chmod 644 /etc/nav/allowed_signers
+sudo grep -q '^DEPLOY_ALLOWED_SIGNERS=' /opt/nav/infra/staging/.env || echo 'DEPLOY_ALLOWED_SIGNERS=/etc/nav/allowed_signers' | sudo tee -a /opt/nav/infra/staging/.env
+```
+The first field is a principal name (a role mailbox; it only labels the key in the log). `deploy.sh` refuses the file
+if it is a symlink, not owned by root, writable by group or others, inside `/opt/nav`, or has no key line. Several
+signers = several lines. **Revoke** a key by deleting its line (a deploy is then refused for its tags).
+
+**C. Release: the PO signs and pushes a tag:**
+```sh
+git tag -s v0.9.0 -m "staging release v0.9.0"     # -s = signed annotated tag (gpg.format=ssh from A)
+git tag -v v0.9.0                                   # local check; needs gpg.ssh.allowedSignersFile on the PO's computer too
+git push origin v0.9.0
+```
+Then on the host: `sudo /opt/nav/infra/staging/bin/deploy.sh v0.9.0`. Expected log line:
+`"msg":"tag signature verified","tag":"v0.9.0","signer":"release@<company domain> ED25519 SHA256:..."`.
+A released tag is never moved or re-used: for a fix, create a new tag.
+
+**Refusals and what to do:** `DEPLOY_ALLOWED_SIGNERS is not set` -> do B. `does not verify` -> the tag is unsigned,
+signed by a key not in the file, or tampered with: do not deploy it; ask the PO. `lightweight tag` -> re-tag with
+`git tag -s`. `was moved at origin` -> someone changed a released tag: treat as a possible compromise (section 11),
+deploy a new signed tag. **First bootstrap only** (no signing key exists yet), once, on the command line, never in
+`.env` (`deploy.sh` refuses it there): `sudo DEPLOY_ALLOW_UNSIGNED=1 /opt/nav/infra/staging/bin/deploy.sh <tag>`. It
+logs a warning and `signer=unsigned` in `deployments.log`, and is ignored as soon as an allowed-signers file is set.
+Protecting `v*` tags on GitHub (ruleset: only maintainers create tags, no updates or deletions) is a repository
+setting for the orchestrator/PO and complements this check.
 
 ## 7. Daily data rebuild (NAV-006)
 
@@ -339,7 +391,9 @@ The gate compares, strictly (distance to 1 m, duration to 1 s, manoeuvre type/mo
 
 ### 7A.6 Serving, rate limit, retention, disk
 - The public gateway serves `/packs/mn/manifest.json` (`Cache-Control: no-cache`, strong `ETag`, 304) and `/packs/mn/<version>/<file>.gz` (Range/If-Range, `immutable`, no `Content-Encoding`, 416 JSON), from `NAV_DATA_ROOT/packs` mounted read-only (`compose.slots.yaml`). Other `/packs/` paths, dot files and `*.partial` are JSON 404. Caddy has no `encode` (it would add `Content-Encoding` and break the byte checks).
-- **"packs" rate limit:** `GATEWAY_RATE_PACKS` (staging 2r/s) and `GATEWAY_BURST_PACKS` (20) per client IP, own zone; `/health`, tiles and `OPTIONS` are never limited; `/v1/*` limits are unchanged. A change needs a gateway recreate (`deploy.sh`). Starting values set with the architect; review after 2 weeks of real downloads.
+- **Download limits (SEC-4A BE-3):** at most `GATEWAY_PACKS_MAX_CONN_PER_IP` (2) pack file downloads in flight per client (the manifest is not counted) and `GATEWAY_PACKS_MAX_CONN` (64) in total (over it: 429 `RateLimited`, the app waits and resumes); each pack response runs at full speed for `GATEWAY_PACKS_LIMIT_RATE_AFTER` (10m), then at `GATEWAY_PACKS_LIMIT_RATE` (2m = 16 Mbit/s); tiles responses at full speed for 4m, then 1m/s (PMTiles range reads never reach it). Client = IPv4 address or IPv6 /64. Range resume keeps working. Change: edit `.env`, `deploy.sh` (gateway recreate). Review after 2 weeks of real downloads, together with the egress figures of the provider panel.
+- **Source integrity (SEC-4A BE-5):** the pack step hashes every slot file it hard-links and compares it with the sha256 the NAV-006 build recorded in `<slot>/.slot-complete`. A difference or a missing record gives `failed (build)` (`pack.copy`, alert) and nothing is published. A slot built before SEC-4A has no record: the first pack run after the SEC-4A deploy fails this way until the next nightly rebuild has built a new slot (or run `make rebuild FORCE=1`). A real difference means a slot file changed after its build: treat it as an incident (section 11).
+- **"packs" rate limit:** `GATEWAY_RATE_PACKS` (staging 2r/s) and `GATEWAY_BURST_PACKS` (20) per client IP, own zone; `/health`, tiles and `OPTIONS` are never request-limited; `/v1/*` limits are unchanged. A change needs a gateway recreate (`deploy.sh`). Starting values set with the architect; review after 2 weeks of real downloads.
 - **Retention:** exactly the files referenced by the last `PACK_RETAIN_MANIFESTS` (3) published manifests are kept (copies in `packs/mn/.manifests/`, order in `.history.json`), so a download that started before a publication can still resume. Pack files are separate gzip files, so NAV-006 slot cleanup never affects them.
 - **Disk:** about 0.2-0.4 GB steady state (three weekly parts of about 33 MB + one or two tiles files of about 86 MB) plus about 0.3 GB of `packs/.work/` during a run; logged as `packs_disk_bytes` by `pack.cleanup`. The Gate 2 image is about 0.3-0.6 GB, the builder image about 0.15 GB. All far below the NAV-006 guard (`REBUILD_MIN_FREE_GB` 50); `nav-diskcheck` (85 %) is unchanged.
 - **Timing:** the pack step runs inside `nav-rebuild.service` (unchanged timer, 19:30 UTC + <= 15 min, `TimeoutStartSec=2h`). Target <= 15 min from start to the manifest rename on 4 vCPU (NAV-020 AC 27); measured in the dev container: see section 15. Rebuild (~10 min) + pack ends well before the 21:30 UTC reboot window. SIGTERM is handled within 60 s (`TimeoutStopSec=90s`).
@@ -510,7 +564,7 @@ A failure line names the monitor and the reason: `problem=...` (URL form), `http
 
 - **OS:** unattended-upgrades (security) with reboot at 21:30 UTC. Check: `cat /var/log/unattended-upgrades/unattended-upgrades.log`.
 - **Docker Engine** (held): take a panel snapshot, `sudo apt-mark unhold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && sudo apt-get install --only-upgrade <same list> && sudo apt-mark hold <same list>`, then `deploy.sh <current tag>` (smoke).
-- **Caddy / service images:** change the pinned digest in git (`CADDY_IMAGE` default in `compose.staging.yaml` or the `.env`), tag, `deploy.sh <new tag>`, then re-check that Caddy logs contain no request data (`nav-compose logs caddy | grep -E 'remote_ip|uri'` must be empty).
+- **Caddy / service images:** every image is pinned as `tag@sha256` (SEC-4A BE-8; CI refuses tag-only images). Re-pin **monthly** and on every security release of nginx, the JDK, Valhalla or Caddy: `docker buildx imagetools inspect <image>:<tag>` for the digest, change it in git (`backend/compose.yaml` + `compose.slots.yaml` + `backend/.env.example`; `CADDY_IMAGE` in `compose.staging.yaml`, `.env.example` and `monitoring/ops-vm/compose.yaml`), scan the image (Trivy/Grype), run `infra/ci/backend-static-checks.sh` and `infra/ci/staging-static-checks.sh`, sign a tag (6.1), `deploy.sh <new tag>`, then re-check that Caddy logs contain no request data (`nav-compose logs caddy | grep -E 'remote_ip|uri'` must be empty). Pins of 2026-10-11: gateway `ghcr.io/nginx/nginx-unprivileged:1.30.5-alpine` (nginx stable line), JDK `mcr.microsoft.com/openjdk/jdk:21-ubuntu@sha256:1f8b75e6...` (Java 21.0.12, Microsoft build of 2026-08).
 - **Before risky changes** (OS release upgrade, Docker major, data layout): manual panel snapshot.
 
 ## 13. Access roles (role names only, AC 21)
@@ -557,7 +611,7 @@ Effective monthly = term total / months + monthly add-ons. The ADR-0005 cost tab
 
 No client IP, query string, request body or coordinate is written by any request-path component:
 - **Caddy:** no access log; runtime log = include-list `tls`, `http.acme_client`, `http.auto_https` (per-request error logs are dropped). The ops VM's push-only Caddy uses the same log settings (push tokens are in the request path, so nothing per request is logged there either).
-- **Gateway:** JSON lines with method, path without query string, status, bytes, timings. Error log at `crit` (rate-limit rejections are logged at `info`, so they never appear).
+- **Gateway:** JSON lines with method, path without query string, status, bytes, timings. Error log at `crit` (rate-limit and connection-limit rejections are logged at `info`, so they never appear). The per-client limit key (IPv4 address or IPv6 /64, SEC-4A) exists only in shared memory.
 - **Valhalla:** query strings replaced by `?<redacted>`. **Photon:** no queries at INFO.
 - **Rebuild/backup/check jobs:** public source URLs, sizes, durations, exit codes.
 - **Host:** sshd authentication events (operator and internet scanners' source IPs) in journald for <= 14 days; UFW logging off.
@@ -574,6 +628,8 @@ Added in review round 2 (2026-09-30, deployment-staging.md §17.4): the ops VM s
 
 NAV-006 verified by backend in the dev container (2026-10-04, separate Compose project `navmn-nav006` on `127.0.0.1:18080/18089`, test root `/var/tmp/nav006-test`; the shared dev stack on :8080 was never touched): first slot build 6 min; `FORCE=1` builds 4 min (tiles 3 min with a warm cache); 3 switches under a request loop at 24 requests/s (half keep-alive, half new connections, no retries): 0 failed requests in 14,880 + 21,600 + 11,520 requests, p95 window ratio 1.38 / 1.19 / 0.79, the tiles ETag changing at the pointer rename; `make rollback` 5.9 s to the switch, 0 failures in 4,080 requests; a second rollback refused in 75 ms (code 30); forced verification failure (`REBUILD_TEST_FAULT=verify`): no switch, slot marked failed, 0 failures in 7,920 requests, alert once; automatic rollback after a failed post-switch check (code 24); `pmtiles` 4.5.0 kept one header across two switches and decoded 20,625 z14 tiles with 0 errors; lock: second `make rebuild` / `make rollback` refused in 74 / 122 ms naming the lock, `deploy.sh`'s `flock -n` refused; SIGTERM during a build: cleanup in 0.6 s (2.2 s through `nav-rebuild.sh`), partial slot and builders gone; `kill -9`: the next run reconciled without manual steps; Geofabrik blocked here, so the source list fell back to the geo2day mirror after one retry; peak memory 3.6 GB build + 0.7 GB serving (ratio 0.27); checksum listings of the active slot identical before and after builds. Not shown here: the systemd timer, Caddy in front of the switch, Geofabrik and its `.md5`, MapLibre Native (Android/iOS) on an ETag change, real staging timings.
 
+SEC-4A verified by backend in the dev container (2026-10-11): the hardened compose model end to end on a separate project (`navmn-nav006`): first slot build with every builder under `cap_drop: [ALL]` + `no-new-privileges` + limits (`success`, 224 s), lanes running as uid 65534 (Valhalla) and 101 (Photon) on read-only root file systems, Photon with the slot read-only and only `photon/` writable (a write to `/data/tiles` fails with "Read-only file system"), build-time hashes in `.slot-complete`, a pack published with `sha256_verified` for all three sources, the contract check (68 conform incl. pack cases; 72 with `--rate-limit`), and with `GATEWAY_RATE_LIMIT=on` the third parallel pack-file download from one client answered 429 while the manifest stayed 200 and a resumed Range was 206; the hardened Caddy (only `NET_BIND_SERVICE`, read-only root) in front of the dev gateway: HSTS and nosniff exactly once, no `Server` header, JSON backstop with both headers; the signed-tag rules of `deploy.sh` against a scratch origin (`infra/ci/staging-deploy-signature-test.sh`); IPv6 /64 keying with `X-Forwarded-For` from a trusted test peer. Not shown here: real IPv6 clients through Caddy, a tag signed with the PO's real key, the first SEC-4A deploy itself.
+
 Only the real VPS can show: systemd timers firing, UFW active with IPv6 rules, swap, unattended reboot, Let's Encrypt issuance and the dry run (and the ops VM's certificate), Geofabrik reachability and its `.md5`, real rebuild times and memory, IPv6 client addresses reaching the gateway, whether the panel firewall filters IPv6, that Emergency mode and the SSH reset are offered, heartbeats from the staging host reaching the ops VM across providers, and the external port scans (staging host and ops VM). Record them in section 15.
 
 ## 18. Accepted risks (staging) and production follow-ups (NAV-009)
@@ -582,6 +638,6 @@ Only the real VPS can show: systemd timers firing, UFW active with IPv6 rules, s
 |---|---|---|
 | The SFTP backup account `nav-backup` is **not chrooted**. `restrict,command="sftp-server -d /srv/restic"` blocks shells and forwarding, but `-d` only sets the start directory: with the staging host's backup key one can read world-readable files elsewhere on the ops VM | Staging holds configuration only, the key never leaves the staging host (root-only), and the ops VM holds no personal data | Chroot it: `/srv/restic` owned by `root:root` 755, the repository `/srv/restic/nav-staging` owned by `nav-backup`, and in `/etc/ssh/sshd_config.d/10-nav-backup.conf` a block `Match User nav-backup` / `ChrootDirectory /srv/restic` / `ForceCommand internal-sftp -d /nav-staging` / `AllowTcpForwarding no` / `X11Forwarding no`; `RESTIC_REPOSITORY` becomes `sftp:nav-ops-vm:/nav-staging` |
 | The restic repository is **not append-only**. The staging host runs `forget --prune` itself, so whoever controls the staging host (root) can also delete or corrupt all snapshots | Configuration-only backups; the provider's weekly backups are a second copy; a compromised staging host is rebuilt from git plus a fresh configuration anyway (section 11) | Append-only target (`rest-server --append-only`, or object storage with object lock / versioning), with `forget --prune` run from the backup side under a separate key |
-| `deploy.sh <tag>` fetches the tag and then runs **that tag's own** `deploy.sh` as root (re-exec after checkout), without verifying a tag signature. Whoever can push a tag to the repository can run code as root on the host at the next deploy | One operator deploys by hand, tags are created by the team, the deploy key is read-only, and staging holds no personal data | Signed tags (`git verify-tag` against an allowed-signers file kept on the host, outside the checkout) before the re-exec, protected tags on GitHub, or deploy from a CI-built, signed artefact |
+| **Mitigated by SEC-4A BE-9 (section 6.1):** `deploy.sh <tag>` still runs **that tag's own** `deploy.sh` as root, but only after `git verify-tag` against the root-owned allowed-signers file, and it refuses moved tags. Remaining: whoever holds a listed signing key can run code as root; `nav-ops` owns the checkout, so a compromised `nav-ops` can change files after the checkout; the one-off `DEPLOY_ALLOW_UNSIGNED=1` bootstrap | One operator deploys by hand, the signing key stays on the PO's computer, `nav-ops` already has sudo (row below) | Protected `v*` tags on GitHub (ruleset), the checkout owned by root (fetch as `nav-ops` into a separate clone), or deploy from a CI-built, signed artefact |
 | `nav-ops` has passwordless sudo and is in the `docker` group (deployment-staging.md §17.1) | Key-only account with a passphrase-protected key | Separate deploy and admin roles, sudo with re-authentication (e.g. hardware key) |
 | Push tokens travel in the URL path | TLS only; neither Caddy logs them; tokens only in the mode-600 `infra/staging/.env` | Same; rotate on any suspicion (section 11 "Suspected compromise") |

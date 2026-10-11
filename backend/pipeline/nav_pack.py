@@ -795,24 +795,43 @@ class PackStep:
 
     def copy_sources(self, sdir, cut):
         """Hard links of the slot's (immutable) files into .work/src: 0 extra bytes, and the run keeps reading the
-        same inode if NAV-006 cleanup deletes the slot meanwhile (ADR-0014 single filesystem)."""
+        same inode if NAV-006 cleanup deletes the slot meanwhile (ADR-0014 single filesystem).
+        SEC-4A BE-5: every file must hash to the sha256 the NAV-006 build recorded in <slot>/.slot-complete; a missing
+        record or a different hash refuses the run (failed (build)) before anything is gzipped or published."""
         out = {}
+        recorded = base.recorded_slot_hashes(sdir)
+        self.expected_src_sha256 = {}
         with self.step("copy") as s:
             linked = []
             for kind in ("tiles", "routing", "search"):
                 if kind not in cut:
                     continue
+                rel = SLOT_SOURCE[kind].as_posix()
                 srcf = sdir / SLOT_SOURCE[kind]
                 if not srcf.is_file() or srcf.stat().st_size == 0:
                     raise PackOutcome("failed (build)", "pack.copy", f"slot file missing or empty: {srcf}")
+                want = recorded.get(rel)
+                if not want:
+                    raise PackOutcome("failed (build)", "pack.copy",
+                                      f"{rel}: no build-time sha256 in {sdir.name}/.slot-complete (slot built before "
+                                      "SEC-4A; the next rebuild records it). Refusing an unverified source file")
                 dst = self.work / "src" / (FILE_NAME[kind] if kind != "search" else "photon-dump")
                 try:
                     os.link(srcf, dst)
                     linked.append(kind)
                 except OSError:
                     shutil.copyfile(srcf, dst)
+                got = base.sha256_file(dst)
+                if got != want:
+                    with contextlib.suppress(FileNotFoundError):
+                        dst.unlink()
+                    raise PackOutcome("failed (build)", "pack.copy",
+                                      f"{rel}: sha256 {got[:16]} != build-time {want[:16]} recorded in "
+                                      f"{sdir.name}/.slot-complete; the slot file changed after the build. Refused")
+                self.expected_src_sha256["dump" if kind == "search" else kind] = want   # search.sqlite is built later
                 out[kind] = dst
-            s.update(files={k: os.path.getsize(v) for k, v in out.items()}, hard_linked=linked)
+            s.update(files={k: os.path.getsize(v) for k, v in out.items()}, hard_linked=linked,
+                     sha256_verified=sorted(self.expected_src_sha256))
             self.pause("copy")
         out["dump"] = out.pop("search", None)
         return out
@@ -855,6 +874,10 @@ class PackStep:
                     continue
                 dst = self.partial / f"{FILE_NAME[kind]}.gz"
                 sha, n = gzip_file(src[kind], dst, self.pc.gzip_level, stop=self.stop_check)
+                want = getattr(self, "expected_src_sha256", {}).get(kind)
+                if want and sha != want:   # SEC-4A BE-5: the bytes gzipped are the bytes verified in copy_sources
+                    raise PackOutcome("failed (build)", "pack.gzip",
+                                      f"{kind}: source changed while it was compressed ({sha[:16]} != {want[:16]})")
                 files[kind] = {"kind": kind, "gz": dst, "src_sha256": sha, "src_bytes": n}
                 sizes[kind] = {"raw": n, "gz": dst.stat().st_size}
             base.fsync_dir(self.partial)

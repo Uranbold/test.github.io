@@ -206,7 +206,10 @@ class HtaccessTests(unittest.TestCase):
         for s in ("SetEnv no-gzip 1", "RemoveEncoding .gz", "AddType application/gzip .gz", "AddType application/json .json",
                   "AddType application/vnd.pmtiles .pmtiles", "AddType application/x-tar .tar",
                   "AddType application/vnd.sqlite3 .sqlite", 'Header set Cache-Control "public, max-age=31536000, immutable"',
-                  'Header set Cache-Control "no-cache"', "ExpiresActive Off", "RewriteEngine On"):
+                  'Header set Cache-Control "no-cache"', "ExpiresActive Off", "RewriteEngine On",
+                  # SEC-4A BE-13 / WS-12: no directory listing (FileInfo-only form of Options -Indexes) and nosniff
+                  "RewriteCond %{REQUEST_FILENAME} -d\nRewriteRule ^ - [R=404,L]",
+                  'Header set X-Content-Type-Options "nosniff"'):
             self.assertIn(s, active)
         self.assertNotIn("Header always", active)        # a 404 must never get the one-year cache
         self.assertNotRegex(active, r"(?m)^Options")      # Options needs AllowOverride Options: a 500 on many hosts

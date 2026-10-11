@@ -4,7 +4,8 @@
 #   1. publishes a small synthetic pack (pipeline/nav022_test_pack.py, ~0.5 MB) into <root>/data/packs
 #   2. make pack-export into <root>/www/packs (with .htaccess) and <root>/www/packs-raw (HTACCESS=0, negative control)
 #   3. starts Apache httpd 2.4 configured like a typical shared host (pack/static-host-test/hosting.conf)
-#   4. scripts/pack_static_check.py: www/packs must pass (--full --local), www/packs-raw must FAIL
+#   4. scripts/pack_static_check.py: www/packs must pass (--full --local), www/packs-raw must FAIL; nosniff and no
+#      directory listing (404) with the .htaccess (SEC-4A)
 #   5. a weekly cut (routing + search only), re-export into the same DEST, check again; the README curl checks
 #   6. teardown: compose down -v, the httpd image (unless NAV022_KEEP_IMAGE=1), the root (unless NAV022_KEEP=1)
 #
@@ -66,6 +67,13 @@ if $PY "$BACKEND/scripts/pack_static_check.py" --base-url "$BASE/packs-raw/" --l
     die "the negative control passed: the test host does not reproduce shared-host defaults"
 fi
 log "4b. negative control failed as expected"
+log "4c. SEC-4A BE-13/WS-12: nosniff on files, no directory listings (404) with the .htaccess"
+for u in "$BASE/packs/mn/manifest.json" "$BASE/packs/mn/$V1/routing.tar.gz"; do
+    curl -sS -o /dev/null -D - "$u" | tr -d '\r' | grep -qi '^x-content-type-options: nosniff$' || die "no X-Content-Type-Options: nosniff on $u"
+done
+for u in "$BASE/packs/" "$BASE/packs/mn/" "$BASE/packs/mn/$V1/"; do
+    c=$(curl -sS -o /dev/null -w '%{http_code}' "$u"); [[ "$c" == 404 ]] || die "directory URL $u answered $c (want 404, no listing)"
+done
 
 log "5. weekly cut $V2 (routing + search; tiles stay $V1), re-export into the same DEST"
 $PY "$HERE/nav022_test_pack.py" --packs-dir "$ROOT/data/packs" --version $V2 --keep-tiles

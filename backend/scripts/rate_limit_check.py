@@ -15,6 +15,12 @@ Scenarios (stdlib only, one client IP = this machine):
                               RoutingBusy} with the same header rules. At least one 429 or 503 is required.
   normal                      10 requests/s for 10 s, alternating route/search/reverse. Expect no 429 and no 503.
   tiles                       200 requests/s for 5 s of tile range requests plus preflights and /health. Expect no 429.
+  ipv6-prefix (opt-in)        SEC-4A BE-2: 100 requests/s for 3 s to /v1/search, each with a different X-Forwarded-For
+                              address inside ONE IPv6 /64 -> expect >= 1 x 429 (one client); then the same with a
+                              different /64 per request -> expect no 429. Only against a TEST gateway whose
+                              GATEWAY_REAL_IP_FROM covers this machine (on staging Caddy replaces X-Forwarded-For, so the
+                              scenario cannot work there; the real IPv6 check is RUNBOOK section 17). Never in the default
+                              list.
 
 Wait RETRY seconds (default 2) between scenarios so the buckets drain. Upstream status (200, 400, 502...) does
 not matter here: limit_req runs before the proxy, so this works against a gateway with no upstreams too.
@@ -147,6 +153,20 @@ class Runner:
                     f"{sum(counts.values())} requests in {took:.1f} s, statuses {dict(sorted(counts.items()))}")
         time.sleep(self.retry)
 
+    def ipv6_prefix(self):
+        one = lambda i: request(self.base, "GET", SEARCH, headers={"X-Forwarded-For": f"2001:db8:4a:1:{i:x}::{i % 7 + 1:x}"})
+        counts, r429, _, took = paced(self.base, 100, 3, one)
+        errs = check_429(r429["status"], r429["headers"], r429["raw"]) if r429 else ["no 429"]
+        self.report("ipv6-prefix: addresses rotating inside one /64 share one limit", not errs,
+                    f"{sum(counts.values())} requests in {took:.1f} s, statuses {dict(sorted(counts.items()))}"
+                    + (f" -> {errs}" if errs else " -> 429 conform"))
+        time.sleep(max(self.retry, 3))
+        many = lambda i: request(self.base, "GET", SEARCH, headers={"X-Forwarded-For": f"2001:db8:{i // 65536:x}:{i % 65536:x}::1"})
+        counts, _, _, took = paced(self.base, 100, 3, many)
+        self.report("ipv6-prefix: a different /64 per request is never limited", counts[429] == 0,
+                    f"{sum(counts.values())} requests in {took:.1f} s, statuses {dict(sorted(counts.items()))}")
+        time.sleep(self.retry)
+
     def tiles(self):
         def mixed(i):
             k = i % 10
@@ -164,7 +184,7 @@ class Runner:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-url", default="http://localhost:8080")
-    ap.add_argument("--only", choices=["burst-route", "burst-search", "normal", "tiles"], action="append")
+    ap.add_argument("--only", choices=["burst-route", "burst-search", "normal", "tiles", "ipv6-prefix"], action="append")
     ap.add_argument("--retry", type=float, default=2.0, help="pause between scenarios (s)")
     ap.add_argument("--insecure", action="store_true", help="skip TLS verification (local Caddy test with an internal CA only)")
     args = ap.parse_args()
@@ -184,6 +204,8 @@ def main():
             r.normal()
         elif t == "tiles":
             r.tiles()
+        elif t == "ipv6-prefix":
+            r.ipv6_prefix()
     print(f"\n{len(todo)} scenario(s), {len(r.failed)} failed check(s)")
     sys.exit(1 if r.failed else 0)
 

@@ -254,6 +254,78 @@ class SourceListTests(Base):
         self.assertEqual((cm.exception.code, cm.exception.result), (14, "skipped: source was rolled back"))
 
 
+# ---------------------------------------------------------------- SEC-4A download integrity, slot hashes, Photon owner
+class Sec4aTests(Base):
+    def test_photon_dump_url_must_be_https(self):
+        with self.assertRaises(nav.ConfigError) as cm:
+            self.cfg(PHOTON_DUMP_URL="http://download.example.invalid/dump.jsonl.zst")
+        self.assertIn("PHOTON_DUMP_URL must be an https://", str(cm.exception))
+        # a local dump file makes the URL irrelevant
+        self.assertEqual(self.cfg(PHOTON_DUMP_URL="http://x.invalid/d", PHOTON_DUMP_FILE="/x/d.zst").dump_file, "/x/d.zst")
+
+    def test_unverified_tools_refused_for_navmn(self):
+        with self.assertRaises(nav.ConfigError) as cm:
+            self.cfg(NAV_COMPOSE_PROJECT="navmn", ALLOW_UNVERIFIED_TOOLS="1")
+        self.assertIn("ALLOW_UNVERIFIED_TOOLS=1 is refused", str(cm.exception))
+
+    def test_curl_never_leaves_https(self):
+        cmd = self.pipeline().curl_base()
+        i = cmd.index("--proto")
+        self.assertEqual(cmd[i:i + 4], ["--proto", "=https", "--proto-redir", "=https"])
+
+    def test_missing_md5_fails_the_source_unless_relaxed(self):
+        url = "https://mirror.example.invalid/mongolia.osm.pbf"
+        p = self.pipeline(OSM_SOURCES=url)
+        p.remote_md5 = lambda u: None
+
+        def no_download(u, dest):
+            raise AssertionError("downloaded although the .md5 is missing")
+        p.download = no_download
+        with self.assertRaises(nav.Outcome) as cm:
+            p.resolve_osm(nav.load_state(p.lay), None, False, {})
+        self.assertEqual(cm.exception.code, 13)
+        lines = [json.loads(x) for x in p.log.path.read_text().splitlines()]
+        failed = [x for x in lines if x.get("step") == "fetch" and x.get("result") == "failed"]
+        self.assertEqual([x["check"] for x in failed], ["md5", "md5"])     # retried once, never skipped silently
+        self.assertIn("REBUILD_REQUIRE_SOURCE_MD5=1", failed[0]["measured"])
+        # REBUILD_REQUIRE_SOURCE_MD5=0: the download is attempted (and listed as a relaxation)
+        p = self.pipeline(OSM_SOURCES=url, REBUILD_REQUIRE_SOURCE_MD5="0")
+        p.remote_md5 = lambda u: None
+        tried = []
+
+        def stub_download(u, dest):
+            tried.append(u)
+            raise nav.SourceError("download", "stub")
+        p.download = stub_download
+        with self.assertRaises(nav.Outcome):
+            p.resolve_osm(nav.load_state(p.lay), None, False, {})
+        self.assertEqual(tried, [url, url])
+        self.assertIn("REBUILD_REQUIRE_SOURCE_MD5=0", " ".join(p.cfg.relaxations()))
+
+    def test_slot_hashes_and_photon_owner(self):
+        slot = self.tmp / "slots" / "20261004T000000Z"
+        for rel, data in (("tiles/basemap.pmtiles", b"PMTiles\x03"), ("valhalla/valhalla_tiles.tar", b"tar"),
+                          ("sources/photon-dump", b"dump"), ("photon/photon_data/node/x", b"idx"),
+                          ("photon/.complete", b"fingerprint=x\n")):
+            (slot / rel).parent.mkdir(parents=True, exist_ok=True)
+            (slot / rel).write_bytes(data)
+        h = nav.slot_hashes(slot)
+        self.assertEqual(sorted(h), sorted(nav.SLOT_HASHED))
+        self.assertEqual(h["valhalla/valhalla_tiles.tar"], nav.sha256_file(slot / "valhalla" / "valhalla_tiles.tar"))
+        self.assertEqual(nav.recorded_slot_hashes(slot), {})                      # no .slot-complete yet
+        (slot / ".slot-complete").write_text(json.dumps({"slot": slot.name}) + "\n")
+        self.assertEqual(nav.recorded_slot_hashes(slot), {})                      # built before SEC-4A
+        (slot / ".slot-complete").write_text(json.dumps({"slot": slot.name, "sha256": h}) + "\n")
+        self.assertEqual(nav.recorded_slot_hashes(slot), h)
+        if os.geteuid() == 0:
+            nav.give_photon_index(slot)
+            for p in [slot / "photon", *(slot / "photon").rglob("*")]:
+                self.assertEqual((p.lstat().st_uid, p.lstat().st_gid), (nav.PHOTON_UID, nav.PHOTON_UID), p)
+            for p in (slot / "tiles" / "basemap.pmtiles", slot / "sources" / "photon-dump", slot):
+                self.assertEqual(p.stat().st_uid, 0, p)                           # the rest stays root's
+        nav.give_photon_index(self.tmp / "no-such-slot")                           # missing photon/: no-op
+
+
 # ---------------------------------------------------------------- configuration guards
 class ConfigTests(Base):
     def assert_config_error(self, text, **extra):

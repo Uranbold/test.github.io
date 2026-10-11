@@ -31,7 +31,9 @@ trap cleanup EXIT
 
 nav_log info "certificate dry run starting (normal Caddy stops for about a minute)" host="$HOST" ca="$LE_STAGING"
 nav_compose stop caddy
+# Same hardening as the compose Caddy (SEC-4A BE-4): only NET_BIND_SERVICE, no-new-privileges, read-only root.
 docker run -d --name "$name" -p 80:80/tcp -p 443:443/tcp \
+    --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true --read-only --tmpfs /tmp --tmpfs /config \
     -e STAGING_HOST="$HOST" -e ACME_EMAIL="$EMAIL" -e ACME_CA="$LE_STAGING" \
     -v "$NAV_STAGING/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$tmpdata:/data" \
     "$image" >/dev/null

@@ -40,8 +40,10 @@ build_protomaps_jar() {
     log info "building Protomaps basemap jar with Maven" commit="$PROTOMAPS_COMMIT"
     (
         cd "$work"/basemaps-*/tiles
+        # --strict-checksums (SEC-4A WS-10): a dependency whose Maven Central checksum does not match fails the build
+        # (Maven's default only warns).
         # shellcheck disable=SC2086
-        MAVEN_OPTS="$JAVA_NET_OPTS" "$mvn_home/bin/mvn" -B -q -ntp -DskipTests \
+        MAVEN_OPTS="$JAVA_NET_OPTS" "$mvn_home/bin/mvn" -B -q -ntp --strict-checksums -DskipTests \
             -Dmaven.repo.local="$DATA/tools/m2" package
         cp target/protomaps-basemap-HEAD-with-deps.jar "$jar.part"
     ) || die "Maven build of the Protomaps basemap failed" commit="$PROTOMAPS_COMMIT"

@@ -5,8 +5,9 @@
 #   sudo infra/staging/bin/deploy.sh --rollback       # deploy the previously deployed tag again
 #   sudo infra/staging/bin/deploy.sh --status         # show the deployed and previous tags
 #
-# Steps: validate infra/staging/.env -> git fetch + checkout of the tag (as the checkout owner) -> re-exec the
-# tag's own deploy.sh -> install/refresh systemd units -> docker compose pull (images pinned by digest/tag)
+# Steps: validate infra/staging/.env -> git fetch of the tag (as the checkout owner) -> refuse a moved tag -> verify
+# the tag's SSH signature against DEPLOY_ALLOWED_SIGNERS (SEC-4A BE-9) -> checkout of the verified commit -> re-exec
+# the tag's own deploy.sh -> install/refresh systemd units -> docker compose pull (images pinned by digest)
 # -> up -d --wait (gateway, Caddy) -> the active NAV-006 lane (blue|green) up -d --wait -> check that the gateway
 # rate limits are active -> smoke suite. On a failed smoke the command to roll back is printed; nothing is
 # rolled back automatically.
@@ -14,6 +15,14 @@
 # is active yet (first deploy on an empty host), the pipeline's first build runs under this deploy's lock
 # (about 8-10 min on 4 vCPU plus downloads). A deploy that changes a lane's image recreates the active lane:
 # a few seconds of route/search 502 (accepted like any deploy; data switches stay at 0 s).
+#
+# SEC-4A BE-9 (RUNBOOK.md section 6.1): only annotated tags signed with an SSH key listed in the allowed-signers file
+# DEPLOY_ALLOWED_SIGNERS (root-owned, outside the checkout) are deployed; `git verify-tag` runs BEFORE the checkout
+# and the re-exec, with the verification settings forced on the command line (the checkout's own git config cannot
+# weaken them). A tag that already exists locally and points elsewhere at origin (a moved tag) is refused; tags are
+# never fetched with --force. No DEPLOY_ALLOWED_SIGNERS = refused, unless the one-off escape hatch for the first
+# bootstrap is given on the command line: sudo DEPLOY_ALLOW_UNSIGNED=1 deploy.sh <tag> (logged as a warning and in
+# deployments.log). The very first deploy of a SEC-4A tag is still done by the previous deploy.sh.
 # shellcheck source=nav-env.sh
 source "$(dirname "$(readlink -f "$0")")/nav-env.sh"
 
@@ -21,7 +30,7 @@ STATE_TAG="$NAV_STATE_DIR/deployed-tag"
 PREV_TAG="$NAV_STATE_DIR/deployed-tag.previous"
 HISTORY="$NAV_STATE_DIR/deployments.log"
 
-usage() { sed -n '2,13p' "$0"; exit 2; }
+usage() { sed -n '2,21p' "$0"; exit 2; }
 [[ $# -ge 1 ]] || usage
 nav_require_root
 mkdir -p "$NAV_STATE_DIR"
@@ -55,12 +64,49 @@ if [[ $AFTER -eq 0 ]]; then
         nav_die "the checkout has local changes to tracked files; refusing to deploy over them" dir="$NAV_ROOT"
     fi
     nav_log info "deploy starting" tag="$TAG" current="$current"
+    # The unsigned-deploy escape hatch is a one-off on the command line, never a setting.
+    [[ -z "$(nav_env_get DEPLOY_ALLOW_UNSIGNED)" ]] \
+        || nav_die "DEPLOY_ALLOW_UNSIGNED must not be set in infra/staging/.env (one-off only: sudo DEPLOY_ALLOW_UNSIGNED=1 $0 <tag>, RUNBOOK.md section 6.1)"
+    signers=$(nav_env_get DEPLOY_ALLOWED_SIGNERS)
+    if [[ -n "$signers" ]]; then
+        why=$(nav_signers_problem "$signers")
+        [[ -z "$why" ]] || nav_die "DEPLOY_ALLOWED_SIGNERS unusable: $why (RUNBOOK.md section 6.1)" file="$signers"
+    fi
+    if [[ -z "$signers" && "${DEPLOY_ALLOW_UNSIGNED:-0}" != 1 ]]; then
+        nav_die "refusing to deploy: DEPLOY_ALLOWED_SIGNERS is not set in infra/staging/.env, so the tag's signature cannot be verified. Set it to the root-owned allowed-signers file (RUNBOOK.md section 6.1). First bootstrap only: sudo DEPLOY_ALLOW_UNSIGNED=1 $0 $TAG" tag="$TAG"
+    fi
     # Runs as the checkout owner (nav-ops after bootstrap): a private repository's read-only deploy key and its
     # ssh config must belong to that account (RUNBOOK.md section 4), not to root.
-    as_owner git -C "$NAV_ROOT" fetch --tags --force --quiet origin \
-        || nav_die "git fetch from origin failed as $owner; private repository: ~$owner/.ssh/nav_deploy + 'Host github.com' in ~$owner/.ssh/config (RUNBOOK.md section 4)"
-    as_owner git -C "$NAV_ROOT" rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null || nav_die "tag not found in origin" tag="$TAG"
-    as_owner git -C "$NAV_ROOT" -c advice.detachedHead=false checkout --quiet --force "refs/tags/$TAG"
+    # Only this tag, into a scratch ref (never --force on refs/tags/*): a tag that moved at origin is refused below.
+    incoming="refs/nav-incoming/tags/$TAG"
+    as_owner git -C "$NAV_ROOT" fetch --no-tags --quiet origin "+refs/tags/$TAG:$incoming" \
+        || nav_die "git fetch of tag $TAG from origin failed as $owner (tag missing at origin? private repository: ~$owner/.ssh/nav_deploy + 'Host github.com' in ~$owner/.ssh/config, RUNBOOK.md section 4)" tag="$TAG"
+    new=$(as_owner git -C "$NAV_ROOT" rev-parse -q --verify "$incoming") || nav_die "tag not found in origin" tag="$TAG"
+    as_owner git -C "$NAV_ROOT" update-ref -d "$incoming"
+    old=$(as_owner git -C "$NAV_ROOT" rev-parse -q --verify "refs/tags/$TAG" || true)
+    if [[ -n "$old" && "$old" != "$new" ]]; then
+        nav_die "refusing to deploy: tag $TAG was moved at origin (local $old, origin $new). A released tag must never change; create a new tag (RUNBOOK.md section 6.1)" tag="$TAG"
+    fi
+    [[ -n "$old" ]] || as_owner git -C "$NAV_ROOT" update-ref "refs/tags/$TAG" "$new" "" \
+        || nav_die "could not record tag $TAG locally" tag="$TAG"
+    commit=$(as_owner git -C "$NAV_ROOT" rev-parse -q --verify "$new^{commit}") || nav_die "tag does not point to a commit" tag="$TAG"
+    signer=unsigned
+    if [[ -n "$signers" ]]; then
+        [[ "${DEPLOY_ALLOW_UNSIGNED:-0}" != 1 ]] || nav_log warn "DEPLOY_ALLOW_UNSIGNED=1 ignored: an allowed-signers file is configured, the signature is verified"
+        [[ "$(as_owner git -C "$NAV_ROOT" cat-file -t "$new")" == tag ]] \
+            || nav_die "refusing to deploy: $TAG is a lightweight tag (no signature). Create a signed annotated tag: git tag -s (RUNBOOK.md section 6.1)" tag="$TAG"
+        vout=$(as_owner git -C "$NAV_ROOT" -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen \
+                 -c gpg.ssh.allowedSignersFile="$signers" verify-tag "$new" 2>&1) \
+            || nav_die "refusing to deploy: the signature of tag $TAG does not verify against DEPLOY_ALLOWED_SIGNERS (unsigned, unknown key or tampered tag)" \
+                   tag="$TAG" detail="$(printf '%s' "$vout" | tr '\n' ' ' | tail -c 300)"
+        signer=$(sed -n 's/^Good "git" signature for \(.*\) with \([A-Z0-9-]*\) key \(SHA256:[A-Za-z0-9+\/=]*\).*/\1 \2 \3/p' <<<"$vout" | head -n1)
+        [[ -n "$signer" ]] || nav_die "refusing to deploy: unexpected git verify-tag output" tag="$TAG" detail="$(printf '%s' "$vout" | tr '\n' ' ' | tail -c 300)"
+        nav_log info "tag signature verified" tag="$TAG" signer="$signer" commit="$commit"
+    else
+        nav_log warn "UNSIGNED DEPLOY: DEPLOY_ALLOW_UNSIGNED=1 and no DEPLOY_ALLOWED_SIGNERS; the tag's code runs as root without a signature check (first bootstrap only, RUNBOOK.md section 6.1)" tag="$TAG" commit="$commit"
+    fi
+    as_owner git -C "$NAV_ROOT" -c advice.detachedHead=false checkout --quiet --force "$commit"
+    printf '%s tag=%s object=%s commit=%s signer=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TAG" "$new" "$commit" "${signer// /_}" >> "$HISTORY"
     if [[ "$current" != "$TAG" ]]; then printf '%s\n' "$current" > "$PREV_TAG.pending"; fi
     # Continue with the deploy logic of the tag that is now checked out (the lock fd 9 is inherited).
     exec "$NAV_ROOT/infra/staging/bin/deploy.sh" --after-checkout "$TAG"
@@ -69,6 +115,7 @@ fi
 t0=$(date +%s)
 "$NAV_BIN/install-units.sh"
 nav_ensure_data_root
+nav_give_photon_indexes   # SEC-4A: slots built before SEC-4A have a root-owned photon/; the lane runs as uid 101
 nav_compose --profile '*' pull --quiet --ignore-buildable
 nav_compose up -d --wait --remove-orphans
 lane=$(nav_active_lane)

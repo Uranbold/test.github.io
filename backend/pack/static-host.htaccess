@@ -23,6 +23,11 @@ SetEnv dont-vary 1
     # a parent directory (for example a CMS front controller) from turning a missing pack file into a 200 page.
     RewriteEngine On
     RewriteRule . - [E=no-gzip:1,E=no-brotli:1]
+    # SEC-4A BE-13 / WS-12: no directory listings. A directory URL (this one, mn/, a version directory) is a 404.
+    # This is the "Options -Indexes" of this file: an `Options` line needs AllowOverride Options and answers 500 for the
+    # whole directory on hosts that allow only FileInfo; a rewrite rule needs only FileInfo.
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [R=404,L]
 </IfModule>
 
 # ---- 2. Content types; .gz is a file type here, never a content coding.
@@ -51,6 +56,10 @@ SetEnv dont-vary 1
     <FilesMatch "\.(json|txt)$">
         Header set Cache-Control "no-cache"
     </FilesMatch>
+    # SEC-4A BE-13 / WS-12: browsers must not guess a type (the manifest is JSON on a shared web host).
+    Header set X-Content-Type-Options "nosniff"
+    # Only if the whole host is HTTPS-only (ask the host first; it applies to every page of the domain):
+    # Header set Strict-Transport-Security "max-age=31536000"
     # Only for browser clients (the Android app does not need CORS). Uncomment if a web page reads the pack:
     # Header set Access-Control-Allow-Origin "*"
     # Header set Access-Control-Expose-Headers "ETag, Content-Length, Content-Range, Accept-Ranges"
