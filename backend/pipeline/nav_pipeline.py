@@ -97,6 +97,14 @@ ALERT_CODES = {11, 12, 13, 14, 15, 20, 21, 22, 23, 24, 31, 40}
 # Staging defaults; a smaller/disabled value is logged as a relaxation on every run (AC 37).
 STAGING = {"REBUILD_MIN_FREE_GB": 50.0, "REBUILD_HARD_FLOOR_FREE_GB": 5.0, "REBUILD_MIN_MEM_AVAILABLE_GB": 6.5,
            "REBUILD_MAX_DATA_AGE_HOURS": 48.0, "REBUILD_MIN_EXTRACT_MB": 40.0}
+# SEC-4A BE-5: slot files whose sha256 is recorded in .slot-complete at build time (the files the NAV-020 pack step
+# hard-links into a pack; nav_pack.SLOT_SOURCE). nav_pack refuses a file whose bytes no longer match.
+SLOT_HASHED = ("tiles/basemap.pmtiles", "valhalla/valhalla_tiles.tar", "sources/photon-dump")
+# SEC-4A BE-4: the Photon lanes run as this uid:gid (compose.slots.yaml `user: "101:101"`, scripts/lib.sh
+# PHOTON_RUN_UID). Only the slot's photon/ directory belongs to it.
+PHOTON_UID = 101
+# SEC-4A BE-7: curl never leaves https, not even through a redirect.
+CURL_HTTPS_ONLY = ["--proto", "=https", "--proto-redir", "=https"]
 
 
 # ====================================================================== small helpers
@@ -213,6 +221,37 @@ def rmtree(path):
 
 
 # ====================================================================== configuration
+def give_photon_index(slot_dir):
+    """SEC-4A BE-4: hand <slot>/photon (and everything below it) to the Photon lane user PHOTON_UID. The rest of the
+    slot stays root's and is mounted read-only into the lane. Idempotent; a no-op when the directory is missing."""
+    top = Path(slot_dir) / "photon"
+    if not top.is_dir() or top.is_symlink():
+        return
+    for root, dirs, files in os.walk(top):
+        for name in [*dirs, *files, None]:
+            p = os.path.join(root, name) if name else root
+            st = os.lstat(p)
+            if (st.st_uid, st.st_gid) != (PHOTON_UID, PHOTON_UID):
+                os.lchown(p, PHOTON_UID, PHOTON_UID)
+
+
+def slot_hashes(slot_dir):
+    """SEC-4A BE-5: {relative path: sha256} of the SLOT_HASHED files of a slot (missing files are not listed)."""
+    out = {}
+    for rel in SLOT_HASHED:
+        p = Path(slot_dir) / rel
+        if p.is_file():
+            out[rel] = sha256_file(p)
+    return out
+
+
+def recorded_slot_hashes(slot_dir):
+    """The build-time hashes from <slot>/.slot-complete ({} for a slot built before SEC-4A or an unreadable file)."""
+    doc = read_json(Path(slot_dir) / ".slot-complete", {}) or {}
+    h = doc.get("sha256") if isinstance(doc, dict) else None
+    return {k: v for k, v in h.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(h, dict) else {}
+
+
 def parse_env_file(path):
     """KEY=VALUE lines, last assignment wins, optional export and surrounding quotes (never sourced)."""
     out = {}
@@ -290,6 +329,14 @@ class Config:
         self.sources = srcs
         self.dump_file = g("PHOTON_DUMP_FILE")
         self.dump_url = g("PHOTON_DUMP_URL", DEFAULT_DUMP_URL)
+        if not self.dump_file and not self.dump_url.startswith("https://"):
+            raise ConfigError(f"PHOTON_DUMP_URL must be an https:// URL (or set PHOTON_DUMP_FILE): {self.dump_url!r}")
+        # SEC-4A BE-7: 1 (default) = an https OSM source must publish <url>.md5; a missing or unreadable .md5 fails
+        # the source like a failed download (retry, then the next source). 0 only for a mirror without .md5.
+        self.require_md5 = g("REBUILD_REQUIRE_SOURCE_MD5", "1") != "0"
+        if g("ALLOW_UNVERIFIED_TOOLS", "0") == "1" and self.project == "navmn":
+            raise ConfigError("ALLOW_UNVERIFIED_TOOLS=1 is refused for the navmn (staging) project: every tool "
+                              "download must be checksum-verified (SEC-4A BE-7)")
         self.stall_s = int(self.num("REBUILD_SOURCE_STALL_SECONDS", 120))
         self.retry_delay_s = self.num("REBUILD_SOURCE_RETRY_DELAY_SECONDS", 30)
         if self.retry_delay_s < 30:
@@ -338,6 +385,8 @@ class Config:
             out.append(f"freshness check 3(f) relaxed to {self.max_age_h:g} h (staging 48)")
         if not self.require_not_older:
             out.append("not-older check 3(e) OFF (REBUILD_REQUIRE_NOT_OLDER=0)")
+        if not self.require_md5:
+            out.append("OSM source .md5 requirement OFF (REBUILD_REQUIRE_SOURCE_MD5=0)")
         for key, attr in (("REBUILD_MIN_FREE_GB", "min_free_gb"), ("REBUILD_HARD_FLOOR_FREE_GB", "floor_free_gb"),
                           ("REBUILD_MIN_MEM_AVAILABLE_GB", "min_mem_gb"), ("REBUILD_MIN_EXTRACT_MB", "min_extract_mb")):
             if getattr(self, attr) < STAGING[key]:
@@ -649,6 +698,10 @@ class Pipeline:
     def start_lane(self, lane, slot_id, recreate, timeout):
         """Point lanes/<lane> at the slot and bring the lane up healthy. recreate=False only starts a stopped
         container that already has this slot mounted (rollback)."""
+        try:
+            give_photon_index(self.lay.slot(slot_id))
+        except OSError as e:
+            return False, f"cannot hand {slot_id}/photon to uid {PHOTON_UID} (SEC-4A; run the pipeline as root): {e}"
         if recreate:
             symlink_atomic(self.lay.lanes / lane, f"../slots/{slot_id}")
             args = ["up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", str(timeout)]
@@ -784,7 +837,7 @@ class Pipeline:
 
     # ------------------------------------------------------------------ fetch + validate (section A)
     def curl_base(self):
-        cmd = ["curl", "-sS", "-L", "--fail", "--connect-timeout", "30", "-A", self.cfg.user_agent]
+        cmd = ["curl", "-sS", "-L", *CURL_HTTPS_ONLY, "--fail", "--connect-timeout", "30", "-A", self.cfg.user_agent]
         if self.cfg.https_proxy:
             cmd += ["--proxy", self.cfg.https_proxy]
         return cmd
@@ -924,6 +977,10 @@ class Pipeline:
         else:
             url = src
             md5_remote = self.remote_md5(url)
+            if md5_remote is None and self.cfg.require_md5:
+                # SEC-4A BE-7: fail closed, never a silent skip (REBUILD_REQUIRE_SOURCE_MD5=0 for a mirror without one)
+                raise SourceError("md5", f"{url}.md5 missing or unreadable; the extract cannot be verified "
+                                         "(REBUILD_REQUIRE_SOURCE_MD5=1)")
             if active and not force and md5_remote and md5_remote == active.get("md5"):
                 self.log.step("fetch", "ok", time.monotonic() - t0, source=url, md5=md5_remote,
                               note="remote .md5 equals the active slot's extract; nothing downloaded")
@@ -1219,7 +1276,16 @@ class Pipeline:
                 if int(a.st_mtime) == int(b.st_mtime) and a.st_size == b.st_size:
                     os.utime(new_tiles, (time.time() + 2, time.time() + 2))
                     self.log.event("info", "new archive touched so that its ETag differs from the active one")
-        complete = json.dumps({"slot": slot_id, "run_id": self.run_id, "completed_at": iso()}) + "\n"
+        # SEC-4A BE-4/BE-5: photon/ to the Photon lane user; build-time sha256 of the pack's source files.
+        try:
+            give_photon_index(part)
+        except OSError as e:
+            raise Outcome(21, "failed", "build", f"cannot hand photon/ to uid {PHOTON_UID} (run the pipeline as root): {e}") from None
+        t0 = time.monotonic()
+        hashes = slot_hashes(part)
+        self.log.event("info", "slot file hashes recorded in .slot-complete", files=len(hashes),
+                       duration_s=round(time.monotonic() - t0, 1))
+        complete = json.dumps({"slot": slot_id, "run_id": self.run_id, "completed_at": iso(), "sha256": hashes}) + "\n"
         atomic_write(part / ".slot-complete", complete)
         with contextlib.suppress(FileNotFoundError):
             os.unlink(lay.lanes / "build")

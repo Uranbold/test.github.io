@@ -47,6 +47,7 @@ enum class StringKey(val resName: String) {
     ROUTE_OUT_OF_AREA("route_out_of_area"),
     ROUTE_SAME_POINT("route_same_point"),
     ROUTE_TOO_FAR("route_too_far"),
+    ROUTE_TOO_FAR_CAR("route_too_far_car"), // SEC-2 N24
     ROUTE_UNAVAILABLE("route_unavailable"),
     ROUTE_RATE_LIMITED("route_rate_limited"),
     ROUTE_SNAP_NOTICE("route_snap_notice"),

@@ -26,6 +26,14 @@
 	tls {
 		protocols tls1.2 tls1.3
 	}
+	# SEC-4A BE-13: HSTS (one year; this host is HTTPS-only, port 80 only redirects) and no Server header.
+	# `defer` applies them after the gateway's response is written, so nothing is duplicated. The gateway itself
+	# sends X-Content-Type-Options: nosniff and the CORS headers (each exactly once); Caddy does not touch them.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+		defer
+	}
 	# No `encode`: PMTiles range responses and the gateway's gzip pass through unchanged.
 	# Caddy replaces any client-sent X-Forwarded-For with the real peer address; the gateway trusts
 	# X-Forwarded-For only from Caddy's fixed address on the edge network (GATEWAY_REAL_IP_FROM).
@@ -36,6 +44,9 @@
 	handle_errors 502 503 504 {
 		header Content-Type application/json
 		header Cache-Control no-store
+		header X-Content-Type-Options nosniff
+		header Strict-Transport-Security "max-age=31536000"
+		header -Server
 		respond `{"code":"UpstreamUnavailable","message":"gateway unavailable"}` {err.status_code}
 	}
 }

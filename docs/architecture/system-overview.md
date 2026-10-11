@@ -17,8 +17,10 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0015: Android route preview points (chosen start, swap) and turn list (NAV-018)
 - ADR-0016: Android demo build (offline replay through the real guidance engine, NAV-019)
 - ADR-0017: offline Mongolia pack for Android (PMTiles monthly, Valhalla graph + SQLite search DB weekly, per-file versioned; online first with on-device routing and search as fallback; engine in a separate process). **Accepted** (PO 2026-10-04); openapi 0.6.0 `packs` operations
+- ADR-0018: client security hardening (SEC-4B): per-build CSP meta tag with build-time hashes and a header policy that carries only `frame-ancestors`; strict Gradle dependency verification (sha256) and a strict lock on the Android release runtime classpath. No contract change
+- ADR-0019: route request limits (SEC-2): per-costing distance (car 3,000 km straight-line sum) and 10-location limits in Valhalla `service_limits`, applied at serve time; Valhalla 8 s timeout inside the 10 s gateway timeout; always-on gateway concurrency cap on `/v1/route` (global 8, per IP 4) answered with 503 `RoutingBusy`. openapi 0.7.0
 
-HTTP contract: `api/openapi.yaml` 0.6.1 (0.6.0 added the `packs` operations; 0.6.1 is documentation only). Task breakdowns per story: `tasks/` (NAV-020 to NAV-023).
+HTTP contract: `api/openapi.yaml` 0.7.0 (0.6.0 added the `packs` operations; 0.7.0 adds the SEC-2 route request limits, 503 `RoutingBusy` and narrows `locations` to 10). Task breakdowns per story: `tasks/` (NAV-020 to NAV-023, SEC-4B, SEC-2).
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 
@@ -371,8 +373,23 @@ sequenceDiagram
   G->>V: POST /route
   V-->>G: 400 {code:"NoSegment"}
   G-->>C: 400 (pass-through)
-  Note over G,V: valhalla stopped → gateway 502/503 {code:"UpstreamUnavailable"} within 5 s
+  Note over G,V: valhalla stopped → gateway 502 {code:"UpstreamUnavailable"} within 5 s
+  C->>G: POST /v1/route (car, P1 → X3 Moscow, about 4,635 km straight line)
+  G->>V: POST /route
+  V-->>G: 400 {code:"DistanceExceeded"} (service_limits, before any road search, < 1 s)
+  G-->>C: 400 (pass-through) → client shows N24 on car, N11 on walk/bike
+  alt route requests in flight ≥ global cap (8) or ≥ per-IP cap (4)
+    C->>G: POST /v1/route
+    G-->>C: 503 {code:"RoutingBusy"} + Retry-After: 1, no-store (limit_conn, Valhalla not contacted, no queue)
+    Note over C: existing 503 handling: N8 + user retry (web) · back-off 5/10/20/30 s or on-device fallback (Android)
+  else Valhalla runs longer than VALHALLA_TIMEOUT_SECONDS (8 s)
+    C->>G: POST /v1/route
+    G->>V: POST /route
+    V-->>G: timeout answer (expected 504, raw body)
+    G-->>C: 504 {code:"UpstreamTimeout"} (reshaped, gateway read timeout 10 s is the backstop)
+  end
 ```
+SEC-2 request limits (ADR-0019, openapi 0.7.0). `max_distance` is a straight-line sum: `auto`/`bus`/`taxi`/`truck` 3,000 km, `bicycle`/`motorcycle`/`motor_scooter` 500 km, `pedestrian` 250 km; 10 locations for every costing. They apply to POST and GET and on every slot. Timeouts: Valhalla 8 s < gateway 10 s < client 12 s.
 
 ## 5. Non-functional requirements
 
@@ -381,7 +398,8 @@ sequenceDiagram
 | NFR-L1 | Route latency via gateway, UB | p95 ≤ 500 ms (20 sequential, warm) | Project NFR, NAV-001 AC 35 | QA smoke/perf |
 | NFR-L2 | Search / reverse latency | p95 ≤ 300 ms | NAV-001 AC 36-37 | QA |
 | NFR-L3 | Tile range request latency | p95 ≤ 100 ms | NAV-001 AC 38 | QA |
-| NFR-L4 | Error latency | malformed route 400 ≤ 1 s; out-of-coverage 4xx ≤ 3 s; upstream down 502/503 ≤ 5 s | NAV-001 AC 32-34 | QA |
+| NFR-L4 | Error latency | malformed route 400 ≤ 1 s; out-of-coverage 4xx ≤ 3 s; upstream down 502 ≤ 5 s; over-limit route 400 (`DistanceExceeded`, too many locations) ≤ 1 s; route cap 503 `RoutingBusy` ≤ 1 s; Valhalla timeout → 504 `UpstreamTimeout` by 8 s (gateway backstop 10 s) | NAV-001 AC 32-34, 44, 46-49 | QA |
+| NFR-A5 | Route cost bound (SEC-2) | per-costing distance and location limits for every costing (no costing bypass); ≤ `GATEWAY_ROUTE_MAX_INFLIGHT` route requests in flight in total and ≤ `GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP` per client IP; requests under the cap unaffected (AC 35 p95 holds, 0 × 503) | D213, D216-D222; ADR-0019; NAV-001 AC 44-49 | QA light set, security-engineer |
 | NFR-A1 | Fault isolation | one upstream down does not affect the other endpoints or the gateway | NAV-001 AC 34 | QA |
 | NFR-A2 | Restart from existing data | all services healthy ≤ 120 s, nothing rebuilt | NAV-001 AC 2 | QA |
 | NFR-A3 | Clean first run | all services healthy ≤ 30 min, including downloads, on the default Mongolia source | NAV-001 AC 1 | QA |

@@ -3,6 +3,7 @@
 - **Stories:** NAV-018 (AC 1–38; UI-relevant AC 1–9, 11, 14, 15, 18, 21–30, 33, 34). Traceability per AC at the end.
 - **Platforms:** **Android only** (Kotlin, Jetpack Compose, Material 3, MapLibre Native). iOS is NAV-015 and reuses this spec with HIG controls.
 - **Base spec:** this is a **delta** on [`screens/NAV-011-android-route-preview-search-parity.md`](NAV-011-android-route-preview-search-parity.md), which is a delta on [`screens/NAV-005-android-navigation.md`](NAV-005-android-navigation.md). It changes S3 (the preview sheet: header row → points block; «Эхлэх» footer → O1; lower part → turn list), adds the **point editor** (a field-editing state of S3), and changes the **coordinate card while a preview is open**. NAV-012's battery entry row and hint keep their rules (AC 30 order below). Everything this spec does not name stays as NAV-011 / NAV-005 / NAV-012.
+- **Change SEC-2 (2026-10-11, [D223](../../requirements/decisions.md), NAV-018 AC 17 pointer):** the inherited NAV-011 S3 states now include "Too far by car" (N24 «Энэ зай машинаар хэт хол байна»), also with a chosen start; 503 `RoutingBusy` is the existing unavailable state. No behaviour or layout of NAV-018's own; one States row added.
 - **Web parity reference:** [`screens/NAV-004-route-preview.md`](NAV-004-route-preview.md) (fields, swap, turn list, manoeuvre icons, distance formats) and ADR-0008 (instruction text). Where Android differs, Alternatives considered says why.
 - **Flow:** [`flows/NAV-018-android-origin-turn-list.md`](../flows/NAV-018-android-origin-turn-list.md) (F1 open, F2 point editor, F3 map point, F4 swap and requests, F5 «Эхлэх» and O1, F6 turn list, F7 close and session).
 - **Map:** [`map-style.md`](../map-style.md) v0.9 **§7.7** (start marker for a chosen start, candidate pin, manoeuvre point; no new colours).
@@ -167,7 +168,8 @@ No change (ADR-0009 §1: only `core`). The fields, editor, turn list and card ar
 | Loading after a point change or swap | new text at once | enabled | old route removed at request start; region empty ≤ 300 ms, then spinner + «Ачаалж байна…» | disabled | 11, 13 |
 | Same point | either | enabled | «Эхлэх цэг, очих газар ижил байна»; 0 requests | disabled | 9 |
 | Outside the service area (either point) | either | enabled | «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна» | disabled | 17 |
-| Too far on «Явган» / «Дугуй», no route, unavailable, error | either | enabled | NAV-011 / NAV-005 texts unchanged (N11; «Маршрут олдсонгүй» + avoid hint; «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох»; «Алдаа гарлаа») | disabled | 17 |
+| Too far on «Явган» / «Дугуй», no route, unavailable, error | either | enabled | NAV-011 / NAV-005 texts unchanged (N11; «Маршрут олдсонгүй» + avoid hint; «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох» (also for 503 `RoutingBusy`, SEC-2); «Алдаа гарлаа») | disabled | 17 |
+| Too far by car (`DistanceExceeded` on «Машин»; SEC-2) | either (a chosen start can be the far point) | enabled | «Энэ зай машинаар хэт хол байна» (N24), the NAV-011 S3 row; both markers stay so the user sees which point is far and can edit or swap it | disabled, no O1 | 17 |
 | Offline | either | enabled | «Интернэт холболт алга»; one request by itself ≤ 2 s after the network returns | disabled | 17 |
 | Rate-limited (429) | updates with every change | enabled | «Түр хүлээгээд дахин оролдоно уу», «Дахин оролдох» disabled for `Retry-After`; fields and markers still update; 0 requests during the wait | disabled | 12 |
 | GPS lost / permission revoked with a route | unchanged (the start is fixed when set) | unchanged | unchanged; 0 requests | device start: NAV-005 AC 10 rule for «Эхлэх»; chosen start: as before | 10 |
@@ -320,7 +322,7 @@ Three needed a design change during the work: error prevention (the close button
 | 8 | Map markers; map-style §7.7 |
 | 9, 10 | Content rules (same point); States › S3 (GPS lost); flow F1, F4 |
 | 11, 12 | Swap; States › S3 (loading, 429, after a swap); flow F4 |
-| 13, 14, 16, 17 | States › S3; flow F4, F5 (request bodies are not UI) |
+| 13, 14, 16, 17 | States › S3; flow F4, F5 (request bodies are not UI). SEC-2: AC 17 "Too far by car" (N24) row |
 | 15 | O1 hint, «Эхлэх» footer, Q7; Alternative 4; flow F5 |
 | 18–21, 24–26 | Turn list component, States › turn list, Content rules; flow F6 |
 | 22 | Q8; Alternative 5; map-style §7.7 |
@@ -360,4 +362,5 @@ Three needed a design change during the work: error prevention (the close button
     4. Chosen start + battery row at 200 % with a wide font left 53 dp of map → Q3 last resort (entry row joins the top part above 100 %).
 - **Contrast:** `node docs/design/prototypes/check-contrast.mjs` → **all checks passed** (150 contrast pairs including the 2 new ones, flavor key parity, 80 map-style values).
 - **Mermaid:** the 7 diagrams in the flow parse with Mermaid's parser.
+- **SEC-2 (2026-10-11):** one inherited States row (N24); no NAV-018 layout changed and the NAV-018 checker was not re-run. The row is measured in the NAV-011 prototype (`preview-toofar-car`: 1,344 combinations, 0 problems). The 7 flow diagrams still parse (Mermaid 10.9.1).
 - **Timing budgets** (delegated to QA, JVM/Robolectric, light-QA mode): AC 2 (500 ms message removed), AC 4 (500 ms list closes), AC 6 (500 ms card closes), AC 9 (500 ms N10), AC 11 (200 ms swap), AC 15 (200 ms O1), AC 21 (200 ms list follows selection), AC 22 (1 s camera), AC 24 (1 s language), AC 34 (500 ms lock card). On-device timing, scrolling and the camera move are real-device checks (AC 38, not verified: no Android test phone).

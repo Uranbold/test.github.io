@@ -1,5 +1,6 @@
 // NAV-004 live gateway tests (no route mocking): AC 15 (timing), 16 (RS3 k), 28 (RS1–RS6 turn text scan), 29 (English
-// RS1, RS3), 33 (RS5), 34 (RS7), 35 (RS8 = P1 → X2 on foot, ADR-0008 §4; RS8a P1 → X1 recorded), 51 (network hygiene).
+// RS1, RS3), 33 (RS5), 34 (RS7), 35 (RS8 = P1 → X2 on foot, ADR-0008 §4; RS8a P1 → X1 recorded;
+// SEC-2: RS9 = P1 → X3 Moscow by car → N24 within 4 s), 51 (network hygiene).
 // Pacing: at most 2 route requests per second for the whole run (livePace), serial (workers: 1). Reverse lookups of the
 // coordinate cards are mocked (not under test here) to keep the shared gateway load low.
 import { test, expect } from '@playwright/test';
@@ -72,7 +73,7 @@ test('AC15: RS1–RS4 (20 samples, ≤ 2 route requests/s): selected line + summ
   expect(rs6ok).toBeGreaterThanOrEqual(4);
 });
 
-test('AC16 + AC28 + AC29 + AC33 + AC34 + AC35 + AC51: live RS1–RS8 session in both UI languages (≤ 2 route requests/s)', async ({ page }) => {
+test('AC16 + AC28 + AC29 + AC33 + AC34 + AC35 + AC51: live RS1–RS9 session in both UI languages (≤ 2 route requests/s)', async ({ page }) => {
   test.setTimeout(300_000);
   const hosts = new Set();
   const routeUrls = [];
@@ -92,7 +93,7 @@ test('AC16 + AC28 + AC29 + AC33 + AC34 + AC35 + AC51: live RS1–RS8 session in 
     await expect(tid(page, 'zoom-in')).toBeVisible();
     await page.waitForTimeout(1200);
   };
-  for (const rs of ['RS1', 'RS2', 'RS3', 'RS4', 'RS5', 'RS6', 'RS7', 'RS8', 'RS8a']) {
+  for (const rs of ['RS1', 'RS2', 'RS3', 'RS4', 'RS5', 'RS6', 'RS7', 'RS8', 'RS8a', 'RS9']) {
     await reload();
     const t0 = await page.evaluate(() => performance.now());
     const state = await openRS(page, rs);
@@ -148,6 +149,18 @@ test('AC16 + AC28 + AC29 + AC33 + AC34 + AC35 + AC51: live RS1–RS8 session in 
     if (rs === 'RS8') {
       expect(state).toBe('too-far');
       expect(p.rowText).toBe(T.mn.tooFar);
+    }
+    if (rs === 'RS9') {
+      // SEC-2 (AC 35, D223; NAV-001 AC 44): live 400 DistanceExceeded on «Машин» → N24 within 4 s of the action
+      expect(state).toBe('too-far-car');
+      expect(p.rowText).toBe(T.mn.tooFarCar);
+      expect(p.retry).toBeNull();
+      const tl = await rtimeline(page);
+      const tState = tl.find((s) => s.t >= last.t && s.state === 'too-far-car').t;
+      const tAct = await lastAct(page, 'route-origin');
+      out.RS9.msFromAction = Math.round(tState - tAct);
+      expect(tState - tAct, 'RS9 within 4 s of the triggering action (AC 35)').toBeLessThanOrEqual(4000);
+      expect((await lines(page)).length).toBe(0);
     }
     if (['RS1', 'RS2', 'RS3', 'RS4', 'RS6'].includes(rs)) expect(state, rs).toBe('route');
     await livePace(page, 2);

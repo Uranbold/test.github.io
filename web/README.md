@@ -46,7 +46,7 @@ Run everything from `web/`.
 |---|---|
 | Install | `npm ci` |
 | Dev server (http://localhost:5173) | `npm run dev` |
-| Production build (to `dist/`) | `npm run build` |
+| Production build (to `dist/`) | `npm run build` (every build writes and checks a Content-Security-Policy, see [Security](#security-content-security-policy-and-response-headers-sec-4b)) |
 | Static public demo build (to `dist-static-demo/`, map only, D44) | `npm run build:static-demo` |
 | Demo-mode build (to `dist-demo-mode/`, route picker and simulated guidance, NAV-017) | `npm run build:demo-mode` |
 | Serve the build (http://localhost:4173) | `npm run preview` |
@@ -140,6 +140,9 @@ and routing are off (NAV-017)". The output:
   fixture is missing, is not an OSRM `Ok` response with one route and one leg, or its GPX track is not continuous at
   1 Hz or does not start and end within 30 m of the route;
 - adds the Ferrostar 0.57.0 core as `assets/ferrostar_bg-*.wasm` (about 0.9 MB).
+- carries its own Content-Security-Policy meta with `'wasm-unsafe-eval'` and `media-src 'self' data:` (SEC-4B, see
+  [Security](#security-content-security-policy-and-response-headers-sec-4b)); the web-root headers apply to the folder
+  by inheritance, so it still needs no `.htaccess`.
 
 Routes, named as the picker shows them (`src/demo/routes.manifest.json`): R1 «Сүхбаатарын талбай → Зайсан Голден Вилл»
 (car, G1, 308 s), R2 «Сүхбаатарын талбай → Хаан банк» (walk, G5, 932 s), R3 «Сонгосон цэг → Золтамир» over Их тойруу
@@ -209,6 +212,9 @@ Record the iOS version used, and the result of each item:
 10. VoiceOver: every control has a name, each new instruction is announced once.
 11. Complete R1 from «Эхлэх» to the arrival panel (AC 49).
 
+After SEC-4B (Content-Security-Policy with `'wasm-unsafe-eval'`) item 11 is run **once more** on the real iPhone: support
+for `'wasm-unsafe-eval'` on the current iOS is assumed, not verified here. A failure comes back as a SEC-4B defect.
+
 ### Behaviour and test hooks
 
 - **Picker** (in the NAV-004 route slot): «Туршилтын горим», «Маршрут сонгох», R1–R3 as a radio list; selecting an entry
@@ -260,6 +266,130 @@ in the public static or normal builds (checked in `src/demo/build.test.ts`).
   from the badge, run the three tests, then tap **"Copy"** and paste the text into a message to the team. Add the iOS
   version and the ring/silent switch position. The copied text never contains the page URL; if "Copy" fails, select the
   text at the bottom of the panel by hand.
+
+## Security: Content-Security-Policy and response headers (SEC-4B)
+
+Story `docs/requirements/stories/SEC-4B-client-security-hardening.md`, design ADR-0018. Two layers: a policy **inside
+every built HTML file** (travels with every upload, works before anyone edits the server), and a few **response
+headers** that only the server can send (set once by the PO, below).
+
+### Built into every page
+
+Every `vite build` (static demo, demo mode, normal) runs `buildtools/csp.ts` as the **last** Vite plugin. It strips the
+HTML comments of `index.html` (the source file keeps them), puts `<meta charset="utf-8">` first in `<head>`, then
+`<meta http-equiv="Content-Security-Policy" content="…">`, then `<meta name="referrer" content="same-origin">`, and
+hashes every inline `<script>` and `<style>` from the final HTML. Nobody edits a hash by hand: a change to
+`src/boot/bootLoading.ts` or to `docs/design/tokens.json` gets new hashes on the next build.
+
+| Directive | Static demo (`dist-static-demo/`) | Demo mode (`dist-demo-mode/`) | Normal (`dist/`) |
+|---|---|---|---|
+| `default-src` | `'self'` | `'self'` | `'self'` |
+| `script-src` | `'self'` + boot-script hash | `'self' 'wasm-unsafe-eval'` + boot-script and trailing-slash-guard hashes (Ferrostar WASM) | `'self'` + boot-script hash |
+| `style-src` | `'self'` + design-token hash | `'self'` + design-token and demo-token hashes | `'self'` + design-token hash |
+| `img-src` | `'self' data: blob:` | same | same |
+| `connect-src` | `'self'` | `'self'` | `'self'` + the origin of `VITE_GATEWAY_BASE_URL` |
+| `worker-src` | `'self'` (MapLibre worker file) | same | same |
+| `media-src` | (falls back to `default-src`) | `'self' data:` (the chime, generated at runtime) | (falls back) |
+| `object-src`, `base-uri`, `form-action` | `'none'` | `'none'` | `'none'` |
+
+- **Normal build `connect-src`** follows `VITE_GATEWAY_BASE_URL` through the same rule the app uses at runtime
+  (`gatewayTarget` / `gatewayConnectOrigin` in `src/config.ts`): unset → `'self' http://localhost:8080`; `same-origin`,
+  `/` or a path such as `/gw` → `'self'`; an absolute URL → `'self'` plus exactly its origin. A value that is not an
+  http(s) URL, `same-origin` or a path fails the build. A gateway moved after the build needs a rebuild.
+- **The static demo and demo mode fail closed:** if their gateway is not the page origin, the build fails (they contact
+  the page origin only, NAV-002 AC 46 / AC 53, NAV-017 AC 42).
+- **The build fails**, naming the file and the element, when the written HTML breaks a rule: an inline `<script>` or
+  `<style>` whose hash is not in the policy (for example one added by a later plugin), a hash with no element, a second
+  policy or one that is not directly after `<meta charset>`, a forbidden source (`'unsafe-inline'`, `'unsafe-eval'`, `*`,
+  a scheme or host in `script-src`), `'wasm-unsafe-eval'` without a `.wasm` file (or the reverse), `frame-ancestors`,
+  `report-uri`, `report-to` or `sandbox` in the meta tag, an `on…=` attribute, a `javascript:` URL, a `style="…"`
+  attribute, a `<!--` anywhere in the HTML, a path with `fixtures/` or `label-rule`, or an `.htaccess` / `.htpasswd`.
+  The check parses the files on disk with jsdom and hashes again on its own, so a mistake on either side fails the build
+  instead of shipping a page whose script is blocked.
+- **For developers:** code must not create `<style>` or inline `<script>` elements, `style="…"` attributes or `on…=`
+  handlers at runtime; the browser blocks them in the builds (setting `element.style.x` from code is fine). CSS that is
+  computed from the tokens goes into `index.html` at build time (`vite.config.ts` › `bootIndicator`). `npm run dev` has
+  no policy (Vite's hot reload injects inline scripts), so check a change with a build plus `npm run preview` and the
+  browser console.
+- Tests: `buildtools/csp.test.ts` (part of `npm test`). QA's zero-violation browser check runs the three builds under
+  `vite preview`.
+
+### Security headers (Hostinger web root)
+
+The meta tag cannot carry everything: browsers ignore `frame-ancestors` (who may show the site in a frame) in a meta
+policy, and `nosniff`, `Permissions-Policy` and HSTS exist only as response headers. The PO sets them **once**, in the
+web root's `.htaccess` through the hPanel File Manager. Placeholders: `<demo-host>`, `<demo-folder>` (as above); no real
+host name is written anywhere (D35).
+
+**Copy-paste block.** **Merge** it into the existing `<web root>/.htaccess` (for example below the host's "force HTTPS"
+rules). Never replace the file, and never delete the host's own lines.
+
+```apache
+# --- navmn security headers (SEC-4B) - begin ---
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "same-origin"
+  Header always set Content-Security-Policy "frame-ancestors 'none'"
+  Header always set Permissions-Policy "geolocation=(self)"
+  # HSTS value: the PO's choice (SEC-4B Open question 1). Shown: the recommended first stage, max-age=300 for one week of
+  # normal use, then change 300 to 31536000. No includeSubDomains and no preload unless the PO decides otherwise.
+  Header always set Strict-Transport-Security "max-age=300" env=HTTPS
+</IfModule>
+# Optional, only if the .wasm check below shows another Content-Type:
+# AddType application/wasm .wasm
+# --- navmn security headers (SEC-4B) - end ---
+```
+
+What to know before pasting:
+
+- **The demo folder inherits these headers.** Headers set in the web root also apply to `<demo-folder>/`, so the demo
+  folder still gets **no** `.htaccess` of its own (NAV-017 AC 3).
+- **Both policies are enforced.** The browser applies the meta policy of the page **and** the `Content-Security-Policy`
+  header together; a request must pass both. That is why the header carries **only** `frame-ancestors 'none'`: any
+  `script-src` here would also apply to the demo folder and could block its WASM, and the script, style and connect
+  rules already differ per build in each page's meta tag.
+- **`frame-ancestors 'none'`** stops other sites from showing the map inside a frame (click-jacking).
+  **`Permissions-Policy: geolocation=(self)`** keeps «Миний байршил» working on the site itself and denies location to
+  any frame from another site. **`nosniff`** makes the browser refuse a `.js` or `.css` file served with a wrong
+  `Content-Type`.
+- **HSTS is sticky.** A visitor's browser remembers `Strict-Transport-Security` for `max-age` seconds and then refuses
+  plain `http://` for the host. This cannot be withdrawn sooner: removing the line or the block does **not** undo it for
+  visitors who already saw it. `includeSubDomains` would force HTTPS on every subdomain of the company domain, which is
+  why it is left out. Hence the short first stage (300 s = 5 minutes).
+- `env=HTTPS` sends HSTS on HTTPS responses only (browsers ignore it on `http://` anyway). If the checks below show no
+  `Strict-Transport-Security` on `https://` although the other four headers are there, the host does not set that
+  variable: remove ` env=HTTPS` from the line.
+- **If the site breaks** after the edit: delete everything between the two `navmn security headers` marker lines and
+  save. The other headers disappear on the next request (HSTS stays cached in browsers, see above). If `mod_headers` is
+  missing, the `<IfModule>` wrapper keeps the site working and the checks below simply show no headers.
+
+**Checks after editing `.htaccess`** (from any computer with `curl`; a header name is case-insensitive):
+
+1. `curl -sI https://<demo-host>/` and `curl -sI https://<demo-host>/<demo-folder>/` each show all five headers:
+   ```
+   x-content-type-options: nosniff
+   referrer-policy: same-origin
+   content-security-policy: frame-ancestors 'none'
+   permissions-policy: geolocation=(self)
+   strict-transport-security: max-age=300
+   ```
+   (`max-age=31536000` once the second stage is set.)
+2. `curl -sI -H "Range: bytes=0-16383" https://<demo-host>/tiles/basemap.pmtiles` still answers **206** with a
+   `Content-Range` header and **no** `Content-Encoding` (NAV-002 AC 51–52).
+3. Content types. Take one script name from the uploaded `index.html` (`grep -o 'assets/[^"]*\.js' dist-static-demo/index.html`):
+   `curl -sI https://<demo-host>/assets/<name>.js | grep -i content-type` shows `text/javascript` or
+   `application/javascript` (with `nosniff`, any other type blocks the script). For the demo:
+   `curl -sI https://<demo-host>/<demo-folder>/assets/<ferrostar_bg-….wasm> | grep -i content-type` (name from
+   `ls dist-demo-mode/assets/*.wasm`) shows `application/wasm`; if not, add the optional `AddType` line. (The demo
+   compiles the WASM from its bytes, so a wrong type does not stop it; the line is hygiene.)
+4. Open `https://<demo-host>/` and `https://<demo-host>/<demo-folder>/` in a desktop browser with the developer console
+   open: the map (public site) and the route picker (demo) show, and the console has **0** messages that mention
+   "Content Security Policy". (Messages caused by browser extensions do not count; use a private window without
+   extensions.)
+
+These checks were **not** run against the real host by the team: no real host is reachable from, or named in, the repo.
+Whether the shared hosting honours `Header` lines in `.htaccess` is assumed from the existing hPanel use, not verified
+(SEC-4B R2).
 
 ## What is bundled
 
@@ -319,8 +449,10 @@ src/demo/                        NAV-017 demo-mode UI (only in the demo-mode bui
                                  (voice decision, speech, chime, iOS unlock), wakeLock.ts, routeData.ts, demo.css,
                                  routes.manifest.json (route ends and fixture paths: data, never scanned as UI text)
 buildtools/demoMode.ts           NAV-017 Vite plugins: demo-mode guard, demo index.html, route-data emitter
+buildtools/csp.ts                SEC-4B: per-build Content-Security-Policy and referrer meta (generator) and the
+                                 independent check of the written HTML (jsdom); fixture tests in csp.test.ts
 src/i18n/{mn,en}.json            every UI string (mn default); src/i18n/i18n.ts
-fixtures/label-rule.html         AC 8 fixture page (test hook)
+fixtures/label-rule.html         AC 8 fixture page (test hook; dev server only, never in a build output, SEC-4B AC 13)
 scripts/                         vendor-assets.sh, check-i18n.mjs, check-glossary.mjs, gen-third-party-notices.mjs
 ```
 

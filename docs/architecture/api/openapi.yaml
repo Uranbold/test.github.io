@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.6.1
+  version: 0.7.0
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
@@ -18,7 +18,51 @@ info:
     and ADR-0015 (Android NAV-018: start and destination as one typed point model, swap, guidance only from a
     device start, field search on the shared 429 cooldown, turn list built on the client from the parsed steps)
     and ADR-0017 (offline Mongolia pack for Android: static, per-file versioned pack files and manifest under
-    `/packs/`, on-device routing and search as fallback when the online request fails).
+    `/packs/`, on-device routing and search as fallback when the online request fails)
+    and ADR-0019 (route request limits on `/v1/route`: per-costing distance and location limits in Valhalla, a
+    Valhalla-side processing timeout, and a gateway concurrency cap answered with 503 `RoutingBusy`).
+
+    **Changes in 0.7.0 (2026-10-11, SEC-2 route request limits, D213 and D216-D225, ADR-0019, audit finding BE-1).**
+    Additive, plus **one documented narrowing**. No path or parameter changes, and no client logic change except
+    the car message (see the client profiles). Backend implements the limits and the cap and extends
+    `contract_check.py`:
+    - `postRoute` / `getRoute`: the "Distance limits" paragraph becomes **"Request limits"**. Valhalla enforces
+      them before any road search: at most **10 locations for every costing**; `max_distance` (the **sum of
+      straight-line distances between consecutive locations**, D216) is **3,000 km** for `auto`, `bus`, `taxi`,
+      `truck` (before: 5,000 km), **500 km** for `bicycle`, `motorcycle`, `motor_scooter`, and **250 km** for
+      `pedestrian` (D217, unchanged). Valhalla's processing timeout is **8 s**, inside the unchanged 10 s gateway read
+      timeout and the 12 s client timeout (D218).
+    - **Narrowing (breaking for callers that send more than 10 locations):** `ValhallaRouteRequest.locations`
+      `maxItems` drops from 20 to **10**. Before this change, Valhalla accepted 20 locations for `auto` and 50 for
+      `pedestrian` and `bicycle`. Requests with 11 or more locations now get 400 (measured OSRM code `InvalidValue`,
+      ADR-0019 F2b).
+      **No contracted client is affected:** web, Android preview, guidance and reroute always send exactly 2
+      locations. There are no third-party clients (staging is tester-only, D8).
+    - Car requests between 3,000 and 5,000 km straight line used to get 400 `NoSegment` (a far point outside
+      coverage). They now get 400 **`DistanceExceeded`**, in under 1 s. No point pair inside Mongolia is affected:
+      the longest straight line inside the country is about 2,400 km.
+    - New response **503 `RoutingBusy`** (`components/responses/RoutingBusy`) on `postRoute` and `getRoute`. The
+      gateway's route concurrency cap is full, globally or for this client IP. The gateway answers at once
+      without contacting Valhalla, with `Retry-After` (integer >= 1), `Cache-Control: no-store`, and each CORS header
+      once. Nothing is queued (D219). On `/v1/route`, **503 now means only `RoutingBusy`**. Before, the 503 slot
+      referenced `UpstreamUnavailable`, but the gateway never produced it: it answered every "unavailable" case as
+      502, and still does. Clients already map 503 by status to the routing-unavailable state, so they need **no
+      change** for it.
+    - `GatewayError.code` gains **`RoutingBusy`**. Unknown codes were already handled by HTTP status.
+    - `UpstreamTimeout` text: a route request that Valhalla does not finish within its 8 s timeout, or that gets no
+      answer within the 10 s gateway read timeout, ends as **504 `UpstreamTimeout` JSON**. This includes Valhalla's
+      own timeout answer, which the gateway reshapes and never passes through raw.
+    - Verify stage (2026-10-11): the backend's Valhalla 3.9.0 measurements are recorded (ADR-0019 implementation
+      record). The distance limit is summed over all legs, 11 locations give 400 **`InvalidValue`** (not the
+      expected `TooBig`), and Valhalla's own timeout answer is a plain-text 504 about 1 s after the configured value.
+    - New `RouteBadRequest` examples `distanceExceededCar` and `tooManyLocations`, and a new request example
+      `carTooFar` (P1 to X3 Moscow), which the contract check sends and expects 400. The 11-location case is not a
+      request example, because it is invalid against `ValhallaRouteRequest` on purpose. The contract check sends it
+      as an explicit error case, like "missing locations".
+    - Client profiles (NAV-004, NAV-011, and through it NAV-018 and NAV-005): 400 `DistanceExceeded` on `auto` now
+      shows **N24 «Энэ зай машинаар хэт хол байна»** (D223, glossary, `needs native review`), no longer "no route".
+      Walk and bike keep N11. The NAV-005 reroute rule now lists `DistanceExceeded` with the other
+      no-route outcomes, matching the shipped `ReroutePolicy`.
 
     **Changes in 0.6.1 (2026-10-04, NAV-020 design, ADR-0017 Amendment A1).** Documentation only. No path,
     parameter, status code, header, schema or gateway behaviour change; nothing new for backend to implement beyond
@@ -199,6 +243,9 @@ info:
     (Valhalla OSRM-style `{code,message}`, Valhalla native `{error_code,error,...}`, or Photon
     `{message}` / validation map). 404/405/413/416/429/502/503/504 produced by the gateway itself use
     `GatewayError` `{code,message}` with `Content-Type: application/json`. A 500 from an upstream is a bug, not a contract case.
+    On `/v1/route` (since 0.7.0) every 5xx a client receives is a gateway `GatewayError`: 502 `UpstreamUnavailable`
+    (also for an upstream 500, 502 or 503), 503 `RoutingBusy` (only the gateway's concurrency cap), 504
+    `UpstreamTimeout` (also for Valhalla's own plain-text 504). A raw Valhalla 5xx body is never passed through.
 
     **Rate limits (since 0.4.0).** Where limits are enabled (staging: yes), `postRoute`, `getRoute`, `search`,
     `reverse` and (since 0.6.0) the two `packs` operations may return **429** `RateLimited` with `Retry-After`. Client rules: do not repeat the request
@@ -207,6 +254,15 @@ info:
     retryable state and retry at most once after the delay. Localised text is keyed on the code or HTTP status.
     If `Retry-After` is missing, is not a positive integer, or cannot be read (a browser sees it only when the
     gateway lists it in `Access-Control-Expose-Headers`), wait **5 s** (since 0.4.1, NAV-003 AC 35).
+
+    **Route concurrency cap (since 0.7.0, ADR-0019 §3).** This is separate from the rate limits and is **always
+    on** (dev and staging), whatever `GATEWAY_RATE_LIMIT` says. The gateway counts `/v1/route` requests in flight,
+    globally and per client IP. A request over either cap gets **503 `RoutingBusy`** at once, with `Retry-After`. It
+    is not queued and never reaches Valhalla. Client rule: treat it like any other 503, as the retryable
+    routing-unavailable state, and never retry automatically sooner than `Retry-After`. The existing client
+    behaviour already meets this: the web retries only on a user action; Android uses its 5/10/20/30 s back-off or,
+    with a pack installed, the on-device fallback (NAV-021). When both the rate limit and the cap would reject a
+    request, the client may get either 429 or 503.
 
     **Attribution.** Map data is © OpenStreetMap contributors (ODbL). Clients render this string
     from their own resource files on every map screen. The PMTiles metadata attribution is
@@ -224,7 +280,9 @@ info:
     `search` assisted variants, `reverse`, `postRoute` preview with `alternates: 2` and `bicycle`), NAV-018
     (Android route preview with a chosen start, swap and the client-side turn list; `postRoute`, `search`,
     `reverse` profiles unchanged on the wire). The `packs` operations (0.6.0) trace to ADR-0017: NAV-020 (server
-    pack build, publication and static serving) and NAV-022 (Android download and update client).
+    pack build, publication and static serving) and NAV-022 (Android download and update client). The `/v1/route`
+    request limits, timeout and concurrency cap (0.7.0) trace to SEC-2 (D213, D216-D225), recorded as change logs on
+    NAV-001 AC 44-49, NAV-004 AC 35/36, NAV-005 AC 7/49, NAV-011 AC 24, NAV-018 AC 17, NAV-021 AC 6 and NAV-008 AC 13.
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -652,14 +710,44 @@ paths:
         (snap distance) with a threshold before trusting such a route.
 
         NFR: p95 <= 500 ms via the gateway for UB routes (NAV-001 AC 35), measured on the default Mongolia
-        build. The gateway read timeout is 10 s.
+        build. The gateway read timeout is 10 s, and Valhalla's own processing timeout is 8 s (since 0.7.0).
 
-        **Distance limits (400 `DistanceExceeded`).** Valhalla checks the straight-line distance between
-        consecutive locations against a per-costing limit **before** snapping (dev `valhalla.json`
-        `service_limits`: `auto` 5,000 km, `bicycle` 500 km, `pedestrian` 250 km). So on foot or by bike a far
-        point outside coverage (for example P1 to X2 Beijing) gives `DistanceExceeded`, not `NoSegment`.
-        Measured 2026-09-30: P1 to X1 Erdenet on foot (about 245 km straight line) is **200**
-        (route 315 km, 222,213 s); P1 to X2 on foot or by bike is 400 `DistanceExceeded`.
+        **Request limits (since 0.7.0, SEC-2, ADR-0019; before 0.7.0 "Distance limits").** Valhalla enforces them
+        in its `service_limits`, for both POST and GET, before any road search, so an over-limit request costs almost
+        nothing and is answered within 1 s:
+
+        | `costing` | max locations | max distance (straight-line sum) | over the distance limit |
+        |---|---|---|---|
+        | `auto`, `bus`, `taxi`, `truck` | 10 | 3,000 km | 400 `DistanceExceeded` |
+        | `bicycle`, `motorcycle`, `motor_scooter` | 10 | 500 km | 400 `DistanceExceeded` |
+        | `pedestrian` | 10 | 250 km | 400 `DistanceExceeded` |
+
+        - **Distance** is the sum of the straight-line (great-circle) distances between consecutive locations, in
+          request order (D216). It is **not** the route length: a road route may be longer than its straight line.
+          For the 2 locations that clients send, it is simply the straight line from start to destination. The
+          longest straight line inside Mongolia is about 2,400 km, so every car pair inside the country is allowed
+          (NAV-001 AC 45: L1 Ölgii to L2 Choibalsan, about 1,815 km, is 200).
+        - Because the check runs before snapping, a far point outside coverage gets `DistanceExceeded`, not
+          `NoSegment`, whenever its straight line is over the costing's limit. By car, P1 to X3 Moscow (about
+          4,635 km) gets `DistanceExceeded`. P1 to X2 Beijing (about 1,170 km) still gets `NoSegment` by car and
+          `DistanceExceeded` on foot or by bike.
+        - **More than 10 locations** on any costing: Valhalla's own 400. Measured on 3.9.0 (ADR-0019 F2b, all 8
+          costings): OSRM `{"code":"InvalidValue","message":"The successfully parsed query parameters are invalid."}`
+          (native format: `error_code` 150 "Exceeded max locations: 10"); see the `tooManyLocations` example. It is
+          **not** `TooBig`. Clients send 2 locations, so they never see it; if they did, it is a generic error
+          (`InvalidValue` is already a never-retried request problem).
+        - Costings that clients never send (`bus`, `taxi`, `truck`, `motorcycle`, `motor_scooter`, and the
+          uncontracted `bikeshare`, `multimodal`) are forwarded by the pass-through and limited the same way. No
+          costing is more permissive than `auto` (NAV-001 AC 44, 46).
+        - **Timeout:** Valhalla answers a request that runs longer than its 8 s processing timeout with a 504, and
+          the client gets 504 `UpstreamTimeout` (JSON), inside the 10 s gateway and 12 s client timeouts (D218,
+          NAV-001 AC 48). Measured (ADR-0019 F2c): the timeout has about 1 s granularity (a 1 s setting cut a request
+          at 2.0 s), so the 504 arrives after about 8-9 s. Whether Valhalla also stops computing at that moment is not
+          part of the contract.
+        - **Concurrency:** over the gateway's in-flight cap the request gets 503 `RoutingBusy` at once (see "Route
+          concurrency cap" in the API description; NAV-001 AC 49).
+        - Measured 2026-09-30 (pedestrian limit unchanged since): P1 to X1 Erdenet on foot (about 245 km straight
+          line) is **200** (route 315 km, 222,213 s).
 
         **Instruction text (ADR-0008).** Valhalla 3.9.0's `mn-MN` narrative (`maneuver.instruction`,
         `bannerInstructions[].*.text`, `voiceInstructions[].announcement`) has known defects (NAV-007 F1-F10:
@@ -680,10 +768,12 @@ paths:
         - At most 1 request in flight; a newer triggering action aborts the older one (`AbortController`). Mode
           tabs settle for 300 ms before a request. Client timeout 12 s (gateway read timeout 10 s + margin).
         - Errors: 400 `NoRoute` → no route (no retry offered); 400 `NoSegment` or `ValhallaError` 171 → outside the
-          service area; 400 `DistanceExceeded` → too far on foot / by bike (walk, bike) or no route (car); other
-          400, 413 and unparsable 200 → generic error, never retried; network error, CORS failure, 502, 503, 504
-          or client timeout → routing unavailable with a single user-triggered retry; 429 → the rate-limit rules
-          above (no request for `Retry-After` seconds, 5 s if unreadable; then one request on user action).
+          service area; 400 `DistanceExceeded` → too far on foot / by bike (walk, bike: N11) or, since 0.7.0,
+          **too far by car** (car: N24 «Энэ зай машинаар хэт хол байна», D223; before 0.7.0 "no route"), never
+          retried; other 400, 413 and unparsable 200 → generic error, never retried; network error, CORS failure,
+          502, 503 (including `RoutingBusy`), 504 or client timeout → routing unavailable with a single
+          user-triggered retry; 429 → the rate-limit rules above (no request for `Retry-After` seconds, 5 s if
+          unreadable; then one request on user action).
         - A `waypoints[].distance` above 500 m shows a snap notice (the route ends at the nearest mapped road).
         - Static public demo build (`VITE_STATIC_DEMO`, D44, NAV-002 AC 53-54): **0** requests to this path from
           any host; the client shows "routing unavailable" without calling the network.
@@ -711,10 +801,12 @@ paths:
           `locations[1]` is the original destination. Costing, options, units and language are the ones of the route
           being followed.
         - Client pacing per device (fake-clock tested on the client): at most **1** request in flight; consecutive
-          starts **>= 5 s** apart; at most **6** in any rolling 60 s. After network errors, 502, 503 or 504 the
-          back-off is 5, 10, 20, 30, 30 ... s. After 429 there are no requests for `Retry-After` seconds (5 s if
-          unreadable), then exactly one. After 400 `NoRoute` / `NoSegment` / error 171 the next request needs both
-          >= 200 m of movement and >= 30 s. No requests without a validated network, during a GPS loss, or after
+          starts **>= 5 s** apart; at most **6** in any rolling 60 s. After network errors, 502, 503 (including
+          `RoutingBusy`, 0.7.0) or 504 the back-off is 5, 10, 20, 30, 30 ... s. After 429 there are no requests for
+          `Retry-After` seconds (5 s if unreadable), then exactly one. After 400 `NoRoute` / `NoSegment` /
+          `DistanceExceeded` / error 171 the next request needs both >= 200 m of movement and >= 30 s
+          (`DistanceExceeded` listed since 0.7.0, matching the shipped client and NAV-005 AC 49). In the preview,
+          400 `DistanceExceeded` shows N11 on foot and N24 by car (NAV-005 AC 7, D223). No requests without a validated network, during a GPS loss, or after
           arrival. So one device produces at most 6 route requests per minute, far below the staging per-IP limit.
         - Client timeout 12 s (gateway read timeout 10 s + margin). Coordinates only in the POST body.
         - The client never shows or speaks `maneuver.instruction`, banner `text` or `voiceInstructions[].announcement`.
@@ -735,7 +827,11 @@ paths:
           another route with 0 requests. On start, the client passes a copy of the response with
           `routes = [routes[selected]]` (all other fields unchanged) to its NAV-005 guidance pipeline. Fewer routes
           than requested is normal.
-        - 400 `DistanceExceeded` on `pedestrian` or `bicycle` → too far on foot or by bike; on `auto` → no route.
+        - 400 `DistanceExceeded` on `pedestrian` or `bicycle` → too far on foot or by bike (N11); on `auto` → too far
+          by car (N24 «Энэ зай машинаар хэт хол байна», since 0.7.0, D223; before: no route). This applies to the
+          server answer and to the NAV-021 on-device `TooFar` answer alike. The NAV-018 preview inherits it. 503
+          `RoutingBusy` is the existing routing-unavailable state, and with a pack installed it triggers the
+          on-device fallback (NAV-021 AC 6).
         - Load: still one request per settled user action (mode tabs settle for 300 ms), at most 1 preview request in
           flight. Asking for alternates costs Valhalla more time than `alternates: 0`; the web preview (NAV-004)
           already sends the same value.
@@ -762,7 +858,7 @@ paths:
         - «Эхлэх» (guidance, 0 requests) is enabled only when the start is «Миний байршил» (NAV-018 Open question 1,
           default (a)), so reroutes and the NAV-005 guidance profile are unchanged.
         - Load per device: still at most one request per settled user action and at most 1 preview request in flight.
-      x-stories: [NAV-001, NAV-004, NAV-005, NAV-008, NAV-011, NAV-017, NAV-018]
+      x-stories: [NAV-001, NAV-004, NAV-005, NAV-008, NAV-011, NAV-017, NAV-018, NAV-021, SEC-2]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route, docs: "https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/" }
       requestBody:
         required: true
@@ -933,6 +1029,18 @@ paths:
                   voice_instructions: true
                   units: kilometers
                   language: mn-MN
+              carTooFar:
+                summary: "SEC-2 (0.7.0): P1 to X3 Moscow by car, about 4,635 km straight line, over the 3,000 km auto limit. 400 DistanceExceeded within 1 s (before 0.7.0: NoSegment). NAV-001 AC 44"
+                value:
+                  locations:
+                    - { lat: 47.91890, lon: 106.91760 }
+                    - { lat: 55.75580, lon: 37.61730 }
+                  costing: auto
+                  alternates: 2
+                  format: osrm
+                  banner_instructions: true
+                  units: kilometers
+                  language: mn-MN
       responses:
         "200":
           $ref: "#/components/responses/RouteOk"
@@ -949,7 +1057,7 @@ paths:
         "502":
           $ref: "#/components/responses/UpstreamUnavailable"
         "503":
-          $ref: "#/components/responses/UpstreamUnavailable"
+          $ref: "#/components/responses/RoutingBusy"
         "504":
           $ref: "#/components/responses/UpstreamTimeout"
     get:
@@ -961,7 +1069,9 @@ paths:
         coordinates appear in URLs). Keep URLs under 8 KB: longer
         request lines get 414 from the gateway with an HTML body, which is not part of the contract.
         The query string is redacted from all service logs (ADR-0002 §3.4).
-      x-stories: [NAV-001, NAV-008]
+        The request limits, the 8 s Valhalla timeout and the concurrency cap of `postRoute` apply unchanged (since
+        0.7.0, ADR-0019): GET reaches the same Valhalla and counts against the same caps.
+      x-stories: [NAV-001, NAV-008, SEC-2]
       x-upstream: { service: valhalla, version: "3.9.0", path: /route }
       parameters:
         - name: json
@@ -981,7 +1091,7 @@ paths:
         "502":
           $ref: "#/components/responses/UpstreamUnavailable"
         "503":
-          $ref: "#/components/responses/UpstreamUnavailable"
+          $ref: "#/components/responses/RoutingBusy"
         "504":
           $ref: "#/components/responses/UpstreamTimeout"
     options:
@@ -1314,13 +1424,14 @@ components:
       description: Caching policy of the archive on 200/206 (dev value, ADR-0002 §5).
       schema: { type: string, example: "public, max-age=300" }
     CacheControlNoStore:
-      description: Exactly one header with this value. Used on responses that must never be cached (tiles 416, since 0.3.0).
+      description: Exactly one header with this value. Used on responses that must never be cached (tiles 416 since 0.3.0, 429 `RateLimited` since 0.4.0, 503 `RoutingBusy` since 0.7.0).
       required: true
       schema: { type: string, const: no-store }
     RetryAfter:
       description: |
         Delay in whole seconds (RFC 9110 §10.2.3, delay-seconds form only, never an HTTP date) before the client
-        may send the same kind of request again. Exactly one header. Server-chosen (staging: 1). Since 0.4.0.
+        may send the same kind of request again. Exactly one header. Server-chosen (staging: 1). Since 0.4.0 on 429, and since
+        0.7.0 also on 503 `RoutingBusy` (gateway value: 1).
       required: true
       schema: { type: integer, minimum: 1, example: 1 }
 
@@ -1360,10 +1471,13 @@ components:
         Invalid request or no route. Shape depends on whether Valhalla could read `format=osrm`:
         - `OsrmError`, for example `NoSegment` (a location is outside coverage or not near a road),
           `NoRoute` (for example no path with `exclude_unpaved`), `InvalidOptions` (missing `locations`,
-          unknown costing), `InvalidValue`, `TooBig`, `DistanceExceeded`
+          unknown costing), `InvalidValue` (also more than 10 locations, measured, since 0.7.0), `TooBig`,
+          `DistanceExceeded` (straight-line sum over the costing's limit; see `postRoute` "Request limits")
         - `ValhallaError` when the body is not JSON or `format` is not `osrm`, for example `error_code` 100 "Failed
           to parse json request", or 171 "No suitable edges near location"
         Must be returned within 1 s for malformed bodies and 3 s for out-of-coverage locations (NAV-001 AC 32, 33).
+        Over-limit requests (`DistanceExceeded`, too many locations) are rejected before any road search and must be
+        returned within 1 s (NAV-001 AC 44, 46, 47; since 0.7.0).
       content:
         application/json:
           schema:
@@ -1379,8 +1493,14 @@ components:
             notJson:
               value: { error_code: 100, error: "Failed to parse json request", status_code: 400, status: "Bad Request" }
             distanceExceeded:
-              summary: P1 to X2 on foot or by bike (per-costing straight-line limit, see postRoute "Distance limits")
+              summary: P1 to X2 on foot or by bike (per-costing straight-line limit, see postRoute "Request limits")
               value: { code: DistanceExceeded, message: "Path distance exceeds the max distance limit." }
+            distanceExceededCar:
+              summary: "Since 0.7.0: P1 to X3 Moscow by car (request example carTooFar), about 4,635 km straight line, over the 3,000 km auto limit. Clients show N24 on car"
+              value: { code: DistanceExceeded, message: "Path distance exceeds the max distance limit." }
+            tooManyLocations:
+              summary: "Since 0.7.0: 11 locations on any costing (Valhalla error 150 'Exceeded max locations: 10'). Measured on Valhalla 3.9.0 for all 8 costings on 2026-10-11 (ADR-0019 F2b). Clients show the generic error"
+              value: { code: InvalidValue, message: "The successfully parsed query parameters are invalid." }
     PhotonOk:
       description: GeoJSON FeatureCollection (possibly empty)
       content:
@@ -1471,17 +1591,52 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/GatewayError" }
           example: { code: RateLimited, message: "Too many requests" }
+    RoutingBusy:
+      description: |
+        Since 0.7.0 (SEC-2, D219, ADR-0019 §3, NAV-001 AC 49). The gateway's `/v1/route` concurrency cap is full: the
+        number of route requests in flight reached the global cap (`GATEWAY_ROUTE_MAX_INFLIGHT`, default 8) or this
+        client IP's cap (`GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP`, default 4). The client IP is the same one the rate limits
+        use (`real_ip` behind the staging proxy).
+        - Answered by the gateway **within 1 s** without contacting Valhalla. **No queue:** the request is not retried
+          or held by the gateway.
+        - `Retry-After`: integer seconds >= 1 (gateway value: 1). `Cache-Control: no-store`. Each CORS header
+          appears exactly once, and `Access-Control-Expose-Headers` lists `Retry-After`.
+        - Never relabelled as 502 `UpstreamUnavailable`. Requests already in flight are not affected. `search`,
+          `reverse`, tiles and health have no such cap.
+        - Always on (dev and staging), independent of `GATEWAY_RATE_LIMIT`. Values are dev defaults until the
+          NAV-008 staging load measurement (`deployment-staging.md` §7.2).
+
+        Client handling: the same as any 503, as the retryable routing-unavailable state (web N8 with one
+        user-triggered retry; Android preview N8; reroute back-off 5/10/20/30 s; NAV-021 on-device fallback when a
+        pack is installed). Never retry automatically before `Retry-After` has passed.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+        Cache-Control: { $ref: "#/components/headers/CacheControlNoStore" }
+        Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+        Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GatewayError" }
+          example: { code: RoutingBusy, message: "routing service busy" }
     UpstreamUnavailable:
       description: |
         The upstream container is stopped, unresolvable, refusing connections or not accepting the connection
         within the 2 s connect timeout (this case is also 502, not 504). Returned within 5 s. Other endpoints
-        are unaffected (NAV-001 AC 34). Clients show a retryable "service unavailable" state.
+        are unaffected (NAV-001 AC 34). Clients show a retryable "service unavailable" state. The gateway sends
+        this body with status **502** (on `/v1/route`, 503 is `RoutingBusy` since 0.7.0).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/GatewayError" }
           example: { code: UpstreamUnavailable, message: "routing service unavailable" }
     UpstreamTimeout:
-      description: The upstream did not answer within the gateway read timeout (route 10 s, search/reverse 5 s)
+      description: |
+        The upstream did not answer in time. Routing (since 0.7.0, ADR-0019 §2): Valhalla answers a request that runs
+        longer than its processing timeout (`VALHALLA_TIMEOUT_SECONDS`, default **8 s**, about 1 s granularity) with a
+        plain-text 504 ("The server didn't respond in time", measured on 3.9.0). The gateway reshapes that answer into
+        this JSON body; it never passes it through raw. If Valhalla sends nothing, the
+        gateway read timeout (**10 s**) gives the same 504. Search and reverse: gateway read timeout 5 s. The response
+        has `Content-Type: application/json` and each CORS header once (NAV-001 AC 48). Clients show the retryable
+        "service unavailable" state.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/GatewayError" }
@@ -1502,9 +1657,9 @@ components:
           type: string
           description: |
             Known values are listed. New values may be added in minor versions (0.2.0 added
-            `RangeNotSatisfiable`, 0.4.0 added `RateLimited`), so clients treat an unknown code as a generic failure
-            keyed on the HTTP status.
-          enum: [NotFound, MethodNotAllowed, PayloadTooLarge, RangeNotSatisfiable, RateLimited, UpstreamUnavailable, UpstreamTimeout]
+            `RangeNotSatisfiable`, 0.4.0 added `RateLimited`, 0.7.0 added `RoutingBusy`), so clients treat an unknown
+            code as a generic failure keyed on the HTTP status.
+          enum: [NotFound, MethodNotAllowed, PayloadTooLarge, RangeNotSatisfiable, RateLimited, RoutingBusy, UpstreamUnavailable, UpstreamTimeout]
         message:
           type: string
           description: English, developer-facing. Clients show localised text keyed on `code` / HTTP status.
@@ -1519,9 +1674,11 @@ components:
           description: |
             OSRM-style code. Known values are listed. Treat unknown values as a generic failure.
             `NoSegment`: a location could not snap to a road (far outside coverage). `NoRoute`: both snapped but no
-            path exists with the given options (for example `exclude_unpaved`). `DistanceExceeded`: the straight-line
-            distance between consecutive locations is over the costing's limit (checked before snapping; see
-            `postRoute`). `InvalidOptions` / `InvalidValue` / `TooBig`: request problems, never retried.
+            path exists with the given options (for example `exclude_unpaved`). `DistanceExceeded`: the sum of the
+            straight-line distances between consecutive locations is over the costing's limit (checked before
+            snapping; `auto` 3,000 km since 0.7.0; see `postRoute` "Request limits"). More than 10 locations gives
+            `InvalidValue` (measured on 3.9.0, since 0.7.0). `InvalidOptions` / `InvalidValue` / `TooBig`: request
+            problems, never retried.
           examples: [NoSegment, NoRoute, InvalidOptions, InvalidValue, InvalidUrl, TooBig, DistanceExceeded]
         message: { type: string }
 
@@ -1564,13 +1721,19 @@ components:
         locations:
           type: array
           minItems: 2
-          maxItems: 20
+          maxItems: 10
+          description: |
+            At most 10 for every costing (since 0.7.0, D222; before: 20). More gives Valhalla's 400 `InvalidValue`
+            (measured, ADR-0019 F2b).
+            Clients send exactly 2.
           items: { $ref: "#/components/schemas/ValhallaLocation" }
         costing:
           type: string
           description: |
             Contracted: `auto`, `pedestrian` (NAV-001) and `bicycle` (NAV-004, since 0.5.0). Also accepted by Valhalla
-            and expected in later stories: `motorcycle`, `taxi`, `bus`, `truck`, `motor_scooter`.
+            and expected in later stories: `motorcycle`, `taxi`, `bus`, `truck`, `motor_scooter`. Every costing has a
+            distance and location limit (`postRoute` "Request limits", since 0.7.0). None is more permissive than
+            `auto`.
           enum: [auto, pedestrian, bicycle, motorcycle, taxi, bus, truck, motor_scooter]
         costing_options:
           type: object

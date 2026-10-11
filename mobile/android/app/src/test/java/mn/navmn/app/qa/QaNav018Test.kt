@@ -160,6 +160,11 @@ class QaNav018Test {
         c.setAvoidUnpaved(true)
         runCurrent()
         assertEquals(PreviewResult.Unavailable, c.state.value!!.result)
+        // SEC-2 (D223): car DistanceExceeded with a chosen start shows N24, never «Маршрут олдсонгүй» + avoid hint.
+        answer = RouteOutcome.TooFar
+        c.setAvoidUnpaved(false)
+        runCurrent()
+        assertEquals("N24 on «Машин»", PreviewResult.TooFarCar, c.state.value!!.result)
     }
 
     /** TC-T01, AC 21 + 26: another route → the list shows that route's steps, 0 requests; a new response → route 1. */

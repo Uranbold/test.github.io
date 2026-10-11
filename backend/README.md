@@ -76,15 +76,136 @@ The gateway can limit requests per client IP with nginx `limit_req` (`gateway/en
 | `GATEWAY_RATE_SEARCH` / `GATEWAY_BURST_SEARCH` | `30r/s` / `60` | same | `/v1/search` and `/v1/reverse` together (one zone) |
 | `GATEWAY_REAL_IP_FROM` | empty | Caddy's fixed edge address | Peers whose `X-Forwarded-For` is trusted as the client IP (`real_ip_recursive off`) |
 
+**Client key (SEC-4A BE-2).** Every per-client limit (these zones, the SEC-2 per-IP route cap and the download limits
+below) is keyed on `$nav_client_key` from `gateway/njs/client.js`: an IPv4 client by its full address, an IPv6 client
+by its **/64 prefix** (an IPv4-mapped address counts as the IPv4 address). One phone or VPS usually holds a whole /64,
+so rotating addresses inside it no longer escapes the limits or fills the zones. The key lives only in shared memory.
+
 `/health`, `/tiles/basemap.pmtiles` (any method, any rate) and every `OPTIONS` preflight are never limited. With the
 staging values, 100 requests/s for 10 s from one IP gives 360 accepted and 640 `429` (measured). Invalid values stop
 the gateway at start instead of running without limits. The client IP is only a key in shared memory: it is not in
 the access log, and nginx's "limiting requests" lines are logged at `info`, below the `crit` error log level.
 
-Checks: `infra/ci/backend-static-checks.sh` (429 shape, never-limited paths, bad values refused);
-`make rate-limit-check BASE_URL=...` (AC 13 probe: 100 r/s bursts, a 10 r/s session, tiles at 200 r/s) and
+### Download limits (SEC-4A BE-3)
+
+`gateway/entrypoint/18-download-limits.sh` writes `conf.d/03-download-limits.conf`. Active only with
+`GATEWAY_RATE_LIMIT=on` (staging); in dev nothing is limited. Each value is a `.env` key with a one-line comment in
+`.env.example` / `infra/staging/.env.example`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `GATEWAY_PACKS_MAX_CONN_PER_IP` | `2` | pack file (`.gz`) downloads in flight per client (`manifest.json` is not counted); over it **429 `RateLimited`** (`Retry-After: 1`, CORS once). The app downloads one file at a time and resumes after a 429 |
+| `GATEWAY_PACKS_MAX_CONN` | `64` | pack file downloads in flight from all clients together; over it 429 |
+| `GATEWAY_PACKS_LIMIT_RATE_AFTER` / `GATEWAY_PACKS_LIMIT_RATE` | `10m` / `2m` | each `/packs/` response is sent at full speed for 10 MB, then at 2 MB/s (16 Mbit/s) |
+| `GATEWAY_TILES_LIMIT_RATE_AFTER` / `GATEWAY_TILES_LIMIT_RATE` | `4m` / `1m` | each tiles response: 4 MB at full speed, then 1 MB/s. PMTiles range reads are far below 4 MB, so map use is never slowed; only whole-archive downloads are |
+| `GATEWAY_TILES_MAX_CONN_PER_IP` | `0` (off) | tiles requests in flight per client. openapi 0.7.0 keeps the tiles path unlimited (no 429 listed), so this stays 0 until the architect amends the contract |
+
+`limit_rate` counts bytes per response, so every `Range` request gets its own initial burst: offline-pack resume
+(`Range` + `If-Range`) keeps working and continues at the limited speed. `OPTIONS` preflights, `/health`, `/v1/*`
+and the tiles range reads are never touched. Behind carrier-grade NAT many phones share one IPv4 address: the third
+parallel pack download from such an address waits for a slot (429, retry after 1 s).
+
+Checks: `infra/ci/backend-static-checks.sh` (429 shape, never-limited paths, bad values refused; SEC-4A: one IPv6 /64
+= one bucket, the packs connection cap and bandwidth, Range resume under the limits, tile ranges never limited);
+`make rate-limit-check BASE_URL=...` (AC 13 probe: 100 r/s bursts, a 10 r/s session, tiles at 200 r/s; `--only
+ipv6-prefix` against a test gateway that trusts this machine's `X-Forwarded-For`) and
 `make contract BASE_URL=... CONTRACT_ARGS=--rate-limit` (429 against openapi.yaml). Run both only against a gateway
 with limits on (staging, or an isolated test gateway), never against the shared dev stack.
+
+## Route request limits (SEC-2, ADR-0019, openapi 0.7.0)
+
+Three layers bound what `/v1/route` can cost. All three are **always on** (dev, every NAV-006 slot, staging).
+
+1. **Valhalla `service_limits`** for every costing (contract values, not `.env` keys; one source in
+   `scripts/lib.sh` `VALHALLA_ROUTE_LIMITS`): at most **10 locations**; summed straight-line distance **3,000 km**
+   for `auto`/`bus`/`taxi`/`truck`, **500 km** for `bicycle`/`motorcycle`/`motor_scooter`/`bikeshare`/`multimodal`,
+   **250 km** for `pedestrian`. `valhalla-serve.sh` overlays them (and the timeout) onto the graph's `valhalla.json`
+   into `/tmp/valhalla.json` at every start, so a `data/` build or slot made before SEC-2 serves them without a
+   rebuild; `valhalla-build.sh` also writes them into a fresh `valhalla.json`. They are not in the graph
+   fingerprint. The start log shows the effective values (`"msg":"route limits applied"`).
+2. **Valhalla processing timeout** `VALHALLA_TIMEOUT_SECONDS` (1-9, default 8; anything else stops the service).
+   The gateway keeps its 10 s read timeout. `/v1/route` has `proxy_intercept_errors on`, so Valhalla's own timeout
+   answer and any other upstream 5xx become gateway JSON (`504 UpstreamTimeout`, `502 UpstreamUnavailable`);
+   Valhalla's 400 bodies still pass through unchanged (no `error_page 400`).
+3. **Gateway concurrency cap** (`gateway/entrypoint/17-route-limits.sh` -> `conf.d/02-route-limits.conf`, nginx
+   `limit_conn`): `GATEWAY_ROUTE_MAX_INFLIGHT` (default 8) in total and `GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP`
+   (default 4) per client IP, counted only for `/v1/route` GET/POST. Over either cap: immediate **503**
+   `{"code":"RoutingBusy",...}` with `Retry-After: 1`, `Cache-Control: no-store` and each CORS header once; nothing
+   is queued. Internally the rejection uses the private status 529, so an upstream 503 is never labelled
+   `RoutingBusy` and the cap is never relabelled 502. Invalid values (0, `off`, text) stop the gateway, and nginx
+   refuses to start if the script is missing. Client IPs stay out of the logs (`limit_conn_log_level info`).
+   The values are dev defaults until the staging measurement (`deployment-staging.md` §7.2); keep the global cap at
+   most 2 x `VALHALLA_THREADS`.
+
+Checks: `infra/ci/backend-static-checks.sh` section SEC-2 (limit table and overlay, cap per IP and global, 5xx
+shaping against the njs stub `infra/ci/stub-valhalla`, bad values refused); `make smoke` (P1->X3 car -> 400
+`DistanceExceeded`, so every slot verification checks that the limits are served); `make contract` (example
+`carTooFar`, an 11-location request) and `make contract CONTRACT_ARGS=--route-cap` (floods the cap, validates one
+503 against `RoutingBusy`; it briefly fills the cap for everyone on that gateway).
+
+**Measured on Valhalla 3.9.0, reference machine, 2026-10-11** (ADR-0019 F2; dev Mongolia build of 2026-09-29):
+
+| Item | Result |
+|---|---|
+| F2a: summed or per pair | **Summed.** L1->L2->L1 `auto` (legs 1,804 km each) and P1->X1->P1 `pedestrian` (legs 245 km each) -> 400 `DistanceExceeded` in < 10 ms. P1->X5 (3,100 km) -> 400 `DistanceExceeded`; P1->X4 (2,900 km) -> 400 `NoSegment` (0-1.0 s); P1->X3 (4,635 km) -> 400 `DistanceExceeded` with every costing incl. `bus`, `taxi`, `truck`, `motorcycle`, `motor_scooter`, `bikeshare` |
+| F2b: 11 locations | 400 OSRM `{"code":"InvalidValue","message":"The successfully parsed query parameters are invalid."}` on all 8 costings (native format: `error_code` 150 "Exceeded max locations: 10"). **Not `TooBig`** as the spec example expects. 10 locations -> 200 on `auto`, `pedestrian`, `bicycle` |
+| F2c: Valhalla timeout answer | **504**, body `The server didn't respond in time`, no `Content-Type` (plain text). The gateway turns it into JSON 504 `UpstreamTimeout`. The timeout fires with about 1 s granularity: with 1 s, a request was cut at 2.0 s, and the same request completed with 200 at 1.95 s once warm |
+| F2c: worker release | **Not measurable here.** Only a cold page cache made any contracted request run longer than 1 s; warm, the slowest (L1->L2 `auto` `alternates=2`) takes 0.15-0.22 s, so `VALHALLA_TIMEOUT_SECONDS=1` never fires on demand. A P1->P3 request right after a forced 504 answered in 0.02-0.03 s |
+| Walk/bike near the limits | P1->X1 walk (245 km) 0.09-0.23 s warm, about 2 s on a cold page cache; P1->B1 (47.90, 100.45; 482 km) bike 0.14-0.5 s warm; L1->L2 car 0.06 s (`alternates=0`) / 0.22 s (`alternates=2`). All far below 8 s |
+| Cap | Per IP: with 2 (CI) or 4 (dev default) requests in flight, the next one is 503 `RoutingBusy` in 0.03 s; global: with 3 in flight from two client IPs, the 4th is 503; in-flight requests finish with 200; health, tiles, search and preflights unaffected. AC 35 p95 18 ms with 0 x 503; rate-limit probe (rate limits on, real upstreams): normal session 100 x 200, route burst 358 x 200 / 640 x 429 / 2 x 503, all conforming |
+
+## Security hardening (SEC-4A)
+
+Findings and evidence: `docs/security/audits/2026-10-07-full-project.md` (register) and the threat model.
+
+**Containers (BE-4).** Every service in `compose.yaml`, `compose.slots.yaml` and the staging overlay drops all Linux
+capabilities (`cap_drop: [ALL]`), sets `no-new-privileges` and has a memory and PID limit sized for the 16 GB staging
+host. The JVM-bound limits are `.env` keys (raise them together with `-Xmx`). `infra/ci/backend-static-checks.sh` and
+`infra/ci/staging-static-checks.sh` refuse a service without these settings.
+
+| Service | User | Root file system | Capabilities added back | Memory / PIDs |
+|---|---|---|---|---|
+| `gateway`, `gateway-verify` | 101 (image user) | read-only; tmpfs `/tmp`, `/etc/nginx/conf.d` (generated at start) | none | 256m / 128 |
+| `valhalla`, `valhalla-blue/green` | 65534 (nobody) | read-only; tmpfs `/tmp` (runtime `valhalla.json`) | none | `VALHALLA_MEM_LIMIT` 2g / 256 |
+| `photon`, `photon-blue/green` | 101 (`app` in the JDK image) | read-only; tmpfs `/tmp` with exec (OpenSearch loads its JNA library there) | none | `PHOTON_MEM_LIMIT` 2g / 512 |
+| `data-fetch` (dev) | root | writable | `DAC_OVERRIDE` (`clean` deletes the photon user's index) | 512m / 256 |
+| `aux-fetch` (slots) | root | writable | none | 512m / 256 |
+| `tiles-build` | root | writable (Maven and Planetiler use `/tmp`) | none | `TILES_BUILD_MEM_LIMIT` 6g / 1024 |
+| `valhalla-build` | root | writable | none | `VALHALLA_BUILD_MEM_LIMIT` 4g / 512 |
+| `photon-import` | root | writable | `CHOWN`, `DAC_OVERRIDE` (hands `photon/` to uid 101) | `PHOTON_IMPORT_MEM_LIMIT` 3g / 1024 |
+| `build-info` | root | writable | none | 512m / 64 |
+| `caddy` (staging, ops VM) | root (to bind 80/443) | read-only; tmpfs `/tmp`; state in volumes | `NET_BIND_SERVICE` | 256m / 256 |
+
+The one-shot builders stay root because they own `data/` (and on staging the slot directories the pipeline creates
+as root); their root has no capabilities beyond the table. Limits are ceilings, not reservations: during a rebuild the
+builders' ceilings add up to more than the host, but measured peaks are 4.5 GB build + 0.7 GB serving (RUNBOOK §17),
+and a runaway service now hits its own ceiling instead of the host's OOM killer.
+
+**Photon writes only its index (BE-5).** Photon gets `data/` (a slot on staging) **read-only** and only `photon/`
+read-write, so a compromised Photon cannot change the public tiles, the routing graph or the files the offline pack
+reuses. `photon-import` (dev and slots) and the pipeline (`give_photon_index`, before every lane start and after
+every build; `deploy.sh` for slots built earlier) hand `photon/` to uid 101. The NAV-006 build records the sha256 of
+`tiles/basemap.pmtiles`, `valhalla/valhalla_tiles.tar` and `sources/photon-dump` in `.slot-complete`; the NAV-020
+pack step hashes every file it hard-links and refuses (`failed (build)`, alert) when a hash differs or is missing (a
+slot built before SEC-4A: the next rebuild records it).
+
+**Download integrity (BE-7).** Every download is https only, also through redirects (`curl --proto =https
+--proto-redir =https` in `scripts/lib.sh` and the pipeline). Tool checksums fail closed: an empty or malformed
+`*_SHA256`/`*_SHA512` stops `data-fetch`; the only way past it is the literal value `skip` together with
+`ALLOW_UNVERIFIED_TOOLS=1` (dev only; staging and the `navmn` pipeline project refuse it). The pipeline requires the
+Geofabrik `.md5` of every https OSM source (`REBUILD_REQUIRE_SOURCE_MD5=1`, default) and an https `PHOTON_DUMP_URL`.
+The dev default OSM source is Geofabrik (the third-party mirror default is gone). Maven builds the Protomaps jar with
+`--strict-checksums`. Logged download URLs drop `user:password@` and query strings.
+
+**Image pins (BE-8).** Every image is `tag@sha256:<digest>` (table below; `.env.example`, the `Makefile` and the
+pack images included); CI refuses a tag-only image. Re-pin monthly and on every security release of nginx, the JDK,
+Valhalla or Caddy: `docker buildx imagetools inspect <image>:<tag>` gives the index digest; update `compose.yaml`,
+`compose.slots.yaml`, `.env.example` (and `infra/staging` for Caddy) together, scan the image, run both static-check
+scripts and the dev stack checks, then tag and deploy.
+
+**Response headers (BE-12/BE-13).** The gateway sends `X-Content-Type-Options: nosniff` on every response (once, also on
+429/503/416); Caddy adds `Strict-Transport-Security: max-age=31536000` and drops its `Server` header on staging; the
+static-pack `.htaccess` sends `nosniff` and answers directory URLs with 404 (no listings, without an `Options` line).
 
 ## Staging (NAV-008)
 
@@ -223,6 +344,10 @@ curl -sS -o /dev/null -D - "$B/mn/<file>" -H 'Range: bytes=1000-' -H 'If-Range: 
 #   want: 206 (a 200 here means every resumed download restarts from zero)
 curl -sS -o /dev/null -w '%{http_code}\n' "$B/mn/19990101T000000Z/routing.tar.gz"
 #   want: 404 (not 200 with an HTML page)
+curl -sS -o /dev/null -D - "$B/mn/manifest.json" | grep -i '^x-content-type-options'
+#   want: X-Content-Type-Options: nosniff (SEC-4A)
+curl -sS -o /dev/null -w '%{http_code}\n' "$B/mn/"
+#   want: 404 (no directory listing, SEC-4A)
 ```
 A `Content-Encoding` header, a missing ETag, a 200 instead of 206, or a 200 page for a missing file means the `.htaccess` was not uploaded or the host ignores it (it needs `AllowOverride FileInfo`, which most shared hosts allow). Apache marks files written less than a second ago with a weak ETag. If `If-Range` answers 200, repeat after a few seconds.
 
@@ -278,7 +403,7 @@ Every key is documented in [`.env.example`](.env.example) and has the same defau
 
 | Download | Key | Default | Size | Licence |
 |---|---|---|---|---|
-| OSM extract | `OSM_PBF_URL` (or local `OSM_PBF_FILE`) | Dev: full Mongolia from the geo2day.com mirror (`https://geo2day.com/asia/mongolia.pbf`, dev only). Production: Geofabrik `mongolia-latest` (commented in `.env.example`). Optional small build: BBBike Ulaanbaatar (commented) | 70 MB (Mongolia), 4.4 MB (BBBike UB) | ODbL 1.0, © OpenStreetMap contributors |
+| OSM extract | `OSM_PBF_URL` (or local `OSM_PBF_FILE`) | Geofabrik `mongolia-latest` (dev and staging, SEC-4A). Where Geofabrik is blocked, set `OSM_PBF_FILE`. Optional small build: BBBike Ulaanbaatar (commented) | 70 MB (Mongolia), 4.4 MB (BBBike UB) | ODbL 1.0, © OpenStreetMap contributors |
 | Photon dump | `PHOTON_DUMP_URL` (or local `PHOTON_DUMP_FILE`) | GraphHopper Mongolia `photon-dump-mongolia-1.0-latest.jsonl.zst` | 8.1 MB | ODbL (OSM-derived) |
 | Natural Earth vector | `NATURAL_EARTH_URL` | naciscdn.org `natural_earth_vector.gpkg.zip` | 446 MB | Public domain |
 | OSM water polygons | `WATER_POLYGONS_URL` | osmdata.openstreetmap.de `water-polygons-split-3857.zip` | 931 MB | ODbL |
@@ -294,18 +419,23 @@ Every key is documented in [`.env.example`](.env.example) and has the same defau
 
 An auxiliary file already in `data/sources/` is used without any request, so you can pre-seed it by
 hand when a host is blocked. Any failed download stops the build with a non-zero exit and a log line
-that names the URL and HTTP status. No service goes healthy on missing data.
+that names the URL and HTTP status. No service goes healthy on missing data. Every URL must be `https://`
+(SEC-4A): an `http://` URL, or a redirect to one, stops the download, and a tool whose checksum key is empty stops
+`data-fetch` (section "Security hardening").
 
-### Pinned images (AC 7)
-| Key | Default |
+### Pinned images (AC 7, SEC-4A BE-8)
+| Key | Default (tag@sha256, resolved from the registry on 2026-10-11) |
 |---|---|
-| `GATEWAY_IMAGE` | `ghcr.io/nginxinc/nginx-unprivileged:1.27.4-alpine` |
+| `GATEWAY_IMAGE` | `ghcr.io/nginx/nginx-unprivileged:1.30.5-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3` |
 | `VALHALLA_IMAGE` | `ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c` |
-| `JAVA_BASE_IMAGE` | `mcr.microsoft.com/openjdk/jdk:21-ubuntu` |
-| `PMTILES_IMAGE` (only `make tiles-info`) | `ghcr.io/protomaps/go-pmtiles:v1.31.2` |
+| `JAVA_BASE_IMAGE` | `mcr.microsoft.com/openjdk/jdk:21-ubuntu@sha256:1f8b75e6a48bfb5bb4e6b367dac83b52b42f6e9d33570ca44e88ba8fd92a6321` (Microsoft Build of OpenJDK 21.0.12.1) |
+| `PMTILES_IMAGE` (only `make tiles-info`) | `ghcr.io/protomaps/go-pmtiles:v1.31.2@sha256:06574f01f55a78f78f887bc7ebf729a5c093c0d6e17d9876300cfcb0758b59d3` |
 
-Docker Hub returned 429 in the dev container, so every default comes from ghcr.io or mcr.microsoft.com.
-The ghcr nginx image stops at 1.27.4; switch to `nginxinc/nginx-unprivileged:1.28-alpine` when Docker Hub is reachable.
+nginx: the old `ghcr.io/nginxinc` image stopped at 1.27.4 (superseded mainline); the gateway now uses the official
+`ghcr.io/nginx/nginx-unprivileged` on the **1.30 stable line** (`stable-alpine` = `1.30.5-alpine`, same digest as Docker
+Hub's `nginxinc/nginx-unprivileged:1.30.5-alpine`). 1.28 is no longer maintained (last 1.28.2). JDK: MCR publishes no
+patch-version tags for `openjdk/jdk`, so the digest is the patch pin; the comment records the Java version it holds.
+Docker Hub answers 429 in the dev container, so the defaults come from ghcr.io and mcr.microsoft.com.
 
 ### Networks with TLS interception or a proxy
 - `EXTRA_CA_CERT`: a PEM file whose certificates are trusted by the build downloads, both curl and Maven. The default is an empty file.
@@ -319,16 +449,16 @@ routing and search then cover the same area, and all reference points P1–P6 ar
 
 | Source (`OSM_PBF_URL`) | Use | bbox [minLon, minLat, maxLon, maxLat] | Data date |
 |---|---|---|---|
-| `https://geo2day.com/asia/mongolia.pbf` | **dev default**. A third-party mirror, used because `download.geofabrik.de` is blocked from the dev container | `[81.9257, 39.0189, 120.2728, 53.0383]` (node scan; the header has no bbox) | no replication timestamp in the header; the HTTP `Last-Modified` is recorded |
-| `https://download.geofabrik.de/asia/mongolia-latest.osm.pbf` | **production** | from the header | replication timestamp in the header |
+| `https://download.geofabrik.de/asia/mongolia-latest.osm.pbf` | **default** (dev and staging, SEC-4A) | from the header | replication timestamp in the header |
+| `https://geo2day.com/asia/mongolia.pbf` | **former dev default, removed in SEC-4A** (third-party mirror, no checksum). The measurements below were made with it, because `download.geofabrik.de` is blocked from the dev container; there, a local `.env` override or `OSM_PBF_FILE` is used | `[81.9257, 39.0189, 120.2728, 53.0383]` (node scan; the header has no bbox) | no replication timestamp in the header; the HTTP `Last-Modified` is recorded |
 | `https://download.bbbike.org/osm/bbbike/UlanBator/UlanBator.osm.pbf` | optional small/fast build (~4.4 MB, cold run 530 s), **not the default** | `[106.8392, 47.8995, 107.0167, 47.9337]` (header) | replication timestamp 2026-09-25T23:00:00Z (file of 2026-09-29) |
 
 `python3 scripts/pbfinfo.py` reads the PBF header (the equivalent of `osmium fileinfo`). The result is in `data/build-info.json` under `osm.bbox`, with `osm.reference_points_inside_bbox` for P1–P6.
 
-**The geo2day mirror is dev only.** Nobody guarantees its availability or integrity, and it publishes no
-checksum. `data/build-info.json` records the file's sha256, HTTP `Last-Modified` and bbox, which is enough to
-tell which data a dev build used. If the mirror is down, `data-fetch` stops with the URL and HTTP status.
-Then set `OSM_PBF_FILE` to a local copy.
+**Third-party mirrors are not a default any more (SEC-4A BE-7).** Nobody guarantees their availability or integrity,
+and they publish no checksum. Where Geofabrik is blocked, download the extract by any other route and set
+`OSM_PBF_FILE`. `data/build-info.json` records the file's sha256, HTTP `Last-Modified` and bbox, which is enough to
+tell which data a dev build used.
 
 **On the Mongolia build:** X1 Erdenet is routable, so out-of-coverage checks (AC 32) use X2 Beijing. The backend
 smoke suite and `contract_check.py` do this automatically.
@@ -341,7 +471,7 @@ for quick gateway or pipeline work, not to judge routing.
 
 ## Measured on the reference machine (4 CPU, 15 GB RAM, dev container, 2026-09-29; tiles, 416 and check rows re-measured 2026-09-30)
 
-| What | **Mongolia, dev default** (geo2day, 70 MB) | BBBike UB, optional (4.4 MB) | Limit |
+| What | **Mongolia** (70 MB; measured with the former geo2day dev default) | BBBike UB, optional (4.4 MB) | Limit |
 |---|---|---|---|
 | **Cold first run**: empty `data/`, `make up` until all services are healthy (images already pulled) | **462 s**. Downloads 149 s (~2.5 GB, of which 70 MB is the PBF), then in parallel: graph 22 s, Photon import 33 s, Protomaps jar (Maven, once) 101 s + Planetiler 208 s | 530 s. Downloads 255 s, graph 3 s, Photon 34 s, Maven 106 s, Planetiler 164 s | AC 1: ≤ 30 min |
 | **Warm restart**: `docker compose down` then `up -d --wait` | **8.7 s**. Tiles, graph and index all log `reused`, and no download is made | 8.8 s | AC 2: ≤ 120 s |
@@ -372,12 +502,16 @@ extract size. Photon's `lang=mn` works (AC 27). The Protomaps tiles carry `name`
 - **Geofabrik (`download.geofabrik.de`) is blocked from the dev container**, where it answers with a 301 loop via a squid proxy. The production URL has therefore never been fetched here. Every Mongolia build used the geo2day.com mirror, which serves the same country extract. Geofabrik PBFs carry a header bbox, so the node scan is not needed there.
 - **The BBBike URL returned HTTP 503 all day on 2026-09-29** (it is only the optional small build now). The BBBike runs used the local copy through `OSM_PBF_FILE`. With the URL alone, `data-fetch` exits 1 with `"msg":"download failed","url":"https://download.bbbike.org/…","http_status":"503"` after curl's 3 retries (about 75 s), which is the documented edge-case behaviour. With `OSM_PBF_FILE` set, the build succeeds under `docker run --network none` (AC 4).
 - **Ferrostar parsing the route response end to end** is not tested here (no client in NAV-001). Only the OpenAPI schema and the fields in AC 15 are checked.
-- **Docker Hub images** (`nginx:1.28`, `mediagis/nominatim`) were not tried, because Docker Hub returns 429.
+- **Docker Hub images** (`mediagis/nominatim`) were not tried, because Docker Hub returns 429 (the nginx and JDK digests were resolved from ghcr.io / mcr.microsoft.com; the nginx 1.30.5 digest also matched Docker Hub once before the 429).
+- **Image CVE scans** (Trivy/Grype) of the pinned images: no scanner here. Run one with every re-pin (security checklist).
 - **Nominatim** is not part of NAV-001 (ADR-0003).
 
 ## Troubleshooting
 - **`service "data-fetch" didn't complete successfully`**: run `docker compose logs data-fetch`. The last line names the URL and HTTP status. For the OSM or Photon source, set `OSM_PBF_FILE` / `PHOTON_DUMP_FILE` to a local file. For an auxiliary file, put it into `data/sources/` or change its `*_URL` key.
-- **geo2day.com mirror down or changed** (dev default OSM source): download the Mongolia PBF by any other route and set `OSM_PBF_FILE`, or switch `OSM_PBF_URL` to Geofabrik where it is reachable, or to the optional BBBike UB extract for gateway-only work.
+- **Geofabrik blocked or down** (default OSM source): download the Mongolia PBF by any other route and set `OSM_PBF_FILE`, or use the optional BBBike UB extract for gateway-only work.
+- **`checksum not configured or malformed`** from `data-fetch`: a `*_SHA256`/`*_SHA512` key in `.env` is empty or wrong. Restore the value from `.env.example` (the escape hatch `skip` + `ALLOW_UNVERIFIED_TOOLS=1` is for local experiments only).
+- **`download URLs must be https://`**: a `*_URL` key uses `http://`; use the `https://` URL.
+- **Photon exits with `AccessDeniedException` / permission errors on `photon_data`**: the index is not owned by uid 101. `docker compose run --rm --no-deps photon-import` hands it over (staging: `deploy.sh` or the next pipeline lane start does).
 - **A web client reports a CORS error on the tiles file**: check the raw response with `curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' …`. Every `Access-Control-*` header must appear once. `infra/ci/backend-static-checks.sh` guards this for 206 and 416, including the 416's `Cache-Control: no-store`.
 - **TLS errors** (`self-signed certificate in certificate chain`): set `EXTRA_CA_CERT` to your proxy's CA bundle.
 - **Port 8080 in use**: set `GATEWAY_PORT`.

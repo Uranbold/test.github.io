@@ -4,7 +4,7 @@
 import { expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { test } from './helpers.mjs';
-import { WEB, S, golden, openDemo, qa, spoken, tick, tid } from './helpers.mjs';
+import { WEB, S, golden, hideCanvas, openDemo, qa, spoken, tick, tid } from './helpers.mjs';
 
 test.use({ reducedMotion: 'reduce' });
 const run = async (page, seconds, chunk = 5000) => { for (let left = seconds * 1000; left > 0; left -= chunk) await page.clock.runFor(Math.min(chunk, left)); };
@@ -13,7 +13,7 @@ test('ADR-0011 §7 Amendment 1 / AC 27–28: «Эхлэх» tapped while the 3 s
   test.setTimeout(10 * 60_000);
   // The list stays empty until the test calls window.__qaListVoices(); waitForVoices() polls every 250 ms for 3 s.
   await openDemo(page, { voices: ['mn-MN'], voicesLate: 'manual' });
-  await page.addStyleTag({ content: '.maplibregl-canvas{visibility:hidden !important}' });
+  await hideCanvas(page);
   // Select R1 WITHOUT advancing the page clock, so the decision (3 s of page time from the picker opening) is still
   // running when «Эхлэх» is tapped. Data, WASM and plan load in real time.
   await page.locator('[data-testid="demo-route"][data-route="R1"]').click();

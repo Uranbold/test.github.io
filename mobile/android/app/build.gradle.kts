@@ -678,6 +678,15 @@ tasks.withType<Test>().configureEach {
     }
 }
 
+// ------------------------------------------------------------------------------------------------ dependency locking (SEC-4B)
+// ADR-0018 §6, story AC 27–28: the release runtime classpath (what ships in the release APK) is locked in
+// app/gradle.lockfile. STRICT fails the build when the lock state is missing, and any version that differs from the
+// lock fails resolution, so a transitive change can only land through an intended `--write-locks` (README "Updating
+// dependencies"). Debug, demo, test and plugin classpaths are not locked; gradle/verification-metadata.xml still pins
+// every file of them by sha256 (ADR-0018 §5).
+dependencyLocking { lockMode.set(LockMode.STRICT) }
+configurations.matching { it.name == "releaseRuntimeClasspath" }.configureEach { resolutionStrategy.activateDependencyLocking() }
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 

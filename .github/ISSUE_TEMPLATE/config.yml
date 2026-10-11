@@ -1,1 +1,5 @@
 blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Аюулгүй байдлын асуудал · Security vulnerability
+    url: https://github.com/Uranbold/test.github.io/security/policy
+    about: Нийтэд бүү мэдээлээрэй. Аюулгүй байдлын бодлогыг үзнэ үү. · Do not open a public issue; see the security policy.

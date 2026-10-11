@@ -22,6 +22,9 @@ Groups:
                matches openapi 0.4.0 RateLimited (JSON GatewayError code RateLimited, exactly one integer
                Retry-After >= 1, exactly one Cache-Control: no-store, each Access-Control-* once, ACAO = allowed
                origin and absent for evil, Retry-After in Expose-Headers); stack healthy afterwards.
+               SEC-2 (openapi 0.7.0, NAV-008 AC 13 note): the route burst may also get 503 RoutingBusy from the
+               /v1/route concurrency cap; each one must match components/responses/RoutingBusy (ACAO absent for
+               evil). The slow route session must get 0 x 503.
                REFUSES to run against the shared dev gateway (localhost:8080) unless NAV008_ALLOW_BURST=1.
   log-markers  AC 14 helper: sends requests carrying unique marker coordinates and search text, and writes the
                needles for tests/staging/nav008/log-privacy-scan.sh (operator runs it on the host a day later).
@@ -43,7 +46,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "nav001"))
-from lib import EVIL_ORIGIN, ORIGIN, P, Client, Report  # noqa: E402
+from lib import EVIL_ORIGIN, ORIGIN, P, Client, Report, routing_busy_errors  # noqa: E402
 
 SPEC = os.path.normpath(os.path.join(HERE, "..", "..", "..", "docs", "architecture", "api", "openapi.yaml"))
 LOCAL_ENV = os.path.normpath(os.path.join(HERE, "..", "..", "staging", "nav008", "staging.local.env"))
@@ -51,7 +54,7 @@ FALLBACK_PATHS = ["/health", "/tiles/basemap.pmtiles", "/v1/route", "/v1/search"
 FALLBACK_EXPOSE = ["Content-Range", "Content-Length", "ETag", "Accept-Ranges", "Retry-After"]
 RETRY_AFTER_RE = re.compile(r"^[1-9][0-9]*$")  # RFC 9110 delay-seconds, >= 1 (openapi RetryAfter: integer, minimum 1)
 GATEWAY_ERROR_CODES = {"NotFound", "MethodNotAllowed", "PayloadTooLarge", "RangeNotSatisfiable", "RateLimited",
-                       "UpstreamUnavailable", "UpstreamTimeout"}
+                       "RoutingBusy", "UpstreamUnavailable", "UpstreamTimeout"}  # RoutingBusy: openapi 0.7.0 (SEC-2)
 
 
 # ------------------------------------------------------------------------------------ spec helpers (no YAML lib)
@@ -338,6 +341,9 @@ class Nav008:
         st = f.statuses()
         self.r.check(f"{cid}.never_429", st.get(429, 0) == 0, f"0 x 429 in {n} requests at {rate:g} r/s", dict(st))
         self.r.check(f"{cid}.all_accepted", sum(st.get(x, 0) for x in self.ok_api) == n, f"{n} x {sorted(self.ok_api)}", dict(st))
+        if "route" in kind_cycle:
+            busy = sum(1 for _t, _g, r in f.items if r.status == 503 and (r.json() or {}).get("code") == "RoutingBusy")
+            self.r.check(f"{cid}.never_routing_busy", busy == 0, f"0 x 503 RoutingBusy at {rate:g} r/s (SEC-2: normal use is under the cap)", busy)
         self.r.note(f"{cid}.achieved_rate", f"{f.achieved_rate():.1f} r/s (target {rate:g}, {'+'.join(kind_cycle)})")
 
     def _blast(self, cid, make, n, ok_status, workers=64):
@@ -357,8 +363,21 @@ class Nav008:
                      f">= {0.9 * rate:.0f} r/s sent (AC 13: {rate:g} r/s for {secs:g} s)",
                      f"{achieved:.1f} r/s; raise --workers if the client was the bottleneck")
         self.r.check(f"{cid}.at_least_one_429", st.get(429, 0) >= 1, ">= 1 x 429", dict(st))
-        bad = self._unexpected(f, self.ok_api | {429})
-        self.r.check(f"{cid}.only_accepted_or_429", not bad, f"every response in {sorted(self.ok_api | {429})} (stack healthy under burst)", bad)
+        # SEC-2: on /v1/route a 503 is the concurrency cap (RoutingBusy, openapi 0.7.0); every one must conform below.
+        allowed = self.ok_api | {429} | ({503} if kind == "route" else set())
+        bad = self._unexpected(f, allowed)
+        self.r.check(f"{cid}.only_accepted_or_429", not bad, f"every response in {sorted(allowed)} (stack healthy under burst)", bad)
+        if kind == "route":
+            busy = [(g, r) for _t, g, r in f.items if r.status == 503]
+            self.r.note(f"{cid}.routing_busy_503", f"{len(busy)} x 503 (SEC-2 route concurrency cap)")
+            sigs = Counter()
+            for g, r in busy:
+                errs = routing_busy_errors(r, origin=self.origin if g == "allowed" else None, allow_star=not self.staging)
+                if g != "allowed" and values(r, "access-control-allow-origin"):
+                    errs.append("evil origin got Access-Control-Allow-Origin")
+                sigs["; ".join(errs) or "ok"] += 1
+            if busy:
+                self.r.check(f"{cid}.all_503_match_RoutingBusy", set(sigs) == {"ok"}, f"all {len(busy)} conform to openapi 0.7.0 RoutingBusy", dict(sigs))
         accepted = sum(st.get(x, 0) for x in self.ok_api)
         self.r.note(f"{cid}.accepted_vs_design", f"{accepted} accepted of {n}; design estimate 60 + 30 x {secs:g} = {60 + 30 * secs:.0f}")
         ok429 = [r for _t, g, r in f.items if g == "allowed" and r.status == 429]

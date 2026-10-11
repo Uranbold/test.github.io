@@ -52,6 +52,7 @@
     <string name="route_out_of_area">Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна</string>
     <string name="route_same_point">Эхлэх цэг, очих газар ижил байна</string>
     <string name="route_too_far">Энэ зай явганаар эсвэл дугуйгаар хэт хол байна</string>
+    <string name="route_too_far_car">Энэ зай машинаар хэт хол байна</string>
     <string name="route_unavailable">Маршрутын үйлчилгээ түр ажиллахгүй байна</string>
     <string name="route_rate_limited">Түр хүлээгээд дахин оролдоно уу</string>
     <string name="route_snap_notice">Хамгийн ойрын зам сонгосон цэгээс {distance} зайтай</string>

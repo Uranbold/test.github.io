@@ -104,9 +104,10 @@ flowchart TD
     LOC --> REQ["1 POST /v1/route: NAV-005 body + alternates: 2<br/>costing by tab (Машин auto / Явган pedestrian / Дугуй bicycle)<br/>at most 1 in flight — AC 14, 22"]
     REQ --> ST{"Response"}
     ST -- "200, k = 1–3 routes" --> DRAW["k lines; route 1 selected (above, emphasised)<br/>camera fits all routes + markers into the map area<br/>above the collapsed sheet, 40 dp padding, zoom ≤ 17, ≤ 1 s — AC 15, 16"]
-    ST -- "400 DistanceExceeded on Явган / Дугуй" --> TF["«Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» — AC 24"]
-    ST -- "400 DistanceExceeded on Машин / NoRoute" --> NR["«Маршрут олдсонгүй»<br/>(+ avoid hint if the switch is on → sheet expands to show the switch)"]
-    ST -- "other states" --> OS["NAV-005 S3 states and precedence<br/>(offline, 429, unavailable, outside area, same point, error)"]
+    ST -- "400 DistanceExceeded on Явган / Дугуй<br/>(walk 250 km, bike 500 km)" --> TF["«Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» — AC 24"]
+    ST -- "400 DistanceExceeded on Машин<br/>(over 3,000 km straight-line, SEC-2;<br/>also on-device TooFar)" --> TFC["«Энэ зай машинаар хэт хол байна» (N24) — AC 24<br/>no line, markers stay, no retry, sheet stays collapsed"]
+    ST -- "400 NoRoute" --> NR["«Маршрут олдсонгүй»<br/>(+ avoid hint if the switch is on → sheet expands to show the switch)"]
+    ST -- "other states" --> OS["NAV-005 S3 states and precedence<br/>(offline, 429, unavailable incl. 503 RoutingBusy, outside area, same point, error)"]
     DRAW --> SH["Sheet collapsed: handle, «Маршрут харах» + destination,<br/>tabs «Машин» «Явган» «Дугуй», summary of the selected route, «Эхлэх»<br/>(TalkBack on → sheet opens expanded)"]
     SH --> U{"User action"}
     U -- "tap an alternative line (48 dp hit box)<br/>or an option in «Маршрут сонгох»" --> SEL["Selected within 200 ms: emphasis + summary follow<br/>0 requests, camera still — AC 17"]
@@ -218,3 +219,8 @@ The S1 message «Интернэт холболт алга» keeps showing under 
 | 25–26 | F5 (rules: navigation-ux §4.2, §4.4, §8) |
 | 27–37 | F4, F4a (AC 33: the coordinate option stays selectable while locked, F1) |
 | 38–47 | No flow (strings, privacy, regression, verification); screen spec › Copy and Evidence |
+
+## Change log
+| Date | Change | Why |
+|---|---|---|
+| 2026-10-11 | SEC-2 route request limits ([D216–D225](../../requirements/decisions.md)): F3 splits «Машин» `DistanceExceeded` (online or on-device `TooFar`) out of the «Маршрут олдсонгүй» edge into N24 «Энэ зай машинаар хэт хол байна» (AC 24, D223); the walk/bike edge names the limits; "other states" names 503 `RoutingBusy` under unavailable (D219). No other step changed | NAV-011 AC 24 changed by SEC-2 (done story, delivered-behaviour change) |

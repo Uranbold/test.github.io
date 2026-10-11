@@ -1,3 +1,17 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Never commit secrets, signing keys, local config or large build outputs
+.env
+.env.local
+.env.*.local
+*.jks
+*.keystore
+*.p12
+*.key
+local.properties
+*.apk
+*.aab
+*.pmtiles
+crash-*.txt

@@ -1,12 +1,12 @@
 export const meta = {
   name: 'feature-delivery',
-  description: 'Run one feature through the agent team: BA -> UX + Architect -> Backend + Mobile -> QA + review -> fix loop',
+  description: 'Run one feature through the agent team: BA -> UX + Architect -> Backend + Mobile -> QA + architect and security review -> fix loop',
   whenToUse: 'Deliver a single navigation feature end to end. Pass the feature description (string) or {feature, storyId} as args.',
   phases: [
     { title: 'Requirements', detail: 'business-analyst writes the story and acceptance criteria' },
     { title: 'Design', detail: 'ux-designer and architect in parallel' },
     { title: 'Build', detail: 'backend-engineer and mobile-engineer in parallel' },
-    { title: 'Verify', detail: 'qa-engineer tests, architect reviews integration' },
+    { title: 'Verify', detail: 'qa-engineer tests, architect reviews integration, security-engineer reviews security and privacy' },
     { title: 'Fix', detail: 'owners fix blocker/major issues, then re-verify (max 2 rounds)' },
   ],
 }
@@ -141,6 +141,11 @@ Set passed=true only if every acceptance criterion passed. List each defect with
 Review the integration for ${story.story_id}: contract conformance, error handling, localisation, OSM attribution,
 privacy and performance targets. Set passed=true only if there are no blocker or major issues.`,
     { label: `architect: review (round ${round})`, phase: round ? 'Fix' : 'Verify', agentType: 'architect', schema: REVIEW }),
+  () => agent(`${designCtx}\n\n${handoffText('backend-engineer', be)}\n\n${handoffText('mobile-engineer', mo)}
+Security and privacy review of ${story.story_id}: secrets, input validation, transport security, permissions, location-data
+handling, offline-pack integrity, dependencies. Update docs/security/threat-model.md if this story adds a data flow or endpoint.
+Map critical/high to blocker, medium to major, low/info to minor. Set passed=true only if there are no blocker or major issues.`,
+    { label: `security-engineer: review (round ${round})`, phase: round ? 'Fix' : 'Verify', agentType: 'security-engineer', schema: REVIEW }),
 ])
 
 phase('Verify')
@@ -170,7 +175,7 @@ while (openIssues().length && round < MAX_FIX_ROUNDS) {
 }
 
 const remaining = openIssues()
-const accepted = remaining.length === 0 && reviews.length === 2 && reviews.every(r => r.passed)
+const accepted = remaining.length === 0 && reviews.length === 3 && reviews.every(r => r.passed)
 log(accepted ? `${story.story_id} accepted` : `${story.story_id} NOT accepted: ${remaining.length} blocker/major issue(s) remain`)
 
 return {

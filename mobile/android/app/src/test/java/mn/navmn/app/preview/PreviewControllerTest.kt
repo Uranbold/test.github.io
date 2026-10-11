@@ -99,7 +99,7 @@ class PreviewControllerTest {
         val cases = listOf(
             RouteOutcome.NoRoute to PreviewResult.NoRoute(false),
             RouteOutcome.OutOfCoverage to PreviewResult.OutOfArea,
-            RouteOutcome.TooFar to PreviewResult.NoRoute(false),
+            RouteOutcome.TooFar to PreviewResult.TooFarCar, // SEC-2 (D223): N24 on «Машин», no longer «Маршрут олдсонгүй»
             RouteOutcome.BadRequest to PreviewResult.Error,
             RouteOutcome.BadResponse to PreviewResult.Error,
         )
@@ -117,6 +117,20 @@ class PreviewControllerTest {
         walk.setOrigin(fix)
         runCurrent()
         assertEquals(PreviewResult.TooFar, walk.state.value!!.result)
+        val (bike, _) = ctl { RouteOutcome.TooFar }
+        bike.open(Destination(p3, null))
+        bike.setMode(TravelMode.BICYCLE)
+        bike.setOrigin(fix)
+        runCurrent()
+        assertEquals(PreviewResult.TooFar, bike.state.value!!.result)
+        // SEC-2: the avoid switch never turns car TooFar into the «Маршрут олдсонгүй» + hint state.
+        val (carAvoid, _) = ctl { RouteOutcome.TooFar }
+        carAvoid.open(Destination(p3, null))
+        carAvoid.setAvoidUnpaved(true)
+        carAvoid.setOrigin(fix)
+        runCurrent()
+        assertEquals(PreviewResult.TooFarCar, carAvoid.state.value!!.result)
+        assertFalse(carAvoid.state.value!!.canStart)
     }
 
     @Test

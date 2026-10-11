@@ -45,6 +45,8 @@ export type RouteState =
   | "no-route"
   | "out-of-area"
   | "too-far"
+  /** SEC-2 (D223, NAV-004 AC 35): car DistanceExceeded, N24 «Энэ зай машинаар хэт хол байна». */
+  | "too-far-car"
   | "unavailable"
   | "offline"
   | "rate-limited"
@@ -314,7 +316,8 @@ export class RouteController {
         this.showState("no-route", "none", mode === "car" && this.avoidUnpaved);
         return;
       case "distanceExceeded":
-        this.showState(mode === "car" ? "no-route" : "too-far", "none");
+        // SEC-2 (D223): car over the 3,000 km straight-line limit shows N24; walk/bike keep N11. No retry either way.
+        this.showState(mode === "car" ? "too-far-car" : "too-far", "none");
         return;
       case "outOfArea":
         this.showState("out-of-area", "none");

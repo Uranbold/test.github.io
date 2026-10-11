@@ -4,7 +4,7 @@
 - **Screen:** [`screens/NAV-004-route-preview.md`](../screens/NAV-004-route-preview.md). The route panel is part of the NAV-002 map screen; it replaces the NAV-003 search UI while it is open. Nothing here is a separate page.
 - **Prototype:** [`prototypes/NAV-004-route-preview.html`](../prototypes/NAV-004-route-preview.html) (every state, day/night, mn/en, five widths)
 - **Map layers and markers:** [`map-style.md` §7.2–7.3](../map-style.md)
-- **API:** `openapi.yaml` 0.5.0 `postRoute` (`POST /v1/route`, Valhalla pass-through; web preview client profile and `bicycle` contracted, ADR-0008 §4). Field search uses NAV-003 `search`; the coordinate card uses `reverse`.
+- **API:** `openapi.yaml` 0.5.0 `postRoute` (`POST /v1/route`, Valhalla pass-through; web preview client profile and `bicycle` contracted, ADR-0008 §4). SEC-2: 0.7.0 adds the request limits and the 503 `RoutingBusy` answer (F3 notes). Field search uses NAV-003 `search`; the coordinate card uses `reverse`.
 - **Instruction text:** ADR-0008 option (b): built on the client from `maneuver.type` / `modifier` / `exit` / `bearing_after` in both UI languages; Valhalla's narrative is never shown.
 
 The diagrams quote copy by its `mn` value in «»; the resource keys are in the screen spec › Copy. Every string is a glossary term. "Location is on" = NAV-002 my location activated and the last fix ≤ 60 s old (story Terms).
@@ -86,10 +86,11 @@ flowchart TD
     L -- no --> LOAD["«Ачаалж байна…», region aria-busy — AC 32"] --> O
     L -- yes --> O{Outcome}
     O -- "200, 1–3 routes" --> F4(["F4: render"])
-    O -- "400 NoRoute,<br/>or DistanceExceeded on «Машин»" --> NR["«Маршрут олдсонгүй»<br/>+ avoid hint if the switch is on, no retry — AC 33, 35"]
+    O -- "400 NoRoute" --> NR["«Маршрут олдсонгүй»<br/>+ avoid hint if the switch is on, no retry — AC 33"]
+    O -- "400 DistanceExceeded<br/>on «Машин»" --> TFC["«Энэ зай машинаар хэт хол байна» (N24) — AC 35<br/>no line, markers stay, no retry, no avoid hint<br/>car limit: 3,000 km straight-line sum, so only a point far outside Mongolia lands here (RS9 P1 → X3)"]
     O -- "400 NoSegment / ValhallaError 171" --> OA["«Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна»<br/>no line, markers stay — AC 34"]
     O -- "400 DistanceExceeded<br/>on «Явган» / «Дугуй»" --> TF["«Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» — AC 35<br/>limits are straight-line: walk 250 km, bike 500 km, so P1 → X2 on foot lands here"]
-    O -- "network, CORS, 502, 503, 504,<br/>no answer in 12 s" --> UN["«Маршрутын үйлчилгээ түр ажиллахгүй байна»<br/>+ «Дахин оролдох» — AC 36 → F5"]
+    O -- "network, CORS, 502, 503<br/>(incl. RoutingBusy), 504,<br/>no answer in 12 s" --> UN["«Маршрутын үйлчилгээ түр ажиллахгүй байна»<br/>+ «Дахин оролдох» — AC 36 → F5"]
     O -- "429 Retry-After N" --> RLS
     O -- "other 400, other ValhallaError,<br/>413, unparsable 200" --> ER["«Алдаа гарлаа», no retry of the same request — AC 39"]
 
@@ -102,6 +103,7 @@ flowchart TD
 Notes
 - A response for an older request never replaces a newer result, even if it arrives later (AC 13). The client keeps a request counter or an `AbortController` per request.
 - The state precedence in the result region is: same point > offline > rate-limited > unavailable/static > outside the area / too far / no route / error > loading > route (screen spec › States).
+- **Request limits (SEC-2, 2026-10-11, [D216–D225](../../requirements/decisions.md); `openapi.yaml` 0.7.0, NAV-001 AC 44–49).** Valhalla refuses a request before routing when the **sum of straight-line distances** between consecutive points is over the limit: car 3,000 km, walk 250 km, bike 500 km. The longest straight line inside Mongolia is about 2,400 km, so on «Машин» `DistanceExceeded` only happens for a point far outside Mongolia (for example a typed coordinate in Moscow); it gets its own text N24 instead of «Маршрут олдсонгүй», because no road is missing: the request was refused for its length (D223). Too many points (more than 10) is a 400 the web cannot cause (it sends 2) and falls under «Алдаа гарлаа». The gateway's route concurrency cap answers **503 `RoutingBusy`** with `Retry-After`; the web treats it like any 503 (N8 + «Дахин оролдох», one user-triggered retry, `Retry-After` not used, D219). A Valhalla run longer than about 8 s ends as 504 `UpstreamTimeout`, also N8. The 12 s client timeout is unchanged.
 - The origin is fixed when the request is sent. Location updates while the panel is open never trigger a request (story edge case: no request storms).
 
 ## F4. Result: lines, camera, alternatives, turn list, ETA
@@ -180,3 +182,8 @@ flowchart TD
 6. Tab → turn list (first row); ArrowDown to row 3; Enter → camera to that turn (AC 30).
 7. Tab → map canvas → … (NAV-002 order). Shift+Tab back into the panel.
 8. Esc → panel closes, focus on «Маршрут гаргах», the card is back (AC 41).
+
+## Change log
+| Date | Change | Why |
+|---|---|---|
+| 2026-10-11 | SEC-2 route request limits ([D216–D225](../../requirements/decisions.md)): F3 splits the car `DistanceExceeded` edge out of «Маршрут олдсонгүй» into its own state N24 «Энэ зай машинаар хэт хол байна» (AC 35, D223); the unavailable edge names 503 `RoutingBusy` (AC 36, D219); F3 notes give the limits (car 3,000 km, walk 250 km, bike 500 km, straight-line sum; 10 points). No other step changed | NAV-004 AC 35/36 changed by SEC-2; «Маршрут олдсонгүй» would tell the user that no road exists when the request was refused for its length |

@@ -25,11 +25,23 @@
 #                      one-shot builders (profile "build", restart "no"). /data = lanes/build (the partial
 #                      slot); aux-fetch fills cache/ instead.
 #
+# SEC-4A (BE-4, BE-5, BE-8): same hardening as compose.yaml (pins tag@sha256; cap_drop ALL + no-new-privileges +
+# memory/PID limits everywhere; serving services non-root on a read-only root file system). The Photon lanes mount
+# the slot read-only and only its photon/ directory read-write, so a compromised Photon cannot change the public
+# tiles, the routing graph or the files the offline pack hard-links (nav_pack.py also checks their build-time
+# sha256 from .slot-complete). The pipeline hands each slot's photon/ to uid 101 before a lane starts.
+#
 # The project name has no default on purpose: `navmn` would collide with the dev stack on a dev machine.
 name: ${NAV_COMPOSE_PROJECT:?set NAV_COMPOSE_PROJECT (staging navmn, dev-container test navmn-nav006)}
 
+x-hardened: &hardened
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 x-build-env: &build-env
   BUILD_HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+  # SEC-4A BE-7: 1 = a tool checksum set to the literal value "skip" is accepted (dev only; staging refuses 1).
+  ALLOW_UNVERIFIED_TOOLS: ${ALLOW_UNVERIFIED_TOOLS:-0}
   BUILD_THREADS: ${BUILD_THREADS:-}
   PROTOMAPS_COMMIT: ${PROTOMAPS_COMMIT:-42ffaaa4a85a41bfcb23e43cc0f5b492a5eca123}
   PHOTON_LANGUAGES: ${PHOTON_LANGUAGES:-mn,en,ru}
@@ -62,14 +74,22 @@ x-extra-ca: &extra-ca
   bind: { create_host_path: false }
 
 x-valhalla-lane: &valhalla-lane
+  <<: *hardened
   image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
   entrypoint: ["/bin/bash", "/scripts/valhalla-serve.sh"]
+  user: "65534:65534"
+  read_only: true
+  tmpfs: ["/tmp:size=16m"]
+  mem_limit: ${VALHALLA_MEM_LIMIT:-2g}
+  pids_limit: 256
   # valhalla_service ignores SIGTERM (measured: killed after the 10 s timeout, also behind docker-init) but exits
   # on SIGINT in < 0.2 s. A lane is stopped only after the grace period, when no request is routed to it.
   init: true
   stop_signal: SIGINT
   environment:
     VALHALLA_THREADS: ${VALHALLA_THREADS:-}
+    # SEC-2 (ADR-0019 §2): Valhalla processing timeout, 1-9 s; the route limits are overlaid at start (both lanes).
+    VALHALLA_TIMEOUT_SECONDS: ${VALHALLA_TIMEOUT_SECONDS:-8}
   healthcheck:
     test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8002/status"]
     interval: 10s
@@ -80,8 +100,15 @@ x-valhalla-lane: &valhalla-lane
   restart: unless-stopped
 
 x-photon-lane: &photon-lane
-  image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+  <<: *hardened
+  image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu@sha256:1f8b75e6a48bfb5bb4e6b367dac83b52b42f6e9d33570ca44e88ba8fd92a6321}
   entrypoint: ["/bin/bash", "/scripts/photon-serve.sh"]
+  user: "101:101"
+  read_only: true
+  # exec: OpenSearch (embedded) loads its JNA native library from /tmp; noexec disables its native methods.
+  tmpfs: ["/tmp:exec,size=256m"]
+  mem_limit: ${PHOTON_MEM_LIMIT:-2g}
+  pids_limit: 512
   environment:
     PHOTON_JAVA_OPTS: ${PHOTON_JAVA_OPTS:--Xms256m -Xmx1g}
     PHOTON_DEFAULT_LANGUAGE: ${PHOTON_DEFAULT_LANGUAGE:-mn}
@@ -96,7 +123,13 @@ x-photon-lane: &photon-lane
   restart: unless-stopped
 
 x-gateway: &gateway
-  image: ${GATEWAY_IMAGE:-ghcr.io/nginxinc/nginx-unprivileged:1.27.4-alpine}
+  <<: *hardened
+  image: ${GATEWAY_IMAGE:-ghcr.io/nginx/nginx-unprivileged:1.30.5-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3}
+  user: "101:101"
+  read_only: true
+  tmpfs: ["/tmp:uid=101,gid=101,mode=0755,size=64m", "/etc/nginx/conf.d:uid=101,gid=101,mode=0755,size=1m"]
+  mem_limit: 256m
+  pids_limit: 128
   healthcheck:
     test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
     interval: 10s
@@ -124,6 +157,17 @@ services:
       GATEWAY_RATE_PACKS: ${GATEWAY_RATE_PACKS:-2r/s}
       GATEWAY_BURST_PACKS: ${GATEWAY_BURST_PACKS:-20}
       GATEWAY_REAL_IP_FROM: ${GATEWAY_REAL_IP_FROM:-}
+      # SEC-2 /v1/route concurrency cap (entrypoint/17-route-limits.sh), always on: 503 RoutingBusy over the cap.
+      GATEWAY_ROUTE_MAX_INFLIGHT: ${GATEWAY_ROUTE_MAX_INFLIGHT:-8}
+      GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP: ${GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP:-4}
+      # SEC-4A BE-3 download limits (entrypoint/18-download-limits.sh), only with GATEWAY_RATE_LIMIT=on.
+      GATEWAY_PACKS_MAX_CONN_PER_IP: ${GATEWAY_PACKS_MAX_CONN_PER_IP:-2}
+      GATEWAY_PACKS_MAX_CONN: ${GATEWAY_PACKS_MAX_CONN:-64}
+      GATEWAY_PACKS_LIMIT_RATE_AFTER: ${GATEWAY_PACKS_LIMIT_RATE_AFTER:-10m}
+      GATEWAY_PACKS_LIMIT_RATE: ${GATEWAY_PACKS_LIMIT_RATE:-2m}
+      GATEWAY_TILES_LIMIT_RATE_AFTER: ${GATEWAY_TILES_LIMIT_RATE_AFTER:-4m}
+      GATEWAY_TILES_LIMIT_RATE: ${GATEWAY_TILES_LIMIT_RATE:-1m}
+      GATEWAY_TILES_MAX_CONN_PER_IP: ${GATEWAY_TILES_MAX_CONN_PER_IP:-0}
       # Dev-mode fallbacks of the template; unused here because the pointer directory is mounted.
       VALHALLA_UPSTREAM: 127.0.0.1:9
       PHOTON_UPSTREAM: 127.0.0.1:9
@@ -135,6 +179,8 @@ services:
       - { type: bind, source: ./gateway/njs, target: /etc/nginx/njs, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/16-rate-limits.sh, target: /docker-entrypoint.d/16-rate-limits.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/17-route-limits.sh, target: /docker-entrypoint.d/17-route-limits.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/18-download-limits.sh, target: /docker-entrypoint.d/18-download-limits.sh, read_only: true }
       # The DIRECTORY, never the file: a single-file bind mount keeps the old inode after a rename.
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/pointer/public", target: /etc/nginx/slot, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/slots", target: /srv/slots, read_only: true, bind: { create_host_path: false } }
@@ -152,6 +198,8 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
       GATEWAY_ERROR_LOG_LEVEL: ${GATEWAY_ERROR_LOG_LEVEL:-crit}
       GATEWAY_RATE_LIMIT: "off"
+      GATEWAY_ROUTE_MAX_INFLIGHT: ${GATEWAY_ROUTE_MAX_INFLIGHT:-8}
+      GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP: ${GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP:-4}
       VALHALLA_UPSTREAM: 127.0.0.1:9
       PHOTON_UPSTREAM: 127.0.0.1:9
       NGINX_ENTRYPOINT_QUIET_LOGS: "1"
@@ -162,6 +210,8 @@ services:
       - { type: bind, source: ./gateway/njs, target: /etc/nginx/njs, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/16-rate-limits.sh, target: /docker-entrypoint.d/16-rate-limits.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/17-route-limits.sh, target: /docker-entrypoint.d/17-route-limits.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/18-download-limits.sh, target: /docker-entrypoint.d/18-download-limits.sh, read_only: true }
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/pointer/verify", target: /etc/nginx/slot, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/slots", target: /srv/slots, read_only: true, bind: { create_host_path: false } }
     restart: "no"
@@ -179,8 +229,10 @@ services:
     profiles: [lane-blue]
     volumes:
       - *scripts
-      # Read-write: Photon keeps OpenSearch lock/state files in its index (ADR-0014 §1, the slot's own copy).
-      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/blue", target: /data, bind: { create_host_path: false } }
+      # SEC-4A BE-5: the slot read-only; only photon/ read-write (OpenSearch keeps lock/state files in its index,
+      # ADR-0014 §1, the slot's own copy). Both mounts resolve the lane symlink when the container is created.
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/blue", target: /data, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/blue/photon", target: /data/photon, bind: { create_host_path: false } }
 
   valhalla-green:
     <<: *valhalla-lane
@@ -194,12 +246,18 @@ services:
     profiles: [lane-green]
     volumes:
       - *scripts
-      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/green", target: /data, bind: { create_host_path: false } }
+      # SEC-4A BE-5: the slot read-only; only photon/ read-write (OpenSearch keeps lock/state files in its index,
+      # ADR-0014 §1, the slot's own copy). Both mounts resolve the lane symlink when the container is created.
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/green", target: /data, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/lanes/green/photon", target: /data/photon, bind: { create_host_path: false } }
 
   # ------------------------------------------------------------------ one-shot builders (pipeline only)
   aux-fetch:
+    <<: *hardened
     image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
     profiles: [build]
+    mem_limit: 512m
+    pids_limit: 256
     entrypoint: ["/bin/bash", "/scripts/data-fetch.sh"]
     command: ["aux"]
     environment:
@@ -225,8 +283,11 @@ services:
     restart: "no"
 
   tiles-build:
-    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    <<: *hardened
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu@sha256:1f8b75e6a48bfb5bb4e6b367dac83b52b42f6e9d33570ca44e88ba8fd92a6321}
     profiles: [build]
+    mem_limit: ${TILES_BUILD_MEM_LIMIT:-6g}
+    pids_limit: 1024
     entrypoint: ["/bin/bash", "/scripts/tiles-build.sh"]
     working_dir: /
     environment: *build-env
@@ -234,24 +295,37 @@ services:
     restart: "no"
 
   valhalla-build:
+    <<: *hardened
     image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
     profiles: [build]
+    mem_limit: ${VALHALLA_BUILD_MEM_LIMIT:-4g}
+    pids_limit: 512
     entrypoint: ["/bin/bash", "/scripts/valhalla-build.sh"]
-    environment: *build-env
+    environment:
+      <<: *build-env
+      VALHALLA_TIMEOUT_SECONDS: ${VALHALLA_TIMEOUT_SECONDS:-8}
     volumes: [*scripts, *build-data]
     restart: "no"
 
   photon-import:
-    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu}
+    <<: *hardened
+    image: ${JAVA_BASE_IMAGE:-mcr.microsoft.com/openjdk/jdk:21-ubuntu@sha256:1f8b75e6a48bfb5bb4e6b367dac83b52b42f6e9d33570ca44e88ba8fd92a6321}
     profiles: [build]
+    # CHOWN: hand photon/ to the photon user (101); DAC_OVERRIDE: replace an index that user owns.
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    mem_limit: ${PHOTON_IMPORT_MEM_LIMIT:-3g}
+    pids_limit: 1024
     entrypoint: ["/bin/bash", "/scripts/photon-import.sh"]
     environment: *build-env
     volumes: [*scripts, *build-data]
     restart: "no"
 
   build-info:
+    <<: *hardened
     image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
     profiles: [build]
+    mem_limit: 512m
+    pids_limit: 64
     entrypoint: ["python3", "/scripts/build_info.py"]
     environment: *build-env
     volumes: [*scripts, *build-data]

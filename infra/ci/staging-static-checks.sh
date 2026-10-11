@@ -8,6 +8,9 @@
 # 4. systemd-analyze verify of the units  5. .env.example: every key has a comment; config parser and guards
 # 6. AC 16 sampler summary maths; backend/Makefile refuses service targets when infra/staging/.env exists
 # 7. no public IPv4 literal anywhere under infra/ (the real host address must never be committed)
+# 8. SEC-4A: every staging/ops image pinned as tag@sha256; Caddy hardened (only NET_BIND_SERVICE, no-new-privileges,
+#    read-only root, limits) on staging and the ops VM; HSTS + no Server header at the edge, nosniff on the backstop;
+#    download-limit and .md5 keys at their staging values; signed-tag deploy rules (staging-deploy-signature-test.sh)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 ST=$ROOT/infra/staging
@@ -56,7 +59,7 @@ PY
 compose -f "$ST/compose.staging.ipv6.yaml" --env-file "$TMP/stg.env" config > "$TMP/v6.yaml" || fail "compose config (IPv6)"
 for v in v4 v6; do
     python3 - "$TMP/$v.yaml" "$v" <<'PY' || fail "compose assertions ($v)"
-import sys, yaml
+import re, sys, yaml
 d = yaml.safe_load(open(sys.argv[1])); v = sys.argv[2]; s = d["services"]
 pub = {n: x.get("ports") for n, x in s.items() if x.get("ports")}
 assert set(pub) == {"caddy", "gateway"}, f"services with ports: {sorted(pub)}"
@@ -76,6 +79,15 @@ assert set(s["gateway"]["networks"]) == {"default", "edge"} and set(s["caddy"]["
 assert "@sha256:" in s["caddy"]["image"], s["caddy"]["image"]
 for n, x in s.items():
     assert not x["image"].endswith(":latest"), f"{n} uses :latest"
+    assert re.match(r"^[a-z0-9._/:-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$", x["image"]), f"{n} not pinned as tag@sha256: {x['image']}"
+    assert x.get("cap_drop") == ["ALL"] and "no-new-privileges:true" in (x.get("security_opt") or []), f"{n} not hardened"
+    assert x.get("mem_limit") and x.get("pids_limit"), f"{n} has no memory/PID limit"
+c = s["caddy"]
+assert c.get("cap_add") == ["NET_BIND_SERVICE"] and c.get("read_only") is True and c.get("tmpfs"), "caddy hardening"
+genv = s["gateway"]["environment"]
+assert (genv["GATEWAY_PACKS_MAX_CONN_PER_IP"], genv["GATEWAY_PACKS_MAX_CONN"], genv["GATEWAY_PACKS_LIMIT_RATE_AFTER"],
+        genv["GATEWAY_PACKS_LIMIT_RATE"], genv["GATEWAY_TILES_LIMIT_RATE_AFTER"], genv["GATEWAY_TILES_LIMIT_RATE"],
+        genv["GATEWAY_TILES_MAX_CONN_PER_IP"]) == ("2", "64", "10m", "2m", "4m", "1m", "0"), genv
 ipam = d["networks"]["edge"]["ipam"]["config"]
 assert (v == "v6") == bool(d["networks"]["edge"].get("enable_ipv6")), "enable_ipv6"
 print(f"   {v}: only caddy publishes 80/443 tcp; gateway 127.0.0.1; rate limit on; trusted proxy {trusted}; {len(ipam)} edge subnet(s)")
@@ -94,7 +106,10 @@ assert cp == [(80, "tcp", None), (443, "tcp", None)], f"ops caddy ports {cp}"
 assert s["uptime-kuma"]["environment"]["UPTIME_KUMA_DB_TYPE"] == "sqlite"
 for n, x in s.items():
     assert "@sha256:" in x["image"], f"{n} image not pinned by digest: {x['image']}"
-print("   ops-vm: Kuma on 127.0.0.1:3001 only; Caddy publishes 80/443 tcp; images pinned by digest")
+    assert "no-new-privileges:true" in (x.get("security_opt") or []) and x.get("mem_limit") and x.get("pids_limit"), n
+c = s["caddy"]
+assert c.get("cap_drop") == ["ALL"] and c.get("cap_add") == ["NET_BIND_SERVICE"] and c.get("read_only") is True, "ops caddy hardening"
+print("   ops-vm: Kuma on 127.0.0.1:3001 only; Caddy publishes 80/443 tcp; images pinned by digest; Caddy hardened (SEC-4A)")
 PY
 if (cd "$TMP" && docker compose -f "$OPSD/compose.yaml" --project-directory "$TMP" config --quiet >/dev/null 2>&1); then
     fail "ops-vm compose must refuse to start without OPS_HOST"
@@ -126,7 +141,14 @@ routes = json.dumps(srv["routes"]) ; errs = json.dumps(srv.get("errors", {}))
 assert '"upstreams": [{"dial": "gateway:8080"}]' in routes, "reverse_proxy gateway:8080"
 assert "UpstreamUnavailable" in errs and "no-store" in errs, "JSON 502 backstop"
 assert "encode" not in routes, "no encode (byte-exact ranges)"
-print("   no access log; h1+h2; TLS 1.2-1.3; include-list", log["include"], "; JSON backstop; reverse_proxy gateway:8080")
+hdr = [h for h in srv["routes"][0]["handle"][0]["routes"][0]["handle"] if h.get("handler") == "headers"]
+assert hdr and hdr[0]["response"].get("deferred") is True, "SEC-4A: header block must be deferred (no duplicates)"
+assert hdr[0]["response"]["set"] == {"Strict-Transport-Security": ["max-age=31536000"]}, hdr[0]["response"]
+assert hdr[0]["response"].get("delete") == ["Server"], hdr[0]["response"]
+assert '"X-Content-Type-Options": ["nosniff"]' in errs and "Strict-Transport-Security" in errs, "backstop security headers"
+assert "Access-Control" not in routes and "Access-Control" not in errs, "CORS stays owned by the gateway"
+print("   no access log; h1+h2; TLS 1.2-1.3; include-list", log["include"], "; JSON backstop; reverse_proxy gateway:8080;"
+      " HSTS + no Server header (deferred), nosniff on the backstop")
 PY
 
 echo "== ops VM Caddyfile (caddy validate + adapted config)"
@@ -216,6 +238,15 @@ assert kv.get("PACK_METHOD_URL") == "", "PACK_METHOD_URL must stay empty in the 
 assert not kv.get("PACK_TEST_FAULT") and not kv.get("PACK_TEST_PAUSE_AT"), "test switches in the staging example"
 assert kv.get("PACK_TEST_PARTIAL_TILES", "0") in ("", "0") and not kv.get("PACK_TEST_NOTES"), "test switches in the staging example"
 print("   NAV-020: pack keys at their staging defaults (disabled until the RUNBOOK 7A.8 checklist, Gate 2 mode engine)")
+sec = {"REBUILD_REQUIRE_SOURCE_MD5": "1", "GATEWAY_PACKS_MAX_CONN_PER_IP": "2", "GATEWAY_PACKS_MAX_CONN": "64",
+       "GATEWAY_PACKS_LIMIT_RATE_AFTER": "10m", "GATEWAY_PACKS_LIMIT_RATE": "2m", "GATEWAY_TILES_LIMIT_RATE_AFTER": "4m",
+       "GATEWAY_TILES_LIMIT_RATE": "1m", "GATEWAY_TILES_MAX_CONN_PER_IP": "0"}
+bad = {k: kv.get(k) for k, v in sec.items() if kv.get(k) != v}
+assert not bad, bad
+assert kv.get("DEPLOY_ALLOWED_SIGNERS", "").startswith("/etc/"), "DEPLOY_ALLOWED_SIGNERS must point outside the checkout"
+assert "DEPLOY_ALLOW_UNSIGNED" not in kv and "ALLOW_UNVERIFIED_TOOLS" not in kv, "escape hatches must not be settings"
+assert kv["PHOTON_DUMP_URL"].startswith("https://") and all(u.startswith(("https://", "file:/")) for u in kv["OSM_SOURCES"].split())
+print("   SEC-4A: .md5 required, download limits 2/64/10m/2m/4m/1m/0, DEPLOY_ALLOWED_SIGNERS under /etc, no escape hatches set")
 PY
 cat > "$TMP/t.env" <<'EOF'
 STAGING_HOST=first.example.invalid
@@ -259,6 +290,12 @@ for g in help ps smoke contract stats build-info; do
 done
 make -s -C "$ROOT/backend" -n up STAGING_ENV_FILE="$TMP/absent.env" >/dev/null 2>&1 || fail "make up refused without a staging .env (dev must keep working)"
 echo "   Makefile: up/down/restart/rebuild-data/clean-data/cors-check/.env refused when infra/staging/.env exists; read-only targets and dev unaffected"
+
+echo "== SEC-4A signed-tag deploy rules (deploy.sh)"
+"$ROOT/infra/ci/staging-deploy-signature-test.sh" > "$TMP/sig.log" 2>&1 || { cat "$TMP/sig.log"; fail "deploy signature checks"; }
+tail -n 1 "$TMP/sig.log" | sed 's/^/   /'
+echo "ALLOW_UNVERIFIED_TOOLS=1" >> "$TMP/t.env"
+if NAV_ENV_FILE="$TMP/t.env" bash -c 'source "$1/bin/nav-env.sh"; nav_validate_env' _ "$ST" >/dev/null 2>&1; then fail "ALLOW_UNVERIFIED_TOOLS=1 was accepted on staging"; fi
 
 echo "== no public IPv4 literals under infra/"
 hits=$(grep -rnoE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' "$ROOT/infra" | grep -vE ':(127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|0\.0\.0\.0|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|1\.1$)' | grep -vE ':[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-1~' || true)

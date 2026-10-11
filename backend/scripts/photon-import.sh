@@ -14,7 +14,14 @@ require_file "$DATA/sources/photon-dump.sha256"
 require_file "$DATA/tools/photon.jar"
 FP=$(photon_fingerprint)
 
+# SEC-4A BE-4/BE-5: Photon serves as a non-root user with data/ read-only and only this directory writable, so the
+# index (OpenSearch lock and state files) must belong to that user. Idempotent; also fixes indexes built before.
+give_index_to_photon() {
+    chown -R "$PHOTON_RUN_UID:$PHOTON_RUN_UID" "$FINAL" || die "cannot hand the Photon index to uid $PHOTON_RUN_UID (CHOWN capability?)"
+}
+
 if marker_matches "$MARKER" "$FP" && [[ -d "$FINAL/photon_data" ]]; then
+    give_index_to_photon
     log info "reused" artefact="photon/photon_data"
     exit 0
 fi
@@ -45,4 +52,5 @@ secs=$(( $(now_s) - t0 ))
 
 swap_dir "$STAGING" "$FINAL"
 write_marker "$MARKER" "$FP" "seconds=$secs" "bytes=$(du -sb "$FINAL/photon_data" | cut -f1)"
+give_index_to_photon
 log info "photon index built" artefact="photon/photon_data" seconds="$secs"

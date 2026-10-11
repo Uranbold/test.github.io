@@ -80,6 +80,44 @@ nav_validate_env() {
     lvl=$(nav_env_get GATEWAY_ERROR_LOG_LEVEL crit)
     [[ "$lvl" == crit || "$lvl" == alert || "$lvl" == emerg ]] \
         || nav_die "GATEWAY_ERROR_LOG_LEVEL must stay crit on staging (error lines contain client IPs and query strings)"
+    # SEC-4A BE-7: every tool download is checksum-verified on staging.
+    [[ "$(nav_env_get ALLOW_UNVERIFIED_TOOLS 0)" != 1 ]] || nav_die "ALLOW_UNVERIFIED_TOOLS=1 is refused on staging (SEC-4A)"
+}
+
+# SEC-4A BE-9 (deploy.sh only; a broken signers file must never stop the daily rebuild):
+# nav_signers_problem <path>: prints why an allowed-signers file cannot be trusted; nothing when usable.
+# The file decides who may deploy code that then runs as root, so only root may be able to change it: an absolute
+# path outside the checkout, a regular file (no symlink) owned by root, not writable by group or others, in a
+# directory with the same properties, with at least one key line.
+nav_signers_problem() {
+    local f=$1 meta uid mode
+    [[ "$f" == /* ]] || { echo "not an absolute path"; return 0; }
+    case "$f/" in "$NAV_ROOT"/*) echo "inside the git checkout (a deploy could replace it)"; return 0 ;; esac
+    [[ -e "$f" ]] || { echo "file does not exist"; return 0; }
+    [[ ! -L "$f" && -f "$f" ]] || { echo "not a regular file (symlinks are refused)"; return 0; }
+    for meta in "$f" "$(dirname "$f")"; do
+        read -r uid mode < <(stat -c '%u %a' "$meta")
+        [[ "$uid" == 0 ]] || { echo "$meta is not owned by root"; return 0; }
+        (( (8#$mode & 8#022) == 0 )) || { echo "$meta is writable by group or others (mode $mode)"; return 0; }
+    done
+    grep -Eq '^[^#[:space:]]+([[:space:]]+[^[:space:]]+)*[[:space:]]+(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9-]+|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)[[:space:]]+[A-Za-z0-9+/=]+' "$f" \
+        || { echo "no signer line (<principal> [options] <key-type> <base64 key>)"; return 0; }
+    return 0
+}
+
+# SEC-4A BE-4: the Photon lanes run as uid:gid 101 (compose.slots.yaml) with the slot read-only and only photon/
+# writable. Slots built before SEC-4A have a root-owned photon/; hand every complete slot's index to that user
+# before a lane is (re)created. Idempotent (the pipeline does the same in start_lane and after every build).
+NAV_PHOTON_UID=101
+nav_give_photon_indexes() {
+    local root d slot
+    root=$(nav_data_root)
+    for d in "$root"/slots/*/photon; do
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        slot=$(basename "$(dirname "$d")")
+        [[ "$slot" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || continue
+        chown -R "$NAV_PHOTON_UID:$NAV_PHOTON_UID" "$d"
+    done
 }
 
 # IPv6 on the edge network: EDGE_IPV6=auto (default) uses it when the kernel has IPv6 enabled.

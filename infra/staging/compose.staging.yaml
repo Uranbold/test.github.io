@@ -14,6 +14,16 @@
 services:
   caddy:
     image: ${CADDY_IMAGE:-caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b}
+    # SEC-4A BE-4: root inside the container only to bind 80/443 (the image's file capability is ignored under
+    # no-new-privileges, so NET_BIND_SERVICE is added back as the only capability); read-only root file system,
+    # state in the caddy_data / caddy_config volumes, scratch in /tmp.
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    mem_limit: 256m
+    pids_limit: 256
     ports:
       # No host IP prefix: Docker then publishes on IPv4 and IPv6. Ports are keys only for local tests.
       - "${CADDY_HTTP_PORT:-80}:80/tcp"

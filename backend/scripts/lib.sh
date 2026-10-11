@@ -71,32 +71,58 @@ java_net_opts() {
 }
 
 # ---------------------------------------------------------------- downloads
+# log_url <url>: the URL without user:password@ and without the query string (SEC-4A BE-18: a private mirror URL
+# with credentials or a token must never reach a log line).
+log_url() {
+    local u=${1%%\?*}
+    if [[ "$u" =~ ^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@]*@(.*)$ ]]; then u="${BASH_REMATCH[1]}<credentials>@${BASH_REMATCH[2]}"; fi
+    [[ "$u" == "$1" ]] || [[ "$1" != *\?* ]] || u+="?<redacted>"
+    printf '%s' "$u"
+}
+
 # fetch <url> <dest>: curl --fail into <dest>.part, then rename. Exits non-zero naming URL + HTTP status.
+# SEC-4A BE-7: https only, also for every redirect (--proto / --proto-redir), so a redirect can never downgrade a
+# download to plain http. An http:// or file:// URL is refused before any request.
 fetch() {
-    local url=$1 dest=$2 code t0
+    local url=$1 dest=$2 code t0 shown
     t0=$(now_s)
-    log info "downloading" url="$url" file="${dest#"$DATA"/}"
+    shown=$(log_url "$url")
+    [[ "$url" == https://* ]] || die "download URLs must be https:// (SEC-4A)" url="$shown"
+    log info "downloading" url="$shown" file="${dest#"$DATA"/}"
     rm -f "$dest.part"
     local rc=0
     # (`|| rc=$?` keeps the ERR trap quiet; the failure is reported below with URL + status)
-    code=$(curl -sS -L --fail --retry 3 --retry-delay 5 --connect-timeout 20 \
+    code=$(curl -sS -L --proto '=https' --proto-redir '=https' --fail --retry 3 --retry-delay 5 --connect-timeout 20 \
         -o "$dest.part" -w '%{http_code}' -D /tmp/curl.headers "$url" 2>/tmp/curl.err) || rc=$?
     if [[ $rc -ne 0 ]]; then
         rm -f "$dest.part"
-        die "download failed" url="$url" http_status="${code:-000}" curl_exit="$rc" error="$(tail -c 300 /tmp/curl.err)"
+        die "download failed" url="$shown" http_status="${code:-000}" curl_exit="$rc" \
+            error="$(tail -c 300 /tmp/curl.err | sed -E 's#(https?://)[^/@ ]*@#\1<credentials>@#g; s#\?[^ ]*#?<redacted>#g')"
     fi
     mv -f "$dest.part" "$dest"
     # Last-Modified of the final response: the source date when the file itself carries none.
     tr -d '\r' < /tmp/curl.headers | awk 'tolower($1)=="last-modified:"{sub(/^[^:]*: */,""); lm=$0} END{if (lm) print lm}' \
         > "$dest.last-modified" || true
     [[ -s "$dest.last-modified" ]] || rm -f "$dest.last-modified"
-    log info "downloaded" url="$url" file="${dest#"$DATA"/}" bytes="$(stat -c %s "$dest")" seconds="$(( $(now_s) - t0 ))"
+    log info "downloaded" url="$shown" file="${dest#"$DATA"/}" bytes="$(stat -c %s "$dest")" seconds="$(( $(now_s) - t0 ))"
 }
 
-# verify_sum <algo:256|512> <expected> <file>; deletes the file on mismatch. Empty expected = skip.
+# verify_sum <algo:256|512> <expected> <file>; deletes the file on mismatch.
+# SEC-4A BE-7 / WS-9: fails closed. An empty or malformed expected value stops the build (the file is deleted).
+# The only way past it is the literal value "skip" together with ALLOW_UNVERIFIED_TOOLS=1 (dev escape hatch, logged
+# as a warning; infra/staging refuses ALLOW_UNVERIFIED_TOOLS=1).
 verify_sum() {
-    local algo=$1 want=$2 file=$3 got
-    [[ -n "$want" ]] || { log warn "checksum not configured, skipped" file="${file#"$DATA"/}"; return 0; }
+    local algo=$1 want=$2 file=$3 got len
+    if [[ "$want" == skip && "${ALLOW_UNVERIFIED_TOOLS:-0}" == 1 ]]; then
+        log warn "checksum check SKIPPED (ALLOW_UNVERIFIED_TOOLS=1, dev only)" file="${file#"$DATA"/}"
+        return 0
+    fi
+    len=$(( algo == 512 ? 128 : 64 ))
+    if [[ ! "$want" =~ ^[0-9a-f]{$len}$ ]]; then
+        rm -f "$file"
+        die "checksum not configured or malformed; refusing an unverified download (set the *_SHA${algo} key; \"skip\" only with ALLOW_UNVERIFIED_TOOLS=1)" \
+            file="${file#"$DATA"/}" expected="${want:-<empty>}"
+    fi
     got=$("sha${algo}sum" "$file" | cut -d' ' -f1)
     if [[ "$got" != "$want" ]]; then
         rm -f "$file"
@@ -146,6 +172,83 @@ tiles_bounds() {
     else echo ""; fi
 }
 tiles_fingerprint()    { echo "osm=$(osm_sha) protomaps=${PROTOMAPS_COMMIT} maxzoom=${TILES_MAXZOOM:-14} bounds=$(tiles_bounds)"; }
+# The SEC-2 route limits below are deliberately NOT part of this fingerprint: a limit change never rebuilds the graph.
 valhalla_fingerprint() { echo "osm=$(osm_sha) valhalla=${VALHALLA_VERSION}"; }
 photon_fingerprint()   { echo "dump=$(cat "$DATA/sources/photon-dump.sha256") photon=${PHOTON_VERSION} languages=${PHOTON_LANGUAGES} countries=${PHOTON_COUNTRY_CODES:-all}"; }
 protomaps_jar()        { echo "$DATA/tools/protomaps-basemap-${PROTOMAPS_COMMIT}.jar"; }
+
+# SEC-4A BE-4: Photon serves as this uid:gid (the JDK image's "app" user; compose `user: "101:101"`, and
+# nav_pipeline.PHOTON_UID). Only the index directory belongs to it; everything else in data/ stays root's.
+# shellcheck disable=SC2034  # read by photon-import.sh, which sources this file
+PHOTON_RUN_UID=101
+
+# ---------------------------------------------------------------- SEC-2 route request limits (ADR-0019 §1, §2)
+# ONE source for the Valhalla service_limits and the processing timeout. Used by valhalla-build.sh (make_config
+# flags, so a fresh valhalla.json describes what is served) and by valhalla-serve.sh, which overlays the same
+# values onto the graph's valhalla.json at start. The serve-time overlay is authoritative, so data/ builds made
+# before SEC-2 and every NAV-006 slot serve these limits without a graph rebuild.
+# The values are the contract (openapi 0.7.0 "Request limits", D216/D217/D222), not .env keys.
+# Entry = <service_limits section>:<max_distance metres>:<max_locations, "-" = the section has none>.
+VALHALLA_LIMIT_MAX_LOCATIONS=10
+VALHALLA_LIMIT_MAX_DISTANCE=3000000
+VALHALLA_ROUTE_LIMITS="auto:3000000:10 bus:3000000:10 taxi:3000000:10 truck:3000000:10 auto_pedestrian:3000000:- \
+bicycle:500000:10 motorcycle:500000:10 motor_scooter:500000:10 bikeshare:500000:10 multimodal:500000:10 \
+transit:500000:10 pedestrian:250000:10"
+
+# VALHALLA_TIMEOUT_SECONDS: integer 1-9, default 8 (below the gateway's 10 s read timeout). Anything else stops
+# the caller with a log line (never a silent fallback). Prints the value.
+valhalla_timeout_seconds() {
+    local t=${VALHALLA_TIMEOUT_SECONDS:-8}
+    [[ "$t" =~ ^[1-9]$ ]] || die "invalid VALHALLA_TIMEOUT_SECONDS (expected an integer 1-9, below the 10 s gateway timeout)" value="$t"
+    printf '%s' "$t"
+}
+
+# valhalla_limit_args: valhalla_build_config flags for the table above plus the httpd timeout.
+valhalla_limit_args() {
+    local t e sec dist locs flag
+    t=$(valhalla_timeout_seconds) || exit 1
+    for e in $VALHALLA_ROUTE_LIMITS; do
+        IFS=: read -r sec dist locs <<< "$e"
+        flag=${sec//_/-}
+        printf -- '--service-limits-%s-max-distance\n%s\n' "$flag" "$dist"
+        [[ "$locs" == "-" ]] || printf -- '--service-limits-%s-max-locations\n%s\n' "$flag" "$locs"
+    done
+    printf -- '--httpd-service-timeout-seconds\n%s\n' "$t"
+}
+
+# valhalla_apply_limits <in.json> <out.json>: copy of <in> with the table, the backstop rule (every service_limits
+# section: max_locations > 10 -> 10, max_distance > 3,000 km -> 3,000 km; nothing is raised) and
+# httpd.service.timeout_seconds applied. Prints a one-line summary such as
+# "auto=3000km/10 ... pedestrian=250km/10 timeout=8s" (no request or user data).
+valhalla_apply_limits() {
+    local in=$1 out=$2 t
+    t=$(valhalla_timeout_seconds) || exit 1
+    python3 - "$in" "$out" "$t" "$VALHALLA_ROUTE_LIMITS" "$VALHALLA_LIMIT_MAX_LOCATIONS" "$VALHALLA_LIMIT_MAX_DISTANCE" <<'PY'
+import json, sys
+src, dst, timeout, table, cap_locs, cap_dist = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], int(sys.argv[5]), float(sys.argv[6])
+with open(src, encoding="utf-8") as f:
+    cfg = json.load(f)
+sl = cfg.setdefault("service_limits", {})
+for entry in table.split():
+    sec, dist, locs = entry.split(":")
+    s = sl.setdefault(sec, {})
+    s["max_distance"] = float(dist)
+    if locs != "-":
+        s["max_locations"] = int(locs)
+for sec, s in sl.items():  # backstop: a section the table does not name can never be more permissive
+    if not isinstance(s, dict):
+        continue
+    if isinstance(s.get("max_locations"), (int, float)) and s["max_locations"] > cap_locs:
+        s["max_locations"] = cap_locs
+    if isinstance(s.get("max_distance"), (int, float)) and s["max_distance"] > cap_dist:
+        s["max_distance"] = cap_dist
+cfg.setdefault("httpd", {}).setdefault("service", {})["timeout_seconds"] = timeout
+with open(dst, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, indent=2)
+def fmt(sec):
+    s = sl[sec]
+    return f"{sec}={int(s['max_distance']) // 1000}km/{s.get('max_locations', '-')}"
+print(" ".join(fmt(x) for x in ("auto", "bus", "taxi", "truck", "motorcycle", "motor_scooter", "bicycle", "pedestrian"))
+      + f" timeout={timeout}s")
+PY
+}

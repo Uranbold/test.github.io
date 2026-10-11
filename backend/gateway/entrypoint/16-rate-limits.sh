@@ -18,8 +18,10 @@
 # preflights are never limited. A rejected request gets 429, which the ROUTE/SEARCH/REVERSE/PACKS locations
 # send to @rate_limited (GatewayError RateLimited + Retry-After + Cache-Control: no-store). A resumable pack
 # download is one request per file, so the packs rate counts requests, not bytes.
-# Privacy: the key ($binary_remote_addr) lives only in shared memory. "limiting requests" lines are
-# logged at info, below the gateway's error_log level (crit), so client IPs never reach the logs.
+# Client key (SEC-4A BE-2): $nav_client_key from gateway/njs/client.js (nginx.conf js_set) = the full address for
+# IPv4 and the /64 prefix for IPv6, so rotating addresses inside one /64 does not escape the limit.
+# Privacy: the key lives only in shared memory. "limiting requests" lines are logged at info, below the gateway's
+# error_log level (crit), so client IPs never reach the logs.
 set -eu
 
 out="${NGINX_ENVSUBST_OUTPUT_DIR:-/etc/nginx/conf.d}/01-rate-limits.conf"
@@ -60,7 +62,7 @@ done
         cat <<EOF
 map \$request_method \$nav_rl_client {
     OPTIONS "";
-    default \$binary_remote_addr;
+    default \$nav_client_key;
 }
 map \$uri \$nav_rl_route_key {
     /v1/route \$nav_rl_client;

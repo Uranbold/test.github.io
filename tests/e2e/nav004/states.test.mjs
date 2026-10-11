@@ -98,19 +98,44 @@ for (const [name, body] of [
   });
 }
 
-test('AC35: 400 DistanceExceeded on «Явган»/«Дугуй» → «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна»; on «Машин» → «Маршрут олдсонгүй»', async ({ page }) => {
-  const body = { code: 'DistanceExceeded', message: 'Path distance exceeds the max distance limit' };
-  await setup(page, () => err400(body));
-  let p = await panel(page);
-  expect(p.state).toBe('no-route');
-  expect(p.mainText ?? p.rowText).toBe(T.mn.noRoute);
+// AC 35 changed by SEC-2 (2026-10-11, D223): on «Машин» DistanceExceeded shows N24 «Энэ зай машинаар хэт хол байна»
+// (it was «Маршрут олдсонгүй»). Walk/bike keep N11. The old car expectation is replaced here, not deleted.
+test('AC35 (SEC-2): 400 DistanceExceeded on «Машин» → N24 «Энэ зай машинаар хэт хол байна», never «Маршрут олдсонгүй»; no line, markers stay, no retry, no avoid hint (also with avoid on), not retried; on «Явган»/«Дугуй» → «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна»', async ({ page }) => {
+  const body = { code: 'DistanceExceeded', message: 'Path distance exceeds the max distance limit.' };
+  const rr = await setup(page, () => err400(body));
+  const carChecks = async (label) => {
+    const p = await panel(page);
+    expect(p.state, label).toBe('too-far-car');
+    expect(p.rowText, label).toBe(T.mn.tooFarCar);
+    expect(p.rowText, label).not.toBe(T.mn.noRoute);
+    expect(p.retry, `${label}: no «Дахин оролдох»`).toBeNull();
+    expect(p.hint, `${label}: no avoid hint`).toBeNull();
+    expect((await lines(page)).length, `${label}: no route line`).toBe(0);
+    const m = await page.evaluate(() => ({ o: document.querySelectorAll('[data-testid=route-origin-marker]').length, d: [...document.querySelectorAll('[data-testid=place-pin]')].filter((e) => !e.closest('[hidden]')).length }));
+    expect(m, `${label}: markers stay`).toEqual({ o: 1, d: 1 });
+  };
+  await carChecks('car');
+  await page.waitForTimeout(1500);
+  expect(rr.length, 'car: the same request is not retried').toBe(1);
+  // avoid switch on: still N24, still no avoid hint (the hint belongs to NoRoute only, screen spec «Too far by car» row)
+  await tid(page, 'route-avoid').click();
+  await waitFinal(page);
+  await carChecks('car + avoid');
+  expect(rr.length).toBe(2);
+  await tid(page, 'route-avoid').click();
+  await waitFinal(page);
   for (const m of ['walk', 'bike']) {
     await tid(page, `route-tab-${m}`).click();
     await expect.poll(async () => (await panel(page)).state, { timeout: 5000 }).toBe('too-far');
-    p = await panel(page);
+    const p = await panel(page);
     expect(p.rowText).toBe(T.mn.tooFar);
     expect(p.retry).toBeNull();
   }
+  // back on «Машин» in English: en N24
+  await tid(page, 'route-tab-car').click();
+  await expect.poll(async () => (await panel(page)).state, { timeout: 5000 }).toBe('too-far-car');
+  await tid(page, 'language-toggle').click();
+  await expect.poll(async () => (await panel(page)).rowText, { timeout: 3000 }).toBe(T.en.tooFarCar);
 });
 
 const UNAVAILABLE = [
@@ -119,6 +144,8 @@ const UNAVAILABLE = [
   ['CORS failure', (b) => ({ ...ok(b), headers: { ...CORS, 'Access-Control-Allow-Origin': 'http://other-origin.test' } })],
   ['502', () => ({ status: 502, body: { code: 'UpstreamUnavailable', message: 'routing service unavailable' } })],
   ['503', () => ({ status: 503, body: { code: 'UpstreamUnavailable', message: 'routing service unavailable' } })],
+  // SEC-2 (AC 36, D219): the gateway's route concurrency cap, openapi 0.7.0 components/responses/RoutingBusy
+  ['503 RoutingBusy', () => ({ status: 503, body: { code: 'RoutingBusy', message: 'routing service busy' }, headers: { 'Retry-After': '1', 'Cache-Control': 'no-store' } })],
   ['504', () => ({ status: 504, body: { code: 'UpstreamTimeout', message: 'routing timed out' } })],
 ];
 for (const [name, fail] of UNAVAILABLE) {

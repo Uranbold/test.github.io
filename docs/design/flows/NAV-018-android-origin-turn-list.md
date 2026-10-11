@@ -105,7 +105,7 @@ flowchart TD
     NET -- yes --> REQ["Cancel/ignore the in-flight request (≤ 1 in flight)<br/>1 POST /v1/route: locations [start, destination] unrounded,<br/>alternates 2, costing per tab, costing_options per NAV-011 AC 23 — AC 12, 13<br/>old lines, summary, options and turn list removed at request start;<br/>markers stay at the new points"]
     REQ --> RES{"Response"}
     RES -- "200" --> ROUTE["Route state: k lines, route 1 selected, camera fit (NAV-011 AC 16)<br/>snap notice for the larger of waypoints[0/1].distance > 500 m — AC 14"]
-    RES -- "errors" --> ST["NAV-005 / NAV-011 states, same precedence:<br/>N9 outside area (either point), N11 too far (Явган/Дугуй), «Маршрут олдсонгүй» (+ N12 hint),<br/>429, unavailable + «Дахин оролдох», «Алдаа гарлаа» — AC 17"]
+    RES -- "errors" --> ST["NAV-005 / NAV-011 states, same precedence:<br/>N9 outside area (either point), N11 too far (Явган/Дугуй), N24 too far (Машин, SEC-2),<br/>«Маршрут олдсонгүй» (+ N12 hint), 429, unavailable + «Дахин оролдох» (incl. 503 RoutingBusy), «Алдаа гарлаа» — AC 17"]
     ROUTE --> F5(["F5 «Эхлэх» gating"])
 ```
 
@@ -178,3 +178,8 @@ flowchart LR
 | 32, 33 | F1 note, F7 |
 | 34 | F2 (locked branch) |
 | 35–38 | No UI (regression, coordination, verification) |
+
+## Change log
+| Date | Change | Why |
+|---|---|---|
+| 2026-10-11 | SEC-2 route request limits ([D223](../../requirements/decisions.md)): the F4 error node lists N24 «Энэ зай машинаар хэт хол байна» on «Машин» and 503 `RoutingBusy` under unavailable. No step changed | NAV-018 AC 17 pointer to the NAV-011 AC 24 change |

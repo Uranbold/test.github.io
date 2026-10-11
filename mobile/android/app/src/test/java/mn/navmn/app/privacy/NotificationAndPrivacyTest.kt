@@ -64,6 +64,8 @@ class NotificationAndPrivacyTest {
             "index.crates.io", "static.crates.io", "rustup.rs", "www.apache.org", "opensource.org", "github.com",
             "developer.android.com", "docs.gradle.org", "www.openstreetmap.org", "openstreetmap.org", "maplibre.org",
             "stadiamaps.com", "services.gradle.org", "dl.google.com", "fonts.google.com", "scripts.sil.org", "openfontlicense.org", "www.gnu.org",
+            // SEC-4B: the XML namespaces Gradle writes into gradle/verification-metadata.xml (never contacted).
+            "schema.gradle.org", "www.w3.org",
         )
         val bad = ArrayList<String>()
         for (f in tracked.filter { it.extension in setOf("kt", "kts", "xml", "properties", "toml", "md", "sh", "mjs", "json") }) {

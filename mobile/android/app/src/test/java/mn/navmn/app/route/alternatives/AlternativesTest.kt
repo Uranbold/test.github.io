@@ -161,12 +161,12 @@ class AlternativesTest {
         c.close()
         c.open(Destination(p1, null))
         assertEquals(TravelMode.BICYCLE, c.state.value!!.mode)
-        // AC 24: on «Машин» the same code is «Маршрут олдсонгүй».
+        // AC 24 (SEC-2, D223): on «Машин» the same code is N24 «Энэ зай машинаар хэт хол байна».
         val (car, _) = ctl { RouteOutcome.TooFar }
         car.open(Destination(p3, null))
         car.setOrigin(fix)
         runCurrent()
-        assertEquals(PreviewResult.NoRoute(false), car.state.value!!.result)
+        assertEquals(PreviewResult.TooFarCar, car.state.value!!.result)
     }
 
     @Test

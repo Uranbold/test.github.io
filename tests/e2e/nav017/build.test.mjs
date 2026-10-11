@@ -136,6 +136,7 @@ test.describe('A. Build, hosting and protection', () => {
       ['172.30.81.0', 'NAV-008 staging Docker network (private)'], ['172.30.81.2', 'NAV-008 staging Docker network (private)'], ['172.30.81.8', 'NAV-008 staging Docker network (private)'],
       ['172.18.0.4', 'NAV-003/NAV-008 log-scan fixture (Docker private address)'],
       ['9.4.51.1', 'version string (Jetty) in a log fixture'], ['21.0.12.1', 'version string (JDK) in a log fixture'],
+      ['4.1.1.4', 'version string (Maven com.google.android:annotations) in the SEC-4B Gradle verification metadata and the QA notes about it'],
       ['27.123.215.206', 'NAV-008 hosting spike: public traceroute hop (MobiCom), not ours'], ['180.149.98.146', 'NAV-008 hosting spike: RIPE Atlas anchor (Gemnet), not ours'],
       ['104.238.161.230', 'NAV-008 hosting spike: RIPE Atlas anchor (Vultr Tokyo), not ours'], ['103.50.204.94', 'NAV-008 hosting spike: cloud.mn reference, not ours'],
     ]);

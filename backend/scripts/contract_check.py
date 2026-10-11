@@ -14,6 +14,11 @@ carry all tokens of the spec's AccessControlExposeHeaders (Retry-After since 0.4
 components/responses/RateLimited (Retry-After integer >= 1 once, Cache-Control: no-store once). Use it only
 against a gateway started with GATEWAY_RATE_LIMIT=on (staging or an isolated test gateway). With a published pack
 it also floods /packs/ (NAV-020 AC 21).
+SEC-2 (openapi 0.7.0, ADR-0019): the request example carTooFar must give 400 DistanceExceeded, and an explicit
+11-location request must give a documented 400 (its code is printed next to the spec's tooManyLocations example).
+--route-cap (NAV-001 AC 49): floods /v1/route with concurrent requests from this client until the concurrency cap
+answers, then validates one 503 against components/responses/RoutingBusy (Retry-After integer >= 1 once,
+Cache-Control: no-store once, code RoutingBusy). Opt-in: it briefly fills the cap for every client of that gateway.
 NAV-020 (openapi 0.6.0 packs): getOfflinePackManifest 200/304/404 and getOfflinePackFile 200/206/304/404/416 with the
 AC 20 header rules (body SHA-256 = download_sha256 on the smallest file, half-range resume, If-Range mismatch -> 200,
 no Content-Encoding, exactly one Cache-Control). Without a published pack (dev stack) only the 404 cases run.
@@ -120,15 +125,22 @@ class Checker:
             missing = sorted(self.expose_tokens() - have)
             if missing:
                 errors.append(f"Access-Control-Expose-Headers lacks {missing} (spec AccessControlExposeHeaders)")
-        if status == 429:
+        # 429 RateLimited (0.4.0) and, on /v1/route, 503 RoutingBusy (0.7.0) share the header rules.
+        if status == 429 or (status == 503 and spec_path == "/v1/route"):
             for single in ("retry-after", "cache-control"):
                 if names.count(single) != 1:
-                    errors.append(f"429: {single} must appear exactly once (got {names.count(single)})")
+                    errors.append(f"{status}: {single} must appear exactly once (got {names.count(single)})")
             ra = hdrs.get("retry-after", "")
             if not (ra.isdigit() and int(ra) >= 1):
-                errors.append(f"429: Retry-After must be an integer >= 1, got {ra!r}")
+                errors.append(f"{status}: Retry-After must be an integer >= 1, got {ra!r}")
             if hdrs.get("cache-control") != "no-store":
-                errors.append(f"429: Cache-Control must be no-store, got {hdrs.get('cache-control')!r}")
+                errors.append(f"{status}: Cache-Control must be no-store, got {hdrs.get('cache-control')!r}")
+        if status == 503 and spec_path == "/v1/route":
+            try:
+                if json.loads(raw).get("code") != "RoutingBusy":
+                    errors.append(f"503 on /v1/route must be RoutingBusy (never an upstream 503), got {raw[:80]!r}")
+            except (ValueError, AttributeError):
+                pass  # reported by the schema validation below
         if response_ref:
             resp = self.deref({"$ref": response_ref})
         else:
@@ -272,6 +284,8 @@ def main():
     ap.add_argument("--rate-limit", action="store_true",
                     help="NAV-008: also provoke and validate 429 RateLimited (gateway with GATEWAY_RATE_LIMIT=on only)")
     ap.add_argument("--rate-limit-flood", type=int, default=150, help="requests per flood (default 150)")
+    ap.add_argument("--route-cap", action="store_true",
+                    help="SEC-2: also fill the /v1/route concurrency cap and validate one 503 RoutingBusy")
     args = ap.parse_args()
     with open(args.spec, encoding="utf-8") as f:
         spec = yaml.safe_load(f)
@@ -298,6 +312,23 @@ def main():
         body = ex["value"]
         c.case(f"route example {ex_name}", "POST", "/v1/route", "/v1/route", body=body, headers=cors)
     carmn = route_op["requestBody"]["content"]["application/json"]["examples"]["carMn"]["value"]
+    # SEC-2 (0.7.0): the over-limit car example must be rejected by the limit, not by snapping (NAV-001 AC 44)
+    too_far = route_op["requestBody"]["content"]["application/json"]["examples"].get("carTooFar")
+    if too_far:
+        status, _, raw, _ = http(c.base, "POST", "/v1/route", too_far["value"], cors)
+        code = (json.loads(raw) if raw[:1] == b"{" else {}).get("code")
+        c.result("route example carTooFar -> 400 DistanceExceeded [POST /v1/route]",
+                 [] if (status, code) == (400, "DistanceExceeded") else [f"got {status} {code!r}"])
+    # SEC-2 (0.7.0): 11 locations (over the 10-location limit of every costing) -> documented 400
+    eleven = {**carmn, "locations": [carmn["locations"][i % 2] for i in range(11)]}
+    eleven.pop("alternates", None)
+    status, hdrs, raw, names = http(c.base, "POST", "/v1/route", eleven, cors)
+    c.evaluate("route 11 locations", "POST", "/v1/route", status, hdrs, raw, names, cors)
+    c.result("route 11 locations -> 400 [POST /v1/route]", [] if status == 400 else [f"got {status}"])
+    want = (spec["components"]["responses"]["RouteBadRequest"]["content"]["application/json"].get("examples", {})
+            .get("tooManyLocations", {}).get("value", {}).get("code"))
+    got = (json.loads(raw) if raw[:1] == b"{" else {}).get("code")
+    print(f"INFO  route 11 locations: code {got!r} (spec example tooManyLocations: {want!r})")
     c.case("route GET ?json= carMn", "GET", "/v1/route?json=" + urllib.parse.quote(json.dumps(carmn)), "/v1/route")
     # X2 Beijing: outside the default (full Mongolia) dev extract. X1 Erdenet is routable on it.
     c.case("route out of coverage (X2)", "POST", "/v1/route", "/v1/route",
@@ -349,6 +380,29 @@ def main():
             else:
                 c.evaluate(name, method, spec_path, status, hdrs, raw, names, cors)
             time.sleep(3)  # let the bucket drain before the next group (burst 60 at 30 r/s)
+
+    if args.route_cap:
+        # NAV-001 AC 49 (openapi 0.7.0 RoutingBusy): many concurrent route requests from this client exceed the per-IP
+        # in-flight cap (default 4) whatever Valhalla's speed, because they overlap at the gateway.
+        from concurrent.futures import ThreadPoolExecutor
+        body = json.dumps({**carmn, "alternates": 2}).encode()
+        busy = None
+        for _ in range(5):
+            with ThreadPoolExecutor(max_workers=32) as ex:
+                got = list(ex.map(lambda _i: http(c.base, "POST", "/v1/route", body, cors), range(96)))
+            busy = next((g for g in got if g[0] == 503), None)
+            if busy:
+                break
+            time.sleep(1)
+        if busy is None:
+            c.result("route cap 503 [POST /v1/route]", ["no 503 after flooding: is the SEC-2 cap (17-route-limits.sh) active?"])
+        else:
+            status, hdrs, raw, names = busy
+            c.evaluate("route cap 503 RoutingBusy", "POST", "/v1/route", status, hdrs, raw, names, cors)
+            others = sorted({g[0] for g in got} - {200, 503})
+            c.result("route cap: other statuses during the flood are only 200/503 (or 429) [POST /v1/route]",
+                     [f"unexpected statuses {others}"] if [x for x in others if x != 429] else [])
+        time.sleep(2)
 
     print(f"\n{c.passes} conform, {len(c.failures)} do not")
     sys.exit(1 if c.failures else 0)

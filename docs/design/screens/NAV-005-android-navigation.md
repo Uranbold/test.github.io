@@ -3,6 +3,7 @@
 - **Stories:** NAV-005 (AC 1–79; UI-relevant AC 1–39, 41–64, 74–77). Traceability per AC at the end. **Section N (2026-10-04, [D171–D178](../../requirements/decisions.md)):** the browse-map location dot (accuracy circle, hold while standing, poor fixes hidden, stale state, jump rejection): S1 › Location dot on the browse map, Interactions, Accessibility, Design rationale (section N), Known limitations 9–11.
 - **Platforms:** **Android only** (Kotlin, Jetpack Compose, Material 3, MapLibre Native, Ferrostar Android). iOS is NAV-015 (D24); it reuses this spec with HIG controls.
 - **Change 7a (2026-10-05, [D194](../../requirements/decisions.md)):** offline with an installed pack: section "Offline with an installed pack" (rule X1, S3 and S5 tables, AC 54 and AC 65 wording), cross-referenced from the S1, S3 and S5 rows below. Flow additions: F13 in the flow file.
+- **Change SEC-2 (2026-10-11, [D216–D225](../../requirements/decisions.md), NAV-005 AC 7 and AC 49, NAV-021 AC 6):** route request limits. S3 gains a "Too far by car" row (N24 «Энэ зай машинаар хэт хол байна»), built exactly like the "too far" row for «Явган» / «Дугуй»; 503 `RoutingBusy` reuses "Routing unavailable" (N8) online and the device fallback with a routing file; the reroute secondary line for `DistanceExceeded` stays «Маршрут олдсонгүй» (AC 49). No new layout, component or token. Rationale: [`NAV-004-route-preview.md` › Change SEC-2](NAV-004-route-preview.md#change-sec-2-route-request-limits-2026-10-11) (same decision, same alternatives); the driver angle is under Design rationale (SEC-2) below.
 - **Flow:** [`flows/NAV-005-android-navigation.md`](../flows/NAV-005-android-navigation.md) (F1–F11).
 - **Rules:** [`navigation-ux.md`](../navigation-ux.md) (banner, voice text and schedule, off-route, GPS loss, camera, arrival). This spec owns the layout, components, states, interactions and copy; navigation-ux owns the timing and the voice.
 - **Prototype:** [`prototypes/NAV-005-guidance.html`](../prototypes/NAV-005-guidance.html), a static wireframe in dp (1 CSS px = 1 dp) of S3, S4, S5 and S6 states, day/night, mn/en, font scale 100/130/200 %, portrait and landscape. Hash example: `#state=reroute-failed&theme=night&lang=mn&scale=2` (the viewport is the browser window size). Checked by `prototypes/check-layout-nav005.mjs` (Verification). Section N: [`prototypes/NAV-005-location-dot.html`](../prototypes/NAV-005-location-dot.html) (12 dot states as 200 dp map tiles, day/night, mn/en; `#theme=night&lang=mn&raw=1` also draws the raw fixes the filter does not show) and `prototypes/check-location-dot.mjs`. No Figma file.
@@ -247,8 +248,9 @@ As NAV-003 for every list state (Components › Search results); coordinate card
 | Same point | «Эхлэх цэг, очих газар ижил байна» | disabled | 7 |
 | No route | «Маршрут олдсонгүй» (+ «Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу» when the switch is on) | disabled | 7 |
 | Outside the area | «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна» | disabled | 7 |
-| Too far on foot | «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» | disabled | 7 |
-| Routing unavailable | «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох» | disabled | 7 |
+| Too far on foot or by bike (`DistanceExceeded` on «Явган» / «Дугуй») | «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» | disabled | 7 |
+| Too far by car (`DistanceExceeded` on «Машин», straight-line sum over 3,000 km; SEC-2) | «Энэ зай машинаар хэт хол байна» (N24); same row layout as the line above (info icon, not an error colour, no retry, no avoid hint); no line, markers stay | disabled | 7 |
+| Routing unavailable (network, 502, 503 including `RoutingBusy`, 504, 12 s timeout) | «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох» | disabled | 7 |
 | Offline (**no usable routing file**; with one, a route from the device replaces this row, see Offline with an installed pack) | «Интернэт холболт алга»; 1 request by itself within 2 s after the network returns | disabled | 7 |
 | Rate-limited | «Түр хүлээгээд дахин оролдоно уу» + «Дахин оролдох» disabled for `Retry-After` (5 s default) | disabled | 7 |
 | Error | «Алдаа гарлаа» | disabled | 7 |
@@ -310,9 +312,9 @@ Result-region rows. The precedence stays as in the S3 table above; only its **of
 |---|---|---|---|---|
 | No validated network | Loading row «Ачаалж байна…» after 300 ms, then the route from the device; **not** «Интернэт холболт алга» | yes | enabled | NAV-021 8, 27 |
 | Network, gateway answers headers within 3.0 s | Route from the gateway (today's flow) | **no** | enabled | NAV-021 9, 10 |
-| Network, no headers within 3.0 s, or connection failure, 502/503/504 or 429 | The loading row stays up to 3.0 s, then the device answers in the same attempt; **not** «Маршрутын үйлчилгээ түр ажиллахгүй байна» and **not** «Түр хүлээгээд дахин оролдоно уу» | yes | enabled | NAV-021 9, 12 |
+| Network, no headers within 3.0 s, or connection failure, 502/503/504 (503 includes `RoutingBusy`, SEC-2) or 429 | The loading row stays up to 3.0 s, then the device answers in the same attempt; **not** «Маршрутын үйлчилгээ түр ажиллахгүй байна» and **not** «Түр хүлээгээд дахин оролдоно уу» | yes | enabled | NAV-021 9, 12 |
 | Gateway authoritative answer (NoRoute, outside area, too far, other 400) | The existing text; never retried on the device | no | disabled | NAV-021 10 |
-| Device answers NoRoute / outside area / too far | The existing texts («Маршрут олдсонгүй», N9, N11) | no (no route to mark) | disabled | NAV-021 6 |
+| Device answers NoRoute / outside area / too far | The existing texts («Маршрут олдсонгүй», N9, N11 on «Явган» / «Дугуй», N24 on «Машин» since SEC-2). A car point 3,000–5,000 km away gets N24 from the gateway but N9 from the device, whose limits are unchanged (D221, accepted) | no (no route to mark) | disabled | NAV-021 6 |
 | Both sources failed (engine error, 10 s timeout, process death) | «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох», or «Түр хүлээгээд дахин оролдоно уу» if the gateway said 429, **also when the phone has no network** (the engine, not the network, is the thing that failed) | no | disabled | NAV-021 6, 22–24 |
 | Mode tab or avoid switch changed | A new request, same rules; the chip leaves with the old route and returns with a new device route | per answer | disabled while loading | NAV-005 AC 7 |
 
@@ -331,7 +333,7 @@ Camera, snap notice, alternatives (NAV-011) and the points block behave as today
 | usable | none | Device, new route ≤ 2.0 s mid-range, ≤ 4.0 s low-end (BA proposal) | **none** | «Интернэт холболт алга» (X1) | **yes** | NAV-021 8, 15 |
 | usable | ok, gateway answers in time | Gateway | none | — | **no** (an earlier icon goes away) | NAV-021 9, 10 |
 | usable | ok but slow (> 3.0 s), connection failure, 5xx, 429 | Device after ≤ 3.0 s, new route ≤ 5.0 s after detection | none (no 429 or «Маршрутын үйлчилгээ…» line while the device is working) | — | **yes** | NAV-021 9, 12, 16 |
-| usable | any | Gateway or device says NoRoute / outside / too far | «Маршрут олдсонгүй» (or «Алдаа гарлаа» for other 400 / 413 / bad body) as AC 49 | as before | unchanged | NAV-021 6, 10 |
+| usable | any | Gateway or device says NoRoute / outside / too far | «Маршрут олдсонгүй» (or «Алдаа гарлаа» for other 400 / 413 / bad body) as AC 49; `DistanceExceeded` on any costing included (SEC-2), **not** N24: the banner keeps one short line while driving | as before | unchanged | NAV-021 6, 10 |
 | usable | any | **Both** failed | «Маршрутын үйлчилгээ түр ажиллахгүй байна»; NAV-005 AC 48 back-off (5, 10, 20, 30 … s) | as before | unchanged (old route still followed) | NAV-021 14, 22–24 |
 | usable, then disabled after 3 deaths in 10 min | none | As the first row from then on | «Интернэт холболт алга» | hidden | — | NAV-021 24 |
 
@@ -399,6 +401,7 @@ Every `mn` value is a glossary term (existing rows, NAV-002 G-rows, NAV-003 T-ro
 | `route_out_of_area` | Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна | The start or destination is outside the service area | N9 |
 | `route_same_point` | Эхлэх цэг, очих газар ижил байна | The start and destination are the same | N10 |
 | `route_too_far` | Энэ зай явганаар эсвэл дугуйгаар хэт хол байна | This distance is too far on foot or by bike | N11 |
+| `route_too_far_car` (proposed name; SEC-2) | Энэ зай машинаар хэт хол байна | This distance is too far by car | N24 (`needs native review`) |
 | `route_unavailable` | Маршрутын үйлчилгээ түр ажиллахгүй байна | Routing is temporarily unavailable | N8 |
 | `route_rate_limited` | Түр хүлээгээд дахин оролдоно уу | Too many route requests. Wait a moment and try again | T5 |
 | `route_snap_notice` | Хамгийн ойрын зам сонгосон цэгээс {distance} зайтай | The nearest road is {distance} from the chosen point | N13 |
@@ -520,18 +523,24 @@ Change on NAV-005 from the triage row 2026-10-04 "Location position jumps or dri
 10. **Route line and held dot may not meet** on S3 with a device start (D177): the route starts at the raw good fix (≤ 25 m), the dot shows the held position.
 11. **Android and web dots differ** (D175): the web shows every fix with its true circle and greys the dot only on a browser error; Android hides fixes worse than 100 m, holds while standing and greys after 10 s with the hollow ring.
 
+## Design rationale: route request limits (SEC-2, 2026-10-11)
+- **Moment of use.** The S3 preview is used parked or as a passenger (typing is locked while moving, NAV-011); a car `DistanceExceeded` needs a point more than 3,000 km away in a straight line, so it only follows a typed far-away coordinate. One glance must tell the user that the destination, not the network, is the problem: N24 says so; «Маршрут олдсонгүй» did not.
+- **Reroute keeps «Маршрут олдсонгүй» (AC 49), on purpose.** While driving, the banner's secondary line must stay one short, familiar phrase (driver safety, Miller's law). A reroute starts on or near a route the server or the device already accepted, so a car reroute over 3,000 km in a straight line is practically unreachable; a second wording for the same outcome would only add reading load. *Alternative rejected:* N24 in the banner too (longer, and not true for most off-route failures).
+- **503 `RoutingBusy` = N8.** Online without a routing file it shows N8 with «Дахин оролдох» in S3 and the AC 48 back-off on reroute; with a usable routing file it is not authoritative and the device answers (NAV-021 Terms). No "server busy" text: it would need a new term, and the user's action is the same (Hick's law, Tesler's law).
+- **Laws:** Nielsen 2 and 9 (true cause, next step: change the far point); Gestalt similarity (same row as N11); Von Restorff (no error colour: nothing is broken); Peak–end (no dead end, «Эхлэх» stays disabled with a clear reason).
+
 ## AC traceability
 | AC | Where |
 |---|---|
 | 1, 2 | S1, Layout rule 1, R5 attribution strip; flow F1 |
 | 3, 4 | S2 components and states; S1/S2 browse overlay on short and wide windows (D5); flow F2a, F2b |
-| 5–7 | S3 components and states; flow F4 |
+| 5–7 | S3 components and states; flow F4. SEC-2: AC 7 "Too far by car" (N24) row, 503 `RoutingBusy` in "Routing unavailable"; Design rationale (SEC-2) |
 | 8–14 | S4 rationale and message; S3/S1 placement (Layout rule 7); flow F3 |
 | 13, 15–20 | S5 states (notification dialog), S8 notification, Interactions (end, Back, swipe-away); flow F4, F5 |
 | 21–25 | NavBanner, TripProgressPanel, control pair (RC), recenter; navigation-ux §2, §8; Layout rule 2 |
 | 26–31 | Copy › Manoeuvre texts; navigation-ux §2–3; NavBanner variants |
 | 32–40 | Copy › Voice texts (incl. English plural forms, D4; rounded 1000 m → «1 километрт», D67); navigation-ux §4 (AC 34 `arrive` exemption, D68: §4.2 rule 6, §4.4); flow F9 |
-| 41–50 | S5 states (off-route rows); navigation-ux §5; flow F6 |
+| 41–50 | S5 states (off-route rows); navigation-ux §5; flow F6. SEC-2: AC 49 `DistanceExceeded` keeps «Маршрут олдсонгүй» (S5 reroute table, Design rationale SEC-2) |
 | 51–53 | S5 states (GPS rows); navigation-ux §6; flow F7 |
 | 54 | S5 states (offline on route); flow F8; **7a:** Offline with an installed pack (rule X1, S5 table: network loss with a routing file, 0 requests while on the route) |
 | 55–57 | S6; navigation-ux §7; flow F10 |
@@ -547,6 +556,7 @@ Change on NAV-005 from the triage row 2026-10-04 "Location position jumps or dri
 | 79 | No UI (the filter state is never shown, stored or sent) |
 
 ## Verification
+- **SEC-2 (2026-10-11):** no NAV-005 layout changed: the new S3 row "Too far by car" is the existing too-far row with a shorter text (N24, 30 characters, vs N11, 46), so the NAV-005 checker was not re-run; the row was measured in the NAV-011 prototype (`preview-toofar-car`, 1,344 combinations, 0 problems; [NAV-011 › Evidence › SEC-2](NAV-011-android-route-preview-search-parity.md#evidence)). `check-contrast.mjs` → all checks passed. Mermaid 10.9.1 `mermaid.parse` (Playwright Chromium, pinned build in the scratchpad) parses all 37 diagrams in the four changed flows (NAV-004 7, NAV-005 16, NAV-011 7, NAV-018 7) without errors.
 - `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node docs/design/prototypes/check-layout-nav005.mjs`: opens the wireframe at 360×640, 412×915, 320×568 (smallest Android) and 640×360 (landscape) dp, all with a 24 dp status bar and a 48 dp 3-button navigation bar (worst case), in 13 states (guidance; Then strip with a long street; worst case Then + GPS lost + recenter; recalculating; reroute failed; GPS lost; offline; voice notice; arrival; preview with route; preview with the denied-location message; preview out-of-area; rationale dialog) × day/night × mn/en × font scale 1.0/1.3/2.0 = 624 combinations, with Liberation Sans (Arial metrics, slightly wider than Roboto). Checks: attribution fully visible and intersecting no other element; no two boxes or controls overlap; every control ≥ 48 × 48; banner instruction ≤ 3 lines and not clipped; control labels not clipped; map band (Layout rule 4); puck centre inside the uncovered map; preview sheet without scrolling at 100 % on ≥ 360×640; no horizontal overflow. `--wide` runs the same with DejaVu Sans as a stress test.
   - **Result 2026-10-01: 0 problems** in the design target (232 INFO lines for 320×568 above 100 %, Known limitations 7). Longest Mongolian instruction «Баруун талын гарах зам руу эргэнэ үү» (36 characters; D69/D70 wording, re-run 2026-10-01): **2 lines** at 360 and 412 dp at every font scale, 3 lines at 320 dp and in the landscape column, the same as the previous 34-character wording, so no layout change. Minimum portrait map band at 360×640: **204 dp** at 100 %, **86 dp** at 130 %, **75 dp** at 200 % (worst-case state with the voice notice: rule 64 dp); at 412×915: 479 / 397 / 386 dp.
   - **Stress run (`--wide`, DejaVu Sans, much wider than Roboto): 104 problems**, all at 360×640 with font scale 130–200 % (worst case, voice notice, offline and the preview sheet at 200 %) and in the recalculating banner at 320 dp and in the landscape column (4 lines), Known limitations 8. Not a design target; recorded so QA knows where the margins are thin on phones with wide OEM fonts.

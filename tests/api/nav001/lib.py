@@ -27,7 +27,19 @@ P = {
     "P6": (47.9600, 106.9000),  # Chingeltei ger district
     "X1": (49.0270, 104.0440),  # Erdenet: inside the default Mongolia dev extract, outside the optional BBBike UB box
     "X2": (39.9042, 116.4074),  # Beijing (outside any Mongolia coverage; AC 32 point on the default build)
+    # SEC-2 (story section H, added 2026-10-11). X3-X5 are never snapped (Valhalla checks the distance before any road
+    # search), so the 50 m move allowance does not apply to them; L1/L2 follow the 50 m allowance.
+    "X3": (55.7558, 37.6173),   # Moscow, ~4,635 km straight line from P1 (AC 44)
+    "X4": (21.8400, 106.9176),  # due south of P1, ~2,900 km (below the 3,000 km car limit, AC 44)
+    "X5": (20.0400, 106.9176),  # due south of P1, ~3,100 km (above the 3,000 km car limit, AC 44)
+    "L1": (48.9680, 89.9620),   # Ölgii, far west (AC 45)
+    "L2": (48.0700, 114.5300),  # Choibalsan, far east, L1->L2 ~1,815 km straight line (AC 45)
 }
+# SEC-2 AC 46: 10 locations inside UB in the story's order; 11 = the same plus P5.
+UB10 = ["P1", "P2", "P3", "P4", "P5", "P6", "P1", "P2", "P3", "P4"]
+UB11 = UB10 + ["P5"]
+# Costings the clients never send; AC 44/46 (D216, D222): none may be more permissive than auto.
+OTHER_COSTINGS = ["bus", "taxi", "truck", "motorcycle", "motor_scooter"]
 ORIGIN = "http://localhost:5173"
 EVIL_ORIGIN = "http://evil.example"
 MN_SPECIFIC = set("өүӨҮ")
@@ -144,6 +156,17 @@ class Client:
 
     def route(self, a, b, **kw):
         return self.request("POST", "/v1/route", self.route_body(a, b, **kw))
+
+    def route_multi_body(self, points, costing="auto", language="mn-MN", **extra):
+        """AC 13-style body with any number of locations (keys of P or (lat, lon) tuples)."""
+        locs = [P[x] if isinstance(x, str) else x for x in points]
+        body = self.route_body(locs[0], locs[-1], costing=costing, language=language, **extra)
+        body["locations"] = [{"lat": la, "lon": lo} for la, lo in locs]
+        return body
+
+    def route_get(self, body, **kw):
+        """getRoute form: GET /v1/route?json=<body>."""
+        return self.request("GET", "/v1/route?json=" + urllib.parse.quote(json.dumps(body)), **kw)
 
 
 # ------------------------------------------------------------------------------------ geo
@@ -381,3 +404,53 @@ def decode_mvt(buf):
             out.append({keys[tags[i]]: values[tags[i + 1]] for i in range(0, len(tags) - 1, 2)})
         layers[name] = out
     return layers
+
+
+# ------------------------------------------------------------------------------------ SEC-2 helpers
+def routing_busy_errors(resp, origin=None, allow_star=True):
+    """Every deviation of `resp` from openapi 0.7.0 components/responses/RoutingBusy (NAV-001 AC 49). Empty = conforms.
+
+    503, one Content-Type application/json, GatewayError {code: RoutingBusy, message}, exactly one integer Retry-After
+    >= 1, exactly one Cache-Control: no-store, every Access-Control-* at most once; with an allowed `origin`, exactly
+    one Access-Control-Allow-Origin (the origin, or '*' when allow_star) and one Access-Control-Expose-Headers that
+    lists Retry-After."""
+    errs = []
+    if resp.status != 503:
+        return [f"status {resp.status}, expected 503"]
+    vals = lambda n: [v for k, v in resp.raw_headers if k.lower() == n]  # noqa: E731
+    ct = vals("content-type")
+    if len(ct) != 1 or not ct[0].lower().startswith("application/json"):
+        errs.append(f"Content-Type {ct}, expected one application/json")
+    body = resp.json()
+    if not isinstance(body, dict) or body.get("code") != "RoutingBusy" or not isinstance(body.get("message"), str):
+        errs.append(f"body {resp.body[:80]!r}, expected GatewayError code RoutingBusy (never 502 UpstreamUnavailable)")
+    ra = vals("retry-after")
+    if len(ra) != 1 or not ra[0].strip().isdigit() or int(ra[0]) < 1:
+        errs.append(f"Retry-After {ra}, expected exactly one integer >= 1")
+    cc = vals("cache-control")
+    if cc != ["no-store"]:
+        errs.append(f"Cache-Control {cc}, expected exactly ['no-store']")
+    rep = resp.repeated_headers()
+    if rep:
+        errs.append(f"repeated Access-Control-* headers {rep}")
+    if origin:
+        acao = vals("access-control-allow-origin")
+        if not (acao == [origin] or (allow_star and acao == ["*"])):
+            errs.append(f"Access-Control-Allow-Origin {acao}, expected exactly one {origin!r}" + (" or '*'" if allow_star else ""))
+        aceh = vals("access-control-expose-headers")
+        if len(aceh) != 1 or "retry-after" not in [t.strip().lower() for t in aceh[0].split(",")]:
+            errs.append(f"Access-Control-Expose-Headers {aceh}, expected exactly one listing Retry-After")
+    return errs
+
+
+def openapi_example_code(example_name, spec_path=None):
+    """`code` of a named example in openapi.yaml, read without a YAML library (checks.py stays stdlib-only).
+    NAV-001 AC 46 asserts the too-many-locations code the contract documents (example `tooManyLocations`)."""
+    import os
+    import re
+    spec_path = spec_path or os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..",
+                                                           "docs", "architecture", "api", "openapi.yaml"))
+    with open(spec_path, encoding="utf-8") as f:
+        text = f.read()
+    m = re.search(r"^\s*" + re.escape(example_name) + r":\s*\n(?:.*\n){0,4}?\s*value:\s*\{\s*code:\s*\"?(\w+)", text, re.M)
+    return m.group(1) if m else None

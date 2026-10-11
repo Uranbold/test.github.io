@@ -36,7 +36,7 @@ const url = pathToFileURL(join(here, "NAV-011-android-preview.html")).href;
 const viewports = [[360, 640], [412, 915], [320, 568], [640, 360]];
 const cardStates = ["card-loading", "card-place", "card-empty", "card-offline", "card-unavailable", "card-ratelimited", "card-error"];
 const states = [...cardStates, "lock-tap", "lock-results", "coord-option", "coord-option-offline", "coord-option-locked",
-  "preview-3", "preview-1", "preview-expanded", "preview-bike", "preview-snap", "preview-toofar", "preview-unavailable", "preview-noroute-avoid"];
+  "preview-3", "preview-1", "preview-expanded", "preview-bike", "preview-snap", "preview-toofar", "preview-toofar-car", "preview-unavailable", "preview-noroute-avoid"];
 const scales = [1, 1.3, 2];
 
 const browser = await chromium.launch();

@@ -158,3 +158,17 @@ export function tokensCss(): string {
     `:root[data-theme="night"]{${cssDeclarations("night").join(";")}}\n`
   );
 }
+
+/**
+ * NAV-017 demo-mode build only: the nav.* and demo.* token colours as custom properties (day on :root, night on
+ * :root[data-theme="night"]). Inlined into the demo-mode index.html at build time by vite.config.ts (bootIndicator), so
+ * the Content-Security-Policy hashes it like the design-token style (SEC-4B); nothing creates a <style> element at runtime.
+ */
+export function demoTokensCss(): string {
+  const decl = (theme: Theme) =>
+    [
+      ...Object.entries(colourGroup(theme, "nav")).map(([k, v]) => `--nav-${k}:${v}`),
+      ...Object.entries(colourGroup(theme, "demo")).map(([k, v]) => `--demo-${k}:${v}`),
+    ].join(";");
+  return `:root{${decl("day")}}\n:root[data-theme="night"]{${decl("night")}}\n`;
+}
