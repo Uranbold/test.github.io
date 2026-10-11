@@ -44,6 +44,7 @@
     <string name="route_out_of_area">The start or destination is outside the service area</string>
     <string name="route_same_point">The start and destination are the same</string>
     <string name="route_too_far">This distance is too far on foot or by bike</string>
+    <string name="route_too_far_car">This distance is too far by car</string>
     <string name="route_unavailable">Routing is temporarily unavailable</string>
     <string name="route_rate_limited">Too many route requests. Wait a moment and try again</string>
     <string name="route_snap_notice">The nearest road is {distance} from the chosen point</string>

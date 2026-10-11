@@ -590,6 +590,8 @@ internal fun PreviewResultRegion(s: PreviewState, lang: Lang, strings: Strings, 
         }
         PreviewResult.OutOfArea -> StateRow(stringResource(R.string.route_out_of_area))
         PreviewResult.TooFar -> StateRow(stringResource(R.string.route_too_far))
+        // SEC-2 (D223): the N11 layout with the N24 text; no retry, no avoid hint.
+        PreviewResult.TooFarCar -> StateRow(stringResource(R.string.route_too_far_car))
         PreviewResult.Unavailable -> StateRow(stringResource(R.string.route_unavailable), retry = a.onPreviewRetry)
         PreviewResult.Offline -> StateRow(stringResource(R.string.status_offline))
         is PreviewResult.RateLimited -> StateRow(stringResource(R.string.route_rate_limited), retry = a.onPreviewRetry, retryEnabled = r.retryEnabled)

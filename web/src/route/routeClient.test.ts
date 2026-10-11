@@ -107,6 +107,8 @@ describe("RouteClient.route", () => {
     [500, "", "unavailable"],
     [502, { code: "UpstreamUnavailable" }, "unavailable"],
     [503, { code: "UpstreamUnavailable" }, "unavailable"],
+    // SEC-2 (openapi 0.7.0): the gateway concurrency cap answers 503 RoutingBusy; same N8 state, no new handling.
+    [503, { code: "RoutingBusy", message: "busy" }, "unavailable"],
     [504, { code: "UpstreamTimeout" }, "unavailable"],
   ])("HTTP %d %j → %s (AC 33–36, 39)", async (status, body, kind) => {
     const out = await client(async () => json(status, body)).route(params(), signal());

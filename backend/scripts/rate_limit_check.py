@@ -10,7 +10,10 @@ Scenarios (stdlib only, one client IP = this machine):
                               Retry-After (integer >= 1), exactly one Cache-Control: no-store, each
                               Access-Control-* header once, Retry-After listed in Access-Control-Expose-Headers.
                               /health must stay 200 right after the burst.
-  normal                      10 requests/s for 10 s, alternating route/search/reverse. Expect no 429.
+                              SEC-2 (ADR-0019 §3): burst-route also meets the always-on /v1/route concurrency cap, so
+                              a 503 is accepted next to 429 when it is in the contract shape: GatewayError {code:
+                              RoutingBusy} with the same header rules. At least one 429 or 503 is required.
+  normal                      10 requests/s for 10 s, alternating route/search/reverse. Expect no 429 and no 503.
   tiles                       200 requests/s for 5 s of tile range requests plus preflights and /health. Expect no 429.
 
 Wait RETRY seconds (default 2) between scenarios so the buckets drain. Upstream status (200, 400, 502...) does
@@ -52,8 +55,9 @@ def request(base, method, path, body=None, headers=None, timeout=10):
         return 0, None, str(e).encode()
 
 
-def check_429(status, headers, raw):
-    """Contract checks for one 429 (openapi.yaml 0.4.0 components/responses/RateLimited)."""
+def check_429(status, headers, raw, code="RateLimited"):
+    """Contract checks for one 429 (openapi.yaml 0.4.0 components/responses/RateLimited) or, with
+    code="RoutingBusy", one 503 (0.7.0 components/responses/RoutingBusy): same header rules."""
     errors = []
     names = [k.lower() for k in headers.keys()]
     for n in sorted(set(names)):
@@ -69,7 +73,7 @@ def check_429(status, headers, raw):
         errors.append(f"Content-Type {headers.get('Content-Type')!r}")
     try:
         body = json.loads(raw)
-        if body.get("code") != "RateLimited" or not isinstance(body.get("message"), str):
+        if body.get("code") != code or not isinstance(body.get("message"), str):
             errors.append(f"body {body}")
     except ValueError:
         errors.append(f"body is not JSON: {raw[:80]!r}")
@@ -82,9 +86,9 @@ def check_429(status, headers, raw):
 
 
 def paced(base, rps, seconds, make_request, workers=64):
-    """Send rps requests/s for `seconds`; returns Counter of statuses and the first 429 response."""
+    """Send rps requests/s for `seconds`; returns Counter of statuses and the first 429 and 503 responses."""
     counts = collections.Counter()
-    first_429 = {}
+    first_429, first_503 = {}, {}
     lock = threading.Lock()
     interval = 1.0 / rps
 
@@ -94,6 +98,8 @@ def paced(base, rps, seconds, make_request, workers=64):
             counts[status] += 1
             if status == 429 and not first_429:
                 first_429.update(status=status, headers=headers, raw=raw)
+            if status == 503 and not first_503:
+                first_503.update(status=status, headers=headers, raw=raw)
 
     start = time.monotonic()
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -102,7 +108,7 @@ def paced(base, rps, seconds, make_request, workers=64):
             if delay > 0:
                 time.sleep(delay)
             ex.submit(one, i)
-    return counts, first_429, time.monotonic() - start
+    return counts, first_429, first_503, time.monotonic() - start
 
 
 class Runner:
@@ -114,14 +120,20 @@ class Runner:
         if not ok:
             self.failed.append(name)
 
-    def burst(self, name, make_request, rps=100, seconds=10):
-        counts, r429, took = paced(self.base, rps, seconds, make_request)
+    def burst(self, name, make_request, rps=100, seconds=10, allow_busy=False):
+        counts, r429, r503, took = paced(self.base, rps, seconds, make_request)
         detail = f"{sum(counts.values())} requests in {took:.1f} s, statuses {dict(sorted(counts.items()))}"
-        if not r429:
-            self.report(name, False, detail + " -> no 429")
+        errs, seen = [], []
+        if r429:
+            seen.append("429")
+            errs += [f"429: {e}" for e in check_429(r429["status"], r429["headers"], r429["raw"])]
+        if r503 and allow_busy:  # SEC-2: the /v1/route concurrency cap may answer before the rate limit
+            seen.append("503 RoutingBusy")
+            errs += [f"503: {e}" for e in check_429(r503["status"], r503["headers"], r503["raw"], code="RoutingBusy")]
+        if not seen:
+            self.report(name, False, detail + (" -> no 429 or 503" if allow_busy else " -> no 429"))
         else:
-            errs = check_429(r429["status"], r429["headers"], r429["raw"])
-            self.report(name, not errs, detail + (" -> 429 conforms" if not errs else f" -> 429 errors: {errs}"))
+            self.report(name, not errs, detail + (f" -> {' and '.join(seen)} conform" if not errs else f" -> errors: {errs}"))
         s, _, _ = request(self.base, "GET", "/health")
         self.report(f"{name}: /health right after the burst", s == 200, f"status {s}")
         time.sleep(self.retry)
@@ -130,8 +142,8 @@ class Runner:
         reqs = [lambda i: request(self.base, "POST", "/v1/route", ROUTE_BODY),
                 lambda i: request(self.base, "GET", SEARCH),
                 lambda i: request(self.base, "GET", REVERSE)]
-        counts, _, took = paced(self.base, 10, 10, lambda i: reqs[i % 3](i), workers=16)
-        self.report("normal session 10 requests/s x 10 s (route/search/reverse)", counts[429] == 0,
+        counts, _, _, took = paced(self.base, 10, 10, lambda i: reqs[i % 3](i), workers=16)
+        self.report("normal session 10 requests/s x 10 s (route/search/reverse)", counts[429] == 0 and counts[503] == 0,
                     f"{sum(counts.values())} requests in {took:.1f} s, statuses {dict(sorted(counts.items()))}")
         time.sleep(self.retry)
 
@@ -143,7 +155,7 @@ class Runner:
             if k == 9:
                 return request(self.base, "GET", "/health")
             return request(self.base, "GET", "/tiles/basemap.pmtiles", headers={"Range": f"bytes={k * 16}-{k * 16 + 15}"})
-        counts, _, took = paced(self.base, 200, 5, mixed)
+        counts, _, _, took = paced(self.base, 200, 5, mixed)
         self.report("tiles ranges + OPTIONS + /health at 200 requests/s x 5 s", counts[429] == 0 and counts[0] == 0,
                     f"{sum(counts.values())} requests in {took:.1f} s, statuses {dict(sorted(counts.items()))}")
         time.sleep(self.retry)
@@ -164,7 +176,8 @@ def main():
     print(f"NAV-008 rate-limit check against {r.base}: {', '.join(todo)}")
     for t in todo:
         if t == "burst-route":
-            r.burst("burst /v1/route 100 requests/s x 10 s", lambda i: request(r.base, "POST", "/v1/route", ROUTE_BODY))
+            r.burst("burst /v1/route 100 requests/s x 10 s", lambda i: request(r.base, "POST", "/v1/route", ROUTE_BODY),
+                    allow_busy=True)
         elif t == "burst-search":
             r.burst("burst /v1/search 100 requests/s x 10 s", lambda i: request(r.base, "GET", SEARCH))
         elif t == "normal":

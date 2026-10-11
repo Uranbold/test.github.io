@@ -25,7 +25,7 @@ const { chromium } = require("playwright");
 const url = pathToFileURL(join(here, "NAV-004-route-preview.html")).href;
 const viewports = [[320, 568], [360, 640], [768, 1024], [1366, 768], [1920, 1080]];
 const states = ["place-card", "point-card", "origin-empty", "loading", "route", "route-alt", "route-one", "route-long", "walk", "snap",
-  "eta-next-day", "field-list", "field-state", "no-route", "no-route-avoid", "out-of-area", "too-far", "same-point", "unavailable",
+  "eta-next-day", "field-list", "field-state", "no-route", "no-route-avoid", "out-of-area", "too-far", "too-far-car", "same-point", "unavailable",
   "offline", "rate-limited", "error", "static", "coord-card"];
 
 const browser = await chromium.launch();

@@ -28,6 +28,8 @@ export const REF = {
   P6: { lat: 47.96, lng: 106.9 },
   X1: { lat: 49.027, lng: 104.044 },
   X2: { lat: 39.9042, lng: 116.4074 },
+  // SEC-2 (NAV-001 AC 44): Moscow, ~4,635 km straight line from P1, over the 3,000 km car limit (never snapped).
+  X3: { lat: 55.7558, lng: 37.6173 },
 };
 
 // Reference route set (story "Terms used"). RS8 is redefined as P1 → X2 on foot by ADR-0008 §4 (P1 → X1 on foot is
@@ -42,6 +44,8 @@ export const RS = {
   RS7: { o: 'P1', d: 'X2', mode: 'car' },
   RS8: { o: 'P1', d: 'X2', mode: 'walk' },
   RS8a: { o: 'P1', d: 'X1', mode: 'walk' },
+  // SEC-2 (story RS9, AC 35): P1 → X3 Moscow by car → 400 DistanceExceeded → N24.
+  RS9: { o: 'P1', d: 'X3', mode: 'car' },
 };
 export const COSTING = { car: 'auto', walk: 'pedestrian', bike: 'bicycle' };
 
@@ -78,6 +82,8 @@ export const T = {
     outOfArea: 'Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна',
     samePoint: 'Эхлэх цэг, очих газар ижил байна',
     tooFar: 'Энэ зай явганаар эсвэл дугуйгаар хэт хол байна',
+    // N24 (SEC-2, D223, glossary 2.1 "Too far by car", needs native review)
+    tooFarCar: 'Энэ зай машинаар хэт хол байна',
     avoidHint: 'Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу',
     snap: (d) => `Хамгийн ойрын зам сонгосон цэгээс ${d} зайтай`,
     nextDay: (n) => `+${n} өдөр`,
@@ -116,6 +122,7 @@ export const T = {
     outOfArea: 'The start or destination is outside the service area',
     samePoint: 'The start and destination are the same',
     tooFar: 'This distance is too far on foot or by bike',
+    tooFarCar: 'This distance is too far by car',
     avoidHint: 'Turn off “Avoid unpaved roads” and try again',
     snap: (d) => `The nearest road is ${d} from the chosen point`,
     nextDay: (n) => (n === 1 ? '+1 day' : `+${n} days`),

@@ -102,8 +102,9 @@ flowchart TD
     RES -- "200" --> OKR["Route line, markers, «13 мин · 4,6 км», «Хүрэх цаг 14:03»<br/>snap notice if > 500 m — AC 6<br/>«Эхлэх» enabled"]
     RES -- "400 NoRoute" --> NR["«Маршрут олдсонгүй» (+ avoid hint if on)"]
     RES -- "NoSegment / 171" --> OA["«Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна»"]
-    RES -- "DistanceExceeded on «Явган»" --> TF["«Энэ зай явганаар эсвэл дугуйгаар хэт хол байна»"]
-    RES -- "network / 5xx / 12 s" --> UN["«Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох»"]
+    RES -- "DistanceExceeded on «Явган» / «Дугуй»<br/>(walk 250 km, bike 500 km)" --> TF["«Энэ зай явганаар эсвэл дугуйгаар хэт хол байна»"]
+    RES -- "DistanceExceeded on «Машин»<br/>(over 3,000 km straight-line, SEC-2)" --> TFC["«Энэ зай машинаар хэт хол байна» (N24)<br/>no line, markers stay, no retry"]
+    RES -- "network / 5xx (503 incl. RoutingBusy) / 12 s" --> UN["«Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох»"]
     RES -- "429" --> RL["«Түр хүлээгээд дахин оролдоно уу»; 0 requests for Retry-After (5 s default)"]
     RES -- "other 400 / 413 / bad body" --> ER["«Алдаа гарлаа»"]
     OKR -- "mode tab or avoid switch changed" --> REQ
@@ -117,6 +118,8 @@ flowchart TD
     PV -- "«Хаах» / Back" --> M(["S1 map (destination pin stays for a search result,<br/>card returns for a long-press point)"])
 ```
 «Эхлэх» is disabled in every state without a route (AC 7).
+
+Request limits (SEC-2, 2026-10-11, [D216–D225](../../requirements/decisions.md)): the server refuses a request before routing when the sum of straight-line distances between consecutive points is over the limit (car 3,000 km, walk 250 km, bike 500 km; at most 10 points, the app sends 2). The longest straight line inside Mongolia is about 2,400 km, so on «Машин» this only follows a point far outside Mongolia; it shows N24 instead of «Маршрут олдсонгүй» (D223). The route concurrency cap answers 503 `RoutingBusy`, handled as any 503 (N8 + «Дахин оролдох» without a routing file; device fallback with one, F13).
 
 ## F5. Guidance: top-level states — AC 15–25, 31, 41–57
 
@@ -148,8 +151,8 @@ stateDiagram-v2
     Detected --> Requesting: within 1 s — banner «Маршрутыг дахин тооцоолж байна»,<br/>voice «Та маршрутаас гарлаа» once (or chime)
     Requesting --> NewRoute: 200 → route replaced ≤ 500 ms, catch-up prompt
     Requesting --> Wait429: 429 Retry-After N (5 s if missing/invalid)
-    Requesting --> Backoff: network / 502 / 503 / 504 / 12 s timeout
-    Requesting --> NoRouteWait: 400 NoRoute / NoSegment / 171 / other 400 / 413 / bad 200
+    Requesting --> Backoff: network / 502 / 503 (incl. RoutingBusy) / 504 / 12 s timeout
+    Requesting --> NoRouteWait: 400 NoRoute / NoSegment / 171 / DistanceExceeded / other 400 / 413 / bad 200
     Requesting --> Offline: no validated network
     Wait429 --> Requesting: after N s, still off-route (1 request, no tap)
     Backoff --> Requesting: after 5, 10, 20, 30, 30 … s
@@ -164,7 +167,7 @@ stateDiagram-v2
     BackOnRoute --> [*]: banner shows an instruction ≤ 1 s, 0 extra requests
 ```
 
-Secondary line under «Маршрутыг дахин тооцоолж байна»: Wait429 → none; Backoff → «Маршрутын үйлчилгээ түр ажиллахгүй байна»; NoRouteWait → «Маршрут олдсонгүй» (or «Алдаа гарлаа» for other 400 / 413 / bad 200); Offline → «Интернэт холболт алга». **Global pacer (all states, AC 44):** at most 1 request in flight, consecutive requests ≥ 5 s apart, ≤ 6 per rolling 60 s; a state's own wait is extended to meet the pacer. Reroute body (AC 43): current position, `heading` = course over ground when speed ≥ 2 m/s, original destination, same costing, options, language and units, `alternates: 0`.
+Secondary line under «Маршрутыг дахин тооцоолж байна»: Wait429 → none; Backoff → «Маршрутын үйлчилгээ түр ажиллахгүй байна»; NoRouteWait → «Маршрут олдсонгүй», also for `DistanceExceeded` on any costing (AC 49 as changed by SEC-2; not N24, so the banner keeps one short phrase while driving) (or «Алдаа гарлаа» for other 400 / 413 / bad 200); Offline → «Интернэт холболт алга». **Global pacer (all states, AC 44):** at most 1 request in flight, consecutive requests ≥ 5 s apart, ≤ 6 per rolling 60 s; a state's own wait is extended to meet the pacer. Reroute body (AC 43): current position, `heading` = course over ground when speed ≥ 2 m/s, original destination, same costing, options, language and units, `alternates: 0`.
 
 ## F7. GPS loss and tunnel — AC 51–53
 
@@ -301,12 +304,12 @@ flowchart TD
     U -- yes --> N{"Validated network?"}
     N -- no --> DEV["On-device engine answers at once; 0 HTTP requests<br/>(preview ≤ 1.5 s cold; reroute ≤ 2.0 s mid-range)"]
     N -- yes --> ON["Gateway request first; loading row «Ачаалж байна…» after 300 ms (preview)<br/>or banner «Маршрутыг дахин тооцоолж байна» (reroute)"]
-    ON --> H{"Headers within 3.0 s, no 502 / 503 / 504 / 429, no connection failure?"}
+    ON --> H{"Headers within 3.0 s, no 502 / 503 (incl. RoutingBusy) / 504 / 429, no connection failure?"}
     H -- yes --> GW["Gateway answer handled as today<br/>authoritative answers (NoRoute, outside, too far, other 400) shown, never retried on the device"]
     H -- no --> DEV
     DEV --> R{"Device result"}
     R -- "route" --> RT["Route shown / replaces the old route in full<br/>chip «Офлайн» on S3, icon in the S5 progress panel<br/>no «Интернэт холболт алга» on the banner, no 429 line"]
-    R -- "NoRoute / outside area / too far" --> AUT["The existing texts, no indicator"]
+    R -- "NoRoute / outside area / too far" --> AUT["The existing texts, no indicator<br/>too far: N11 on «Явган» / «Дугуй», N24 on «Машин» (preview); reroute «Маршрут олдсонгүй»<br/>device car limit stays 5,000 km: a 3,000–5,000 km point gives N9 here (D221)"]
     R -- "engine error, 10 s, process death" --> BOTH["Both sources failed: «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох» (S3)<br/>reroute: back-off 5, 10, 20, 30 … s (AC 48); old route still followed"]
     GW --> NI["No indicator (an earlier icon goes away)"]
 ```
@@ -327,6 +330,11 @@ Network host (AC 65 as amended, AC 86): pack requests go to the configured packs
 |---|---|---|---|
 | S1 map | Message «Интернэт холболт алга»; loaded tiles stay | My-location button → F3 messages; no showable fix: no dot, «Байршил тодорхойлж чадсангүй» 10 s after a press (F12a); fixes stop: stale hollow grey dot, no message (F12b) | — |
 | S2 search / card | List row «Интернэт холболт алга», 0 requests (**with a usable search file: on-device results with the chip, NAV-011 flow F6**) | not needed (search works without location; bias falls back to the map centre, D30) | «Илэрц олдсонгүй» |
-| S3 preview | «Интернэт холболт алга», 0 requests, auto-request when back (**with a usable routing file: a route from the device with the chip, F13**) | F3 messages in the result region; «Эхлэх» disabled | «Маршрут олдсонгүй», N9, N11 |
+| S3 preview | «Интернэт холболт алга», 0 requests, auto-request when back (**with a usable routing file: a route from the device with the chip, F13**) | F3 messages in the result region; «Эхлэх» disabled | «Маршрут олдсонгүй», N9, N11, N24 (car, SEC-2) |
 | S5 guidance | Status indicator (F8); off-route → banner secondary line (F6); **with a usable routing file the reroute is answered on the device, no secondary line, icon OF24 (F13)** | F7 | reroute «Маршрут олдсонгүй» (F6) |
 | S6 arrival | nothing needed (no network use) | nothing needed (guidance has ended) | — |
+
+## Change log
+| Date | Change | Why |
+|---|---|---|
+| 2026-10-11 | SEC-2 route request limits ([D216–D225](../../requirements/decisions.md)): F4 adds the «Машин» `DistanceExceeded` edge to N24 «Энэ зай машинаар хэт хол байна» (AC 7, D223) and names «Дугуй» on the N11 edge; the unavailable edge, F6 Backoff and F13 fallback name 503 `RoutingBusy` (D219); F6 NoRouteWait includes `DistanceExceeded` with «Маршрут олдсонгүй» (AC 49); F13 device result notes N24 and the 3,000–5,000 km N9 difference (D221); limits note under F4; error-path summary lists N24 | NAV-005 AC 7 and AC 49, NAV-021 AC 6 changed by SEC-2 |

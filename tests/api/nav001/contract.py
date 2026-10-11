@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """NAV-001 contract test: live gateway responses vs docs/architecture/api/openapi.yaml.
 
-    tests/.venv/bin/python tests/api/nav001/contract.py [--base-url URL] [--spec PATH]
+    tests/.venv/bin/python tests/api/nav001/contract.py [--base-url URL] [--spec PATH] [--route-cap]
 
 Needs: jsonschema>=4.18, PyYAML, openapi-spec-validator (tests/api/requirements.txt).
 For each case: the HTTP status must be documented for that operation, the JSON body must validate
@@ -9,6 +9,9 @@ against the documented schema, and documented headers that the contract marks as
 must be there (plus every header the contract marks `required: true`, exactly once and equal to
 its `const` if one is given), and no Access-Control-* header may appear more than once (openapi.yaml 0.2.0 CORS rule,
 NAV-001 AC 43). Request examples from the spec are sent as-is, so the examples themselves are tested.
+SEC-2 (openapi 0.7.0, NAV-001 AC 46/49): CT-R23 the 11-location 400 (schema + the documented `tooManyLocations` code),
+CT-R24 (opt-in --route-cap: 32 parallel route requests on the target gateway) a live 503 against
+components/responses/RoutingBusy, POST and GET.
 Test plan ids: CT-S (spec valid), CT-R* (responses). Exit 0 only if every case conforms.
 """
 import argparse
@@ -24,19 +27,22 @@ from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import ORIGIN, P, Client, Report  # noqa: E402
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+
+from lib import ORIGIN, P, UB11, Client, Report, routing_busy_errors  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SPEC = os.path.normpath(os.path.join(HERE, "..", "..", "..", "docs", "architecture", "api", "openapi.yaml"))
 
 
 class Contract:
-    def __init__(self, spec_path, base_url, report):
+    def __init__(self, spec_path, base_url, report, route_cap=False):
         with open(spec_path, encoding="utf-8") as f:
             self.spec = yaml.safe_load(f)
         self.registry = Registry().with_resource("urn:spec", Resource.from_contents(self.spec, default_specification=DRAFT202012))
         self.c = Client(base_url)
         self.r = report
+        self.route_cap = route_cap
 
     def deref(self, node):
         while isinstance(node, dict) and "$ref" in node:
@@ -156,6 +162,18 @@ class Contract:
         self.case("CT-R09.route_native_json_error", "/v1/route", "post",
                   c.request("POST", "/v1/route", {"locations": [{"lat": P["X2"][0], "lon": P["X2"][1]}, {"lat": P["P1"][0], "lon": P["P1"][1]}], "costing": "auto"}))
 
+        # SEC-2 CT-R23: 11 locations -> Valhalla's 400, documented code (example tooManyLocations), schema RouteBadRequest
+        r11 = c.request("POST", "/v1/route", c.route_multi_body(UB11, "auto"))
+        self.case("CT-R23.route_11_locations", "/v1/route", "post", r11)
+        ex = self.deref(self.response_def("/v1/route", "post", 400))["content"]["application/json"]["examples"].get("tooManyLocations", {})
+        want = (ex.get("value") or {}).get("code")
+        self.r.check("CT-R23.route_11_locations_documented_code", r11.status == 400 and (r11.json() or {}).get("code") == want,
+                     f"400 with code {want!r} (example tooManyLocations)", f"{r11.status} {r11.body[:100]!r}")
+        if self.route_cap:
+            self.route_cap_cases()
+        else:
+            self.r.skip("CT-R24", "opt-in: --route-cap (32 parallel route requests against the target gateway)")
+
         bias = {"lat": P["P1"][0], "lon": P["P1"][1]}
         for q in ("Сүхбаатар", "Сүхб", "Sukhbaatar", "xqzjwvk"):
             self.case(f"CT-R10.search_{q}", "/v1/search", "get", c.get("/v1/search", {"q": q, **bias, "lang": "mn"}))
@@ -179,15 +197,37 @@ class Contract:
                                         "access-control-allow-headers", "access-control-expose-headers", "vary"))
 
 
+    def route_cap_cases(self):
+        """CT-R24: a live 503 from the gateway's route concurrency cap vs components/responses/RoutingBusy."""
+        c = self.c
+        body = c.route_body("P1", "P3")
+        for method in ("post", "get"):
+            send = (lambda _i: c.request("POST", "/v1/route", body, headers={"Origin": ORIGIN}, timeout=20)) if method == "post" \
+                else (lambda _i: c.route_get(body, headers={"Origin": ORIGIN}, timeout=20))
+            with ThreadPoolExecutor(max_workers=32) as pool:
+                res = list(pool.map(send, range(32)))
+            busy = [x for x in res if x.status == 503]
+            self.r.note(f"CT-R24.{method}_statuses", sorted({x.status for x in res}))
+            if not busy:
+                self.r.skip(f"CT-R24.route_cap_{method}", "no 503 provoked by 32 parallel requests")
+                continue
+            self.case(f"CT-R24.route_cap_{method}_503", "/v1/route", method, busy[0],
+                      required_headers=("retry-after", "cache-control", "access-control-allow-origin", "access-control-expose-headers"))
+            errs = routing_busy_errors(busy[0], origin=ORIGIN)
+            self.r.check(f"CT-R24.route_cap_{method}_503_RoutingBusy", not errs, "code RoutingBusy, Retry-After >= 1, no-store, CORS once",
+                         "; ".join(errs))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8080"))
     ap.add_argument("--spec", default=DEFAULT_SPEC)
+    ap.add_argument("--route-cap", action="store_true", help="SEC-2 CT-R24: provoke the /v1/route concurrency cap (32 parallel requests)")
     a = ap.parse_args()
     rep = Report()
     print(f"NAV-001 contract test: base={a.base_url} spec={a.spec}")
     try:
-        Contract(a.spec, a.base_url, rep).run()
+        Contract(a.spec, a.base_url, rep, route_cap=a.route_cap).run()
     except Exception as e:  # noqa: BLE001
         rep.check("CT.crashed", False, "no exception", f"{type(e).__name__}: {e}")
     print("\n" + rep.summary())

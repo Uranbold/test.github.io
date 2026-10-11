@@ -204,7 +204,7 @@ const T = {
     opt: (n) => `Маршрут ${n}`, options: "Маршрут сонгох", alt: "Өөр маршрут", avoid: "Шороон замаас зайлсхийх",
     routes: [["13 мин", "4,6 км"], ["15 мин", "5,2 км"], ["17 мин", "4,9 км"]], bikeRoutes: [["24 мин", "4,3 км"], ["27 мин", "4,8 км"]],
     eta: "Хүрэх цаг 14:03", etaB: "Хүрэх цаг 14:14", snap: "Хамгийн ойрын зам сонгосон цэгээс 1,4 км зайтай", start: "Эхлэх",
-    tooFar: "Энэ зай явганаар эсвэл дугуйгаар хэт хол байна", routeUnav: "Маршрутын үйлчилгээ түр ажиллахгүй байна",
+    tooFar: "Энэ зай явганаар эсвэл дугуйгаар хэт хол байна", tooFarCar: "Энэ зай машинаар хэт хол байна", routeUnav: "Маршрутын үйлчилгээ түр ажиллахгүй байна",
     noRoute: "Маршрут олдсонгүй", noRouteHint: "Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу",
   },
   en: {
@@ -221,13 +221,13 @@ const T = {
     opt: (n) => `Route ${n}`, options: "Choose a route", alt: "Alternative route", avoid: "Avoid unpaved roads",
     routes: [["13 min", "4.6 km"], ["15 min", "5.2 km"], ["17 min", "4.9 km"]], bikeRoutes: [["24 min", "4.3 km"], ["27 min", "4.8 km"]],
     eta: "Arrive at 14:03", etaB: "Arrive at 14:14", snap: "The nearest road is 1.4 km from the chosen point", start: "Start",
-    tooFar: "This distance is too far on foot or by bike", routeUnav: "Routing is temporarily unavailable",
+    tooFar: "This distance is too far on foot or by bike", tooFarCar: "This distance is too far by car", routeUnav: "Routing is temporarily unavailable",
     noRoute: "No route found", noRouteHint: "Turn off “Avoid unpaved roads” and try again",
   },
 };
 const CARD_STATES = ["card-loading", "card-place", "card-empty", "card-offline", "card-unavailable", "card-ratelimited", "card-error"];
 const STATES = [...CARD_STATES, "lock-tap", "lock-results", "coord-option", "coord-option-offline", "coord-option-locked",
-  "preview-3", "preview-1", "preview-expanded", "preview-bike", "preview-snap", "preview-toofar", "preview-unavailable", "preview-noroute-avoid"];
+  "preview-3", "preview-1", "preview-expanded", "preview-bike", "preview-snap", "preview-toofar", "preview-toofar-car", "preview-unavailable", "preview-noroute-avoid"];
 const I = {
   search: '<svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M15 15l6 6"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
@@ -308,6 +308,7 @@ function preview(t, st, wide) {
       <div class="eta wrap">${bike ? t.etaB : t.eta}</div>
       ${st === "preview-snap" ? `<div class="snap"><span class="ico" aria-hidden="true">${I.info}</span><span class="wrap">${t.snap}</span></div>` : ""}</div>`;
   if (st === "preview-toofar") region = `<div class="pstate" data-box-sum><span class="ico" aria-hidden="true">${I.info}</span><div class="wrap">${t.tooFar}</div></div>`;
+  if (st === "preview-toofar-car") region = `<div class="pstate" data-box-sum><span class="ico" aria-hidden="true">${I.info}</span><div class="wrap">${t.tooFarCar}</div></div>`;
   if (st === "preview-unavailable") region = `<div class="pstate" data-box-sum><span class="ico" aria-hidden="true">${I.info}</span><div class="wrap">${t.routeUnav}</div><div class="acts"><button class="btn text" data-control>${t.retry}</button></div></div>`;
   if (st === "preview-noroute-avoid") region = `<div class="pstate" data-box-sum><span class="ico" aria-hidden="true">${I.info}</span><div><div class="wrap">${t.noRoute}</div><div class="wrap" style="color:var(--on-surface-variant)">${t.noRouteHint}</div></div></div>`;
   const tabs = `<div class="tabs" role="tablist" aria-label="${t.modes}">${[["car", t.car], ["walk", t.walk], ["bike", t.bike]].map(([i, n]) =>

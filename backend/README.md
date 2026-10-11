@@ -86,6 +86,48 @@ Checks: `infra/ci/backend-static-checks.sh` (429 shape, never-limited paths, bad
 `make contract BASE_URL=... CONTRACT_ARGS=--rate-limit` (429 against openapi.yaml). Run both only against a gateway
 with limits on (staging, or an isolated test gateway), never against the shared dev stack.
 
+## Route request limits (SEC-2, ADR-0019, openapi 0.7.0)
+
+Three layers bound what `/v1/route` can cost. All three are **always on** (dev, every NAV-006 slot, staging).
+
+1. **Valhalla `service_limits`** for every costing (contract values, not `.env` keys; one source in
+   `scripts/lib.sh` `VALHALLA_ROUTE_LIMITS`): at most **10 locations**; summed straight-line distance **3,000 km**
+   for `auto`/`bus`/`taxi`/`truck`, **500 km** for `bicycle`/`motorcycle`/`motor_scooter`/`bikeshare`/`multimodal`,
+   **250 km** for `pedestrian`. `valhalla-serve.sh` overlays them (and the timeout) onto the graph's `valhalla.json`
+   into `/tmp/valhalla.json` at every start, so a `data/` build or slot made before SEC-2 serves them without a
+   rebuild; `valhalla-build.sh` also writes them into a fresh `valhalla.json`. They are not in the graph
+   fingerprint. The start log shows the effective values (`"msg":"route limits applied"`).
+2. **Valhalla processing timeout** `VALHALLA_TIMEOUT_SECONDS` (1-9, default 8; anything else stops the service).
+   The gateway keeps its 10 s read timeout. `/v1/route` has `proxy_intercept_errors on`, so Valhalla's own timeout
+   answer and any other upstream 5xx become gateway JSON (`504 UpstreamTimeout`, `502 UpstreamUnavailable`);
+   Valhalla's 400 bodies still pass through unchanged (no `error_page 400`).
+3. **Gateway concurrency cap** (`gateway/entrypoint/17-route-limits.sh` -> `conf.d/02-route-limits.conf`, nginx
+   `limit_conn`): `GATEWAY_ROUTE_MAX_INFLIGHT` (default 8) in total and `GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP`
+   (default 4) per client IP, counted only for `/v1/route` GET/POST. Over either cap: immediate **503**
+   `{"code":"RoutingBusy",...}` with `Retry-After: 1`, `Cache-Control: no-store` and each CORS header once; nothing
+   is queued. Internally the rejection uses the private status 529, so an upstream 503 is never labelled
+   `RoutingBusy` and the cap is never relabelled 502. Invalid values (0, `off`, text) stop the gateway, and nginx
+   refuses to start if the script is missing. Client IPs stay out of the logs (`limit_conn_log_level info`).
+   The values are dev defaults until the staging measurement (`deployment-staging.md` §7.2); keep the global cap at
+   most 2 x `VALHALLA_THREADS`.
+
+Checks: `infra/ci/backend-static-checks.sh` section SEC-2 (limit table and overlay, cap per IP and global, 5xx
+shaping against the njs stub `infra/ci/stub-valhalla`, bad values refused); `make smoke` (P1->X3 car -> 400
+`DistanceExceeded`, so every slot verification checks that the limits are served); `make contract` (example
+`carTooFar`, an 11-location request) and `make contract CONTRACT_ARGS=--route-cap` (floods the cap, validates one
+503 against `RoutingBusy`; it briefly fills the cap for everyone on that gateway).
+
+**Measured on Valhalla 3.9.0, reference machine, 2026-10-11** (ADR-0019 F2; dev Mongolia build of 2026-09-29):
+
+| Item | Result |
+|---|---|
+| F2a: summed or per pair | **Summed.** L1->L2->L1 `auto` (legs 1,804 km each) and P1->X1->P1 `pedestrian` (legs 245 km each) -> 400 `DistanceExceeded` in < 10 ms. P1->X5 (3,100 km) -> 400 `DistanceExceeded`; P1->X4 (2,900 km) -> 400 `NoSegment` (0-1.0 s); P1->X3 (4,635 km) -> 400 `DistanceExceeded` with every costing incl. `bus`, `taxi`, `truck`, `motorcycle`, `motor_scooter`, `bikeshare` |
+| F2b: 11 locations | 400 OSRM `{"code":"InvalidValue","message":"The successfully parsed query parameters are invalid."}` on all 8 costings (native format: `error_code` 150 "Exceeded max locations: 10"). **Not `TooBig`** as the spec example expects. 10 locations -> 200 on `auto`, `pedestrian`, `bicycle` |
+| F2c: Valhalla timeout answer | **504**, body `The server didn't respond in time`, no `Content-Type` (plain text). The gateway turns it into JSON 504 `UpstreamTimeout`. The timeout fires with about 1 s granularity: with 1 s, a request was cut at 2.0 s, and the same request completed with 200 at 1.95 s once warm |
+| F2c: worker release | **Not measurable here.** Only a cold page cache made any contracted request run longer than 1 s; warm, the slowest (L1->L2 `auto` `alternates=2`) takes 0.15-0.22 s, so `VALHALLA_TIMEOUT_SECONDS=1` never fires on demand. A P1->P3 request right after a forced 504 answered in 0.02-0.03 s |
+| Walk/bike near the limits | P1->X1 walk (245 km) 0.09-0.23 s warm, about 2 s on a cold page cache; P1->B1 (47.90, 100.45; 482 km) bike 0.14-0.5 s warm; L1->L2 car 0.06 s (`alternates=0`) / 0.22 s (`alternates=2`). All far below 8 s |
+| Cap | Per IP: with 2 (CI) or 4 (dev default) requests in flight, the next one is 503 `RoutingBusy` in 0.03 s; global: with 3 in flight from two client IPs, the 4th is 503; in-flight requests finish with 200; health, tiles, search and preflights unaffected. AC 35 p95 18 ms with 0 x 503; rate-limit probe (rate limits on, real upstreams): normal session 100 x 200, route burst 358 x 200 / 640 x 429 / 2 x 503, all conforming |
+
 ## Staging (NAV-008)
 
 | | |

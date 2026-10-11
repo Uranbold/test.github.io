@@ -363,7 +363,7 @@ const S = {
     "route.eta":"Хүрэх цаг","route.nextDay.one":"+{days} өдөр","route.nextDay.other":"+{days} өдөр","route.directions":"Маршрутын заавар",
     "route.count.one":"{count} маршрут олдлоо","route.count.other":"{count} маршрут олдлоо",
     "route.unavailable":"Маршрутын үйлчилгээ түр ажиллахгүй байна","route.outOfArea":"Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна",
-    "route.samePoint":"Эхлэх цэг, очих газар ижил байна","route.tooFar":"Энэ зай явганаар эсвэл дугуйгаар хэт хол байна","route.noRoute":"Маршрут олдсонгүй",
+    "route.samePoint":"Эхлэх цэг, очих газар ижил байна","route.tooFar":"Энэ зай явганаар эсвэл дугуйгаар хэт хол байна","route.tooFarCar":"Энэ зай машинаар хэт хол байна","route.noRoute":"Маршрут олдсонгүй",
     "route.noRouteAvoidHint":"Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу","route.snapNotice":"Хамгийн ойрын зам сонгосон цэгээс {distance} зайтай",
     "route.rateLimited":"Түр хүлээгээд дахин оролдоно уу","route.setOrigin":"Эхлэх цэг болгох","route.setDestination":"Очих газар болгох",
     "maneuver.depart.s":"Өмнө зүг рүү явна уу","maneuver.depart.n":"Хойд зүг рүү явна уу","maneuver.turn.right":"Баруун тийш эргэнэ үү","maneuver.turn.left":"Зүүн тийш эргэнэ үү",
@@ -384,7 +384,7 @@ const S = {
     "route.eta":"Arrive at","route.nextDay.one":"+{days} day","route.nextDay.other":"+{days} days","route.directions":"Directions",
     "route.count.one":"1 route found","route.count.other":"{count} routes found",
     "route.unavailable":"Routing is temporarily unavailable","route.outOfArea":"The start or destination is outside the service area",
-    "route.samePoint":"The start and destination are the same","route.tooFar":"This distance is too far on foot or by bike","route.noRoute":"No route found",
+    "route.samePoint":"The start and destination are the same","route.tooFar":"This distance is too far on foot or by bike","route.tooFarCar":"This distance is too far by car","route.noRoute":"No route found",
     "route.noRouteAvoidHint":"Turn off “Avoid unpaved roads” and try again","route.snapNotice":"The nearest road is {distance} from the chosen point",
     "route.rateLimited":"Too many route requests. Wait a moment and try again","route.setOrigin":"Set as start","route.setDestination":"Set as destination",
     "maneuver.depart.s":"Head south","maneuver.depart.n":"Head north","maneuver.turn.right":"Turn right","maneuver.turn.left":"Turn left",
@@ -406,7 +406,7 @@ const STEPS = [["maneuver.depart.s","Бага тойруу",350],["maneuver.turn
 const LONG = (() => { const out=[["maneuver.depart.n","Энхтайвны өргөн чөлөө",1400]]; const k=["maneuver.continue","maneuver.offRamp.right","maneuver.keep.left","maneuver.merge.left","maneuver.turn.right","maneuver.onRamp.right","maneuver.roundabout.exit","maneuver.roundabout.leave"];
   const st=["Улаанбаатар – Дархан зам","","Дархан – Эрдэнэт зам","Сэлэнгийн гудамж","","Эрдэнэтийн төв зам"]; for(let i=0;i<40;i++) out.push([k[i%k.length],st[i%st.length],(i*7919%90000)+400,3]); out.push(["maneuver.arrive","",null]); return out; })();
 const STATES = ["place-card","point-card","origin-empty","loading","route","route-alt","route-one","route-long","walk","snap","eta-next-day","field-list","field-state",
-  "no-route","no-route-avoid","out-of-area","too-far","same-point","unavailable","offline","rate-limited","error","static","coord-card"];
+  "no-route","no-route-avoid","out-of-area","too-far","too-far-car","same-point","unavailable","offline","rate-limited","error","static","coord-card"];
 const ICON = {
   car:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11 6.6 6.4A2 2 0 0 1 8.5 5h7a2 2 0 0 1 1.9 1.4L19 11v8h-2v-2H7v2H5Zm2.2-1h9.6l-1-3H8.2ZM7.5 12a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm9 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>',
   walk:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 5.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM9.8 8.9 7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3A7.3 7.3 0 0 0 19 13v-2a5.2 5.2 0 0 1-4.3-2.4l-1-1.6a2 2 0 0 0-2.5-.8L6 8.3V13h2V9.6Z"/></svg>',
@@ -442,7 +442,7 @@ const cyr=(s)=>/[Ѐ-ӿ]/.test(s);
 function stateRow(t,kind){
   const m={loading:[null,"status.loading",0,""],unavailable:[ICON.warn,"route.unavailable",1,"err"],offline:[ICON.cloudOff,"status.offline",0,""],
     rateLimited:[ICON.hourglass,"route.rateLimited",2,""],error:[ICON.error,"status.genericError",0,"err"],noRoute:[ICON.noRoute,"route.noRoute",0,""],
-    outOfArea:[ICON.warn,"route.outOfArea",0,""],tooFar:[ICON.info,"route.tooFar",0,""],same:[ICON.same,"route.samePoint",0,""],
+    outOfArea:[ICON.warn,"route.outOfArea",0,""],tooFar:[ICON.info,"route.tooFar",0,""],tooFarCar:[ICON.info,"route.tooFarCar",0,""],same:[ICON.same,"route.samePoint",0,""],
     searchUnavailable:[ICON.warn,"search.unavailable",1,"err"]}[kind];
   const icon=m[0]||'<span class="spin" aria-hidden="true"></span>';
   const act=m[2]?`<button class="act" data-control ${m[2]===2?'aria-disabled="true"':""}>${esc(t["action.retry"])}</button>`:"";
@@ -501,7 +501,7 @@ function render(){
   if(state==="field-state"){ const s=stateRow(t,"searchUnavailable"); rs.className=s.cls; rs.innerHTML=s.html; rs.hidden=false; ul.hidden=true; }
   // Result region
   const res=$("result"); res.removeAttribute("aria-busy"); let live="";
-  const errs={"loading":"loading","no-route":"noRoute","no-route-avoid":"noRoute","out-of-area":"outOfArea","too-far":"tooFar","same-point":"same","unavailable":"unavailable","offline":"offline","rate-limited":"rateLimited","error":"error","static":"unavailable"};
+  const errs={"loading":"loading","no-route":"noRoute","no-route-avoid":"noRoute","out-of-area":"outOfArea","too-far":"tooFar","too-far-car":"tooFarCar","same-point":"same","unavailable":"unavailable","offline":"offline","rate-limited":"rateLimited","error":"error","static":"unavailable"};
   if(originEmpty){ res.innerHTML=""; }
   else if(errs[state]){ const s=stateRow(t,errs[state]); let html=s.html; if(state==="no-route-avoid") html=html.replace(`<span class="txt">${esc(t["route.noRoute"])}</span>`,`<span class="txt">${esc(t["route.noRoute"])}<span class="hint">${esc(t["route.noRouteAvoidHint"])}</span></span>`);
     res.innerHTML=`<div class="${s.cls}">${html}</div>`; live=state==="loading"?"":s.text; if(state==="loading") res.setAttribute("aria-busy","true"); }

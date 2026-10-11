@@ -70,6 +70,8 @@ x-valhalla-lane: &valhalla-lane
   stop_signal: SIGINT
   environment:
     VALHALLA_THREADS: ${VALHALLA_THREADS:-}
+    # SEC-2 (ADR-0019 §2): Valhalla processing timeout, 1-9 s; the route limits are overlaid at start (both lanes).
+    VALHALLA_TIMEOUT_SECONDS: ${VALHALLA_TIMEOUT_SECONDS:-8}
   healthcheck:
     test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8002/status"]
     interval: 10s
@@ -124,6 +126,9 @@ services:
       GATEWAY_RATE_PACKS: ${GATEWAY_RATE_PACKS:-2r/s}
       GATEWAY_BURST_PACKS: ${GATEWAY_BURST_PACKS:-20}
       GATEWAY_REAL_IP_FROM: ${GATEWAY_REAL_IP_FROM:-}
+      # SEC-2 /v1/route concurrency cap (entrypoint/17-route-limits.sh), always on: 503 RoutingBusy over the cap.
+      GATEWAY_ROUTE_MAX_INFLIGHT: ${GATEWAY_ROUTE_MAX_INFLIGHT:-8}
+      GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP: ${GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP:-4}
       # Dev-mode fallbacks of the template; unused here because the pointer directory is mounted.
       VALHALLA_UPSTREAM: 127.0.0.1:9
       PHOTON_UPSTREAM: 127.0.0.1:9
@@ -135,6 +140,7 @@ services:
       - { type: bind, source: ./gateway/njs, target: /etc/nginx/njs, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/16-rate-limits.sh, target: /docker-entrypoint.d/16-rate-limits.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/17-route-limits.sh, target: /docker-entrypoint.d/17-route-limits.sh, read_only: true }
       # The DIRECTORY, never the file: a single-file bind mount keeps the old inode after a rename.
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/pointer/public", target: /etc/nginx/slot, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/slots", target: /srv/slots, read_only: true, bind: { create_host_path: false } }
@@ -152,6 +158,8 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
       GATEWAY_ERROR_LOG_LEVEL: ${GATEWAY_ERROR_LOG_LEVEL:-crit}
       GATEWAY_RATE_LIMIT: "off"
+      GATEWAY_ROUTE_MAX_INFLIGHT: ${GATEWAY_ROUTE_MAX_INFLIGHT:-8}
+      GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP: ${GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP:-4}
       VALHALLA_UPSTREAM: 127.0.0.1:9
       PHOTON_UPSTREAM: 127.0.0.1:9
       NGINX_ENTRYPOINT_QUIET_LOGS: "1"
@@ -162,6 +170,7 @@ services:
       - { type: bind, source: ./gateway/njs, target: /etc/nginx/njs, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/16-rate-limits.sh, target: /docker-entrypoint.d/16-rate-limits.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/17-route-limits.sh, target: /docker-entrypoint.d/17-route-limits.sh, read_only: true }
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/pointer/verify", target: /etc/nginx/slot, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: "${NAV_DATA_ROOT:?set NAV_DATA_ROOT}/slots", target: /srv/slots, read_only: true, bind: { create_host_path: false } }
     restart: "no"
@@ -237,7 +246,9 @@ services:
     image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
     profiles: [build]
     entrypoint: ["/bin/bash", "/scripts/valhalla-build.sh"]
-    environment: *build-env
+    environment:
+      <<: *build-env
+      VALHALLA_TIMEOUT_SECONDS: ${VALHALLA_TIMEOUT_SECONDS:-8}
     volumes: [*scripts, *build-data]
     restart: "no"
 

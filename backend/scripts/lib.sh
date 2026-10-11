@@ -146,6 +146,78 @@ tiles_bounds() {
     else echo ""; fi
 }
 tiles_fingerprint()    { echo "osm=$(osm_sha) protomaps=${PROTOMAPS_COMMIT} maxzoom=${TILES_MAXZOOM:-14} bounds=$(tiles_bounds)"; }
+# The SEC-2 route limits below are deliberately NOT part of this fingerprint: a limit change never rebuilds the graph.
 valhalla_fingerprint() { echo "osm=$(osm_sha) valhalla=${VALHALLA_VERSION}"; }
 photon_fingerprint()   { echo "dump=$(cat "$DATA/sources/photon-dump.sha256") photon=${PHOTON_VERSION} languages=${PHOTON_LANGUAGES} countries=${PHOTON_COUNTRY_CODES:-all}"; }
 protomaps_jar()        { echo "$DATA/tools/protomaps-basemap-${PROTOMAPS_COMMIT}.jar"; }
+
+# ---------------------------------------------------------------- SEC-2 route request limits (ADR-0019 §1, §2)
+# ONE source for the Valhalla service_limits and the processing timeout. Used by valhalla-build.sh (make_config
+# flags, so a fresh valhalla.json describes what is served) and by valhalla-serve.sh, which overlays the same
+# values onto the graph's valhalla.json at start. The serve-time overlay is authoritative, so data/ builds made
+# before SEC-2 and every NAV-006 slot serve these limits without a graph rebuild.
+# The values are the contract (openapi 0.7.0 "Request limits", D216/D217/D222), not .env keys.
+# Entry = <service_limits section>:<max_distance metres>:<max_locations, "-" = the section has none>.
+VALHALLA_LIMIT_MAX_LOCATIONS=10
+VALHALLA_LIMIT_MAX_DISTANCE=3000000
+VALHALLA_ROUTE_LIMITS="auto:3000000:10 bus:3000000:10 taxi:3000000:10 truck:3000000:10 auto_pedestrian:3000000:- \
+bicycle:500000:10 motorcycle:500000:10 motor_scooter:500000:10 bikeshare:500000:10 multimodal:500000:10 \
+transit:500000:10 pedestrian:250000:10"
+
+# VALHALLA_TIMEOUT_SECONDS: integer 1-9, default 8 (below the gateway's 10 s read timeout). Anything else stops
+# the caller with a log line (never a silent fallback). Prints the value.
+valhalla_timeout_seconds() {
+    local t=${VALHALLA_TIMEOUT_SECONDS:-8}
+    [[ "$t" =~ ^[1-9]$ ]] || die "invalid VALHALLA_TIMEOUT_SECONDS (expected an integer 1-9, below the 10 s gateway timeout)" value="$t"
+    printf '%s' "$t"
+}
+
+# valhalla_limit_args: valhalla_build_config flags for the table above plus the httpd timeout.
+valhalla_limit_args() {
+    local t e sec dist locs flag
+    t=$(valhalla_timeout_seconds) || exit 1
+    for e in $VALHALLA_ROUTE_LIMITS; do
+        IFS=: read -r sec dist locs <<< "$e"
+        flag=${sec//_/-}
+        printf -- '--service-limits-%s-max-distance\n%s\n' "$flag" "$dist"
+        [[ "$locs" == "-" ]] || printf -- '--service-limits-%s-max-locations\n%s\n' "$flag" "$locs"
+    done
+    printf -- '--httpd-service-timeout-seconds\n%s\n' "$t"
+}
+
+# valhalla_apply_limits <in.json> <out.json>: copy of <in> with the table, the backstop rule (every service_limits
+# section: max_locations > 10 -> 10, max_distance > 3,000 km -> 3,000 km; nothing is raised) and
+# httpd.service.timeout_seconds applied. Prints a one-line summary such as
+# "auto=3000km/10 ... pedestrian=250km/10 timeout=8s" (no request or user data).
+valhalla_apply_limits() {
+    local in=$1 out=$2 t
+    t=$(valhalla_timeout_seconds) || exit 1
+    python3 - "$in" "$out" "$t" "$VALHALLA_ROUTE_LIMITS" "$VALHALLA_LIMIT_MAX_LOCATIONS" "$VALHALLA_LIMIT_MAX_DISTANCE" <<'PY'
+import json, sys
+src, dst, timeout, table, cap_locs, cap_dist = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], int(sys.argv[5]), float(sys.argv[6])
+with open(src, encoding="utf-8") as f:
+    cfg = json.load(f)
+sl = cfg.setdefault("service_limits", {})
+for entry in table.split():
+    sec, dist, locs = entry.split(":")
+    s = sl.setdefault(sec, {})
+    s["max_distance"] = float(dist)
+    if locs != "-":
+        s["max_locations"] = int(locs)
+for sec, s in sl.items():  # backstop: a section the table does not name can never be more permissive
+    if not isinstance(s, dict):
+        continue
+    if isinstance(s.get("max_locations"), (int, float)) and s["max_locations"] > cap_locs:
+        s["max_locations"] = cap_locs
+    if isinstance(s.get("max_distance"), (int, float)) and s["max_distance"] > cap_dist:
+        s["max_distance"] = cap_dist
+cfg.setdefault("httpd", {}).setdefault("service", {})["timeout_seconds"] = timeout
+with open(dst, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, indent=2)
+def fmt(sec):
+    s = sl[sec]
+    return f"{sec}={int(s['max_distance']) // 1000}km/{s.get('max_locations', '-')}"
+print(" ".join(fmt(x) for x in ("auto", "bus", "taxi", "truck", "motorcycle", "motor_scooter", "bicycle", "pedestrian"))
+      + f" timeout={timeout}s")
+PY
+}

@@ -111,6 +111,7 @@ const ROUTE_STATE_ROW: Partial<Record<RouteState, { key: MessageKey; icon: strin
   "no-route": { key: "route.noRoute", icon: ROUTE_ICONS.noRoute },
   "out-of-area": { key: "route.outOfArea", icon: ICONS.warning },
   "too-far": { key: "route.tooFar", icon: ROUTE_ICONS.info },
+  "too-far-car": { key: "route.tooFarCar", icon: ROUTE_ICONS.info },
   "same-point": { key: "route.samePoint", icon: ROUTE_ICONS.pin },
   unavailable: { key: "route.unavailable", icon: ICONS.warning },
   static: { key: "route.unavailable", icon: ICONS.warning },

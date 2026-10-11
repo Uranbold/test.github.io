@@ -151,6 +151,15 @@ class FallbackRouteRequesterTest {
         assertEquals(4, server.requestCount)
     }
 
+    /** SEC-2 (openapi 0.7.0): the gateway concurrency cap 503 RoutingBusy is not authoritative → on-device fallback. */
+    @Test
+    fun routingBusy503FallsBackOnDevice() {
+        val r = requester()
+        respond(503, """{"code":"RoutingBusy","message":"busy"}""", retryAfter = "1")
+        assertOnDeviceOk(r.startAsync().await())
+        assertEquals(1, engine.calls.size)
+    }
+
     // ------------------------------------------------------------------------------------------------ AC 11 stickiness
 
     @Test

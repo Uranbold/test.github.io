@@ -22,7 +22,7 @@ Container image CVE scans and image default users (no scanner or daemon in the a
 | SP-2 | high | `master` and tags are unprotected while staging deploys run the tag's own script as root | orchestrator | open |
 | AN-1 | medium | Offline packs are trusted only through TLS: the manifest is not signed | architect | duplicate of BE-6 |
 | AN-2 | medium | No Gradle dependency verification or lockfile, and the native libraries come from single-maintainer publishers | mobile-engineer | fixed 2026-10-08 (SEC-4B: sha256 verification metadata, STRICT release lockfile, native provenance documented; single-maintainer risk documented, not removed) |
-| BE-1 | medium | Route request cost is unbounded: Valhalla DoS | backend-engineer | open |
+| BE-1 | medium | Route request cost is unbounded: Valhalla DoS | backend-engineer | fixed 2026-10-11 (SEC-2: Valhalla service_limits for every costing, processing timeout, gateway concurrency cap; ADR-0019; residuals in threat-model rows 1.10, 1.11, 2.7) |
 | BE-2 | medium | IPv6 address rotation bypasses the per-IP rate limit | backend-engineer | open |
 | BE-3 | medium | Large static downloads have no connection or bandwidth limits | backend-engineer | open |
 | BE-4 | medium | No container hardening on any service | backend-engineer | open |

@@ -180,6 +180,18 @@ class Nav011OverlayTest {
         assertTrue(exists("Энэ зай явганаар эсвэл дугуйгаар хэт хол байна"))
     }
 
+    /** SEC-2 (D223), AC 24: car DistanceExceeded / on-device TooFar shows N24 in the N11 row, without «Дахин оролдох». */
+    @Test
+    fun carTooFarShowsN24WithoutRetry() {
+        model.value = m(preview(PreviewResult.TooFarCar))
+        show()
+        assertTrue(exists("Энэ зай машинаар хэт хол байна"))
+        assertFalse(exists("Энэ зай явганаар эсвэл дугуйгаар хэт хол байна"))
+        assertFalse(exists("Маршрут олдсонгүй"))
+        assertFalse(exists("Дахин оролдох"))
+        assertFalse(exists("Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу"))
+    }
+
     @Test
     fun noRouteWithTheAvoidHintExpandsTheSheetOnce() {
         model.value = m(PreviewState(dest, TravelMode.CAR, true, null, PreviewResult.NoRoute(true)))

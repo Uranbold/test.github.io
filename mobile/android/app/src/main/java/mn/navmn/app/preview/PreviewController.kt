@@ -44,7 +44,10 @@ sealed interface PreviewResult {
     data object SamePoint : PreviewResult
     data class NoRoute(val avoidHint: Boolean) : PreviewResult
     data object OutOfArea : PreviewResult
+    /** N11, walk/bike `DistanceExceeded` / on-device `TooFar` (NAV-011 AC 24). */
     data object TooFar : PreviewResult
+    /** N24, car `DistanceExceeded` / on-device `TooFar` (SEC-2, D223; NAV-011 AC 24, NAV-021 AC 6). */
+    data object TooFarCar : PreviewResult
     data object Unavailable : PreviewResult
     data object Offline : PreviewResult
     data class RateLimited(val retryEnabled: Boolean) : PreviewResult
@@ -267,8 +270,8 @@ class PreviewController(
                     is RouteOutcome.Ok -> PreviewResult.Route(outcome.routes, wallNow(), selected = 0)
                     RouteOutcome.NoRoute -> PreviewResult.NoRoute(avoidHint = cur.avoidUnpaved && cur.mode == TravelMode.CAR)
                     RouteOutcome.OutOfCoverage -> PreviewResult.OutOfArea
-                    // AC 24: N11 on «Явган» and «Дугуй»; on «Машин» the same code is «Маршрут олдсонгүй».
-                    RouteOutcome.TooFar -> if (cur.mode != TravelMode.CAR) PreviewResult.TooFar else PreviewResult.NoRoute(cur.avoidUnpaved)
+                    // AC 24 (SEC-2, D223): N11 on «Явган» and «Дугуй»; N24 on «Машин». Server and on-device answers alike.
+                    RouteOutcome.TooFar -> if (cur.mode == TravelMode.CAR) PreviewResult.TooFarCar else PreviewResult.TooFar
                     RouteOutcome.Unavailable -> PreviewResult.Unavailable
                     RouteOutcome.Offline -> PreviewResult.Offline
                     is RouteOutcome.RateLimited -> {

@@ -13,7 +13,8 @@ auto + avoid) for the reference route set RS1-RS8 and checks:
   - each status is documented for postRoute and the body validates against its schema;
   - NAV-004 facts the client relies on: 1-3 routes, every roundabout/rotary step has `exit` >= 1, bearing_after in
     0..360, waypoints[].distance present (AC 21), RS7 -> NoSegment or error 171 (AC 34), RS8 (P1 -> X2 on foot,
-    ADR-0008 §4) -> 400 DistanceExceeded (AC 35);
+    ADR-0008 §4) -> 400 DistanceExceeded (AC 35), RS9 (P1 -> X3 Moscow by car, SEC-2 / openapi 0.7.0
+    distanceExceededCar) -> 400 DistanceExceeded (AC 35, the client shows N24);
   - every manoeuvre type/modifier Valhalla returned is one ADR-0008 §2 maps explicitly (INFO list of anything new);
   - gateway latency per request (INFO, AC 15 is measured in the browser by tests/e2e/nav004/live.test.mjs).
 Pacing: at most 2 requests per second (story Test approach). Never restarts anything. Exit 0 only if every check passes.
@@ -32,12 +33,14 @@ from lib import Report  # noqa: E402
 P = {
     "P1": (47.9189, 106.9176), "P2": (47.9139, 106.9044), "P3": (47.8858, 106.9173), "P4": (47.9215, 106.8950),
     "P5": (47.9095, 106.8835), "P6": (47.9600, 106.9000), "X1": (49.0270, 104.0440), "X2": (39.9042, 116.4074),
+    "X3": (55.7558, 37.6173),  # SEC-2: Moscow, ~4,635 km from P1 (NAV-001 AC 44)
 }
 COSTING = {"car": "auto", "walk": "pedestrian", "bike": "bicycle"}
 RS = [
     ("RS1", "P1", "P3", "car", False), ("RS2", "P1", "P2", "walk", False), ("RS3", "P1", "P4", "car", False),
     ("RS4", "P4", "P5", "bike", False), ("RS5", "P1", "P6", "car", True), ("RS6", "P1", "X1", "car", False),
     ("RS7", "P1", "X2", "car", False), ("RS8", "P1", "X2", "walk", False), ("RS8a", "P1", "X1", "walk", False),
+    ("RS9", "P1", "X3", "car", False),
 ]
 KNOWN_TYPES = {"depart", "arrive", "turn", "continue", "new name", "end of road", "fork", "merge", "on ramp", "off ramp",
                "roundabout", "rotary", "exit roundabout", "exit rotary", "notification"}
@@ -92,6 +95,10 @@ def main():
             continue
         if rid == "RS8":
             rep.check("CT4-F.RS8_walk_too_far", r.status == 400 and j.get("code") == "DistanceExceeded", "400 DistanceExceeded (AC 35, ADR-0008 §4)", f"{r.status} {json.dumps(j)[:120]}")
+            continue
+        if rid == "RS9":
+            rep.check("CT4-F.RS9_car_too_far", r.status == 400 and j.get("code") == "DistanceExceeded" and r.elapsed <= 1,
+                      "400 DistanceExceeded within 1 s (AC 35 car → N24; SEC-2 D216, NAV-001 AC 44)", f"{r.status} in {r.elapsed * 1000:.0f} ms {json.dumps(j)[:120]}")
             continue
         if rid == "RS8a":
             rep.note("CT4-I.RS8a_P1_X1_walk", f"{r.status} {j.get('code')} routes={len(j.get('routes') or [])} (story: QA records; ADR-0008 M: 200 on dev)")

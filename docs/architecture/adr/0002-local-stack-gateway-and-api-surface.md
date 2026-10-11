@@ -170,3 +170,10 @@ Scratch-container results, each `Access-Control-*` header counted once:
 - QA checks: header max zoom exactly 14 on the default build (NAV-001 AC 12), and `Cache-Control: no-store` exactly once plus single CORS headers on the 416 (AC 43, `openapi.yaml` 0.3.0). The unsatisfiable range start must be derived from the measured size `S`, never hard-coded.
 - If a staging CDN is added later (NAV-008), it must honour `no-store` on 416 and cache 206 per `Range`.
 
+### Amendment 4 (2026-10-11): route request limits and the `/v1/route` 5xx mapping (pointer)
+SEC-2 (D213, D216–D225) is decided in **ADR-0019**. It changes §3 for the ROUTE location only, in three ways:
+- the gateway enforces an always-on concurrency cap: nginx `limit_conn`, global and per IP, answered with **503 `RoutingBusy`** and `Retry-After`;
+- `proxy_intercept_errors` is on in that location, so Valhalla 5xx answers, including its new 8 s timeout, reach clients as gateway JSON: 502 `UpstreamUnavailable` or 504 `UpstreamTimeout`;
+- Valhalla 4xx bodies still pass through unchanged.
+
+Distance and location limits live in Valhalla's `service_limits`, applied at serve time. Contract: openapi 0.7.0.

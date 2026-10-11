@@ -16,6 +16,11 @@
 #
 # Valhalla/Photon are not started: /v1/* answers 502/503 here, which these checks do not use.
 # The container joins a user-defined network so nginx's `resolver 127.0.0.11` exists.
+#
+# Optional environment (SEC-2, NAV-001 AC 48/49; see sec2-harness.sh):
+#   QA_VALHALLA_UPSTREAM   upstream for /v1/route (default valhalla:8002), e.g. the QA stub qa-sec2-upstream:8002
+#   QA_EXTRA_NETWORK       also attach the gateway to this network (e.g. navmn_default, so photon:2322 resolves)
+#   GATEWAY_ROUTE_MAX_INFLIGHT, GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP   passed through when set (17-route-limits.sh)
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 be="$(cd "$here/../../../backend" && pwd)"
@@ -23,7 +28,7 @@ net=navmn-qa-iso
 image="$(sed -n 's/^ *image: \${GATEWAY_IMAGE:-\([^}]*\)}.*/\1/p' "$be/compose.yaml" | head -1)"
 
 cmd="${1:-}"; name="${2:-}"
-[ -n "$cmd" ] && [ -n "$name" ] || { sed -n '2,20p' "$0"; exit 2; }
+[ -n "$cmd" ] && [ -n "$name" ] || { sed -n '2,23p' "$0"; exit 2; }
 case "$cmd" in
   start)
     port="$3"; tpl="$(cd "$4" && pwd)"; data="$(cd "$5" && pwd)"; cors="${6:-*}"
@@ -34,14 +39,18 @@ case "$cmd" in
     extra=()
     [ -d "$be/gateway/njs" ] && extra+=(-v "$be/gateway/njs:/etc/nginx/njs:ro")
     for f in "$be"/gateway/entrypoint/*.sh; do extra+=(-v "$f:/docker-entrypoint.d/$(basename "$f"):ro"); done
+    for k in GATEWAY_ROUTE_MAX_INFLIGHT GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP; do
+      if [ -n "${!k:-}" ]; then extra+=(-e "$k=${!k}"); fi
+    done
     docker run -d --name "$name" --network "$net" -p "127.0.0.1:$port:8080" \
       -e CORS_ALLOWED_ORIGINS="$cors" -e GATEWAY_ERROR_LOG_LEVEL=crit \
-      -e VALHALLA_UPSTREAM=valhalla:8002 -e PHOTON_UPSTREAM=photon:2322 -e NGINX_ENTRYPOINT_QUIET_LOGS=1 \
+      -e VALHALLA_UPSTREAM="${QA_VALHALLA_UPSTREAM:-valhalla:8002}" -e PHOTON_UPSTREAM=photon:2322 -e NGINX_ENTRYPOINT_QUIET_LOGS=1 \
       -v "$be/gateway/nginx.conf:/etc/nginx/nginx.conf:ro" \
       -v "$tpl:/etc/nginx/templates:ro" \
       -v "$be/gateway/snippets:/etc/nginx/snippets:ro" \
       "${extra[@]}" \
       -v "$data:/srv/data:ro" "$image" >/dev/null
+    if [ -n "${QA_EXTRA_NETWORK:-}" ]; then docker network connect "$QA_EXTRA_NETWORK" "$name"; fi
     for _ in $(seq 1 40); do
       curl -fsS -o /dev/null "http://127.0.0.1:$port/health" 2>/dev/null && { echo "gateway $name up on :$port ($image, templates=$tpl, data=$data, cors=$cors)"; exit 0; }
       sleep 0.25

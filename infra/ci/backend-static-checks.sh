@@ -13,6 +13,11 @@
 # 7. NAV-020 (ADR-0017): /packs/ static locations (manifest no-cache + strong ETag + 304; files immutable, Range,
 #    If-Range, 416 no-store, no Content-Encoding; other /packs/ paths JSON 404), the "packs" rate-limit zone, the
 #    compose mount, pack + search-builder unit tests, and the Gate 2 recipe rules (no patching, never the upstream image)
+# 9. SEC-2 (ADR-0019): lib.sh route limits (flags + serve-time overlay, timeout validation); gateway /v1/route
+#    concurrency cap (entrypoint/17-route-limits.sh, default 8/4, bad values refused, cannot be left out) -> 503
+#    RoutingBusy with Retry-After/no-store/CORS once, per IP and global, GET too, other paths never capped, no IP in the
+#    logs; upstream 5xx shaping (Valhalla's plain-text 504 -> JSON UpstreamTimeout, 500/503 -> JSON 502, 400 passes
+#    through, gateway read timeout 504), against the njs stub in infra/ci/stub-valhalla (same nginx image)
 # 8. NAV-022 static pack hosting: the static-host test project renders (digest-pinned httpd, loopback port only,
 #    read-only document root); the export + .htaccess unit tests run with the pipeline tests. The full httpd run is
 #    `make -C backend pack-export-test` (pulls ~110 MB, not part of this script).
@@ -33,7 +38,7 @@ if ( cd "$B" && docker compose --env-file /dev/null config --images ) | grep -q 
 
 echo "== gateway (nginx -t and behaviour without upstreams)"
 IMG=$(cd "$B" && docker compose --env-file /dev/null config --images | grep nginx | head -1)
-TMP=$(mktemp -d); trap 'docker rm -f navmn-ci-gw navmn-ci-gw-rl navmn-ci-gw-bad navmn-ci-gw-slot >/dev/null 2>&1 || true; docker network rm navmn-ci-net >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); trap 'docker rm -f navmn-ci-gw navmn-ci-gw-rl navmn-ci-gw-bad navmn-ci-gw-slot navmn-ci-gw-rc navmn-ci-stub >/dev/null 2>&1 || true; docker network rm navmn-ci-net >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 chmod 755 "$TMP"; mkdir -p "$TMP/tiles"; printf 'PMTiles\003' > "$TMP/tiles/basemap.pmtiles"; head -c 1024 /dev/zero >> "$TMP/tiles/basemap.pmtiles"; chmod -R a+rX "$TMP"
 docker run -d --name navmn-ci-gw -p 127.0.0.1:18089:8080 \
   -e CORS_ALLOWED_ORIGINS=http://localhost:5173 -e GATEWAY_ERROR_LOG_LEVEL=crit \
@@ -42,6 +47,7 @@ docker run -d --name navmn-ci-gw -p 127.0.0.1:18089:8080 \
   -v "$B/gateway/snippets:/etc/nginx/snippets:ro" -v "$B/gateway/njs:/etc/nginx/njs:ro" \
   -v "$B/gateway/entrypoint/15-cors-origins.sh:/docker-entrypoint.d/15-cors-origins.sh:ro" \
   -v "$B/gateway/entrypoint/16-rate-limits.sh:/docker-entrypoint.d/16-rate-limits.sh:ro" \
+  -v "$B/gateway/entrypoint/17-route-limits.sh:/docker-entrypoint.d/17-route-limits.sh:ro" \
   -v "$TMP:/srv/data:ro" "$IMG" >/dev/null
 for _ in $(seq 30); do curl -fs localhost:18089/health >/dev/null && break; sleep 1; done
 docker exec navmn-ci-gw nginx -t
@@ -50,6 +56,9 @@ code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 [[ $(code $G/health) == 200 ]] || fail "health"
 curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' $G/health | tr -d '\r' | grep -qi '^access-control-expose-headers: .*Retry-After' || fail "Retry-After not exposed (openapi 0.4.0)"
 docker exec navmn-ci-gw grep -q limit_req /etc/nginx/conf.d/01-rate-limits.conf && fail "rate limits must be off by default"
+docker exec navmn-ci-gw grep -q 'limit_conn nav_route_global 8;' /etc/nginx/conf.d/02-route-limits.conf \
+    && docker exec navmn-ci-gw grep -q 'limit_conn nav_route_ip     4;' /etc/nginx/conf.d/02-route-limits.conf \
+    || fail "SEC-2 route cap must be on by default (8 global / 4 per IP)"
 [[ $(code -H 'Range: bytes=0-7' $G/tiles/basemap.pmtiles) == 206 ]] || fail "tiles range"
 curl -s -D - -o /dev/null -X OPTIONS -H 'Origin: http://localhost:5173' $G/v1/route | grep -qi '^access-control-allow-origin: http://localhost:5173' || fail "preflight allowed origin"
 curl -s -D - -o /dev/null -X OPTIONS -H 'Origin: http://evil.example' $G/v1/route | grep -qi '^access-control-allow-origin' && fail "disallowed origin got ACAO"
@@ -95,6 +104,7 @@ rl_run() {  # rl_run NAME PORT EXTRA_ENV...
     -v "$B/gateway/snippets:/etc/nginx/snippets:ro" -v "$B/gateway/njs:/etc/nginx/njs:ro" \
     -v "$B/gateway/entrypoint/15-cors-origins.sh:/docker-entrypoint.d/15-cors-origins.sh:ro" \
     -v "$B/gateway/entrypoint/16-rate-limits.sh:/docker-entrypoint.d/16-rate-limits.sh:ro" \
+  -v "$B/gateway/entrypoint/17-route-limits.sh:/docker-entrypoint.d/17-route-limits.sh:ro" \
     -v "$TMP:/srv/data:ro" "$IMG" >/dev/null
 }
 printf 'PMTiles\003' > "$TMP/tiles/basemap.pmtiles"; head -c 1024 /dev/zero >> "$TMP/tiles/basemap.pmtiles"; chmod a+r "$TMP/tiles/basemap.pmtiles"
@@ -207,6 +217,7 @@ docker run -d --name navmn-ci-gw-slot --network navmn-ci-net -p 127.0.0.1:18092:
   -v "$B/gateway/snippets:/etc/nginx/snippets:ro" -v "$B/gateway/njs:/etc/nginx/njs:ro" \
   -v "$B/gateway/entrypoint/15-cors-origins.sh:/docker-entrypoint.d/15-cors-origins.sh:ro" \
   -v "$B/gateway/entrypoint/16-rate-limits.sh:/docker-entrypoint.d/16-rate-limits.sh:ro" \
+  -v "$B/gateway/entrypoint/17-route-limits.sh:/docker-entrypoint.d/17-route-limits.sh:ro" \
   -v "$SL/pointer:/etc/nginx/slot:ro" -v "$SL/slots:/srv/slots:ro" -v "$SL/packs:/srv/packs:ro" "$IMG" >/dev/null
 for _ in $(seq 30); do curl -fs localhost:18092/health >/dev/null && break; sleep 1; done
 S=http://127.0.0.1:18092
@@ -314,6 +325,144 @@ assert all(p.get("published") != "8080" for p in s["ports"]), "never the dev gat
 assert {v["target"]: v.get("read_only") for v in s["volumes"]}["/usr/local/apache2/htdocs"], "document root read-only"
 PY
 echo "   static-host test project: navmn-nav022, digest-pinned, 127.0.0.1 only, read-only docroot"
+
+echo "== SEC-2 Valhalla route limits (scripts/lib.sh: flags + serve-time overlay + timeout validation)"
+cat > "$TMP/sec2-lib.sh" <<'SH'
+source "$1/scripts/lib.sh"
+trap - ERR
+set +e
+mapfile -t A < <(valhalla_limit_args)
+printf '%s\n' "${A[@]}" > "$2/flags.txt"
+valhalla_apply_limits "$2/in.json" "$2/out.json" > "$2/summary.txt" || exit 1
+for v in 0 10 abc 8.5 off; do
+    ( VALHALLA_TIMEOUT_SECONDS=$v; valhalla_timeout_seconds >/dev/null 2>&1 ) && { echo "accepted VALHALLA_TIMEOUT_SECONDS=$v"; exit 1; }
+done
+[[ "$(VALHALLA_TIMEOUT_SECONDS=1 valhalla_timeout_seconds)" == 1 && "$(VALHALLA_TIMEOUT_SECONDS= valhalla_timeout_seconds)" == 8 ]] || exit 1
+SH
+# Valhalla 3.9.0 defaults (ADR-0019 F1) as the input of a graph built before SEC-2
+python3 - "$TMP/in.json" <<'PY'
+import json, sys
+d = lambda dist, locs=None: {"max_distance": dist, **({"max_locations": locs} if locs else {}), "max_matrix_distance": 1}
+json.dump({"mjolnir": {"tile_extract": "/data/valhalla/valhalla_tiles.tar"}, "httpd": {"service": {"timeout_seconds": -1}},
+           "service_limits": {"auto": d(5e6, 20), "taxi": d(5e6, 20), "truck": d(5e6, 20), "bus": d(5e6, 50),
+                              "auto_pedestrian": d(5e6), "bicycle": d(5e5, 50), "motorcycle": d(5e5, 50),
+                              "motor_scooter": d(5e5, 50), "bikeshare": d(5e5, 50), "multimodal": d(5e5, 50),
+                              "transit": d(5e5, 50), "pedestrian": d(2.5e5, 50), "isochrone": d(25000, 1),
+                              "centroid": d(2e5, 5), "trace": d(2e5), "future_costing": d(9e6, 99), "max_alternates": 2}},
+          open(sys.argv[1], "w"))
+PY
+bash "$TMP/sec2-lib.sh" "$B" "$TMP" || fail "lib.sh route limit functions"
+python3 - "$TMP" <<'PY' || fail "SEC-2 limits table (ADR-0019 §1)"
+import json, sys
+t = sys.argv[1]
+o = json.load(open(f"{t}/out.json"))
+sl = o["service_limits"]
+want = {"auto": (3e6, 10), "bus": (3e6, 10), "taxi": (3e6, 10), "truck": (3e6, 10), "auto_pedestrian": (3e6, None),
+        "bicycle": (5e5, 10), "motorcycle": (5e5, 10), "motor_scooter": (5e5, 10), "bikeshare": (5e5, 10),
+        "multimodal": (5e5, 10), "transit": (5e5, 10), "pedestrian": (2.5e5, 10), "isochrone": (25000, 1),
+        "centroid": (2e5, 5), "trace": (2e5, None), "future_costing": (3e6, 10)}
+for k, (dist, locs) in want.items():
+    assert (sl[k]["max_distance"], sl[k].get("max_locations")) == (dist, locs), (k, sl[k])
+assert sl["max_alternates"] == 2 and o["httpd"]["service"]["timeout_seconds"] == 8, o["httpd"]
+assert o["mjolnir"]["tile_extract"] == "/data/valhalla/valhalla_tiles.tar"
+flags = open(f"{t}/flags.txt").read().split("\n")
+pairs = dict(zip(flags[0::2], flags[1::2]))
+assert pairs["--service-limits-auto-max-distance"] == "3000000" and pairs["--service-limits-motor-scooter-max-locations"] == "10"
+assert pairs["--service-limits-pedestrian-max-distance"] == "250000" and pairs["--httpd-service-timeout-seconds"] == "8"
+assert "--service-limits-auto-pedestrian-max-locations" not in pairs
+print("   lib.sh:", open(f"{t}/summary.txt").read().strip())
+PY
+grep -q 'valhalla_apply_limits "$CONF" "$RUNTIME_CONF"' "$B/scripts/valhalla-serve.sh" && grep -q 'exec valhalla_service "$RUNTIME_CONF"' "$B/scripts/valhalla-serve.sh" \
+    || fail "valhalla-serve.sh must serve the overlaid runtime config"
+grep -q '"${LIMIT_ARGS\[@\]}"' "$B/scripts/valhalla-build.sh" || fail "valhalla-build.sh make_config must carry the limit flags"
+grep -A1 '^valhalla_fingerprint()' "$B/scripts/lib.sh" | grep -qiE 'limit|timeout' && fail "route limits must not be in the graph fingerprint"
+
+echo "== SEC-2 gateway /v1/route concurrency cap and 5xx shaping (stub upstream, cap 3 global / 2 per IP)"
+docker run -d --name navmn-ci-stub --network navmn-ci-net --network-alias valhalla \
+  -v "$ROOT/infra/ci/stub-valhalla/nginx.conf:/etc/nginx/nginx.conf:ro" -v "$ROOT/infra/ci/stub-valhalla:/stub:ro" "$IMG" >/dev/null
+rl_run navmn-ci-gw-rc 18093 -e GATEWAY_ROUTE_MAX_INFLIGHT=3 -e GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP=2
+for _ in $(seq 30); do curl -fs localhost:18093/health >/dev/null && break; sleep 1; done
+for _ in $(seq 20); do docker exec navmn-ci-stub curl -fs -o /dev/null http://127.0.0.1:8002/status && break; sleep 0.5; done
+C=http://127.0.0.1:18093
+rpost() { curl -s -D - -o "$TMP/rc.body" -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' -X POST -d "$1" $C/v1/route | tr -d '\r'; }
+single_cors() {  # $1 = headers, $2 = label
+  local dup; dup=$(echo "$1" | grep -i '^access-control-[a-z-]*:' | cut -d: -f1 | tr 'A-Z' 'a-z' | sort | uniq -d)
+  [[ -z "$dup" ]] || fail "$2: repeated headers: $dup"
+  [[ $(echo "$1" | grep -ci '^access-control-allow-origin: http://localhost:5173$') == 1 ]] || fail "$2: ACAO"
+  [[ $(echo "$1" | grep -ci '^access-control-expose-headers: .*Retry-After') == 1 ]] || fail "$2: Expose-Headers"
+}
+# upstream answers: 400 passes through raw; 500 / 503 -> JSON 502; Valhalla's plain-text 504 -> JSON 504 UpstreamTimeout
+H=$(rpost '{"stub":"e400"}'); echo "$H" | head -1 | grep -q ' 400' && grep -q '"code":"DistanceExceeded"' "$TMP/rc.body" || fail "upstream 400 must pass through: $(echo "$H" | head -1)"
+single_cors "$H" "upstream 400"
+for m in e500 e503; do
+  H=$(rpost "{\"stub\":\"$m\"}")
+  echo "$H" | head -1 | grep -q ' 502' && grep -q '^{"code":"UpstreamUnavailable",' "$TMP/rc.body" || fail "upstream $m must be JSON 502: $(echo "$H" | head -1) $(head -c 80 "$TMP/rc.body")"
+  single_cors "$H" "upstream $m"
+done
+H=$(rpost '{"stub":"timeout"}')
+echo "$H" | head -1 | grep -q ' 504' && grep -q '^{"code":"UpstreamTimeout","message":"routing service timed out"}$' "$TMP/rc.body" \
+    && echo "$H" | grep -qi '^content-type: application/json' || fail "Valhalla timeout must be JSON 504 UpstreamTimeout: $(echo "$H" | head -1) $(head -c 80 "$TMP/rc.body")"
+single_cors "$H" "upstream 504"
+# per IP: 2 slow in flight, the 3rd from the same IP is 503 RoutingBusy at once (never 502), the 2 finish with 200
+for i in 1 2; do curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"stub":"slow"}' $C/v1/route > "$TMP/rc.slow$i" & done
+sleep 0.7
+t0=$(date +%s%N); H=$(rpost '{"stub":"ok"}'); ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+echo "$H" | head -1 | grep -q ' 503' || fail "per-IP cap: 3rd request got $(echo "$H" | head -1)"
+grep -q '^{"code":"RoutingBusy","message":"routing service busy"}$' "$TMP/rc.body" || fail "503 body: $(head -c 120 "$TMP/rc.body")"
+echo "$H" | grep -qi '^content-type: application/json' || fail "503 Content-Type"
+[[ $(echo "$H" | grep -ci '^retry-after:') == 1 ]] && echo "$H" | grep -qiE '^retry-after: [1-9][0-9]*$' || fail "503 Retry-After"
+[[ $(echo "$H" | grep -ci '^cache-control:') == 1 ]] && echo "$H" | grep -qi '^cache-control: no-store$' || fail "503 Cache-Control"
+single_cors "$H" "503 RoutingBusy"
+(( ms < 1000 )) || fail "503 RoutingBusy took ${ms} ms (want < 1 s)"
+[[ $(curl -s -o /dev/null -w '%{http_code}' "$C/v1/route?json=%7B%22stub%22%3A%22ok%22%7D") == 503 ]] || fail "per-IP cap must count GET ?json= too"
+for c in "$(curl -s -o /dev/null -w '%{http_code}' $C/health)" "$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS -H 'Origin: http://localhost:5173' $C/v1/route)" \
+         "$(curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=0-7' $C/tiles/basemap.pmtiles)" "$(curl -s -o /dev/null -w '%{http_code}' "$C/v1/search?q=a")"; do
+  [[ $c != 503 ]] || fail "health/OPTIONS/tiles/search must never be capped"
+done
+# global: 2 from this IP + 1 from another container = 3 in flight; a 4th from the other container is 503
+[[ $(docker exec navmn-ci-stub curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"stub":"slow"}' http://navmn-ci-gw-rc:8080/v1/route & sleep 0.5;
+     docker exec navmn-ci-stub curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"stub":"ok"}' http://navmn-ci-gw-rc:8080/v1/route; wait) == *503* ]] \
+    || fail "global cap: 4th request in flight (other client IP) was not 503"
+wait
+[[ $(cat "$TMP/rc.slow1") == 200 && $(cat "$TMP/rc.slow2") == 200 ]] || fail "requests in flight must finish normally ($(cat "$TMP/rc.slow1") $(cat "$TMP/rc.slow2"))"
+[[ $(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"stub":"ok"}' $C/v1/route) == 200 ]] || fail "cap must free after the requests finish"
+# gateway read timeout (10 s) still gives JSON 504 when Valhalla never answers
+t0=$(date +%s); H=$(rpost '{"stub":"hang"}'); el=$(( $(date +%s) - t0 ))
+echo "$H" | head -1 | grep -q ' 504' && grep -q '"code":"UpstreamTimeout"' "$TMP/rc.body" && (( el >= 9 && el <= 12 )) || fail "read timeout: $(echo "$H" | head -1) after ${el}s"
+docker logs navmn-ci-gw-rc 2>&1 | grep -qiE 'limiting connections|client: ' && fail "limit_conn lines reached the log"
+docker logs navmn-ci-gw-rc 2>&1 | grep -qE '([0-9]{1,3}\.){3}[0-9]{1,3}' && fail "an IPv4 address reached the gateway log"
+docker rm -f navmn-ci-gw-rc navmn-ci-stub >/dev/null
+# invalid values and a missing 17-route-limits.sh are refused at start (never an uncapped gateway)
+for bad in "GATEWAY_ROUTE_MAX_INFLIGHT=0" "GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP=off" "GATEWAY_ROUTE_MAX_INFLIGHT=abc"; do
+  docker rm -f navmn-ci-gw-bad >/dev/null 2>&1 || true
+  rl_run navmn-ci-gw-bad 18091 -e "$bad"
+  for _ in $(seq 20); do [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] && break; sleep 0.5; done
+  [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] || fail "invalid $bad was accepted"
+done
+docker rm -f navmn-ci-gw-bad >/dev/null 2>&1 || true
+docker run -d --name navmn-ci-gw-bad --network navmn-ci-net -e CORS_ALLOWED_ORIGINS='*' -e GATEWAY_ERROR_LOG_LEVEL=crit \
+  -e VALHALLA_UPSTREAM=valhalla:8002 -e PHOTON_UPSTREAM=photon:2322 -e NGINX_ENTRYPOINT_QUIET_LOGS=1 \
+  -v "$B/gateway/nginx.conf:/etc/nginx/nginx.conf:ro" -v "$B/gateway/templates:/etc/nginx/templates:ro" \
+  -v "$B/gateway/snippets:/etc/nginx/snippets:ro" -v "$B/gateway/njs:/etc/nginx/njs:ro" \
+  -v "$B/gateway/entrypoint/15-cors-origins.sh:/docker-entrypoint.d/15-cors-origins.sh:ro" \
+  -v "$B/gateway/entrypoint/16-rate-limits.sh:/docker-entrypoint.d/16-rate-limits.sh:ro" \
+  -v "$TMP:/srv/data:ro" "$IMG" >/dev/null
+for _ in $(seq 20); do [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] && break; sleep 0.5; done
+[[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] || fail "a gateway without 17-route-limits.sh must refuse to start"
+docker rm -f navmn-ci-gw-bad >/dev/null
+python3 - "$TMP/slots.yaml" "$TMP/dev.yaml" <<'PY' || fail "SEC-2 compose pass-through"
+import sys, yaml
+s = yaml.safe_load(open(sys.argv[1]))["services"]; d = yaml.safe_load(open(sys.argv[2]))["services"]
+for name, svc in [("dev gateway", d["gateway"]), ("slots gateway", s["gateway"]), ("slots gateway-verify", s["gateway-verify"])]:
+    env = svc["environment"]
+    assert env["GATEWAY_ROUTE_MAX_INFLIGHT"] == "8" and env["GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP"] == "4", name
+    assert "/docker-entrypoint.d/17-route-limits.sh" in {v["target"] for v in svc["volumes"]}, name
+for name, svc in [("dev valhalla", d["valhalla"]), ("dev valhalla-build", d["valhalla-build"]), ("valhalla-blue", s["valhalla-blue"]),
+                  ("valhalla-green", s["valhalla-green"]), ("slots valhalla-build", s["valhalla-build"])]:
+    assert svc["environment"]["VALHALLA_TIMEOUT_SECONDS"] == "8", name
+print("   compose: cap keys + 17-route-limits.sh on every gateway, VALHALLA_TIMEOUT_SECONDS on every Valhalla service")
+PY
+echo "   SEC-2: limits table + overlay, 503 RoutingBusy per IP and global (GET too), 5xx shaped as JSON, 400 raw, bad values refused"
 
 echo "== NAV-006 + NAV-020 + NAV-022 pipeline unit tests, NAV-020 search builder tests"
 python3 -m unittest discover -s "$B/pipeline/tests" > "$TMP/ut.log" 2>&1 || { tail -n 30 "$TMP/ut.log"; fail "pipeline unit tests"; }

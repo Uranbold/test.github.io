@@ -21,8 +21,13 @@ log info "building routing graph" reason="$([[ -f "$MARKER" ]] && echo 'inputs c
 rm -rf "$STAGING"
 mkdir -p "$STAGING/tiles"
 
-# make_config <tile_dir> <tile_extract>: Valhalla defaults + our paths. No admin/timezone DBs in
-# Phase 0 (defaults: right-hand traffic, which is correct for Mongolia).
+# SEC-2 (ADR-0019 §1-2): route limits + processing timeout from lib.sh. Not in the fingerprint (FP above); the
+# serve-time overlay in valhalla-serve.sh applies the same values to graphs built before SEC-2.
+mapfile -t LIMIT_ARGS < <(valhalla_limit_args)
+[[ ${#LIMIT_ARGS[@]} -gt 0 ]] || die "route limit flags missing (VALHALLA_TIMEOUT_SECONDS invalid?)"
+
+# make_config <tile_dir> <tile_extract>: Valhalla defaults + our paths + the SEC-2 limits. No admin/timezone DBs
+# in Phase 0 (defaults: right-hand traffic, which is correct for Mongolia).
 make_config() {
     valhalla_build_config \
         --mjolnir-tile-dir "$1" \
@@ -33,6 +38,7 @@ make_config() {
         --mjolnir-landmarks "" \
         --mjolnir-concurrency "$(threads)" \
         --service-limits-max-alternates 2 \
+        "${LIMIT_ARGS[@]}" \
         --httpd-service-listen "tcp://*:8002"
 }
 

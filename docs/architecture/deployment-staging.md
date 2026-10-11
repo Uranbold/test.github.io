@@ -158,6 +158,7 @@ The gateway image and templates are NAV-001's. Staging changes only `.env` value
 | `CORS_ALLOWED_ORIGINS` | `https://demo-staging.<domain>,http://localhost:5173` (the first entry is a placeholder; see open question). **Never `*`** | AC 11 |
 | Real client IP | nginx `real_ip`: `set_real_ip_from <Compose network CIDR of Caddy>`, `real_ip_header X-Forwarded-For`, `real_ip_recursive off`. The CIDR is pinned by giving the Compose network a fixed subnet in the overlay | Needed for per-IP rate limits. `$remote_addr` is still **not** in the access log format |
 | Rate limits | §7.1 | AC 13 |
+| Route request limits (SEC-2, ADR-0019) | Valhalla `service_limits` and `VALHALLA_TIMEOUT_SECONDS=8`; gateway route concurrency cap `GATEWAY_ROUTE_MAX_INFLIGHT=8`, `GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP=4` (§7.2) | BE-1, NAV-001 AC 44–49. The cap is always on; it does not depend on `GATEWAY_RATE_LIMIT` |
 | `GATEWAY_ERROR_LOG_LEVEL` | `crit` (unchanged) | nginx's "limiting requests" lines are `error` level and contain the client IP. They must stay suppressed (keep `limit_req_log_level` at its default `error` or lower) |
 | `OSM_PBF_URL` | `https://download.geofabrik.de/asia/mongolia-latest.osm.pbf` | AC 15 (dev default is a mirror because Geofabrik is blocked only in the dev container) |
 
@@ -174,6 +175,22 @@ Enforced by the gateway with nginx `limit_req`, keyed on the client IP (`$binary
 - **429 response (contract, `openapi.yaml` 0.4.0):** status 429, `Content-Type: application/json`, body `{"code":"RateLimited","message":"Too many requests"}`, `Retry-After: <integer seconds ≥ 1>` (staging: `1`), `Cache-Control: no-store`, and each `Access-Control-*` header exactly once (NFR-C3). `Access-Control-Expose-Headers` now also lists `Retry-After`, so browser clients can read it.
 - Values are `.env` keys (names are backend's choice, for example `GATEWAY_RATE_ROUTE=30r/s`, `GATEWAY_BURST_ROUTE=60`), each documented in `.env.example`.
 - Volumetric attacks are Hostinger Wanguard's job, in front of the host. The gateway limit protects the VM's CPU from one abusive client. Authentication remains out of scope (D8).
+
+### 7.2 Route request limits and the concurrency cap (SEC-2, ADR-0019, added 2026-10-11)
+- **Valhalla** (same on dev, staging and every NAV-006 slot, applied at serve time):
+  - `auto`, `bus`, `taxi`, `truck`: 3,000 km straight-line sum;
+  - `bicycle`, `motorcycle`, `motor_scooter`: 500 km;
+  - `pedestrian`: 250 km;
+  - 10 locations for every costing;
+  - processing timeout `VALHALLA_TIMEOUT_SECONDS=8` (gateway read timeout stays 10 s).
+
+  `valhalla-serve.sh` logs the effective values once at start. After a deploy or slot switch, check that log line on the active lane.
+- **Gateway concurrency cap on `/v1/route`:** `GATEWAY_ROUTE_MAX_INFLIGHT=8` in total (2 × `VALHALLA_THREADS` on the 4-vCPU host) and `GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP=4`, keyed on the same real client IP as §7.1 (`real_ip` from Caddy; the per-IP cap is only meaningful because the overlay always sets `GATEWAY_REAL_IP_FROM`). Over either cap: 503 `RoutingBusy` with `Retry-After: 1`, `Cache-Control: no-store` and single CORS headers, at once and with no queue. "Limiting connections" lines are logged at `info`, below `crit`, so client IPs are never logged.
+- **Staging measurement before any public exposure** (owner: backend, with QA; result recorded in the NAV-008 change log and, when values change, in ADR-0019's implementation record):
+  1. Run the NAV-008 normal request loop (≤ 10 requests/s mixed). It must produce **0** × 503 and keep the route p95 within NAV-001 AC 35 measured through Caddy (D26 RTT noted).
+  2. Step the number of concurrent long requests (L1→L2 `auto` with `alternates: 2`, P1→X1 `pedestrian`) from one IP, then from 2 or more IPs. Record when 503s start, the p95 of the accepted requests and the 504 count. The global cap is right when accepted requests at the cap still finish inside 8 s; if 504s appear at the cap, lower it.
+  3. Record the count of 503 and 504 responses per hour from the access log, which has no IP and no query string, for the first tester week. If testers behind one carrier-grade NAT address see «Маршрутын үйлчилгээ түр ажиллахгүй байна» during normal use, raise the per-IP cap and log the change.
+- **Probe:** `rate_limit_check.py` burst-route (64 workers) meets the cap before the rate limit, so it accepts 503 `RoutingBusy` (contract shape) next to 429 (NAV-008 AC 13 note).
 
 ## 8. Logs and privacy
 Rule (NAV-001 privacy rules, NFR-P1, NAV-008 AC 14): **no client IP address, query string, request body or coordinate** in any log on the request path.
@@ -264,6 +281,7 @@ Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s 
 | `CORS_ALLOWED_ORIGINS` | Existing key, staging value in §7 | no |
 | `OSM_PBF_URL` | Existing key, Geofabrik on staging | no |
 | rate-limit keys | §7.1 | no |
+| `VALHALLA_TIMEOUT_SECONDS`, `GATEWAY_ROUTE_MAX_INFLIGHT`, `GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP` | Route request limits (§7.2, ADR-0019 §6; confirmed names, defaults 8 / 8 / 4) | no |
 | trusted proxy CIDR | Subnet of the Compose network that Caddy uses (§7) | no |
 | `UPTIME_PUSH_URL_REBUILD`, `UPTIME_PUSH_URL_DISK` | Uptime Kuma push URLs (they contain tokens) | **yes**, only in `.env` on the host |
 | `RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE` | Backup target and the path to the password file | repository no; the password file is a secret outside git |

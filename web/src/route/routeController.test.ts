@@ -191,7 +191,7 @@ describe("swap (AC 8)", () => {
 });
 
 describe("errors (AC 33–36, 39)", () => {
-  const run = async (o: RouteOutcome, mode: "car" | "walk" = "car", avoid = false) => {
+  const run = async (o: RouteOutcome, mode: "car" | "walk" | "bike" = "car", avoid = false) => {
     if (mode !== "car") c.setMode(mode);
     c.setAvoid(avoid);
     c.openWith(P3, P1);
@@ -209,11 +209,13 @@ describe("errors (AC 33–36, 39)", () => {
   it("NoSegment → outside the service area", async () => {
     expect(await run({ kind: "outOfArea" })).toMatchObject({ state: "out-of-area", retry: "none" });
   });
-  it("DistanceExceeded → too far on walk/bike, no route on car", async () => {
-    expect((await run({ kind: "distanceExceeded" }, "walk")).state).toBe("too-far");
+  it("DistanceExceeded → too far (N11) on walk/bike, no retry", async () => {
+    expect(await run({ kind: "distanceExceeded" }, "walk")).toMatchObject({ state: "too-far", retry: "none" });
+    expect(await run({ kind: "distanceExceeded" }, "bike")).toMatchObject({ state: "too-far", retry: "none" });
   });
-  it("DistanceExceeded on car → no route", async () => {
-    expect((await run({ kind: "distanceExceeded" })).state).toBe("no-route");
+  it("SEC-2 (D223): DistanceExceeded on car → too far by car (N24), no retry, no avoid hint", async () => {
+    expect(await run({ kind: "distanceExceeded" })).toMatchObject({ state: "too-far-car", retry: "none", avoidHint: false });
+    expect(await run({ kind: "distanceExceeded" }, "car", true)).toMatchObject({ state: "too-far-car", avoidHint: false });
   });
   it("generic error → no retry", async () => {
     expect(await run({ kind: "error" })).toMatchObject({ state: "error", retry: "none" });

@@ -7,7 +7,7 @@ Test plan: docs/qa/test-plans/NAV-001.md (each check id below is a test case id 
 
 Groups (default: smoke):
   smoke      AC 40 set: AC 9, 13-16, 18, 21-23, 25, 28-30, 32 + AC 42 info (11, 19, 24) + AC 40 runtime
-  full       smoke + AC 10, 11, 12 (D1 rule), 17, 19, 20, 24, 26, 27, 33, 43 + contract extras (404/405/413/HEAD/304/416/GET ?json=,
+  full       smoke + AC 10, 11, 12 (D1 rule), 17, 19, 20, 24, 26, 27, 33, 43, 44-47 (sec2) + contract extras (404/405/413/HEAD/304/416/GET ?json=,
              no repeated Access-Control-* header on any response)
   perf       AC 35-38 (p95 of 20 sequential requests each)
   ac43       AC 43 only (416 on TILES: single CORS headers, JSON body, exactly one Cache-Control: no-store, no
@@ -21,6 +21,19 @@ Groups (default: smoke):
   outage     AC 34. Stops and restarts valhalla and photon with docker compose (needs --compose-dir)
   logs       No PII in logs: sends requests with marker coordinates/text, then greps service logs (needs --compose-dir)
   stats      AC 39 steady-state memory and data/ size (needs --compose-dir)
+  sec2       SEC-2 route request limits, AC 44-47 (POST and GET ?json=); also part of full. Read-only, ~45 requests
+  ac48       AC 48 Valhalla timeout: run against a gateway whose Valhalla has VALHALLA_TIMEOUT_SECONDS=1 and is slow
+             enough to hit it (tests/api/nav001/sec2-harness.sh valhalla-slow). If no request runs over 1 s, the AC 48
+             asserts are SKIPPED with the reason (precondition not met), never passed
+  ac48-hang  AC 48 last sentence: an upstream that never answers ends as 504 UpstreamTimeout JSON after the 10 s gateway
+             read timeout (sec2-harness.sh stub upstream, mode hang)
+  ac49-ip    AC 49 per-IP cap: 4 slow requests in flight from one IP, the 5th (POST and GET) gets 503 RoutingBusy within
+             1 s; the 4 finish 200; health/tiles/search/reverse answer meanwhile; a slot frees afterwards. Needs a gateway
+             with the default cap (4 per IP, 8 global) in front of the slow stub upstream (sec2-harness.sh)
+  ac49-global AC 49 global cap: gateway with GATEWAY_ROUTE_MAX_INFLIGHT=2, GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP=4 in front
+             of the slow stub; the 3rd concurrent request gets 503 RoutingBusy
+  ac49-live  AC 49 against real Valhalla: 32 parallel P1->P3 requests; every answer is 200 or a conforming 503
+             RoutingBusy (never 502), count recorded as INFO. Opt-in (burst on the target gateway)
 
 Exit code 0 only if no check failed (AC 41). Every FAIL line prints expected and actual.
 """
@@ -34,8 +47,10 @@ import time
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import (EVIL_ORIGIN, MN_SPECIFIC, ORIGIN, P, Client, PMTilesRemote, Report, decode_mvt,  # noqa: E402
-                 decode_polyline, haversine_m, is_cyrillic, lonlat_to_tile, nearest_feature_m, p95)
+from lib import (EVIL_ORIGIN, MN_SPECIFIC, ORIGIN, OTHER_COSTINGS, P, UB10, UB11, Client, PMTilesRemote, Report,  # noqa: E402
+                 decode_mvt, decode_polyline, haversine_m, is_cyrillic, lonlat_to_tile, nearest_feature_m,
+                 openapi_example_code, p95, routing_busy_errors)
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 
 MOVE_ALLOWANCE_M = 50  # story: "QA may move any point by up to 50 m to the nearest routable road"
 
@@ -580,10 +595,14 @@ class Nav001:
         self.r.check(cid, v <= limit_ms and not bad, f"p95 <= {limit_ms} ms, all 2xx",
                      f"p95 {v:.1f} ms (min {min(times):.1f}, max {max(times):.1f}); non-2xx: {bad}")
         self.r.note(cid + ".p95_ms", round(v, 1))
+        return bad
 
     def perf(self):
         pairs = [(a, b) for a in ("P1", "P2", "P3", "P4", "P5") for b in ("P1", "P2", "P3", "P4", "P5") if a != b]
-        self._perf("AC35.route_p95", lambda i: self.c.route(*pairs[i % len(pairs)]), 500)
+        bad = self._perf("AC35.route_p95", lambda i: self.c.route(*pairs[i % len(pairs)]), 500)
+        # SEC-2 AC 49: requests under the cap are not affected (20 sequential requests, 0 x 503 RoutingBusy).
+        self.r.check("AC49.ac35_sequential_0x503", 503 not in bad, "0 x 503 in the 20 sequential AC 35 requests",
+                     f"{bad.count(503)} x 503")
         prefixes = ["Сү", "Сүх", "Сүхб", "Сүхба", "Сүхбаа", "Сүхбаат", "Сүхбаата", "Сүхбаатар", "Ул", "Улаан",
                     "Улаанба", "Улаанбаат", "Га", "Ганд", "Гандан", "Зай", "Зайсан", "Их дэлгүү", "Их", "Төмөр зам"]
         self._perf("AC36.search_p95", lambda i: self.c.get("/v1/search", {"q": prefixes[i], **self.BIAS, "lang": "mn"}), 300)
@@ -600,6 +619,208 @@ class Nav001:
         self.r.note("AC38.tiles_used", f"{len(locs)} tiles, zooms {sorted({z for z, _ in locs})}")
         self._perf("AC38.tiles_p95", lambda i: self.c.request(
             "GET", "/tiles/basemap.pmtiles", headers={"Range": "bytes=%d-%d" % (locs[i % len(locs)][1][0], sum(locs[i % len(locs)][1]) - 1)}), 100)
+
+    # ------------------------------------------------------------------ H. SEC-2 route request limits (AC 44-49)
+    def _code(self, r):
+        return (r.json() or {}).get("code") if isinstance(r.json(), dict) else None
+
+    def _expect_400(self, cid, r, code, limit_s=1.0):
+        """400 JSON with `code` within limit_s (OsrmError body passed through from Valhalla)."""
+        j = r.json()
+        ok = r.status == 400 and isinstance(j, dict) and j.get("code") == code and r.elapsed <= limit_s
+        return self.r.check(cid, ok, f"400 {{code: {code}}} JSON in <= {limit_s:g} s",
+                            f"{r.status} in {r.elapsed * 1000:.0f} ms: {r.body[:110]!r}")
+
+    def _expect_ok(self, cid, r, limit_s=10.0):
+        j = r.json() or {}
+        ok = r.status == 200 and j.get("code") == "Ok" and len(j.get("routes") or []) >= 1 and r.elapsed <= limit_s
+        return self.r.check(cid, ok, f'200 code "Ok" with >= 1 route in <= {limit_s:g} s',
+                            f"{r.status} in {r.elapsed * 1000:.0f} ms: {r.body[:110]!r}")
+
+    def ac44(self):
+        for k in ("X3", "X4", "X5"):
+            d = haversine_m(P["P1"], P[k]) / 1000
+            self.r.note(f"AC44.haversine_P1_{k}_km", round(d, 1))
+            if k in ("X4", "X5"):
+                self.r.check(f"AC44.{k}_at_least_50km_from_3000", abs(d - 3000) >= 50, "|d - 3,000 km| >= 50 km (story)", f"{d:.1f} km")
+        self._expect_400("AC44.P1_X3_auto_DistanceExceeded", self.c.route("P1", "X3"), "DistanceExceeded")
+        self._expect_400("AC44.P1_X5_auto_DistanceExceeded", self.c.route("P1", "X5"), "DistanceExceeded")
+        r = self.c.route("P1", "X4")
+        j = r.json() if isinstance(r.json(), dict) else {}
+        self.r.check("AC44.P1_X4_auto_4xx_not_DistanceExceeded",
+                     400 <= r.status < 500 and bool(j) and j.get("code") != "DistanceExceeded" and r.elapsed <= 3,
+                     "4xx JSON whose code is not DistanceExceeded in <= 3 s (expected NoSegment)",
+                     f"{r.status} in {r.elapsed * 1000:.0f} ms: {r.body[:110]!r}")
+        self.r.note("AC44.P1_X4_code", j.get("code") or j.get("error_code"))
+        for costing in OTHER_COSTINGS:
+            self._expect_400(f"AC44.P1_X3_{costing}_DistanceExceeded", self.c.route("P1", "X3", costing=costing), "DistanceExceeded")
+        # Section H applies to getRoute too.
+        self._expect_400("AC44.GET.P1_X3_auto_DistanceExceeded", self.c.route_get(self.c.route_body("P1", "X3")), "DistanceExceeded")
+        self._expect_400("AC44.GET.P1_X3_truck_DistanceExceeded",
+                         self.c.route_get(self.c.route_body("P1", "X3", costing="truck")), "DistanceExceeded")
+        # AC 32 unchanged: X2 Beijing by car stays NoSegment (not DistanceExceeded, ~1,170 km).
+        r = self.c.route("P1", "X2")
+        self.r.check("AC44.AC32_unchanged_P1_X2_auto_NoSegment", r.status == 400 and self._code(r) == "NoSegment" and r.elapsed <= 3,
+                     "400 NoSegment in <= 3 s (AC 32 unchanged)", f"{r.status} in {r.elapsed * 1000:.0f} ms: {r.body[:110]!r}")
+
+    def ac45(self):
+        self.r.note("AC45.haversine_L1_L2_km", round(haversine_m(P["L1"], P["L2"]) / 1000, 1))
+        for alt in (0, 2):
+            r = self.c.request("POST", "/v1/route", self.c.route_body("L1", "L2", alternates=alt), timeout=15)
+            self._expect_ok(f"AC45.L1_L2_auto_alternates_{alt}_200", r, 10)
+            j = r.json() or {}
+            self.r.note(f"AC45.L1_L2_alternates_{alt}", f"{r.elapsed * 1000:.0f} ms, {len(j.get('routes') or [])} route(s)"
+                        + (f", {j['routes'][0]['distance'] / 1000:.0f} km" if j.get("routes") else ""))
+
+    def ac46(self):
+        want = openapi_example_code("tooManyLocations")
+        self.r.note("AC46.documented_too_many_locations_code", f"{want!r} (openapi.yaml example tooManyLocations)")
+        self.r.check("AC46.contract_documents_a_code", bool(want), "openapi.yaml has example tooManyLocations with a code", want)
+        for costing in ("auto", "pedestrian", "bicycle"):
+            self._expect_ok(f"AC46.10_locations_{costing}_200", self.c.request("POST", "/v1/route", self.c.route_multi_body(UB10, costing), timeout=15))
+        for costing in ["auto", "pedestrian", "bicycle"] + OTHER_COSTINGS:
+            self._expect_400(f"AC46.11_locations_{costing}_400", self.c.request("POST", "/v1/route", self.c.route_multi_body(UB11, costing)), want)
+        self._expect_400("AC46.GET.11_locations_auto_400", self.c.route_get(self.c.route_multi_body(UB11, "auto")), want)
+
+    def ac47(self):
+        for costing in ("pedestrian", "bicycle"):
+            self._expect_400(f"AC47.P1_X2_{costing}_DistanceExceeded", self.c.route("P1", "X2", costing=costing), "DistanceExceeded")
+        self.r.note("AC47.haversine_P1_X1_km", round(haversine_m(P["P1"], P["X1"]) / 1000, 1))
+        for costing in ("bicycle", "pedestrian"):
+            r = self.c.request("POST", "/v1/route", self.c.route_body("P1", "X1", costing=costing), timeout=15)
+            self._expect_ok(f"AC47.P1_X1_{costing}_200", r, 10)
+            self.r.note(f"AC47.P1_X1_{costing}_ms", round(r.elapsed * 1000))
+        self.r.note("AC47.haversine_P6_P3_km", round(haversine_m(P["P6"], P["P3"]) / 1000, 2))
+        for costing in ("pedestrian", "bicycle"):
+            self._expect_ok(f"AC47.UB_floor_P6_P3_{costing}_200", self.c.route("P6", "P3", costing=costing), 10)
+
+    def sec2(self):
+        self.ac44()
+        self.ac45()
+        self.ac46()
+        self.ac47()
+
+    # AC 48: Valhalla's own timeout -> 504 UpstreamTimeout JSON
+    def _timeout_shape(self, cid, r, hi_s):
+        j = r.json()
+        ctype = (r.header("content-type") or "").split(";")[0].strip()
+        self.r.check(cid + ".status_504", r.status == 504, 504, f"{r.status} in {r.elapsed * 1000:.0f} ms: {r.body[:100]!r}")
+        self.r.check(cid + ".json_UpstreamTimeout", ctype == "application/json" and isinstance(j, dict)
+                     and j.get("code") == "UpstreamTimeout" and isinstance(j.get("message"), str),
+                     "Content-Type application/json, GatewayError {code: UpstreamTimeout} (not Valhalla's raw text, not HTML)",
+                     f"{r.header('content-type')!r} {r.body[:100]!r}")
+        self.r.check(cid + ".within", r.elapsed <= hi_s, f"<= {hi_s:g} s from the request start", f"{r.elapsed:.2f} s")
+        self._cors_once(cid, r)
+
+    def ac48(self):
+        h = {"Origin": ORIGIN}
+        used, r = None, None
+        for name, body in (("P1_X1_pedestrian", self.c.route_body("P1", "X1", costing="pedestrian")),
+                           ("L1_L2_auto_alternates_2", self.c.route_body("L1", "L2", alternates=2))):
+            r = self.c.request("POST", "/v1/route", body, headers=h, timeout=15)
+            self.r.note(f"AC48.try_{name}", f"HTTP {r.status} in {r.elapsed * 1000:.0f} ms")
+            if r.status != 200:
+                used = name
+                break
+        if used is None:
+            for cid in ("AC48.status_504", "AC48.json_UpstreamTimeout", "AC48.within", "AC48.cors_once"):
+                self.r.skip(cid, "precondition not met: no request ran over the Valhalla timeout (both answered 200); "
+                                 "start Valhalla with VALHALLA_TIMEOUT_SECONDS=1 and a CPU limit (sec2-harness.sh valhalla-slow)")
+            return
+        self.r.note("AC48.request_used", used)
+        self._timeout_shape("AC48", r, 3)
+        self.r.check("AC48.never_later_than_10s", r.elapsed <= 10, "<= 10 s", f"{r.elapsed:.2f} s")
+        time.sleep(1)
+        r2 = self.c.request("POST", "/v1/route", self.c.route_body("P1", "P3"), headers=h, timeout=15)
+        self.r.note("AC48.P1_P3_1s_after_504", f"HTTP {r2.status} in {r2.elapsed * 1000:.0f} ms (informational: worker release, ADR-0019)")
+
+    def ac48_hang(self):
+        body = self.c.route_body("P1", "P3")
+        body["qa_stub"] = "hang"
+        r = self.c.request("POST", "/v1/route", body, headers={"Origin": ORIGIN}, timeout=20)
+        self._timeout_shape("AC48.gateway_read_timeout", r, 11)
+        self.r.check("AC48.gateway_read_timeout.not_before_10s", r.elapsed >= 9.5, ">= ~10 s (gateway proxy_read_timeout 10 s)", f"{r.elapsed:.2f} s")
+
+    # AC 49: route concurrency cap
+    def _slow_route(self, method="POST", origin=ORIGIN):
+        body = self.c.route_body("P1", "P3")
+        body["qa_stub"] = "slow"
+        h = {"Origin": origin}
+        if method == "GET":
+            return self.c.route_get(body, headers=h, timeout=20)
+        return self.c.request("POST", "/v1/route", body, headers=h, timeout=20)
+
+    def _busy_checks(self, cid, r):
+        errs = routing_busy_errors(r, origin=ORIGIN, allow_star=True)
+        self.r.check(cid + ".503_RoutingBusy_shape", not errs, "openapi 0.7.0 RoutingBusy (503 JSON, Retry-After >= 1, "
+                     "Cache-Control: no-store, ACAO and ACEH once, ACEH lists Retry-After)", "; ".join(errs) or "ok")
+        self.r.check(cid + ".within_1s_no_queue", r.elapsed <= 1, "<= 1 s (immediate, nothing queued)", f"{r.elapsed * 1000:.0f} ms")
+        self.r.check(cid + ".never_502", r.status != 502 and self._code(r) != "UpstreamUnavailable", "not 502 UpstreamUnavailable",
+                     f"{r.status} {self._code(r)}")
+
+    def _hold(self, n):
+        pool = ThreadPoolExecutor(max_workers=n)
+        futs = [pool.submit(self._slow_route) for _ in range(n)]
+        time.sleep(0.8)  # let the n requests reach the upstream (stub answers after 4 s)
+        return pool, futs
+
+    def ac49_ip(self):
+        pool, futs = self._hold(4)
+        try:
+            r = self._slow_route()
+            self._busy_checks("AC49.per_ip.5th_POST", r)
+            self.r.note("AC49.per_ip.retry_after", r.header("retry-after"))
+            r = self._slow_route("GET")
+            self._busy_checks("AC49.per_ip.5th_GET", r)
+            # other services while the cap is full (AC 28: within 1 s)
+            for name, fn, ok in (("health", lambda: self.c.get("/health"), (200,)),
+                                 ("tiles", lambda: self.c.request("GET", "/tiles/basemap.pmtiles", headers={"Range": "bytes=0-126"}), (206,)),
+                                 ("search", lambda: self.c.get("/v1/search", {"q": "Сүхб", "lang": "mn"}), (200,)),
+                                 ("reverse", lambda: self.c.get("/v1/reverse", {"lat": P["P1"][0], "lon": P["P1"][1]}), (200,)),
+                                 ("route_preflight", lambda: self.c.request("OPTIONS", "/v1/route", headers=self.PREFLIGHT), (204,))):
+                x = fn()
+                self.r.check(f"AC49.per_ip.cap_full.{name}_normal", x.status in ok and x.elapsed <= 1, f"{ok} in <= 1 s",
+                             f"{x.status} in {x.elapsed * 1000:.0f} ms")
+        finally:
+            held = [f.result() for f in futs]
+            pool.shutdown()
+        self.r.check("AC49.per_ip.held_4_finish_200", [h.status for h in held] == [200] * 4,
+                     "the 4 requests in flight finish 200 (same as without the cap)", [h.status for h in held])
+        r = self._slow_route()
+        self.r.check("AC49.per_ip.slot_free_after", r.status == 200, "200 once the in-flight requests finished", r.status)
+
+    def ac49_global(self):
+        pool, futs = self._hold(2)
+        try:
+            r = self._slow_route()
+            self._busy_checks("AC49.global.3rd_POST", r)
+        finally:
+            held = [f.result() for f in futs]
+            pool.shutdown()
+        self.r.check("AC49.global.held_2_finish_200", [h.status for h in held] == [200] * 2,
+                     "the 2 requests in flight finish 200", [h.status for h in held])
+
+    def ac49_live(self, n=32):
+        body = self.c.route_body("P1", "P3")
+        with ThreadPoolExecutor(max_workers=n) as pool:
+            res = list(pool.map(lambda _i: self.c.request("POST", "/v1/route", body, headers={"Origin": ORIGIN}, timeout=20), range(n)))
+        st = {}
+        for x in res:
+            st[x.status] = st.get(x.status, 0) + 1
+        self.r.note("AC49.live.statuses", dict(sorted(st.items())))
+        busy = [x for x in res if x.status == 503]
+        bad = [f"{x.status} {x.body[:60]!r}" for x in res if x.status not in (200, 503)]
+        self.r.check("AC49.live.only_200_or_503", not bad, f"{n} x 200 or 503 (never 502/504 under a burst)", bad[:3])
+        sigs = {}
+        for x in busy:
+            k = "; ".join(routing_busy_errors(x, origin=ORIGIN)) or "ok"
+            sigs[k] = sigs.get(k, 0) + 1
+        self.r.check("AC49.live.every_503_is_RoutingBusy", set(sigs) <= {"ok"}, "every 503 conforms to RoutingBusy", sigs)
+        if busy:
+            self.r.check("AC49.live.503_within_1s", max(x.elapsed for x in busy) <= 1, "every 503 in <= 1 s",
+                         f"max {max(x.elapsed for x in busy) * 1000:.0f} ms")
+        else:
+            self.r.note("AC49.live.no_503", f"the cap was not reached by {n} parallel requests (Valhalla answered fast)")
 
     # ------------------------------------------------------------------ docker-backed groups
     def outage(self):
@@ -725,6 +946,7 @@ class Nav001:
                 self.ac33()
                 self.ac43()
                 self.contract_extras()
+                self.sec2()
             elapsed = time.perf_counter() - t0
             self.r.check("AC40.smoke_runtime_le_60s", elapsed <= 60, "<= 60 s", f"{elapsed:.1f} s")
         if "perf" in groups:
@@ -741,12 +963,25 @@ class Nav001:
             self.stats()
         if "outage" in groups:
             self.outage()
+        if "sec2" in groups and "full" not in groups:
+            self.sec2()
+        if "ac48" in groups:
+            self.ac48()
+        if "ac48-hang" in groups:
+            self.ac48_hang()
+        if "ac49-ip" in groups:
+            self.ac49_ip()
+        if "ac49-global" in groups:
+            self.ac49_global()
+        if "ac49-live" in groups:
+            self.ac49_live()
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8080"))
-    ap.add_argument("--group", action="append", choices=["smoke", "full", "perf", "ac43", "cors-allowlist", "tiles-missing", "outage", "logs", "stats"])
+    ap.add_argument("--group", action="append", choices=["smoke", "full", "perf", "ac43", "cors-allowlist", "tiles-missing", "outage", "logs", "stats",
+                                                   "sec2", "ac48", "ac48-hang", "ac49-ip", "ac49-global", "ac49-live"])
     ap.add_argument("--compose-dir", help="backend/ directory (for outage, logs, stats)")
     ap.add_argument("--compose-project", help="docker compose project name if not the default")
     ap.add_argument("--json-out", help="write results as JSON here")

@@ -21,7 +21,7 @@ test('AC48: npm run check:i18n and npm run check:glossary exit 0 with the NAV-00
   expect(summary).toMatch(/(\d+)\/\1 mn values match/);
 });
 
-test('AC48: every NAV-004 mn value is a story/glossary string (N1–N23, existing rows, AC 27), placeholders kept literally; mn and en key sets identical', () => {
+test('AC48: every NAV-004 mn value is a story/glossary string (N1–N24, existing rows, AC 27), placeholders kept literally; mn and en key sets identical', () => {
   // Story tables, quoted literally (helpers T and AC27), plus the reused NAV-002/NAV-003 keys.
   const allowed = new Set([
     ...Object.values(T.mn).filter((v) => typeof v === 'string'),

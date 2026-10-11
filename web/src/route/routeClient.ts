@@ -49,7 +49,7 @@ export type RouteOutcome =
   | { kind: "noRoute" }
   /** 400 NoSegment or ValhallaError 171 (AC 34). */
   | { kind: "outOfArea" }
-  /** 400 DistanceExceeded (AC 35: "too far" on walk/bike, "no route" on car). */
+  /** 400 DistanceExceeded (AC 35: "too far" N11 on walk/bike, "too far by car" N24 on car; SEC-2 D223). */
   | { kind: "distanceExceeded" }
   /** Other 400, 413, other 4xx, unparsable 200 (AC 39). Never retried. */
   | { kind: "error" }

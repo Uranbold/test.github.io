@@ -93,6 +93,7 @@
   "route.outOfArea": "The start or destination is outside the service area",
   "route.samePoint": "The start and destination are the same",
   "route.tooFar": "This distance is too far on foot or by bike",
+  "route.tooFarCar": "This distance is too far by car",
   "route.unavailable": "Routing is temporarily unavailable",
   "route.rateLimited": "Too many route requests. Wait a moment and try again",
   "route.snapNotice": "The nearest road is {distance} from the chosen point",

@@ -1,6 +1,7 @@
 # Screen: Route preview A→B, alternatives, mode tabs and turn list (NAV-004, on the NAV-002/NAV-003 web map)
 
 - **Stories:** NAV-004 (AC 1–54). Traceability per AC at the end.
+- **Change SEC-2 (2026-10-11, [D216–D225](../../requirements/decisions.md), NAV-004 AC 35/36, NAV-001 AC 44–49):** route request limits. One new state row "Too far by car" (N24) split out of "No route"; 503 `RoutingBusy` reuses "Routing unavailable" (N8). No new layout, component or token. Details: section "Change SEC-2: route request limits" below.
 - **Platforms:** Web (`web/`, MapLibre GL JS), current desktop Chrome/Edge/Firefox and Android Chrome; automated tests on desktop Chromium (D14). Later native route previews reuse the layout rules, states and copy (Components › Native mapping).
 - **Base screens:** [`NAV-002-web-map.md`](NAV-002-web-map.md) (map, controls, messages, attribution) and [`NAV-003-search.md`](NAV-003-search.md) (search field, results list, place card, coordinate card, pin). Everything this spec does not change stays as specified there.
 - **Flow:** [`flows/NAV-004-route-preview.md`](../flows/NAV-004-route-preview.md) (F1 open the preview, F2 set and change points, F3 route request lifecycle, F4 result, alternatives and turn list, F5 error and recovery, F6 close, language and theme, F7 static public build).
@@ -161,10 +162,11 @@ Number and unit are separated by a space (U+0020 in resources; the code may use 
 | **Snap notice** (a snap distance > 500 m) | Route shown, plus the info row «Хамгийн ойрын зам сонгосон цэгээс 1,4 км зайтай» (larger of the two distances). | 21 |
 | **Next-day arrival** | «Хүрэх цаг 00:30 +1 өдөр». | 25 |
 | **Same start and destination** (≤ 10 m, checked before any request) | State row, pin icon `ui.on-surface-variant`: «Эхлэх цэг, очих газар ижил байна». No retry. No line; both markers stay. Within 500 ms, 0 requests. | 14 |
-| **No route** (400 `NoRoute`; `DistanceExceeded` on «Машин») | State row, route-off icon `ui.on-surface-variant`: «Маршрут олдсонгүй». If the avoid switch is on, a second line «Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу». No retry (the same request would fail). Not an error colour. | 33, 35 |
+| **No route** (400 `NoRoute`) | State row, route-off icon `ui.on-surface-variant`: «Маршрут олдсонгүй». If the avoid switch is on, a second line «Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу». No retry (the same request would fail). Not an error colour. *(Until SEC-2 this row also covered `DistanceExceeded` on «Машин».)* | 33 |
 | **Outside the service area** (400 `NoSegment`, `ValhallaError` 171) | State row, warning icon `ui.on-surface-variant`: «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна». No retry, no line, markers stay. | 34 |
-| **Too far on foot or by bike** (400 `DistanceExceeded` on «Явган»/«Дугуй») | State row, info icon: «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна». No retry. The «Машин» tab is one click away. | 35 |
-| **Routing unavailable** (network, CORS, 502, 503, 504, 12 s timeout, while online) | State row, warning icon `ui.error`: «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох» (re-sends the current request once). No automatic retry. | 36 |
+| **Too far on foot or by bike** (400 `DistanceExceeded` on «Явган»/«Дугуй»; walk 250 km, bike 500 km straight-line) | State row, info icon: «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна». No retry. The «Машин» tab is one click away. | 35 |
+| **Too far by car** (400 `DistanceExceeded` on «Машин»; straight-line sum over 3,000 km, SEC-2) | Same layout as "Too far on foot or by bike": state row, info icon `ui.on-surface-variant`: «Энэ зай машинаар хэт хол байна» (N24). No retry, no avoid hint (the switch cannot help), not an error colour. No line; both markers stay so the user sees which point is far away and can change it in its field. RS9 (P1 → X3 Moscow): row shown within 4 s of the triggering action. | 35 |
+| **Routing unavailable** (network, CORS, 502, 503 including `RoutingBusy` from the route concurrency cap, 504 including `UpstreamTimeout` after the ~8 s Valhalla timeout, 12 s timeout, while online) | State row, warning icon `ui.error`: «Маршрутын үйлчилгээ түр ажиллахгүй байна» + «Дахин оролдох» (re-sends the current request once). No automatic retry. | 36 |
 | **Offline** | State row, cloud-off icon `ui.on-surface-variant`: «Интернэт холболт алга», no button, no request. The NAV-002 offline banner also shows. Back online with both points set and no route shown → one request within 2 s by itself. | 38 |
 | **Rate-limited** (429, `Retry-After: N`; missing or invalid → 5 s) | State row, hourglass icon: «Түр хүлээгээд дахин оролдоно уу» + «Дахин оролдох» **disabled** (`aria-disabled="true"`, `ui.disabled-content`, focusable) for N s. Fields, tabs, swap and switch still update the inputs; nothing is sent for N s. After N s the button turns active; nothing is sent by itself; the button or the next triggering action sends one request. No countdown. | 37 |
 | **Error** (400 `InvalidOptions`, `InvalidValue`, `TooBig`, unknown; other `ValhallaError`; 413; unparsable 200) | State row, error icon `ui.error`: «Алдаа гарлаа». No retry of the same request; the next triggering action tries again. | 39 |
@@ -234,7 +236,7 @@ No demo badge and no "routing comes later" text: no glossary term exists (same d
 | Esc | Coordinate card during the preview | Close the card, back to the panel |
 
 ## Copy (mn / en)
-Every string is a glossary term (existing rows, NAV-003 T-rows, NAV-004 N1–N23). No new term is needed. Keys are a proposal for `web/src/i18n/{mn,en}.json` (mobile engineer); both files get the same keys (NAV-002 AC 32). `{n}`, `{count}`, `{distance}`, `{days}` stay literally in both files.
+Every string is a glossary term (existing rows, NAV-003 T-rows, NAV-004 N1–N24; N24 added by SEC-2, D223). No other new term is needed. Keys are a proposal for `web/src/i18n/{mn,en}.json` (mobile engineer); both files get the same keys (NAV-002 AC 32). `{n}`, `{count}`, `{distance}`, `{days}` stay literally in both files.
 
 | Key | mn | en | Glossary source |
 |---|---|---|---|
@@ -265,6 +267,7 @@ Every string is a glossary term (existing rows, NAV-003 T-rows, NAV-004 N1–N23
 | `route.outOfArea` | Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна | The start or destination is outside the service area | N9 |
 | `route.samePoint` | Эхлэх цэг, очих газар ижил байна | The start and destination are the same | N10 |
 | `route.tooFar` | Энэ зай явганаар эсвэл дугуйгаар хэт хол байна | This distance is too far on foot or by bike | N11 |
+| `route.tooFarCar` | Энэ зай машинаар хэт хол байна | This distance is too far by car | N24 (SEC-2, `needs native review`) |
 | `route.unavailable` | Маршрутын үйлчилгээ түр ажиллахгүй байна | Routing is temporarily unavailable | N8 |
 | `route.rateLimited` | Түр хүлээгээд дахин оролдоно уу | Too many route requests. Wait a moment and try again | Too many requests (T5), route `en` value from the story |
 | `route.snapNotice` | Хамгийн ойрын зам сонгосон цэгээс {distance} зайтай | The nearest road is {distance} from the chosen point | N13 |
@@ -298,7 +301,7 @@ Key = `maneuver.` + the ADR-0008 key. Stored with a lower-case first letter as i
 Depart sectors: 8 sectors of 45° centred on 0°, 45°, … (`n` = [337.5°, 22.5°), `ne` = [22.5°, 67.5°), …). The boundary 22.5° belongs to `ne`, 337.5° to `n`; 22.4° is `n` (AC 27 fixture).
 
 Notes
-- **Length, Mongolian first.** Longest strings: «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна» (62), «Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу» (58), «Хамгийн ойрын зам сонгосон цэгээс 1,4 км зайтай» (47), «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» (46), «Баруун талын гарах зам руу эргэнэ үү» (36, a turn row). All wrap, none is truncated; the prototype checks 320 px in both languages. Only the field texts ellipsise (they are names; the full name is in the card and the marker name). English is longer only for the placeholder "Choose starting point" (21 vs 16) and fits.
+- **Length, Mongolian first.** Longest strings: «Эхлэх цэг эсвэл очих газар үйлчилгээний хүрээнээс гадуур байна» (62), «Шороон замаас зайлсхийх тохиргоог унтрааж дахин оролдоно уу» (58), «Хамгийн ойрын зам сонгосон цэгээс 1,4 км зайтай» (47), «Энэ зай явганаар эсвэл дугуйгаар хэт хол байна» (46; N24 «Энэ зай машинаар хэт хол байна» is 30, `en` 31), «Баруун талын гарах зам руу эргэнэ үү» (36, a turn row). All wrap, none is truncated; the prototype checks 320 px in both languages. Only the field texts ellipsise (they are names; the full name is in the card and the marker name). English is longer only for the placeholder "Choose starting point" (21 vs 16) and fits.
 - **`en` "Directions"** is both the button (`route.getDirections`) and the turn-list heading (`route.directions`), as the glossary lists; two keys keep them independent.
 - **Plural keys:** `.one`/`.other` picked with `Intl.PluralRules(uiLang)`; Mongolian values are identical (same approach as NAV-003 `search.resultCount`).
 - **Punctuation** (" · ", ", " in accessible names, the space before «+1 өдөр») is formatting, not a string.
@@ -334,6 +337,32 @@ Notes
 3. **No labels on route lines.** Users match lines to options by colour swatch and by clicking the line; duration callouts on the map (Google Maps) are not in NAV-004.
 4. **The panel hides the search field.** To search for another place the user closes the preview (one click, Esc). A new destination can still be searched in the destination field.
 
+## Change SEC-2: route request limits (2026-10-11)
+NAV-004 AC 35 and AC 36 as changed by SEC-2 ([D216–D225](../../requirements/decisions.md); main story NAV-001 AC 44–49; `openapi.yaml` 0.7.0; ADR-0019 by the architect).
+
+**User goal and moment.** A planner at a desk or on a phone who entered a point far away (in practice a typed coordinate outside Mongolia, for example Moscow) on «Машин». Time budget: a few seconds to understand why there is no route and what to change. Not a driving moment (the web preview is a planning screen).
+
+**What changes on screen.** Only the text of one state: on «Машин», 400 `DistanceExceeded` shows N24 «Энэ зай машинаар хэт хол байна» instead of «Маршрут олдсонгүй». 503 `RoutingBusy` (route concurrency cap) and 504 `UpstreamTimeout` (Valhalla timeout, about 8 s) fall into the existing "Routing unavailable" state; 400 for more than 10 points cannot come from the web (2 points) and would fall into "Error". No new layout, component, icon, token or key except `route.tooFarCar`.
+
+**Alternatives considered.**
+- (a) **Chosen:** a separate text-only row that reuses the "Too far on foot or by bike" layout (info icon, `ui.on-surface-variant`, no retry). Same kind of problem = same look (Gestalt similarity); the words say what to change.
+- (b) Keep «Маршрут олдсонгүй» for car (the pre-SEC-2 behaviour). Rejected: it claims no road exists when the server refused the request for its length, which misleads the user (Nielsen 2, 9) and D213 asks for a Mongolian over-limit message.
+- (c) Use the "Outside the service area" row N9 (the far point usually is outside Mongolia). Rejected: N9 answers `NoSegment`, a different code; mapping `DistanceExceeded` to it would guess at the cause and break the one-code-one-text rule QA tests. N9 remains the offline (on-device) answer for the same point (D221), an accepted difference.
+- (d) Treat 503 `RoutingBusy` like 429 (wait with a disabled retry for `Retry-After`). Rejected for this change: the PO approved N8 reuse (D219), it needs no new string, and the cap clears within about a second, so an immediately usable «Дахин оролдох» fits better.
+
+**State space.** Default, loading, offline, rate-limited, static build, same point and the precedence are unchanged. The new row sits in the existing "outside the area / too far / no route / error" precedence step, so it can never compete with another row. Markers stay and no line is drawn, so the user can see which point is far away (recognition over recall). First use and permission states are unaffected.
+
+**Design rationale (laws and heuristics).**
+- **Nielsen 9, help users recover from errors:** the text says what happened in plain Mongolian; the next step (change the far point) is one click into the field. No dead end, no retry that would fail again (**error prevention**).
+- **Nielsen 2, match with the real world:** "too far by car" is true; "no route found" was not. Glossary term N24 (`needs native review`, built like N11).
+- **Gestalt similarity / consistency (Nielsen 4):** the same component and colour as N11; an info icon, not an error colour, because the user did nothing wrong and nothing is broken.
+- **Hick's law:** no new control; the row offers no choice, so nothing to decide except where to go.
+- **Peak–end rule:** a refused request ends with a clear explanation, not an endless spinner; RS9 answers within 4 s (Doherty: the loading row covers anything above 300 ms).
+- **Tesler's law:** the limit is enforced by the server before routing; the client does not need to know the numbers.
+- **Trade-off accepted:** N24 does not name the cause "outside Mongolia" because the server only knows the distance; the NAV-007 panel checks whether the text reads naturally in that case (glossary N24 notes).
+
+**Evidence.** Prototype state `too-far-car` (`#state=too-far-car`) added and measured; see Verification.
+
 ## AC traceability
 | AC | Where in this spec / flow |
 |---|---|
@@ -353,7 +382,7 @@ Notes
 | 21 | Components › Snap notice; States |
 | 22–25 | Components › Summary; Content rules › Distances, Durations, «Хүрэх цаг» |
 | 26–29, 31 | Components › Turn list; Content rules › Street names, Instruction texts, Manoeuvre icons; Copy › Manoeuvre texts; Design notes 1; ADR-0008 |
-| 32–39 | States › Result region; precedence; flow F3, F5 |
+| 32–39 | States › Result region; precedence; flow F3, F5. SEC-2: AC 35 "Too far by car" row (N24), AC 36 503 `RoutingBusy` in "Routing unavailable"; section "Change SEC-2" |
 | 40 | Layout rule 8; States › Tiles unavailable, Language switch |
 | 41 | Interactions › Close; Layout rule 4; flow F6 |
 | 42 | Layout rule 4 (NAV-002/NAV-003 unchanged while the panel is closed); Recommended DOM structure |
@@ -364,5 +393,6 @@ Notes
 | 53–54 | States › Static public build; flow F7 |
 
 ## Verification
-- `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node docs/design/prototypes/check-layout-nav004.mjs`: opens the wireframe at 320×568, 360×640, 768×1024, 1366×768 and 1920×1080, in 24 states (place card and coordinate card with «Маршрут гаргах»; origin empty with the «Миний байршил» list; loading; route with 3, 1 and a long intercity turn list; alternative selected; walk; snap notice; next-day ETA; field list with results and with a NAV-003 state row; no route with and without the avoid hint; outside the area; too far; same point; unavailable; offline; rate-limited; error; static build; coordinate card during the preview) × day/night × mn/en × with/without the NAV-002 worst-case messages = 960 combinations. Checks: no control overlaps another, no panel overlaps another panel or a foreign control, attribution fully visible and uncovered, scale bar uncovered, every control ≥ 44×44, panel heading visible and not truncated, close button visible (sticky header), search input hidden while the panel is open and first Tab stop when it is closed, language button first while the panel is open, no horizontal scroll. Result on 2026-09-30: **0 problems**; INFO lines list where the summary is below the fold (Known limitations 1). It checks the wireframe, not the app; QA's NAV-004 tests check the app.
+- `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node docs/design/prototypes/check-layout-nav004.mjs`: opens the wireframe at 320×568, 360×640, 768×1024, 1366×768 and 1920×1080, in 24 states (25 since SEC-2: `too-far-car`, re-run 2026-10-11; place card and coordinate card with «Маршрут гаргах»; origin empty with the «Миний байршил» list; loading; route with 3, 1 and a long intercity turn list; alternative selected; walk; snap notice; next-day ETA; field list with results and with a NAV-003 state row; no route with and without the avoid hint; outside the area; too far; same point; unavailable; offline; rate-limited; error; static build; coordinate card during the preview) × day/night × mn/en × with/without the NAV-002 worst-case messages = 960 combinations. Checks: no control overlaps another, no panel overlaps another panel or a foreign control, attribution fully visible and uncovered, scale bar uncovered, every control ≥ 44×44, panel heading visible and not truncated, close button visible (sticky header), search input hidden while the panel is open and first Tab stop when it is closed, language button first while the panel is open, no horizontal scroll. Result on 2026-09-30: **0 problems**; INFO lines list where the summary is below the fold (Known limitations 1). It checks the wireframe, not the app; QA's NAV-004 tests check the app.
+  - **SEC-2 re-run 2026-10-11** with the `too-far-car` state: **1000 combinations checked, 0 problems** (5 viewports × 25 states × day/night × mn/en × with/without the NAV-002 messages). Measured state text: N24 «Энэ зай машинаар хэт хол байна» wraps to **2 lines at 320 px** and **1 line at 1366 px** (`en` "This distance is too far by car": 1 line at both); N11 takes 2 lines at 320 px in both languages and 2 lines (mn) at 1366 px, so the new row is never taller than the existing "too far" row. `check-contrast.mjs` → all checks passed (86 map-style values; no token change: the row uses the checked `ui.on-surface-variant` / `ui.on-surface` on `ui.surface` pairs). Mermaid 10.9.1 `mermaid.parse` (Playwright Chromium, pinned build in the scratchpad) parses all 37 diagrams in the four changed flows (NAV-004 7, NAV-005 16, NAV-011 7, NAV-018 7) without errors. N24 is byte-identical to the glossary row in every design file (21 occurrences).
 - `node docs/design/prototypes/check-contrast.mjs`: includes the route line, origin marker, manoeuvre point, candidate pin, switch, field and filled-button pairs, and the new map-style.md §7.2–7.3 colour tables. Result on 2026-09-30: all checks passed.

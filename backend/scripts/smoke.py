@@ -4,8 +4,8 @@
     python3 scripts/smoke.py [--base-url http://localhost:8080] [--perf] [--cors-allowlist ORIGIN]
 
 Runs the story's smoke set (AC 9, 13-16, 18, 21-23, 25, 28-30, 32 per AC 40) plus cheap extras
-(AC 10, 11, 12, 17, 19, 20, 24, 26, 27, 33, 43, gateway 404/405). Prints PASS/FAIL/INFO lines, and each
-FAIL shows expected and actual values. Exit code 0 only if no check failed (AC 41).
+(AC 10, 11, 12, 17, 19, 20, 24, 26, 27, 33, 43, 44 (SEC-2 car limit P1->X3), gateway 404/405). Prints
+PASS/FAIL/INFO lines, and each FAIL shows expected and actual values. Exit code 0 only if no check failed (AC 41).
 --perf adds the AC 35-38 latency baselines (20 sequential requests each, p95).
 --cors-allowlist ORIGIN checks AC 31 against a gateway started with CORS_ALLOWED_ORIGINS=ORIGIN.
 
@@ -26,6 +26,7 @@ P = {  # NAV-001 reference points (lat, lon)
     "P1": (47.9189, 106.9176), "P2": (47.9139, 106.9044), "P3": (47.8858, 106.9173),
     "P4": (47.9215, 106.8950), "P5": (47.9095, 106.8835), "P6": (47.9600, 106.9000),
     "X1": (49.0270, 104.0440), "X2": (39.9042, 116.4074),
+    "X3": (55.7558, 37.6173),  # SEC-2: Moscow, about 4,635 km from P1 (over the 3,000 km car limit)
 }
 ORIGIN = "http://localhost:5173"
 MN_LETTERS = set("өүӨҮ")
@@ -508,6 +509,13 @@ def run_checks(s):
     s.check(f"AC32 ROUTE P1->{out} (out of coverage) -> 4xx JSON with message within 3 s",
             400 <= st < 500 and isinstance(body, dict) and bool(body.get("message") or body.get("error")) and el < 3,
             "4xx, JSON message, <3 s", f"{st}, {el:.2f}s, {raw[:100]!r}")
+    # SEC-2 (NAV-001 AC 44, ADR-0019): the car limit is served. Valhalla rejects it before any road search, so this is
+    # fast; it also runs in every NAV-006 slot verification and post-switch smoke.
+    st, h, raw, el = s.route("P1", "X3")
+    body = s.json_of(raw)
+    code = body.get("code") if isinstance(body, dict) else None
+    s.check("AC44 ROUTE P1->X3 auto (about 4,635 km) -> 400 DistanceExceeded within 1 s (route limits served)",
+            st == 400 and code == "DistanceExceeded" and el < 1, "400 DistanceExceeded, <1 s", f"{st}, {code}, {el:.2f}s")
     st, h, raw, el = s.http("POST", "/v1/route", {"costing": "auto", "format": "osrm"})
     s.check("AC33 ROUTE without locations -> 400 JSON within 1 s", st == 400 and s.json_of(raw) is not None and el < 1,
             "400 JSON, <1 s", f"{st}, {el:.2f}s, {raw[:100]!r}")

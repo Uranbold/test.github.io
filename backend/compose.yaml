@@ -96,7 +96,10 @@ services:
   valhalla-build:
     image: ${VALHALLA_IMAGE:-ghcr.io/valhalla/valhalla:3.9.0@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c}
     entrypoint: ["/bin/bash", "/scripts/valhalla-build.sh"]
-    environment: *build-env
+    environment:
+      <<: *build-env
+      # SEC-2: written into a fresh valhalla.json (make_config); the serve-time overlay is authoritative.
+      VALHALLA_TIMEOUT_SECONDS: ${VALHALLA_TIMEOUT_SECONDS:-8}
     volumes: [*scripts, *data]
     depends_on:
       data-fetch: { condition: service_completed_successfully }
@@ -128,6 +131,8 @@ services:
     entrypoint: ["/bin/bash", "/scripts/valhalla-serve.sh"]
     environment:
       VALHALLA_THREADS: ${VALHALLA_THREADS:-}
+      # SEC-2 (ADR-0019 §2): Valhalla processing timeout, 1-9 s (invalid = the service refuses to start).
+      VALHALLA_TIMEOUT_SECONDS: ${VALHALLA_TIMEOUT_SECONDS:-8}
     volumes:
       - *scripts
       - { type: bind, source: ./data, target: /data, read_only: true }
@@ -176,6 +181,9 @@ services:
       GATEWAY_RATE_SEARCH: ${GATEWAY_RATE_SEARCH:-30r/s}
       GATEWAY_BURST_SEARCH: ${GATEWAY_BURST_SEARCH:-60}
       GATEWAY_REAL_IP_FROM: ${GATEWAY_REAL_IP_FROM:-}
+      # SEC-2 /v1/route concurrency cap (entrypoint/17-route-limits.sh), always on: 503 RoutingBusy over the cap.
+      GATEWAY_ROUTE_MAX_INFLIGHT: ${GATEWAY_ROUTE_MAX_INFLIGHT:-8}
+      GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP: ${GATEWAY_ROUTE_MAX_INFLIGHT_PER_IP:-4}
       VALHALLA_UPSTREAM: valhalla:8002
       PHOTON_UPSTREAM: photon:2322
       NGINX_ENTRYPOINT_QUIET_LOGS: "1"
@@ -186,6 +194,7 @@ services:
       - { type: bind, source: ./gateway/njs, target: /etc/nginx/njs, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/15-cors-origins.sh, target: /docker-entrypoint.d/15-cors-origins.sh, read_only: true }
       - { type: bind, source: ./gateway/entrypoint/16-rate-limits.sh, target: /docker-entrypoint.d/16-rate-limits.sh, read_only: true }
+      - { type: bind, source: ./gateway/entrypoint/17-route-limits.sh, target: /docker-entrypoint.d/17-route-limits.sh, read_only: true }
       - { type: bind, source: ./data, target: /srv/data, read_only: true }
     # Starts once the data is built, but NOT gated on valhalla/photon health (AC 34: one upstream down
     # must not take the gateway or the other endpoints down).

@@ -35,6 +35,8 @@ for (const [theme, lang] of [['day', 'mn'], ['night', 'en'], ['day', 'en'], ['ni
       ['unavailable', () => ({ status: 502, body: { code: 'UpstreamUnavailable' } })],
       ['error', () => ({ status: 413, body: {} })],
       ['too-far', () => ({ status: 400, body: { code: 'DistanceExceeded' } })],
+      // SEC-2 (AC 35, N24): the same 400 on «Машин» is its own state
+      ['too-far-car', () => ({ status: 400, body: { code: 'DistanceExceeded' } })],
       ['rate-limited', () => ({ status: 429, body: { code: 'RateLimited' }, headers: { 'Retry-After': '60' } })],
     ];
     let step = 0;
@@ -72,6 +74,8 @@ for (const [theme, lang] of [['day', 'mn'], ['night', 'en'], ['day', 'en'], ['ni
       const name = plan[step][0];
       if (name === 'too-far') {
         await tid(page, 'route-tab-walk').click();
+      } else if (name === 'too-far-car') {
+        await tid(page, 'route-tab-car').click();
       } else {
         await tid(page, 'route-swap').click();
       }
