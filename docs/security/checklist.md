@@ -1,6 +1,6 @@
 # Release security checklist (owner: security-engineer)
 
-Status: first version, 2026-10-08 (SP-8, task SEC-4C). Threats and finding IDs: `threat-model.md` and `audits/2026-10-07-full-project.md`. Decisions: D212–D215.
+Status: first version, 2026-10-08 (SP-8, task SEC-4C); gate status added 2026-10-11 after the final security pass on SEC-2 / SEC-4A / SEC-4B / SEC-4C (section "Gate status 2026-10-11" at the end). Threats and finding IDs: `threat-model.md` and `audits/2026-10-07-full-project.md`. Decisions: D212–D215.
 
 How to use it:
 - Three gates: **A** at every story's Verify stage, **B** before the first staging deploy (and re-run on any new host), **C** before the first public release (and every public release after it).
@@ -69,3 +69,44 @@ Owners: BE `backend-engineer`, MO `mobile-engineer`, AR `architect`, QA `qa-engi
 | C17 | Incident-response runbook reviewed by the PO; key inventory current | SE, PO | `incident-response.md` reviewed date |
 | C18 | Re-run the audit's "Not verified" items on the real host and release build (image scans, merged manifest, R8 output, response headers, GitHub settings) | SE | New audit report under `audits/` |
 | C19 | Agent least privilege (SP-6) decided by the PO | PO | Decision row; if (a), `.claude/settings.json` deny rules exist |
+
+## Gate status 2026-10-11
+
+From the re-check in `audits/2026-10-07-full-project.md` (section "Re-check 2026-10-11"). "Met in the repo" means the control exists and was checked locally; items that can only be checked on the real host or release build stay open until then. No gate has passed yet.
+
+**Gate A** for the SEC-2 / SEC-4A / SEC-4B / SEC-4C work (base `c6b8c9e`):
+
+| # | Status |
+|---|---|
+| A1 | Met: threat model updated 2026-10-11 |
+| A2 | Partly: regex scan of the diff for key and token patterns found 0; `gitleaks` is not installed here, so run it in the gate B record |
+| A3 | Met: only documentation-range IPs, version strings, loopback and `.invalid` / public upstream hosts in the diff |
+| A4 | Met: new keys in `.env.example` have dev defaults or placeholders only |
+| A5 | Met for web (`npm audit --omit=dev` 0); Android lockfile and verification metadata unchanged since 2026-10-08 |
+| A6 | Met for the dev gateway (0 addresses or query strings in its log); staging read in B15 |
+| A7 | Met: no Android manifest change in the diff |
+| A8 | Met: route limits and `RoutingBusy` in openapi 0.7.0; tiles path has no 429 in the contract (see B9) |
+| A9 | Not checked by the security-engineer (N24 is a BA glossary item) |
+| A10 | Met: register updated; new findings BE-22 (low), BE-23 and BE-24 (info) |
+
+**Gate B** (first staging deploy):
+
+| # | Status | Still needed (owner) |
+|---|---|---|
+| B1 | Met in the repo (accepted low residuals: root builders, Photon `/tmp` exec, Kuma capabilities) | `docker inspect` on the host (BE) |
+| B2 | Met | none |
+| B3 | Open | Trivy/Grype scan of every pinned image, report attached (BE, SE) |
+| B4 | Config met (TLS 1.2/1.3, HSTS) | `testssl.sh` and `curl -sI` on the host (BE operator) |
+| B5, B6 | Config in bootstrap | Operator checks on the host (BE) |
+| B7 | **Open** (BE-17) | Mode 600 and owner check in `deploy.sh` (BE) |
+| B8 | Open (BE-10) | Restore drill; host cannot delete backups (BE) |
+| B9 | Partly: /64 keys and pack limits met; **tiles connection cap and BE-14 open** | Contract amendment for 429 on tiles (AR) and a measured cap (BE), or a PO exception for the tester-only host; BE-14 timeouts and body limit (BE) |
+| B10 | Partly: limits and cap active | Cap values from the staging measurement; explicit `send_timeout` on `/v1/route` (BE, with BE-14) |
+| B11 | Met | none |
+| B12 | Partly: `deploy.sh` signature check met; **SP-2 ruleset open (high)**; BE-22 open (low) | Ruleset for `master` and `v*` tags (PO via OR); tag-name check (BE); PO creates the signing key and the operator installs the allowed-signers file before the second deploy |
+| B13 | **Open** (BE-11): bootstrap holds the Docker packages, so they are never upgraded automatically | Include Docker in unattended upgrades, or a documented monthly upgrade with a PO exception (BE) |
+| B14, B15 | On the host | Operator and QA checks (BE, QA) |
+| B16 | Open (BE-16, low) | Backlog unless the PO wants it before staging (BE) |
+
+
+**Gate C** (public release), only the items whose state changed: C3 route limits met in the repo (UI text check by QA/BA still needed); C8 met in the repo (re-run on the release build); C9 partly (CSP meta verified in all three builds on 2026-10-11; web-root headers are a PO action); C13 and C16 met on the working branch but **not on the default branch** (GitHub serves `SECURITY.md` and issue forms from `master`); C10 not met (open medium findings: BE-3 residual, BE-6, SP-3, SP-4, SP-5 until merged, SP-6, SP-7, SP-10, SP-11, WS-1; high: SP-2). Every other gate C item is unchanged and open.
