@@ -15,7 +15,7 @@ from typing import Callable
 from . import audio, manifest as manifest_mod, review
 from .cache import NO_TAKE_METHOD, Cache, cache_fields, cache_key, check_path_allowed, default_cache_dir
 from .codec import BITRATES_KBPS, CLIP_RATES, EXPECTED_ENCODER_DELAY, Ffmpeg, encode_and_check
-from .errors import AudioCheckError, ConfigError, InventoryError, OutputError, PackInvalid, VoicePackError
+from .errors import AudioCheckError, ConfigError, InventoryError, OutputError, PackInvalid, RunAborted, VoicePackError
 from .inventory import FINAL, NON_FINAL, Inventory, load as load_inventory, sha256_hex
 from .redact import Reporter
 from .synth import chimege as _chimege  # constants only: the cache-key identity of a real run
@@ -161,12 +161,20 @@ def synthesize_all(synth, jobs: list[_Job], cache: Cache, voice: str, reporter: 
                 done += 1
                 if done % 50 == 0:
                     reporter.info(f"  synthesised {done}/{len(todo)}")
-        except BaseException:
+        except BaseException as first:
             ab = getattr(synth, "aborted", None)
             if ab is not None:
                 ab.set()
             for f in futs:
                 f.cancel()
+            if isinstance(first, RunAborted):
+                # a worker only noticed the abort: report the error that caused it (the 403 or TLS message)
+                for f in futs:
+                    if f.cancelled():
+                        continue
+                    e = f.exception()
+                    if e is not None and not isinstance(e, RunAborted):
+                        raise e from None
             raise
     return done, hits
 

@@ -33,7 +33,7 @@ import urllib.request
 
 from .. import redact
 from ..audio import read_wav, require_pcm16_mono
-from ..errors import ConfigError, VendorError
+from ..errors import ConfigError, RunAborted, VendorError
 
 TOKEN_ENV = "CHIMEGE_API_TOKEN"
 API_BASE = "https://api.chimege.com/v1.2"
@@ -334,7 +334,7 @@ class ChimegeSynthesiser:
         last = None
         for attempt in range(1 + MAX_RETRIES):
             if self.aborted.is_set():
-                raise VendorError(f"{who}: run aborted after an earlier vendor error")
+                raise RunAborted(f"{who}: run aborted after an earlier vendor error")
             r = self._once(request_text, voice, sample_rate)
             if r.ok:
                 try:

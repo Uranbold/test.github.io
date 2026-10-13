@@ -329,6 +329,33 @@ class SentinelTest(unittest.TestCase):
         self.assertEqual(_grep_tree(cache, needle), [])
 
 
+class AbortOrderTest(unittest.TestCase):
+    def test_the_primary_error_wins_over_a_secondary_abort(self):
+        """Two workers: one only notices the abort (and finishes first), the other holds the cause (the 403)."""
+        import threading
+        import time as _t
+
+        from voicepack.build import _Job, synthesize_all
+        from voicepack.cache import Cache
+        from voicepack.errors import RunAborted
+
+        class Two:
+            max_in_flight = 2
+            aborted = threading.Event()
+            both_in_flight = threading.Barrier(2, timeout=5)
+
+            def synthesize(self, text, voice, rate, *, label=""):
+                self.both_in_flight.wait()  # as in a real run: the worker with the 403 is in flight
+                if text == "a":
+                    raise RunAborted("a: run aborted after an earlier vendor error")
+                _t.sleep(0.2)
+                raise VendorError("CHIMEGE_API_TOKEN rejected (code 1000: invalid)")
+
+        jobs = [_Job("k1", {}, "a", "a"), _Job("k2", {}, "b", "b")]
+        with self.assertRaisesRegex(VendorError, "rejected"):
+            synthesize_all(Two(), jobs, Cache(None), "FEMALE5v2", redact.Reporter(None, quiet=True))
+
+
 class ErrorCodeTest(unittest.TestCase):
     """ADR-0010 §4.1 tables; security VP-7 (Error-Code printed only when it is a short [0-9A-Za-z-] token)."""
 

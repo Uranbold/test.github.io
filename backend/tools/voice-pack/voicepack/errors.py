@@ -23,6 +23,11 @@ class VendorError(VoicePackError):
     exit_code = 4
 
 
+class RunAborted(VendorError):
+    """A worker stopped because another one already failed the run (403, TLS). Secondary: the pool reports the
+    first worker's error instead whenever there is one."""
+
+
 class AudioCheckError(VoicePackError):
     """A clip failed a processing or decode check (pack-format §4, §5; ADR-0010 §4.3)."""
 

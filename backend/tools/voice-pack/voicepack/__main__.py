@@ -163,8 +163,10 @@ def main(argv: list[str] | None = None, *, synth_factory=None) -> int:
             return _cmd_inventory(a, rep)
         if a.cmd == "build":
             if synth_factory is None and a.synth == "chimege" and not a.cache_only:
-                def synth_factory(opts, _env={TOKEN_ENV: token}):
-                    return ChimegeSynthesiser(opts.api_base, env=_env)
+                token_env = {TOKEN_ENV: token}
+
+                def synth_factory(opts):
+                    return ChimegeSynthesiser(opts.api_base, env=token_env)
             return _cmd_build(a, rep, synth_factory)
         if a.cmd == "verify":
             return _cmd_verify(a, rep)
