@@ -1,0 +1,49 @@
+key	nonfinal	spoken_mn	source
+instr.turn.left	yes	зүүн тийш эргэнэ үү	maneuver_turn_left
+instr.turn.right	yes	баруун тийш эргэнэ үү	maneuver_turn_right
+instr.turn.slightLeft	yes	бага зэрэг зүүн тийш эргэнэ үү	maneuver_turn_slight_left
+instr.turn.slightRight	yes	бага зэрэг баруун тийш эргэнэ үү	maneuver_turn_slight_right
+instr.turn.sharpLeft	yes	огцом зүүн тийш эргэнэ үү	maneuver_turn_sharp_left
+instr.turn.sharpRight	yes	огцом баруун тийш эргэнэ үү	maneuver_turn_sharp_right
+instr.uturn	yes	буцаж эргэнэ үү	maneuver_uturn
+instr.straight	yes	чигээрээ явна уу	maneuver_continue
+instr.keep.left	yes	зүүн талаа барина уу	maneuver_keep_left
+instr.keep.right	yes	баруун талаа барина уу	maneuver_keep_right
+instr.merge	yes	замд нийлнэ үү	maneuver_merge
+instr.merge.left	yes	зүүн талаас замд нийлнэ үү	maneuver_merge_left
+instr.merge.right	yes	баруун талаас замд нийлнэ үү	maneuver_merge_right
+instr.onRamp	yes	орох зам руу эргэнэ үү	maneuver_on_ramp
+instr.onRamp.left	yes	зүүн талын орох зам руу эргэнэ үү	maneuver_on_ramp_left
+instr.onRamp.right	yes	баруун талын орох зам руу эргэнэ үү	maneuver_on_ramp_right
+instr.offRamp	yes	гарах зам руу эргэнэ үү	maneuver_off_ramp
+instr.offRamp.left	yes	зүүн талын гарах зам руу эргэнэ үү	maneuver_off_ramp_left
+instr.offRamp.right	yes	баруун талын гарах зам руу эргэнэ үү	maneuver_off_ramp_right
+instr.roundabout.exit.1	yes	тойрогт ороод нэгдүгээр гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_1
+instr.roundabout.exit.2	yes	тойрогт ороод хоёрдугаар гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_2
+instr.roundabout.exit.3	yes	тойрогт ороод гуравдугаар гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_3
+instr.roundabout.exit.4	yes	тойрогт ороод дөрөвдүгээр гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_4
+instr.roundabout.exit.5	yes	тойрогт ороод тавдугаар гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_5
+instr.roundabout.exit.6	yes	тойрогт ороод зургаадугаар гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_6
+instr.roundabout.exit.7	yes	тойрогт ороод долоодугаар гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_7
+instr.roundabout.exit.8	yes	тойрогт ороод наймдугаар гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_8
+instr.roundabout.exit.9	yes	тойрогт ороод есдүгээр гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_9
+instr.roundabout.exit.10	yes	тойрогт ороод аравдугаар гарцаар гарна уу	voice_roundabout_exit+voice_ordinal_10
+instr.roundabout.enter	yes	тойрогт орно уу	maneuver_roundabout_enter
+instr.roundabout.leave	yes	тойргоос гарна уу	maneuver_roundabout_leave
+instr.depart.n	yes	хойд зүг рүү явна уу	maneuver_depart_n
+instr.depart.ne	yes	зүүн хойд зүг рүү явна уу	maneuver_depart_ne
+instr.depart.e	yes	зүүн зүг рүү явна уу	maneuver_depart_e
+instr.depart.se	yes	зүүн өмнө зүг рүү явна уу	maneuver_depart_se
+instr.depart.s	yes	өмнө зүг рүү явна уу	maneuver_depart_s
+instr.depart.sw	yes	баруун өмнө зүг рүү явна уу	maneuver_depart_sw
+instr.depart.w	yes	баруун зүг рүү явна уу	maneuver_depart_w
+instr.depart.nw	yes	баруун хойд зүг рүү явна уу	maneuver_depart_nw
+instr.arrive	no	та очих газартаа ирлээ	maneuver_arrive
+instr.arrive.left	no	таны очих газар зүүн талд байна	maneuver_arrive_left
+instr.arrive.right	no	таны очих газар баруун талд байна	maneuver_arrive_right
+tail.approach	no	очих газартаа хүрнэ	voice_approaching (text after {n} метрт)
+tail.continue	no	үргэлжлүүлэн явна уу	voice_continue_on (text after {n} километр)
+join.then	no	дараа нь	voice_then (text between {first}, and {second})
+fixed.offRoute	no	та маршрутаас гарлаа	voice_off_route
+fixed.gpsLost	no	жи пи эс дохио тасарлаа	nav_gps_lost with GPS spoken as «жи пи эс» (glossary GPS (spoken form), D231)
+fixed.gpsRestored	no	жи пи эс дохио сэргэлээ	nav_gps_restored with GPS spoken as «жи пи эс» (glossary GPS (spoken form), D231)

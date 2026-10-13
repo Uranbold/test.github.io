@@ -9,7 +9,7 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0006: web search
 - ADR-0008: client-side instruction text
 - ADR-0009: Android guidance client
-- ADR-0010: Mongolian voice clip pack (proposed)
+- ADR-0010: Mongolian voice clip pack. **Accepted** 2026-10-13 (NAV-016, D228). Build-time Chimege generator, AAC-LC/ADTS pack with a manifest trim rule, decode-to-PCM playback on Android; contract in `voice-pack/` (pack format, manifest schema, inventory). No contract change
 - ADR-0011: web demo mode (offline replay)
 - ADR-0012: Android route preview and search parity (NAV-011)
 - ADR-0013: Android background guidance, restore and lock screen (NAV-012)
@@ -20,7 +20,7 @@ Current scope: **Phase 0** (NAV-001 local dev stack, NAV-002 to NAV-004 web demo
 - ADR-0018: client security hardening (SEC-4B): per-build CSP meta tag with build-time hashes and a header policy that carries only `frame-ancestors`; strict Gradle dependency verification (sha256) and a strict lock on the Android release runtime classpath. No contract change
 - ADR-0019: route request limits (SEC-2): per-costing distance (car 3,000 km straight-line sum) and 10-location limits in Valhalla `service_limits`, applied at serve time; Valhalla 8 s timeout inside the 10 s gateway timeout; always-on gateway concurrency cap on `/v1/route` (global 8, per IP 4) answered with 503 `RoutingBusy`. openapi 0.7.0
 
-HTTP contract: `api/openapi.yaml` 0.7.0 (0.6.0 added the `packs` operations; 0.7.0 adds the SEC-2 route request limits, 503 `RoutingBusy` and narrows `locations` to 10). Task breakdowns per story: `tasks/` (NAV-020 to NAV-023, SEC-4B, SEC-2).
+HTTP contract: `api/openapi.yaml` 0.7.0 (0.6.0 added the `packs` operations; 0.7.0 adds the SEC-2 route request limits, 503 `RoutingBusy` and narrows `locations` to 10). Task breakdowns per story: `tasks/` (NAV-016, NAV-020 to NAV-023, SEC-4B, SEC-2). Voice clip pack contract (not HTTP): `voice-pack/`.
 
 ## 1. Runtime components (local, one `backend/compose.yaml`)
 
@@ -425,6 +425,8 @@ SEC-2 request limits (ADR-0019, openapi 0.7.0). `max_distance` is a straight-lin
 | NFR-R2 | Search request budget (web and, from NAV-011, Android) | ≤ 2 `search` requests per settled query, 1 `reverse` per coordinate card, no automatic retry except one resume when the network returns; 429 honoured per operation | NAV-003 AC 3, 15, 35, 36; NAV-011 AC 2–4, 7, 11, 12; openapi 0.4.0 rate-limit rules | QA e2e (web); JVM/Robolectric request capture (Android) |
 | NFR-P6 | Typing-lock privacy (Android) | lock fixes only while the map or route preview is in the foreground; 0 network requests and 0 stored values from the lock; passenger override in process memory only (never restored after a restart) | NAV-011 AC 27, 28, 34; ADR-0012 §7 | Robolectric log/storage scan, process-recreation test |
 | NFR-P7 | Route-preview points privacy (Android) | start and destination (a chosen start may be a customer's pickup) live in ViewModel memory only: never logged, stored or restored after process death; the device position is sent only in a route body whose point is «Миний байршил» (and as the D30 bias), never as a `reverse` point | NAV-018 AC 31–33; ADR-0015 §10 | Robolectric log/storage scan, request capture |
+| NFR-V1 | Mongolian voice from the clip pack (Android) | first audio ≤ 1 s after the trigger; pack validation ≤ 1 s at preview open; **0** voice network requests at runtime; joins sample-exact (configured pause ± 20 ms); single prompt ≤ 5.0 s, chained ≤ 8.0 s | NAV-016 AC 31, 33, 37, 39, 29; ADR-0010 §6 | JVM fake clock and duration check; device run |
+| NFR-S2 | Build-time vendor token | `CHIMEGE_API_TOKEN` only in the build machine's environment; never in the repository, CI, the APK, logs, the cache, the manifest or the review files; packs are private build artifacts (D79), given only to the PO until the public-release gates pass (D228) | NAV-016 AC 8, 9, 19, 52, 53; ADR-0010 §4.5 | generator sentinel test, repo and APK scans, security review |
 
 These targets are BA-proposed Phase 0 baselines (NAV-001 Open question 3), not production SLAs.
 
