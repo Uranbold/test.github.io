@@ -253,11 +253,14 @@ class Processed:
         return duration_ms(len(self.samples), self.rate)
 
 
-def process(samples, rate: int, key: str) -> Processed:
-    """trim (5 ms margin) -> 10 ms linear fades -> one gain to -20 dBFS active RMS, peak <= -1 dBFS -> round half even."""
-    flags = active_flags(samples, rate)
+MAX_LEVEL_ITERATIONS = 8
+
+
+def _trim_and_fade(samples, rate: int, threshold_db: float) -> tuple[int, int, list[float]] | None:
+    """Speech region (first to last 10 ms window above threshold_db) + the edge margin, then the linear fades."""
+    flags = active_flags(samples, rate, threshold_db)
     if not any(flags):
-        raise check_failed(key, "silent", f"no 10 ms window above {SILENCE_THRESHOLD_DBFS} dBFS")
+        return None
     w = window_len(rate)
     a = flags.index(True)
     b = len(flags) - 1 - flags[::-1].index(True)
@@ -271,13 +274,41 @@ def process(samples, rate: int, key: str) -> Processed:
         g = i / fade
         y[i] *= g
         y[n - 1 - i] *= g
-    rms_db = active_rms_dbfs(y, rate)
-    if rms_db == float("-inf"):
-        raise check_failed(key, "silent", "no active window after trimming and fades")
-    gain = 10 ** ((TARGET_RMS_DBFS - rms_db) / 20)
-    pk = max(abs(v) for v in y)
-    if pk * gain > PEAK_CEILING:
-        gain = PEAK_CEILING / pk
+    return start, end, y
+
+
+def process(samples, rate: int, key: str) -> Processed:
+    """trim (5 ms margin) -> 10 ms linear fades -> one gain to -20 dBFS active RMS, peak <= -1 dBFS -> round half even.
+
+    The −45 dBFS threshold (trim region and active-RMS windows) is the level of the DELIVERED clip, i.e. after the
+    gain, because that is where the checks (edge silence <= 40 ms, internal silence) and the join measurement (AC 33)
+    look. Applying it to the raw vendor level breaks on loud sources: Chimege delivers about −17 to −10 dBFS active
+    RMS, so the gain is negative (−1 to −10 dB) and the soft decay at the end of a word, above −45 dBFS raw, falls
+    below it after the gain (50–70 ms of "trailing silence"). The gain depends on the region and the region on the
+    gain, so both are iterated to a fixed point (in practice 2–3 rounds); the sample operations keep the
+    pack-format §4 order: trim, fades, gain."""
+    if not any(active_flags(samples, rate)):
+        raise check_failed(key, "silent", f"no 10 ms window above {SILENCE_THRESHOLD_DBFS} dBFS")
+    gain_db = 0.0
+    region = None
+    for _ in range(MAX_LEVEL_ITERATIONS):
+        thr_in = SILENCE_THRESHOLD_DBFS - gain_db  # input level that becomes −45 dBFS after the gain
+        r = _trim_and_fade(samples, rate, thr_in)
+        if r is None:
+            raise check_failed(key, "silent", f"no 10 ms window above {SILENCE_THRESHOLD_DBFS} dBFS after the gain")
+        start, end, y = r
+        rms_db = active_rms_dbfs(y, rate, thr_in)
+        if rms_db == float("-inf"):
+            raise check_failed(key, "silent", "no active window after trimming and fades")
+        gain = 10 ** ((TARGET_RMS_DBFS - rms_db) / 20)
+        pk = max(abs(v) for v in y)
+        if pk * gain > PEAK_CEILING:
+            gain = PEAK_CEILING / pk
+        new_db = 20 * math.log10(gain)
+        done = region == (start, end) and abs(new_db - gain_db) < 0.01
+        region, gain_db = (start, end), new_db
+        if done:
+            break
     out = array("h", (max(-32768, min(32767, round(v * gain))) for v in y))
     return Processed(
         samples=out,

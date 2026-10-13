@@ -449,8 +449,8 @@ export class AudioOut {
 
   private play(p: SpokenPrompt): void {
     this.stop();
-    if (this.speaks(p.lang)) this.speak(p);
-    else this.chime(p);
+    if (this.speaks(p.lang) && !mustNotSpeak(p)) this.speak(p);
+    else this.chime(p); // an unmapped prompt: this prompt only, no fallback() (no A1), later prompts still speak
   }
 
   private speak(p: SpokenPrompt): void {
@@ -618,6 +618,17 @@ export class AudioOut {
 }
 
 type ChimePath = "webaudio" | "element" | "none";
+
+/**
+ * ADR-0010 §2 (integration review 2026-10-13), NAV-016 AC 25 / AC 47: a Mongolian prompt is never spoken when it is
+ * unmapped (a segment outside the inventory) or when its utterance text would contain a digit (the display text). It
+ * plays the §4.8 chime instead; when no chime path can play, chimeAttempt() logs it and the prompt is skipped.
+ */
+export function mustNotSpeak(p: Pick<SpokenPrompt, "lang" | "spoken" | "text" | "unmapped">): boolean {
+  if (p.unmapped) return true;
+  const utterance = p.spoken ?? p.text;
+  return p.lang === "mn" && (utterance.trim() === "" || /[0-9]/.test(utterance));
+}
 
 const errName = (e: unknown): string => (e instanceof Error ? e.name || e.message : typeof e === "string" ? e : "error");
 

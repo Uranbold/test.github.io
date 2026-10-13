@@ -46,8 +46,15 @@ export interface Segment {
 /** The three outputs of one prompt (NAV-016 AC 22). English: `spoken` = `display`, `segments` = []. */
 export interface VoicePrompt {
   display: string;
+  /** Mongolian: the inventory text only (C3a, never a digit); "" when the prompt is `unmapped`. */
   spoken: string;
   segments: Segment[];
+  /**
+   * ADR-0010 §2 (integration review 2026-10-13): a Mongolian prompt with a segment that has no inventory entry (known
+   * case: a walking catch-up ≥ 2,500 m ahead, «3 километрт» has no `dist.km.3`). The player plays the chime for this
+   * prompt only (no A1, no session fallback) and never speaks it. Absent otherwise.
+   */
+  unmapped?: true;
 }
 
 /** The canonical voice inventory (pack-format §2.3): spoken text per `key` + take. */
@@ -241,13 +248,16 @@ export function spokenText(segments: readonly Segment[], inventory: VoiceInvento
 
 /**
  * NAV-016 AC 22: display text, spoken text and segments of one prompt; null = no prompt (D102). Mongolian spoken text
- * comes only from the inventory (C3a: nothing is composed); a segment without an entry (impossible inside the AC 27
- * domain) falls back to the display text, lower-cased at the first letter.
+ * comes only from the inventory (C3a: nothing is composed). A prompt with a segment that has no entry (outside the AC 27
+ * domain, e.g. a walking catch-up ≥ 2,500 m ahead) is `unmapped`: its spoken text is empty and the player chimes
+ * (ADR-0010 §2, decided 2026-10-13). It never falls back to the display text, which has digits (AC 25, AC 47).
  */
 export function voicePrompt(c: VoiceContent, lang: Lang, t: T, inventory: VoiceInventory = VOICE_INVENTORY): VoicePrompt | null {
   const display = renderVoice(c, lang, t);
   if (display === null) return null;
   if (lang !== "mn") return { display, spoken: display, segments: [] };
   const segments = mongolianSegments(c) ?? [];
-  return { display, spoken: spokenText(segments, inventory) ?? lowercaseFirst(display, lang), segments };
+  const spoken = segments.length > 0 ? spokenText(segments, inventory) : null;
+  if (spoken === null) return { display, spoken: "", segments, unmapped: true };
+  return { display, spoken, segments };
 }

@@ -19,6 +19,8 @@ export interface SpokenPrompt {
   spoken?: string;
   /** NAV-016 AC 22: the Mongolian segment list (empty in English). Not played on the web (no clips, AC 49). */
   segments?: Segment[];
+  /** ADR-0010 §2: a Mongolian prompt with a segment outside the inventory. The speaker chimes; it never speaks it. */
+  unmapped?: boolean;
   lang: Lang;
   cls: PromptClass;
   maneuver: ManeuverRef | null;

@@ -9,7 +9,7 @@ import { ArrivalDetector } from "./arrivalDetector";
 import type { NavSnapshot, Navigator } from "./ferrostarCore";
 import { isGood, latLonOf, type Fix } from "./fix";
 import type { LatLon } from "./geo";
-import { PlaybackQueue, type PromptClass, type Speaker } from "./playbackQueue";
+import { PlaybackQueue, type PromptClass, type Speaker, type SpokenPrompt } from "./playbackQueue";
 import type { GuidancePlan } from "./plan";
 import { voicePrompt, type T } from "./voiceText";
 import { SpeedTracker, VoiceScheduler, type ScheduledPrompt } from "./voiceSchedule";
@@ -291,8 +291,10 @@ export class GuidanceCore {
       if (p.maneuver) this.scheduler.onPromptSuppressed(p.maneuver, now);
       return;
     }
-    // AC 47: a Mongolian utterance receives the spoken text (C3a); the display text stays the golden-set text.
-    const prompt = { id: ++this.promptIds, text: vp.display, spoken: vp.spoken, segments: vp.segments, lang: this.lang, cls, maneuver: p.maneuver, triggerAtMs: now };
+    // AC 47: a Mongolian utterance receives the spoken text (C3a); the display text stays the golden-set text. An
+    // unmapped Mongolian prompt (ADR-0010 §2) goes through the queue like any prompt; the speaker plays the chime for it.
+    const prompt: SpokenPrompt = { id: ++this.promptIds, text: vp.display, spoken: vp.spoken, segments: vp.segments, lang: this.lang, cls, maneuver: p.maneuver, triggerAtMs: now };
+    if (vp.unmapped) prompt.unmapped = true;
     this.queue.enqueue(prompt, now);
   }
 

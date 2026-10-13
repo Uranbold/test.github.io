@@ -7,7 +7,7 @@ size: L
 needs_design: true     # no new screen; navigation-ux §4.1 (pending block comes into force), §4.6 (Mongolian voice = pack, D80) and §4.7 (longest prompts from the spoken forms) need UX updates
 needs_backend: true    # build-time generator tooling in backend/tools/voice-pack/ (ADR-0010 §4); no runtime service, no gateway or openapi.yaml change
 needs_mobile: true     # Android playback and the Kotlin generator; the web voice text port of the D95 coordinated change (text only, no clips on the web)
-status: ready          # 2026-10-13, D228: start now. NAV-007 AC 9 gate waived for building; ADR-0010 acceptance happens in this lane (architect). Open questions 1–5 decided 2026-10-13 (D229–D233)
+status: ready          # 2026-10-13, D228: start now. NAV-007 AC 9 gate waived for building; ADR-0010 acceptance happens in this lane (architect). Open questions 1–5 decided 2026-10-13 (D229–D233); D234–D236 applied 2026-10-13; Open question 6 open (not blocking internal builds)
 ---
 
 # NAV-016: Mongolian voice clip pack for Android
@@ -52,6 +52,7 @@ Secondary personas:
   - Input text: Cyrillic only, no digits, at most 300 normalized characters per request.
   - 11 voices. This story uses `FEMALE5v2` and `MALE4v2` (D226).
   - The token is held by the PO, lives in the environment only, and is never in the repository.
+  - *2026-10-13 ([D234](../decisions.md)):* the PO keeps the token that was pasted in chat (no rotation) and accepts the risk of security finding VP-8. The orchestrator used it from a temporary file outside the repository, deleted after use, to generate the real `FEMALE5v2` and `MALE4v2` clips. Release checklist gate C24 is recorded as risk-accepted by the PO.
 - **F4 pre-screen (D226):** 8 prompts in spoken form × 11 voices at 22,050 Hz: 88/88 succeeded, every clip within NAV-007 AC 11 (single max 3.43 s, chained max 6.35 s). These were **whole-prompt** clips. **Segment joins and non-final takes were not tested**, so the join quality (D87) is first heard with this story's pack. `FEMALE3v2` and `FEMALE5v2` gave identical durations, so they may be the same voice.
 - **D95 coordinated change: preconditions met ([D232](../decisions.md), 2026-10-13).** D95/D101 say the Mongolian km rounding and the spoken-form layer ship with NAV-016, in **one** change to Android, the NAV-017 web port and the regenerated voice golden set, after NAV-005 is accepted and NAV-017 is finished.
   - The PO confirmed both on 2026-10-13. NAV-005 and NAV-017 are now `done`, and D104 is applied (NAV-005 has the D91 reference and the D102 line).
@@ -175,7 +176,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     - `review/review.tsv` with the columns `key`, `take`, `spoken_mn`, `result` (`ok` / `bad`), `note`
     - `review/prompts/`, with the two longest prompts of AC 33 and 20 coverage prompts rendered with the manifest's join rules (AC 21)
 
-    The PO uses these files for the per-segment listen before the first NAV-007 AC 10 session and before any public build ([D230](../decisions.md)). Internal PO builds do not need it.
+    These files are written for every pack, real or stub. They are used for the per-segment listen before the first NAV-007 AC 10 session and before any public build ([D230](../decisions.md)). Internal PO builds, including the two `demo` APKs of [D236](../decisions.md), need no listen: the PO waived the PO's own listen and confirmed both voices without listening ([D235](../decisions.md)). Who does the two remaining listens is Open question 6; until it is answered, both stay required.
 
 ### C. Pack format and private artifact
 18. **Given** a pack, **When** `manifest.json` is read, **Then** it holds:
@@ -265,9 +266,11 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     - continue-on from 2,000 m to 1,000,000 m in 10 m steps, plus 99,499, 99,500, 994,999 and 995,000 m
     - the fixed prompts
 28. **Given** the inventory, **When** the domain test ends, **Then** every non-distance inventory entry was produced at least once. An orphan entry fails the test. Distance keys may be unused (for example `dist.lt10`).
-29. **Given** a pack manifest (the real pack when `nav.voicePackDir` is set; the stub pack in CI), **When** the duration check runs over the **whole** generator domain, **Then** every single-cue prompt lasts **≤ 5,000 ms** and every chained prompt **≤ 8,000 ms**, computed as the sum of the segment `durationMs` values plus the AC 21 pauses (NAV-007 AC 11, clip-pack rule).
-    - The check writes the 10 longest single and the 10 longest chained prompts with their durations.
-    - A `release` or `demo` build fails if any prompt exceeds a limit.
+29. **Given** a pack manifest (a real pack when `nav.voicePackDir` is set; in CI the Kotlin stub manifest at 70 ms per character, ADR-0010 §7), **When** the duration check runs over the **whole** generator domain, **Then** it computes each prompt's duration as the sum of the segment `durationMs` values plus the AC 21 pauses, against the limits **≤ 5,000 ms** for a single-cue prompt and **≤ 8,000 ms** for a chained prompt (NAV-007 AC 11, clip-pack rule).
+    - In every case it writes the 10 longest single and the 10 longest chained prompts with their durations (`longest-prompts.tsv`, in the AC 10 harness prompt-list format).
+    - **Stub manifest (`source.vendor` = `stub`): report only.** The check prints every prompt over a limit with its excess and does **not** fail. The 70 ms per character model is not speech, so it cannot prove or disprove AC 11.
+    - **Real pack (`source.vendor` ≠ `stub`): enforced.** In any variant, the check fails if any prompt exceeds a limit and names the first one.
+    - **`demo` and `release` builds:** the check runs before the build (`checkVoicePackDurations` before `preDemoBuild` / `preReleaseBuild`) and the build fails if any prompt of the bundled pack exceeds a limit (these variants accept only a real pack, AC 50).
 30. **Given** the domain test and the duration check, **When** they run in `./gradlew :app:testDebugUnitTest`, **Then** together they finish in **≤ 120 s** on the CI machine.
 
 ### F. Android playback
@@ -315,7 +318,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     - a stub pack in a `release` / `demo` variant
 
 ### H. Voice choice
-45. **Given** this story, **When** the app is built, **Then** **one** voice is bundled: the one in `nav.voicePackDir`. The default pack for every PO build is **`FEMALE5v2`**. A `MALE4v2` pack is generated by the same command, and an internal build with it is made by pointing `nav.voicePackDir` at it (for the PO and for the NAV-007 AC 10 sessions on both D226 voices). **No** voice setting is shown in the UI ([D229](../decisions.md)). Whether drivers get a female/male setting is decided after the NAV-007 panel has rated both voices, through a change on this story.
+45. **Given** this story, **When** the app is built, **Then** **one** voice is bundled: the one in `nav.voicePackDir`. The default pack for every PO build is **`FEMALE5v2`**. A `MALE4v2` pack is generated by the same command, and an internal build with it is made by pointing `nav.voicePackDir` at it (for the PO and for the NAV-007 AC 10 sessions on both D226 voices). **No** voice setting is shown in the UI ([D229](../decisions.md)). Whether drivers get a female/male setting is decided after the NAV-007 panel has rated both voices, through a change on this story. For the PO, both voices are delivered now as **two separate internal `demo` APKs**, one per voice, each bundling only its own pack ([D236](../decisions.md)).
 46. **Given** a pack whose `voiceId` is not `FEMALE5v2` or `MALE4v2`, or whose `inventorySha256` does not match the app, **When** a `release` or `demo` build runs, **Then** it fails (AC 20). A `debug` build plays the fallback (AC 41).
 
 ### I. Web port of the coordinated change (D101; text only, no clips)
@@ -336,7 +339,9 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 53. **Given** a public build is prepared (any distribution beyond the PO and the team: store, website or outside testers), **When** the release checklist is run, **Then** all of these hold. Until they do, pack builds go only to the PO by direct file transfer (D228, D180) and are never published.
     - `decisions.md` has a D row recording Chimege's written output terms, allowing in-app redistribution and stating the data location (D226, D228)
     - the NAV-007 sign-off record lists the AC 9 device matrix, the AC 10 listening scores on this pack version and voice, and the AC 11 duration evidence (D228)
-    - the PO's native per-segment listen for that pack version is complete with **0** `bad` rows in `review.tsv` (ADR-0010 §4, [D230](../decisions.md)). The same listen is also done before the first NAV-007 AC 10 session.
+    - a native per-segment listen for that pack version and voice is complete with **0** `bad` rows in `review.tsv` (ADR-0010 §4, [D230](../decisions.md)). The same listen is also done before the first NAV-007 AC 10 session. The PO waived the PO's own listen for internal builds ([D235](../decisions.md)); this public-build gate is not waived. Who listens is Open question 6 (D230 named the PO).
+
+    The release checklist gate C24 (token rotation after the 2026-10-13 chat exposure, VP-8) is recorded as risk-accepted by the PO ([D234](../decisions.md)). It is not an AC of this story; the security engineer may still flag it at the public-release gate.
 54. **Given** guidance, **When** prompts play, **Then** no route-derived data leaves the device for voice, because the pack plays locally. At build time the generator sends Chimege **only** inventory spoken texts (glossary wording and numerals, no coordinates, street names or user data).
 
 ### K. Verification
@@ -346,15 +351,17 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     - `:app:lintDebug` and `:app:assembleDebug`
     - the web unit tests and the NAV-017 golden check (AC 47–49)
     - the repository scans (AC 19, AC 8, AC 52)
-56. **Given** one real pack generated by the PO (or by an agent on a machine where the PO set the token), **When** it is built into a `demo` APK for the PO, **Then** the PO's phone check covers:
+56. **Given** the two real packs, `FEMALE5v2` and `MALE4v2`, generated with the PO's token (by the PO, or by an agent session the PO gave the token to, [D234](../decisions.md); the token never in a tracked file, AC 8), **When** each is built into its own `demo` APK for the PO ([D236](../decisions.md)) and both pass the build checks (AC 20, AC 29 enforced on the real pack), **Then** the PO's phone check on the **`FEMALE5v2`** APK (the default pack) covers:
     - 3 NAV-019 replays (R1, R2, R3) with voice on
-    - every prompt heard in Mongolian, with no missing word and no audible gap at a join
+    - every prompt plays complete in Mongolian, with no missing word, no chime instead of a prompt (except the ADR-0010 §2 unmapped catch-up case) and no audible gap at a join
     - mute and unmute
     - one phone call during a prompt
     - Bluetooth output, if available
     - airplane mode
 
-    The PO reports the result. Until then these items are not verified.
+    The `MALE4v2` APK needs no separate phone check (BA scoping: it differs only in the bundled pack, which passes the same build checks); the PO may install it at will.
+
+    This is a playback check, not a voice-quality listen. The PO confirmed both voices without listening and waived the per-segment listen for internal builds ([D235](../decisions.md)); voice quality is judged by the NAV-007 panel (AC 10). The PO reports the result. Until then these items are not verified.
 57. **Given** this story's checks, **When** QA reports, **Then** the report lists as **not verified in this environment**:
     - real-device playback, join silence and measured durations (AC 33)
     - validation time (AC 39)
@@ -378,6 +385,8 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 
 ## Data dependencies & risks
 - **Chimege written output terms (business risk, D226/D228):** in-app and public redistribution and data location. Without them, no public build carries the pack (AC 53). The terms may also limit internal storage or bundling. That is unknown until they arrive.
+- **Token not rotated (business risk accepted by the PO, [D234](../decisions.md)):** the token pasted in chat on 2026-10-13 stays valid, and copies remain on the agent machine outside the repository (security finding VP-8, medium). Anyone who obtains those copies can call Chimege on the PO's account. The release checklist gate C24 is risk-accepted by the PO; the security engineer may still flag it at the public-release gate.
+- **Chained prompt duration on the real pack (ADR-0010 §7):** on the stub model the longest chained prompt (`dist.m.650` + roundabout exit 6, chained) is 8,540 ms against the 8,000 ms limit. AC 29 is enforced on a real pack, so a real pack may fail the `demo` build on chained roundabout prompts. What to do then is a product question for the PO, raised when it happens.
 - **Voice availability:** Chimege may change or retire `FEMALE5v2` / `MALE4v2`. The cache and the stored pack keep the current audio. Where the canonical pack and cache are kept is an architect design question (below).
 - **`FEMALE3v2` / `FEMALE5v2` may be the same voice (D226):** no impact on this story. It is relevant if the PO wants a second female option later.
 - **Join prosody (D87):** the pre-screen used whole prompts only. The `nonFinal` takes and the pauses are first tested with this pack. If the panel flags broken joins, pauses or takes change through a change on this story. ADR-0010 lists this as a revisit trigger.
@@ -423,7 +432,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 6. How a NAV-007 AC 10 harness reuses the manifest and join rules (AC 21).
 
 ## Open questions
-**None open.** All five were decided by the PO on 2026-10-13 ("All as recommended", relayed by the orchestrator) as the BA recommendation: Q1 → [D229](../decisions.md), Q2 → [D230](../decisions.md), Q3 → [D231](../decisions.md), Q4 → [D232](../decisions.md), Q5 → [D233](../decisions.md). The questions are kept below as asked.
+**One open (Open question 6, non-blocking for internal builds).** Questions 1–5 were decided by the PO on 2026-10-13 ("All as recommended", relayed by the orchestrator) as the BA recommendation: Q1 → [D229](../decisions.md), Q2 → [D230](../decisions.md), Q3 → [D231](../decisions.md), Q4 → [D232](../decisions.md), Q5 → [D233](../decisions.md). The questions are kept below as asked.
 
 1. **Voice choice for drivers. Decided: (c), [D229](../decisions.md).** The PO picked a female and a male candidate (D226), and the UX has no voice setting. Options:
    - (a) bundle `FEMALE5v2` only, no setting
@@ -449,24 +458,31 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 
    **BA recommendation: (a)** if the PO is content with both (QA already treats NAV-005 as accepted since 2026-10-01, and NAV-017's fix round passed). Under (b) the player cannot be tested end to end, because segment output and the rounding are one change (ADR-0010 decision 2).
 5. **Priority / class. Decided: P1 / standard, [D233](../decisions.md).** The triage proposal is P1 / standard (F5 row). The PO's "Just go forward" (D228) started the story but did not set the class. **BA recommendation: P1 / standard** (MoSCoW must: D91 makes NAV-016 a gate for the NAV-005 external release).
+6. **Who does the per-segment listen now that the PO does not listen ([D235](../decisions.md))? Open, added 2026-10-13.** D230 put the PO's listen before the first NAV-007 AC 10 session and before any public build (AC 17, AC 53, checklist C22). D235 waives the PO's own listen for internal builds but keeps the public-build gate. It does not say who listens instead. Not blocking internal builds; it blocks the first AC 10 session and any public build. Options:
+   - (a) the PO still does both listens (D230 unchanged for these two points; D235 then covers internal builds only)
+   - (b) the NAV-007 paid editor (D18–D20) does both listens on the review page (AC 17), and the PO keeps the final call on disagreements (D20)
+   - (c) no separate listen: the NAV-007 AC 10 session is the first native listen, and before a public build the panel's AC 10 result replaces gate 3 of AC 53 (needs a change to AC 53 and checklist C22)
+
+   **BA recommendation: (b).** It keeps a native check of every one of the 304 segments per voice before outside listeners hear the pack, matches the PO's wish not to listen, and fits the existing panel model. (c) is weaker: an AC 10 session hears a sample of prompts, not every segment.
 
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
 |---|---|---|---|---|---|
 | AC 1–5 (inventory) | — | none | `backend/tools/voice-pack/` (inventory), Android inventory hash | generator tests; inventory vs `mn` resources and TSV (QA fixture, D99) | F5 triage row |
-| AC 6–17 (generator) | — | none (vendor API at build time only) | `backend/tools/voice-pack/`, `.env.example` | stub synthesiser, fake Chimege server, token sentinel test | — |
+| AC 6–17 (generator) | — | none (vendor API at build time only) | `backend/tools/voice-pack/`, `.env.example` | stub synthesiser, fake Chimege server, token sentinel test | D230, D234 (token, VP-8), D235 (AC 17) |
 | AC 18–21 (pack, artifact) | — | none | manifest schema (ADR-0010 §3), Gradle `nav.voicePackDir` | repository scan, build verification tests | D79 |
 | AC 22–26 (generator output, rounding) | navigation-ux §4.1 (pending block comes into force) | none | `instructions/VoiceText.kt` | JVM tests; regenerated `tests/gpx/nav005/golden/voice-golden.tsv` | D92–D103 |
-| AC 27–30 (domain, duration) | navigation-ux §4.7 | none | — | JVM domain test and duration check | NAV-007 AC 11 |
+| AC 27–30 (domain, duration) | navigation-ux §4.7 | none | `checkVoicePackDurations` (Gradle, before `preDemoBuild` / `preReleaseBuild`) | JVM domain test and duration check (stub manifest report-only, real pack enforced; `longest-prompts.tsv`) | NAV-007 AC 11; ADR-0010 §2 (unmapped catch-up prompts, backlog follow-up), §7 (AC 29 enforcement) |
 | AC 31–40 (playback) | navigation-ux §4.5, §4.6, §12.5, §12.6 | none | `voice/` (pack player, selection) | Robolectric with fake clock and fake TTS; PO phone check (AC 56) | D80 |
 | AC 41–44 (fallback) | navigation-ux §4.6, §4.8 | none | `voice/` | corruption tests | NAV-005 AC 39 |
-| AC 45–46 (voice choice) | — | none | Gradle property | build tests | D226, D229 |
+| AC 45–46 (voice choice) | — | none | Gradle property | build tests | D226, D229, D236 |
 | AC 47–49 (web port) | navigation-ux §11.5 | none | `web/src/guidance/voiceText.ts` | web unit tests, NAV-017 golden check | D101 |
-| AC 50–54 (builds, gates, privacy) | — | none (`openapi.yaml` unchanged) | Gradle variants | APK size and scan tests, release checklist | D228, D17, D91 |
-| AC 55–57 (verification) | — | — | — | QA report, PO phone check | D108 |
+| AC 50–54 (builds, gates, privacy) | — | none (`openapi.yaml` unchanged) | Gradle variants | APK size and scan tests, release checklist (C20–C24) | D228, D17, D91, D230, D234 (C24 risk-accepted), D235; Open question 6 |
+| AC 55–57 (verification) | — | — | — | QA report, PO phone check on the `FEMALE5v2` demo APK | D108, D234, D235, D236 |
 
 ## Change log
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-13 | Spike follow-up F5 (triage log 2026-10-01, F5 row); PO "Just go forward" 2026-10-13 ([D228](../decisions.md)) after [D226](../decisions.md)/[D227](../decisions.md) | Created from the draft backlog row. Status `ready`. AC 1–57 (with 22a–22c) in sections A–K: segment inventory (304 entries per voice), Chimege build-time generator with stub and fake server, private pack (D79) via `nav.voicePackDir`, the D95 coordinated change (Android rounding, spoken layer, segment output, web text port, golden set), domain and duration checks, gapless Android playback, chime plus A1 fallback, a single bundled voice (`FEMALE5v2` default), release gates. Five open questions for the PO; six architect design questions; missing glossary terms listed (spoken "GPS", voice setting labels) | D228 starts NAV-016 now: the AC 9 gate is waived for building and F4 is met by D226/D227. ADR-0010 is accepted in this lane |
 | 2026-10-13 | PO "All as recommended" in chat to Open questions 1–5 ([D229–D233](../decisions.md), relayed by the orchestrator) | **Open questions:** all five marked decided. **Frontmatter:** priority P1 / standard confirmed (D233). **Context:** the D95 preconditions are met (D232: NAV-005 accepted, NAV-017 finished, D104 applied), so sections D and I are in scope; section D heading updated. **Inventory:** the fixed GPS segments are spoken «жи пи эс дохио тасарлаа» / «жи пи эс дохио сэргэлээ» (new glossary row "GPS (spoken form)", D231); 304 entries per voice with no interim count; "Missing glossary terms" became "Glossary terms". **AC 2:** GPS exception to the resource match. **AC 4:** rewritten: the GPS prompts play from the pack, the on-screen text keeps «GPS», and the interim chime is removed. **AC 23:** GPS row added. **AC 25:** 0 Latin letters in spoken text. **AC 17, AC 53:** the PO does the per-segment listen before the first AC 10 session and before any public build (D230). **AC 45:** no voice setting, decided after the panel (D229). Edge cases, risks, Out of scope, the NAV-005 change list (D104 applied) and Traceability updated. No other AC changed | The PO accepted every BA recommendation |
+| 2026-10-13 | PO chat 2026-10-13 "Option 2 Just use it i don't wanna regenerate the Token. About the voice you go with the FEMALE5v2 MALE4v2 Go with this choices I dont need to listen" ([D234–D236](../decisions.md), relayed by the orchestrator); ADR-0010 §7 duration enforcement (architect request) | **AC 29:** reworded to ADR-0010 §7: the stub manifest (70 ms per character) only reports (`longest-prompts.tsv`, excess printed); a real pack fails the check in any variant; `demo` and `release` run `checkVoicePackDurations` before the build and fail on any excess. Replaces "the stub pack in CI" + "release or demo build fails". **AC 17:** review files written for every pack; no listen for internal PO builds including the two D236 APKs (D235); the remaining listener is Open question 6. **AC 53:** gate 3 is "a native per-segment listen", no longer named as the PO's (D235), still required before a public build and before the first AC 10 session; note that checklist C24 is risk-accepted by the PO (D234). **AC 56:** two real packs, each in its own `demo` APK (D236), token per D234; the PO's phone check runs on the `FEMALE5v2` APK, the `MALE4v2` APK needs none (BA scoping); "every prompt heard" is now "every prompt plays complete", a playback check, not a voice-quality listen (D235); no chime except the ADR-0010 §2 unmapped catch-up case. **AC 45:** both voices delivered to the PO as two separate internal APKs, still no setting (D236). **Context:** D234 token note. **Risks:** token not rotated (D234); chained-prompt duration on the real pack (ADR-0010 §7). **Open questions:** new Open question 6 (who listens). **Traceability** updated. Backlog: follow-up row for bounded `dist.km.N` rows above 2 km (ADR-0010 §2), through triage | The PO declined the token rotation, confirmed both voices without listening and asked for both; ADR-0010 §7 made duration enforcement depend on the pack source, and the story wording had to follow it |
