@@ -8,6 +8,8 @@
   - this file: the rules JSON Schema cannot express
 - **Who implements what:** the generator (`backend/tools/voice-pack/`, backend-engineer) **writes** packs that satisfy this file; the Android app and its Gradle build (mobile-engineer) **read and verify** them. Neither side changes this file on its own (CLAUDE.md rule 2, applied to this contract). A change goes through the architect, and a breaking change bumps `schemaVersion`.
 - **Not in `openapi.yaml`.** Packs are bundled at build time. No HTTP operation serves them (ADR-0010 §5), so `openapi.yaml` is unchanged.
+- **Clarifications** (none changes the format or `schemaVersion`):
+  - 2026-10-13, after the integration review: §8.1 says which check owns which fault (V2/V3/V4/V8), the integer and control-character reading rules, the generator-only `UNLISTED_FILE` check, and the `debug` rule for V7.
 
 Key words: **must** = required for a valid pack or a conforming client.
 
@@ -61,7 +63,7 @@ A distance entry's `spokenText` must equal its TSV `spoken_mn` byte for byte. A 
 - The Android build computes it from the same two input files and compiles it into the app.
 - A client recomputes it from the manifest `entries`, and it must match both values.
 
-*Value at the time of writing* (the inputs at commit `372e26e` plus this directory's `inventory.tsv`): `681d5e39b8cd21d0b97104e3c4b0f5b417388885497c2ca429a42c3edf2b8bc5`. Tests should compute it rather than hard-code it.
+*Value at the time of writing* (the inputs at commit `372e26e` plus this directory's `inventory.tsv`): `681d5e39b8cd21d0b97104e3c4b0f5b417388885497c2ca429a42c3edf2b8bc5`. Tests should compute it rather than hard-code it. *Re-checked 2026-10-13 at commit `4a64023`:* the generator (`voicepack inventory`), the Android build (`VoiceInventoryBuilder`) and the web (`gen-voice-inventory.mjs`) each give this value from the committed inputs, with 304 entries.
 
 ### 2.4 `glossaryRevision`
 `glossaryRevision` = the lowercase hex SHA-256 of the raw bytes of `glossary-c3-spoken.tsv`, followed immediately by the raw bytes of `inventory.tsv`. It is for tracing only. A status-only TSV edit changes it but not `inventorySha256`. Clients never compare it.
@@ -142,7 +144,27 @@ Checks run in this order. The first failure gives the reason code. Android logs 
 | (play) | `AudioTrack` error during a prompt | `PLAYBACK_FAILED` |
 
 - **Build time (Gradle, NAV-016 AC 20):** V2–V10 against `nav.voicePackDir`, plus the variant rules of AC 50. The failure message names `nav.voicePackDir` and the first failed check.
+  - `debug` only (AC 46): if the **only** V7 failure is that `inventorySha256` differs from the compiled value, the build warns, bundles the pack and goes on to V8–V10. The app rejects that pack at runtime (`INVENTORY_MISMATCH`, fallback). A V7 failure in the manifest's own consistency (entries unsorted or duplicated, or entries that do not hash to the manifest's `inventorySha256`) fails the `debug` build like any other check.
 - **Runtime (AC 39, AC 40):** V1–V10 at route-preview open and after a restore, with 0 network requests.
+
+### 8.1 Which check owns which fault (normative, clarified 2026-10-13; no format change)
+The first failing check in the order V1 → V10 gives the reason code. The generator's `verify`, the Gradle guard and the Android validator must give **the same code for the same pack**. Each check owns these faults:
+
+| Check | Owns |
+|---|---|
+| V2 `MANIFEST_UNREADABLE` | the bytes are not UTF-8 JSON, or the top-level JSON value is **not an object** (for example an array) |
+| V2 `SCHEMA_UNSUPPORTED` | an object without `schemaVersion`, or a `schemaVersion` that is not an integer in the supported set (`"1"`, `1.0` and `true` are not supported) |
+| V3 `MANIFEST_UNREADABLE` | every other rule of `manifest.schema.json` (members present and no extra members, types, patterns, enums, ranges), **except** the faults listed under V4 and V8. That includes `codec.bitrateKbps`, `codec.encoderDelayFrames`, `codec.encoder`, a missing `codec` member, `source.vendor` and the `durationMs` range |
+| V4 `CODEC_UNSUPPORTED` | the **values** of `codec.name`, `codec.container`, `codec.fileExtension`, `codec.channels` and `codec.sampleRateHz` (wrong const, wrong enum value, or wrong type for these five) |
+| V8 `ENTRY_INVALID` | the `entries[].file` pattern (a `file` that is not a string is V3), plus the V8 rules in the table above |
+
+Two reading rules belong to V3, so that "`voicepack verify` passes" implies "the app accepts":
+- **Integers:** where the schema says `integer`, the JSON number must have no fraction and no exponent part (§3). `1.0` or `1e3` is V3, even though some JSON Schema validators accept `1.0` as an integer.
+- **No control characters:** no string in the manifest contains U+0000–U+001F. Patterns match the **whole** string. Python's `re` `$` also matches before a final `\n`, so the generator must not rely on that for the schema patterns.
+
+**Generator-only check G1 `UNLISTED_FILE`** (`voicepack build` and `voicepack verify`, after V10): the pack directory holds anything other than `manifest.json`, the `clips/` directory and the files the manifest lists (§1.2). It is not a client reason code. Gradle copies only the listed files, and the app reads only listed paths, so an extra file never reaches an APK.
+
+Conformance: a shared fixture set should exist that gives the expected code for each single-fault corruption in this table, plus at least one two-fault case (`codec.bitrateKbps` out of range **and** `codec.name` wrong → V3). Each implementation runs it in its own tests.
 
 ## 9. Versioning and compatibility
 | Field | Changes when | Who checks |

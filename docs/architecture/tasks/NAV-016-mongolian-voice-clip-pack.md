@@ -80,7 +80,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 - Token: `os.environ["CHIMEGE_API_TOKEN"]` only. Missing or empty: exit 2 with `CHIMEGE_API_TOKEN is not set` and 0 requests. Never put it in a URL, `repr`, an exception or a log line. Every stdout/stderr/log write goes through `redact.py`, which replaces the token value.
 - Retry policy (ADR-0010 §4.2):
   - **retry** on 429, 500, 502, 503, 504, a timeout (30 s) or a connection error: at most 3 retries after the first attempt, waiting 1 s, 2 s, 4 s, or `Retry-After` (seconds, capped at 60 s)
-  - **fail at once** on any other 4xx, naming the key and the `Error-Code` header with its meaning (4000–4008)
+  - **fail at once** on any other 4xx, naming the key and the `Error-Code` header with its meaning (4000–4008; the meanings are in the ADR-0010 §4.1 table, any other code is reported as unknown with the raw code)
   - **403** (1000–1003) aborts the run, with "CHIMEGE_API_TOKEN rejected (code 1001: missing)" and similar messages
   - **200** must be RIFF/WAVE, PCM 16-bit, mono, 22,050 Hz; otherwise the run fails with no retry
 - At most 2 requests in flight (a thread pool of 2). The only request text is the inventory text plus the take-method carrier (AC 54).
@@ -155,6 +155,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 ### B9. `verify` (pack-format §8)
 - `python -m voicepack verify DIR [--policy release|demo|debug]` runs schema validation and V1–V10 and prints the reason code of the first failure. The PO runs it before handing a pack to a build; QA runs it in the interop test (§3).
 - **Checks:** each corruption of NAV-016 AC 44 (one byte changed, one file deleted, truncated manifest, changed `inventorySha256`, `schemaVersion` 99, stub under `--policy release`) gives the expected reason code.
+- **Added 2026-10-13 (pack-format §8.1):** after V10, the generator-only check G1 `UNLISTED_FILE` (not a client code). Fault ownership exactly as in §8.1: a top-level non-object gives `MANIFEST_UNREADABLE`; `1.0` where the schema says integer gives V3; strings with control characters give V3 (whole-string matching, no reliance on Python's `$`). Add the §8.1 fixtures, including the two-fault case.
 
 ### B10. CLI, Makefile, Docker, configuration, ignore rules (AC 8, 13, 19)
 - `python -m voicepack build --voice FEMALE5v2|MALE4v2 --pack-version N --synth chimege|stub --out DIR [--cache DIR] [--bitrate-kbps 24] [--join-pause-ms 80] [--then-pause-ms 80] [--take-method carrier-then-v1] [--prompts FILE] [--replace]`
@@ -168,7 +169,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 - `backend/.gitignore`: `tools/voice-pack/out/`, `tools/voice-pack/cache/`, `**/review/` under that tool, and `*.aac`, `*.m4a`, `*.wav` under `tools/voice-pack/`.
 - The Dockerfile pins the base image by digest and pins the ffmpeg version. The README states that byte identity (AC 13) is guaranteed only within the reference image.
 - **Checks:**
-  - `git grep -n "CHIMEGE_API_TOKEN=."` finds 0 non-empty values
+  - **AC 8 token scan (definition clarified 2026-10-13):** `git grep --untracked -n -E` for the variable name followed by optional spaces and `=` or `:`. For each hit, the *value* is the text after `=`/`:` and optional spaces, with **one** leading `"` or `'` removed, up to the next whitespace, quote or backtick. A hit is not a value if that text is empty, is `.` (the scan pattern quoted in docs), starts with `<` (a placeholder such as `<value>`), contains `…`, or is a shell or compose reference (`$NAME`, `${NAME}`). Every other hit fails the scan. A quoted value such as `="abc"` or `='abc'` **must** be found, and so must the YAML form `NAME: abc`
   - `make voice-pack-test` passes offline
   - the README contains no vendor document text, no token and no host other than the public API base
 
@@ -229,6 +230,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
   - `promptMs` per pack-format §6; single ≤ 5,000 ms, chained ≤ 8,000 ms
   - writes `build/reports/voice/longest-prompts.tsv` (prompt list format, the 10 longest single and 10 longest chained, with `durationMs`)
   - fails `release`/`demo` builds on any excess
+  - **decided 2026-10-13 (ADR-0010 §7):** with the stub manifest it only reports. It is enforced whenever the manifest is a real pack (`source.vendor` ≠ `stub`), in any variant, and in `checkVoicePackDurations` before `preDemoBuild`/`preReleaseBuild`
 - **Check:** both run in `testDebugUnitTest` in ≤ 120 s together (AC 30). Prefer analytic enumeration per prefix key over 1 m stepping through the full schedule if time is tight; the domain coverage must not shrink.
 
 ### M5. Bundling in Gradle (AC 20, 45, 46, 50, 51, 52)
@@ -239,6 +241,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
   - `demo`: required and real (`source.vendor != "stub"`, `voiceId` ∈ {`FEMALE5v2`, `MALE4v2`}), unless the value is exactly `none`
   - `release`: required and real; `none` is refused
 - Every failure names `nav.voicePackDir` and the first failed check.
+- `debug` and V7 (decided 2026-10-13, pack-format §8): only a mismatch with the compiled `inventorySha256` is a warning (the pack is bundled and the app falls back). Unsorted or duplicate entries, or entries that do not hash to the manifest's own value, still fail the build.
 - `BuildConfig.VOICE_PACK_POLICY` (`OPTIONAL` | `REQUIRED_REAL`).
 - No download, ever.
 - `.aac` stays uncompressed in the APK (aapt's default no-compress list; assert it).
@@ -271,6 +274,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 - **Checks:**
   - JVM `ClipTrimTest` covers: the priming frame output, the first access unit dropped, k = 2, out of range → exception, short by ≤ 10 ms → padded
   - **new instrumented test** `src/androidTest/.../ClipDecoderInstrumentedTest`: decodes the B2 stub clips (generated by QA's interop step and pushed as test assets, never committed) with the real `MediaCodec` and asserts length = `frames` and onset within ±2 frames. *Not runnable in the agent environment (no emulator); listed as not verified*
+    - **decided 2026-10-13 (ADR-0010 §7):** on the device the onset is checked as the first sample above −35 dBFS within [`edgeMarginMs` − 2 frames, `edgeMarginMs` + `fadeMs`]. There is no pre-encode PCM on the device; the ±2-frame correlation stays in the generator (B6). The window gates on the stub pack only. On a real pack an onset-only failure is reported, not gating. The length checks gate on every pack
 
 ### M8. Player integration and voice routing (AC 31–38, 41–43)
 - `voice/VoiceRouting.kt` (pure):
@@ -299,6 +303,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 ### M9. Web port, text only (AC 47–49)
 - Generate the canonical inventory for the web from the same two files (for example `web/scripts/gen-voice-inventory.mjs` → `web/src/guidance/voiceInventory.json`, with a vitest drift test that regenerates it in memory and compares). Use JSON, so `check:i18n` stays strict.
 - `voiceText.ts`: the same D92/D94/D102 rounding for `mn`; returns `{ display, spoken, segments }` (segments recommended now, so the later web clip story needs no generator change). A Mongolian utterance (local voice only, D78) receives `spoken`. English is unchanged.
+- **Unmapped Mongolian prompt (decided 2026-10-13, ADR-0010 §2):** if any segment has no inventory entry (known case: walking catch-up ≥ 2,500 m ahead), the web must **not** speak. It must not fall back to the display text, which has digits. It plays the chime for that prompt only, with no A1 and no session fallback; if no chime path can play, the prompt is skipped. Check: a walking catch-up at 3,000 m in `mn` gives 0 utterances and 1 chime, and no Mongolian utterance text ever contains a digit
 - **Checks:**
   - the NAV-017 golden check passes with 0 display differences, and the web `spoken` equals the golden `spoken` column (AC 48)
   - a build scan finds 0 `.aac`/`.m4a`/`.wav` files from a pack, 0 `voicepack` references and 0 "chimege" strings in `dist*` (AC 49, AC 6)
@@ -315,8 +320,9 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 
 ## 3. Cross-team checks (QA, at verification)
 1. **Interop test:** `make -C backend voice-pack-stub OUT=$TMP` → `python -m voicepack verify $TMP/…/pack --policy debug` → `./gradlew :app:testDebugUnitTest -Pnav.voicePackDir=$TMP/…/pack` with a test (enabled only when the property is set) that runs `VoicePackValidator` on the real stub pack. That proves both sides compute the same canonical inventory and hashes.
-2. **Repository scans** (AC 19, 8, 52, 6): no tracked audio except the chime; no tracked `manifest.json` with `schemaVersion`/`inventorySha256` fields; no tracked `review/`; no non-empty `CHIMEGE_API_TOKEN=`; 0 "chimege" in `mobile/` and `web/`.
-3. **PO run** (AC 56, D230): the PO runs `make voice-pack-build VOICE=FEMALE5v2 PACK_VERSION=1 …`, listens on `review/index.html`, exports `review.tsv`, then builds the `demo` APK with `-Pnav.voicePackDir`. The QA report records (`voiceId`, `packVersion`, manifest SHA-256).
+2. **Reason-code parity (added 2026-10-13):** the same corrupted packs through `voicepack verify`, `VoicePackGuard` and `VoicePackValidator` give the same reason code (pack-format §8.1). The one expected difference is G1 `UNLISTED_FILE`, which is generator-only.
+3. **Repository scans** (AC 19, 8, 52, 6): no tracked audio except the chime; no tracked `manifest.json` with `schemaVersion`/`inventorySha256` fields; no tracked `review/`; no non-empty `CHIMEGE_API_TOKEN=`; 0 "chimege" in `mobile/` and `web/`.
+4. **PO run** (AC 56, D230): the PO runs `make voice-pack-build VOICE=FEMALE5v2 PACK_VERSION=1 …`, listens on `review/index.html`, exports `review.tsv`, then builds the `demo` APK with `-Pnav.voicePackDir`. The QA report records (`voiceId`, `packVersion`, manifest SHA-256).
 
 ## 4. AC coverage map
 | AC | Tasks |

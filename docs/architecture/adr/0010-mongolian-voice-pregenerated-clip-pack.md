@@ -14,6 +14,7 @@
 |---|---|
 | 2026-10-01 | Proposed. Revised after the spike's skeptic review (Gemini-TTS, eSpeak NG, non-final takes, D80), then for F3 (D92–D100: distance keys are the companion TSV's keys, D94 continue-on as whole-phrase segments) |
 | 2026-10-13 | **Accepted** for D226–D233. Vendor Chimege, `FEMALE5v2` bundled. Final key names (`tail.approach` replaces the illustrative `tail.arrive`; `instr.straight` for `continue`; `fixed.*`). `nonFinal` takes in pack v1, made by the `carrier-then-v1` method. Two pause constants. Codec AAC-LC in raw ADTS with a manifest trim rule. Decode-to-PCM playback through one `AudioTrack`. Validation at preview open. Custody of the pack and cache. Our own summary of the Chimege API. AC 10 harness. The contract files moved to `docs/architecture/voice-pack/` |
+| 2026-10-13 (integration review) | Decisions on the engineers' open items, no format change (`schemaVersion` stays 1): Chimege `Error-Code` meanings (§4.1); cache key `takeMethod` = `none` for `final` takes (§4.2); unmapped prompts play the chime on every platform, the web included, and never speak the display text (§2); the stub-model duration check only reports, the check on a real pack is enforced (§7); the device onset check uses the edge-margin/fade window (§7); debug builds downgrade only the compiled-inventory comparison of V7 (§5). Precedence of V2/V3/V4/V8 and the generator-only `UNLISTED_FILE` check are now spelled out in pack-format §8 |
 
 ## Context
 - **No device voice.** No first-party engine ships a Mongolian voice. eSpeak NG has a GPL-3.0, formant-quality one that users may install themselves (spike §2). The web demo has only Edge desktop's online voices, which are excluded by D78.
@@ -61,7 +62,11 @@ The Mongolian rounding changes in the same change (D95, D232):
 - `cont.km.N tail.continue`
 - `fixed.*`
 
-A prompt has at most 4 segments. A JVM domain test proves that every output maps to an inventory entry (NAV-016 AC 27–28). At runtime, an output that does not map (impossible by the test) plays the chime and never a partial prompt.
+A prompt has at most 4 segments. A JVM domain test proves that every output maps to an inventory entry (NAV-016 AC 27–28). At runtime, an output that does not map plays the chime and never a partial prompt.
+- **Unmapped prompts (decided 2026-10-13, integration review):** the AC 27 domain stops at 2,000 m, so some runtime outputs can still fall outside the inventory. Known case: walking catch-up, restore or call catch-up prompts for a manoeuvre ≥ 2,500 m ahead. These round to «3 километрт» or more, and there is no `dist.km.3`+ key. The rule is the same on every platform: **that one prompt plays the chime**. It is not a session fallback, so there is no A1 notice and later prompts still play from the pack. The banner keeps its display text.
+  - **Android:** already does this (`VoiceOutput`, "a segment has no entry").
+  - **Web (`voiceText.ts` + the demo player):** a Mongolian prompt with any segment missing from the inventory must never be spoken. The current fallback to the lower-cased display text speaks digits and breaks AC 25. The web plays its navigation-ux §4.8 chime for that prompt. If no chime path can play, the prompt is skipped. English is unchanged.
+  - Bounded `dist.km.N` rows above 2 km, plus extending the AC 27 domain to cover those catch-up distances, are a later BA follow-up through triage. Until then the chime is the accepted interim behaviour.
 
 ### 3. Pack format (contract: [`pack-format.md`](../voice-pack/pack-format.md), [`manifest.schema.json`](../voice-pack/manifest.schema.json))
 1. **One pack per voice:** a directory with `manifest.json` and `clips/<key>.<take>.aac`. The manifest fields are those of NAV-016 AC 18, plus four more. Two are needed to decode exactly: `codec` and the per-entry `frames` / `encodedFrames`. Two are needed to reproduce the pack: `processing` and `codec.encoder`. There are no timestamps or hosts, and the bytes are deterministic (pack-format §3).
@@ -90,8 +95,30 @@ A prompt has at most 4 segments. A JVM domain test proves that every output maps
     - `sample-rate`: 8,000, 16,000 or 22,050, default 22,050; we send 22,050
   - Success: HTTP 200 with a WAV body (16-bit PCM, mono, 22,050 Hz in the pre-screen).
 - **Errors:**
-  - HTTP 400 with an `Error-Code` header. The codes cover: body not received; normalised text shorter than 2 characters; longer than 300 characters; unknown voice, speed, sample rate or pitch; disallowed characters; a run of upper-case letters.
-  - HTTP 403 with an `Error-Code` header: the token is invalid, missing, inactive or suspended.
+  - HTTP 400 with an `Error-Code` header. Our summary of each code, which the generator prints after the key (B3):
+
+    | `Error-Code` | Meaning (our wording) | Can our inventory cause it? |
+    |---|---|---|
+    | 4000 | the request body was not received | no (a client or transport bug) |
+    | 4001 | the text after vendor normalisation is shorter than 2 characters | no (pack-format §2.2: ≥ 2 characters) |
+    | 4002 | the text after vendor normalisation is longer than 300 characters | no (≤ 300 characters including the carrier) |
+    | 4003 | the `voice-id` is not a valid voice | only with a wrong `--voice` |
+    | 4004 | the `speed` is invalid (allowed 0.2–4) | no (we send 1) |
+    | 4005 | the text contains special characters the vendor does not allow | no (charset rule; only the carrier comma) |
+    | 4006 | the text contains a series of upper-case letters | no (lower case only) |
+    | 4007 | the `sample-rate` is invalid | no (we send 22,050) |
+    | 4008 | the `pitch` is invalid (allowed 0.2–6) | no (we send 1) |
+
+    Any other 400 code, or none, is reported as "unknown Error-Code" with the raw code. All of them fail the run at once (no retry).
+  - HTTP 403 with an `Error-Code` header. The token was rejected, and the run aborts:
+
+    | `Error-Code` | Meaning (our wording) |
+    |---|---|
+    | 1000 | the token is invalid |
+    | 1001 | the token is missing |
+    | 1002 | the token is not active |
+    | 1003 | the token is suspended |
+
   - 500, and 503 when the service is overloaded.
 - **Allowed characters:** Cyrillic letters, space and the punctuation `? ! . - ' " : ,`. Digits and abbreviations are expanded by the vendor's normaliser.
   - A separate `POST …/normalize-text` endpoint returns the normalised text. Our inventory never needs it, because we send spoken forms. The generator may offer it as an optional diagnostic that flags entries whose normalised text differs from what we sent. It is off by default and outside the cache key.
@@ -111,6 +138,7 @@ A prompt has at most 4 segments. A JVM domain test proves that every output maps
   - A 200 response whose body is not mono 16-bit PCM WAV at the requested rate fails the run, with no retry.
 - **Token hygiene:** the token is read only from the environment and sent only in the `token` header. The API base can be overridden only to a loopback host (for the fake server). The token never appears in a URL, a log line, an exception text, the cache, the manifest or the review files. A redaction filter on every output stream is the second line of defence (AC 9 sentinel test).
 - **Cache** (AC 10): raw vendor WAVs, keyed by the SHA-256 of a canonical JSON of {vendor, apiVersion, voice, sampleRateHz, speed, pitch, takeMethod, requestText}. Written atomically, with an index file that holds the key fields and no token. Cleared only by hand.
+  - In the cache key, `takeMethod` is the method id (for example `carrier-then-v1`) for a `nonFinal` take, and the literal `none` for a `final` take. A `final` request is the bare `spokenText`, so the method cannot change its audio. Switching the method (for example `comma-v1` on the review page) then re-requests only the `nonFinal` takes. The manifest's `takeMethod` field is unaffected: it always names the method of the run.
 - **Output** (AC 11, AC 13, AC 17): everything is written to a temporary sibling directory, verified, and then renamed into place. On any failure no pack and no manifest appear, and an earlier output stays untouched.
 
 #### 4.3 `nonFinal` take method: `carrier-then-v1` (AC 12)
@@ -145,7 +173,7 @@ A prompt has at most 4 segments. A JVM domain test proves that every output maps
   - `MALE4v2` packs are built with the same command, for internal builds only.
   - There is no voice setting (D229).
   - Bundling rules per variant (NAV-016 AC 50):
-    - `debug`: optional; without a valid pack it plays the fallback
+    - `debug`: optional; without a valid pack it plays the fallback. *Decided 2026-10-13:* when the only failure is that the manifest's `inventorySha256` differs from the compiled value (a pack built from older wording), the `debug` build warns and still bundles the pack. The app then rejects it at runtime with `INVENTORY_MISMATCH` and plays the fallback. This follows AC 46, which overrides AC 20 for `debug` on exactly this point. Every other V7 failure (entries unsorted or duplicated, or entries that do not hash to the manifest's own `inventorySha256`) means a corrupt manifest. Like every other check, it fails the `debug` build too (pack-format §8)
     - `demo`: a real pack is required, unless `none` is set explicitly
     - `release`: a real pack is required, with no `none` option
 - **Repository:** no clips, no pack manifests and no review files (D79, AC 19).
@@ -169,8 +197,13 @@ A prompt has at most 4 segments. A JVM domain test proves that every output maps
 
 ### 7. Verification moves left; NAV-007 AC 10 harness (design question 6)
 - **JVM:** the domain test (every output maps to the inventory; no orphans), the spoken-text scans, and the duration check (Σ `durationMs` + pauses, NAV-007 AC 11) over the whole domain. CI uses a Kotlin stub manifest built at 70 ms per character, and a real pack when `nav.voicePackDir` is set.
-- **Generator:** text rules, processing checks, a decode check with the pinned ffmpeg, and onset alignment after the trim rule within ±2 frames.
+  - **Duration enforcement (decided 2026-10-13):** with the stub manifest the check **reports only**: it writes `longest-prompts.tsv` and prints the excess. 70 ms per character is a synthetic model, not speech, and AC 29's limits are about spoken audio. The check **fails** whenever the manifest is a real pack (`source.vendor` ≠ `stub`), in any variant, and always in `demo` and `release` builds (`checkVoicePackDurations` before `preDemoBuild` / `preReleaseBuild`). The story wording of AC 29 ("the stub pack in CI") should follow this; that request goes to the BA.
+  - *Risk (measured on the stub model, 2026-10-13):* the longest chained prompt, `dist.m.650 instr.roundabout.exit.6:nonFinal join.then instr.roundabout.exit.6`, comes to 8,540 ms against the 8,000 ms limit. The longest single prompt is 4,790 ms against 5,000 ms. The pre-screen's 15.4 characters/s gives about 7.9 s for the same chained prompt; the §3.3 estimate of 14 characters/s gives about 8.7 s (about 118 characters of speech plus 240 ms of pauses). So the first real pack may fail the `demo` build on chained roundabout prompts. What to do then is a product question (open question in the review handoff), not a format change.
+- **Generator:** text rules, processing checks, a decode check with the pinned ffmpeg, and onset alignment after the trim rule within ±2 frames, measured by cross-correlation with the pre-encode PCM. This is the authoritative onset check.
 - **Device:** one instrumented decode test applies the trim rule on Android's real `MediaCodec` to a stub pack (AC 15). It runs on an emulator or a device; there is no device in the agent environment.
+  - It asserts the decoder's output length shape (all access units, or the first one dropped, ±2 frames) and that the trimmed length is exactly `frames` × k.
+  - **Onset (decided 2026-10-13):** the device has no pre-encode PCM, so it does not repeat the ±2-frame correlation. It checks that the first sample above −35 dBFS falls within [`edgeMarginMs` − 2 frames, `edgeMarginMs` + `fadeMs`] of the trimmed clip. That catches the failures that matter on a device: a shift by one access unit (1,024 frames, about 46 ms) or a platform skip-cut. The schema does not change.
+  - The onset window gates **on the stub pack** (QA interop step), which has a known hard onset. On a real pack, a failure that is only the onset window gets reported to the architect and does not block by itself. Soft speech onsets and gain can legitimately move the −35 dBFS crossing. The length assertions gate on every pack.
 - **AC 10 harness:** `voicepack render --pack <dir>/pack --prompts <list.tsv> --out <dir>`.
   - It renders each prompt of a prompt list (pack-format §7) to WAV with the same trim and join rules and the manifest's pauses.
   - The Android duration check writes its 10 longest single and 10 longest chained prompts in that list format. The review page renders those, plus 20 fixed coverage prompts.
