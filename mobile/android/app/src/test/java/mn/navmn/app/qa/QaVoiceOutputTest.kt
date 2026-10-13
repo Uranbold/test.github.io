@@ -8,7 +8,14 @@ import android.speech.tts.TextToSpeech
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import mn.navmn.app.i18n.Lang
+import mn.navmn.app.log.DebugLog
 import mn.navmn.app.voice.VoiceOutput
+import mn.navmn.app.voice.pack.AudioTrackSink
+import mn.navmn.app.voice.pack.MediaCodecClipDecoder
+import mn.navmn.app.voice.pack.PackFiles
+import mn.navmn.app.voice.pack.PackPolicy
+import mn.navmn.app.voice.pack.VoiceInventory
+import mn.navmn.app.voice.pack.VoicePackSource
 import mn.navmn.app.voiceplan.PromptClass
 import mn.navmn.app.voiceplan.SpokenPrompt
 import org.junit.Assert.assertEquals
@@ -21,10 +28,14 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowTextToSpeech
 import java.time.Duration
+import java.util.concurrent.Executor
 
 /**
  * NAV-005 QA: voice output on Android framework shadows (AC 36, 39). Robolectric's TextToSpeech has no Mongolian
  * voice, so every prompt takes the D23 chime path, which is the expected behaviour on most phones (R1).
+ * NAV-016 (D80): Mongolian now plays from the clip pack, never device TTS; these tests build the output without a pack
+ * (as a debug build without nav.voicePackDir), so the chime path stays the one under test whatever pack the test run
+ * bundles. The pack path is PackVoiceOutputTest.
  * Real audio, ducking with music and audibility are device checks (AC 73). Test plan ids TC-V*.
  */
 @RunWith(AndroidJUnit4::class)
@@ -36,7 +47,8 @@ class QaVoiceOutputTest {
     private fun prompt(id: Long, text: String = "300 метрт баруун тийш эргэнэ үү") = SpokenPrompt(id, text, Lang.MN, PromptClass.MANEUVER, 0 to 1, 0)
 
     private fun ready(): Pair<VoiceOutput, ArrayList<Long>> {
-        val v = VoiceOutput(ctx)
+        val noPack = VoicePackSource(PackFiles { null }, { VoiceInventory.EMPTY }, PackPolicy.OPTIONAL, DebugLog.NONE, Executor { it.run() })
+        val v = VoiceOutput(ctx, noPack, MediaCodecClipDecoder(), AudioTrackSink.FACTORY, Executor { it.run() }, DebugLog.NONE)
         val done = ArrayList<Long>()
         v.onDone = { done += it }
         v.prepare()

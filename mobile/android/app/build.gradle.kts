@@ -791,9 +791,10 @@ tasks.withType<Test>().configureEach {
 val checkVoicePackDurations by tasks.registering(Test::class) {
     group = "verification"
     description = "Fails when a prompt from the bundled voice pack exceeds the NAV-007 AC 11 limits (NAV-016 AC 29)"
-    val unit = tasks.named<Test>("testDebugUnitTest")
-    testClassesDirs = files(unit.map { it.testClassesDirs })
-    classpath = files(unit.map { it.classpath })
+    // The unit-test task's inputs (compiled test classes, runtime classpath), never the unit-test task itself.
+    val unit = tasks.named<Test>("testDebugUnitTest").get()
+    testClassesDirs = unit.testClassesDirs
+    classpath = unit.classpath
     filter {
         includeTestsMatching("mn.navmn.app.voice.VoiceDurationCheck")
         isFailOnNoMatchingTests = true

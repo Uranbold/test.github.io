@@ -98,7 +98,7 @@ public final class VoicePackGuard {
     }
 
     private static String message(String what) {
-        return "NAV-016 voice pack (" + PROPERTY + "): " + what + " See " + README + ".";
+        return "NAV-016 voice pack (" + PROPERTY + "): " + what + (what.endsWith(".") ? "" : ".") + " See " + README + ".";
     }
 
     /**

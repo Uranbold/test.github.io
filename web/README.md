@@ -232,6 +232,14 @@ for `'wasm-unsafe-eval'` on the current iOS is assumed, not verified here. A fai
   `^en([-_]|$)` (English UI, en-US preferred); otherwise one Web Audio chime per prompt (no sound file) and, in the Mongolian UI, the
   notice above once per replay for 8 s. The first `speak()` and the `AudioContext` unlock happen inside the «Эхлэх»
   handler. A screen wake lock is held during the replay where the browser offers it.
+- **Spoken form (NAV-016, D95 coordinated change):** a Mongolian utterance speaks the **spoken** text (glossary C3a,
+  «гурван зуун метрт …», never the digits); the banner and the golden-set text keep the digits. Mongolian km rounding:
+  D92 for prefixes (1 / 1,5 / whole km), D94 for continue-on (whole km to 99, then the nearest 10 km), no continue-on
+  prompt at 995 km or more (D102). English is unchanged. The spoken texts come from `src/guidance/voiceInventory.json`,
+  generated from `docs/requirements/glossary-c3-spoken.tsv` and `docs/architecture/voice-pack/inventory.tsv` with
+  `node scripts/gen-voice-inventory.mjs` (regenerate after either file changes; `voiceInventory.test.ts` fails on
+  drift). No audio clips are bundled (AC 49). `NAV_VOICE_GOLDEN=<file> npx vitest run src/guidance/golden.test.ts` runs
+  the golden check against a candidate set (for example `mobile/android/app/build/reports/voice/voice-golden.tsv`).
 - **Storage:** only the NAV-002 keys `navmn.theme`, `navmn.lang` and the voice choice **`navmn.voiceMuted`** (`"1"` =
   muted). No coordinates in storage, the console or the URL; no service worker.
 - **Test ids:** every demo-mode element has a `data-testid` starting with **`demo-`** (`demo-picker`, `demo-heading`,
