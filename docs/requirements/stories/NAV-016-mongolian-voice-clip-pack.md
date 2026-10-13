@@ -7,7 +7,7 @@ size: L
 needs_design: true     # no new screen; navigation-ux §4.1 (pending block comes into force), §4.6 (Mongolian voice = pack, D80) and §4.7 (longest prompts from the spoken forms) need UX updates
 needs_backend: true    # build-time generator tooling in backend/tools/voice-pack/ (ADR-0010 §4); no runtime service, no gateway or openapi.yaml change
 needs_mobile: true     # Android playback and the Kotlin generator; the web voice text port of the D95 coordinated change (text only, no clips on the web)
-status: ready          # 2026-10-13, D228: start now. NAV-007 AC 9 gate waived for building; ADR-0010 acceptance happens in this lane (architect). Open questions 1–5 decided 2026-10-13 (D229–D233); D234–D236 applied 2026-10-13; Open question 6 open (not blocking internal builds)
+status: in-progress    # 2026-10-13 (orchestrator): real FEMALE5v2 / MALE4v2 packs generated and demo APKs built. Was ready since 2026-10-13, D228: start now. NAV-007 AC 9 gate waived for building; ADR-0010 acceptance happens in this lane (architect). Open questions 1–5 decided 2026-10-13 (D229–D233); D234–D236 applied 2026-10-13; Open question 6 open (not blocking internal builds)
 ---
 
 # NAV-016: Mongolian voice clip pack for Android
@@ -157,7 +157,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     - has leading and trailing silence (below −45 dBFS) of **≤ 40 ms**
     - has a fade-in and fade-out of **10 ms** (no click)
     - has a peak **≤ −1 dBFS**
-    - has an active-speech RMS within **±2 dB** of the median of all clips in the pack
+    - has an active-speech RMS within **±2 dB** of the median of all clips in the pack (a peak-limited clip, pack-format §4, may be down to **−3 dB** below it)
     - has a duration between **150 ms** and **4,000 ms**
     - has **no** internal silence longer than **500 ms**
 
@@ -463,7 +463,9 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
    - (b) the NAV-007 paid editor (D18–D20) does both listens on the review page (AC 17), and the PO keeps the final call on disagreements (D20)
    - (c) no separate listen: the NAV-007 AC 10 session is the first native listen, and before a public build the panel's AC 10 result replaces gate 3 of AC 53 (needs a change to AC 53 and checklist C22)
 
-   **BA recommendation: (b).** It keeps a native check of every one of the 304 segments per voice before outside listeners hear the pack, matches the PO's wish not to listen, and fits the existing panel model. (c) is weaker: an AC 10 session hears a sample of prompts, not every segment.
+   **BA recommendation: (b),** the NAV-007 paid editor on the review page, with the PO's final call. It keeps a native check of every one of the 304 segments per voice before outside listeners hear the pack, matches the PO's wish not to listen, and fits the existing panel model. (c) is weaker: an AC 10 session hears a sample of prompts, not every segment.
+
+   **When it is asked (orchestrator, 2026-10-13):** stays open and is put to the PO when the NAV-007 panel is set up, not now.
 
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
