@@ -51,6 +51,12 @@ class ReplayLocationSource(
     @Volatile private var startFix: Fix? = null
     @Volatile private var anchorMs = 0L
 
+    /**
+     * The next undelivered track point. Kept across collections, so a guidance session restarted by «Буцаах» (NAV-005
+     * AC 101) continues the same replay from the time at «Дуусгах» instead of replaying the track from its start.
+     */
+    @Volatile private var nextIndex = 1
+
     /** Points delivered and points skipped by late wake-ups in the current replay (tests, debug log; no coordinates). */
     @Volatile var delivered = 0
         private set
@@ -74,6 +80,7 @@ class ReplayLocationSource(
         anchorMs = clock.elapsedMs()
         delivered = 1
         skipped = 0
+        nextIndex = 1
         return t.fix(0, anchorMs, wallNow()).also { startFix = it }
     }
 
@@ -97,7 +104,7 @@ class ReplayLocationSource(
                 }
             }
             try {
-                var next = 1
+                var next = nextIndex
                 while (next < t.size) {
                     awaitReplayTime(anchor, schedule.offset(next), schedule)
                     val due = maxOf(schedule.latestDue(clock.elapsedMs() - anchor), next)
@@ -105,6 +112,7 @@ class ReplayLocationSource(
                     delivered++
                     send(t.fix(due, anchor, wallNow()))
                     next = due + 1
+                    nextIndex = next
                 }
                 awaitReplayTime(anchor, t.durationMs + END_GRACE_MS, schedule)
                 lockJob.cancel()

@@ -143,6 +143,8 @@
   "nav.voiceUnavailable": "Mongolian voice guidance is not available on this phone. Instructions are shown on screen only.",
   "nav.remainingTime": "time left",
   "nav.remainingDistance": "distance left",
+  "nav.ended": "Navigation ended",
+  "action.undo": "Undo",
   "voice.prefixM.one": "In {n} meter",
   "voice.prefixM.other": "In {n} meters",
   "voice.prefixKm.one": "In {n} kilometer",

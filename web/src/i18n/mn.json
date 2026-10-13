@@ -143,6 +143,8 @@
   "nav.voiceUnavailable": "Энэ утсанд монгол дуут заавар ажиллахгүй байна. Заавар зөвхөн дэлгэцэнд харагдана.",
   "nav.remainingTime": "үлдсэн хугацаа",
   "nav.remainingDistance": "үлдсэн зай",
+  "nav.ended": "Замчлал дууслаа",
+  "action.undo": "Буцаах",
   "voice.prefixM.one": "{n} метрт",
   "voice.prefixM.other": "{n} метрт",
   "voice.prefixKm.one": "{n} километрт",

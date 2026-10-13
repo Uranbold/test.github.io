@@ -7,6 +7,7 @@ import { computeEta, formatDistance, formatDuration, formatNextDay } from "../ro
 import { capitalizeFirst, messageKey } from "../route/instructions";
 import type { Banner, GuidanceState } from "../guidance/guidanceCore";
 import { ICONS } from "../ui/icons";
+import { setInstruction } from "../ui/instructionNode";
 import { maneuverIcon } from "../ui/routeIcons";
 import { DEMO_ICONS, h, icon } from "./dom";
 
@@ -50,6 +51,7 @@ export class GuidanceView {
   private readonly progress: HTMLElement;
   private readonly eta: HTMLElement;
   private readonly etaDays: HTMLElement;
+  private readonly distance_: HTMLElement;
   private readonly remaining: HTMLElement;
   private readonly progressA11y: HTMLElement;
   readonly voiceBtn: HTMLButtonElement;
@@ -91,16 +93,20 @@ export class GuidanceView {
     this.offlineItem = h("div", { class: "dn-msg", role: "status", "data-kind": "offline", hidden: "" }, h("span", { class: "dn-msg-row" }, icon(ICONS.cloudOff), this.offlineText));
     this.messages = h("div", { class: "dn-messages", "data-testid": "demo-nav-messages", hidden: "" }, this.noticeItem, this.offlineItem);
 
-    this.eta = h("span", {});
-    this.etaDays = h("span", { class: "dn-days" });
+    // Progress panel (NAV-017 › Progress panel, navigation-ux §14.1; PO 2026-10-13 UX-02 (b)): line 1 = the remaining
+    // time (title-large), line 2 = «Хүрэх цаг HH:MM (+N өдөр) ·» + distance as two inline-block chunks, so it wraps at
+    // the separator first. One accessible text in visual order; both lines are decorative for AT.
     this.remaining = h("p", { class: "dn-remaining", "data-testid": "demo-nav-remaining", "aria-hidden": "true" });
+    this.eta = h("span", { class: "dn-chunk" });
+    this.etaDays = h("span", { class: "dn-days" });
+    this.distance_ = h("span", { class: "dn-chunk" });
     this.progressA11y = h("span", { class: "sr-only" });
-    const etaLine = h("p", { class: "dn-eta", "data-testid": "demo-nav-eta", "aria-hidden": "true" }, this.eta, this.etaDays);
+    const etaLine = h("p", { class: "dn-eta", "data-testid": "demo-nav-eta", "aria-hidden": "true" }, this.eta, this.distance_);
     this.voiceBtn = h("button", { type: "button", class: "dn-voice", "data-testid": "demo-nav-voice" });
     this.voiceBtn.addEventListener("click", () => this.on.toggleVoice());
     this.endBtn = h("button", { type: "button", class: "dn-end", "data-testid": "demo-nav-end" }, icon(DEMO_ICONS.close));
     this.endBtn.addEventListener("click", () => this.on.end());
-    this.progress = h("section", { class: "dn-progress", "data-testid": "demo-nav-progress" }, h("div", { class: "dn-progress-text" }, etaLine, this.remaining, this.progressA11y), this.voiceBtn, this.endBtn);
+    this.progress = h("section", { class: "dn-progress", "data-testid": "demo-nav-progress" }, h("div", { class: "dn-progress-text" }, this.remaining, etaLine, this.progressA11y), this.voiceBtn, this.endBtn);
 
     this.arrivalName = h("p", { class: "dn-arrival-name" });
     this.closeBtn = h("button", { type: "button", class: "dn-close", "data-testid": "demo-nav-close" });
@@ -181,7 +187,8 @@ export class GuidanceView {
     if (!prev || prev.banner.key.key !== b.key.key || prev.banner.variant !== b.variant || force) this.bannerIcon.innerHTML = maneuverIcon(b.key.key);
     this.banner.dataset.variant = b.variant;
     const text = bannerText(b, this.i18n);
-    if (this.instruction.textContent !== text) this.instruction.textContent = text;
+    // UX-04: verb + particle in one no-wrap span; textContent stays the resource text.
+    if (this.instruction.textContent !== text) setInstruction(this.instruction, text);
     const lang = this.i18n.lang;
     const t = (k: MessageKey) => this.i18n.t(k);
     this.distance.hidden = b.variant !== "maneuver";
@@ -218,10 +225,12 @@ export class GuidanceView {
     const days = eta.days > 0 ? formatNextDay(eta.days, lang, t) : "";
     const time = formatDuration(s.progress.durationRemaining, t);
     const dist = formatDistance(s.progress.distanceRemaining, lang, t);
-    this.eta.textContent = head;
+    this.remaining.textContent = time;
     this.etaDays.textContent = days ? ` ${days}` : "";
-    this.remaining.textContent = `${time} · ${dist}`;
-    this.progressA11y.textContent = `${head}${days ? " " + days : ""}, ${t("nav.remainingTime")} ${time}, ${t("nav.remainingDistance")} ${dist}`;
+    // Chunk 1 «Хүрэх цаг 14:35 ·» (the «+1 өдөр» span inside it), chunk 2 the distance; a space between them.
+    this.eta.replaceChildren(head, this.etaDays, " ·");
+    this.distance_.textContent = ` ${dist}`;
+    this.progressA11y.textContent = `${t("nav.remainingTime")} ${time}, ${head}${days ? " " + days : ""}, ${t("nav.remainingDistance")} ${dist}`;
   }
 
   private renderVoiceButton(muted: boolean): void {

@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -390,9 +391,13 @@ private fun LowerPart(s: PreviewState, strings: Strings, lang: Lang, a: BrowseAc
     val r = s.result as? PreviewResult.Route
     if (r != null && r.k >= 2) RouteOptions(r, strings, lang, a)
     if (s.mode == TravelMode.CAR) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+        // UX audit 2026-10-13 UX-03: the whole 56 dp row is one toggleable target named by its label (as the settings sheet).
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = s.avoidUnpaved, role = Role.Switch, onValueChange = a.onAvoid).testTag("route-avoid"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(stringResource(R.string.route_avoid_unpaved), style = NavType.bodyLarge, color = t.uiOnSurface.c(), modifier = Modifier.weight(1f))
-            Switch(checked = s.avoidUnpaved, onCheckedChange = a.onAvoid)
+            Switch(checked = s.avoidUnpaved, onCheckedChange = null)
         }
     }
     Spacer(Modifier.height(8.dp))

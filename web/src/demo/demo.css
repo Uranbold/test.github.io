@@ -221,12 +221,29 @@ body {
   fill: currentColor;
 }
 .demo-footer {
+  position: relative;
   flex: none;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 8px 16px 12px;
   border-top: 1px solid var(--ui-outline-variant);
+}
+/* UX-09 (NAV-017 Design notes 14): while the list can scroll further, the pinned footer casts a scroll shadow upwards
+   (the elevation-1 shadow mirrored onto the list's cut row), so a clipped third row reads as "scrollable". */
+.demo-footer.can-scroll::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -9px;
+  height: 8px;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0));
+}
+/* Undo row (UX-01 (2), AC 35): the state row with the «Буцаах» text button, 48 px, right-aligned like «Дахин оролдох». */
+.demo-state[data-state="ended"] .icon svg {
+  fill: var(--ui-on-surface-variant);
 }
 .demo-state-live:empty {
   display: none;
@@ -569,22 +586,69 @@ body {
 .dn-progress-text p {
   margin: 0;
 }
-.dn-eta {
+/* Line 1: the remaining time («9 мин», title-large 22/28 500; PO 2026-10-13 UX-02 (b), navigation-ux §14.1). */
+.dn-remaining {
   font-size: min(1.375rem, 28.6px);
   line-height: 1.27;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
-.dn-days {
-  font-size: min(1rem, 20.8px);
-  font-weight: 400;
-  color: var(--ui-on-surface-variant);
-}
-.dn-remaining {
+/* Line 2: «Хүрэх цаг 14:35 · 6,1 км» (body-large 16/24) in two inline-block chunks: wraps at the separator first,
+   inside a chunk only when that chunk alone is wider than the column. */
+.dn-eta {
   font-size: min(1rem, 20.8px);
   line-height: 1.5;
   color: var(--ui-on-surface-variant);
   font-variant-numeric: tabular-nums;
+}
+.dn-chunk {
+  display: inline-block;
+}
+.dn-days {
+  font-weight: 400;
+}
+/* UX-04: the verb and its politeness particle never break (src/ui/instructionNode.ts). */
+.dn-instruction .nb {
+  white-space: nowrap;
+}
+/* UX-01 (1): 16 px between the voice button and «Дуусгах» (gap 8 px + 8 px), every other pair keeps 8 px. */
+.dn-end {
+  margin-left: 8px;
+}
+/* Stacked panel from text zoom 115 % (navigation-ux §14.1): row 1 = line 1 + voice + «Дуусгах», row 2 = line 2 at the
+   full panel width; vertical padding 8 px; line 2 at single-line height. */
+.demo-nav[data-stacked="true"] .dn-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 0;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.demo-nav[data-stacked="true"] .dn-progress-text {
+  display: contents;
+}
+.demo-nav[data-stacked="true"] .dn-remaining {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+}
+.demo-nav[data-stacked="true"] .dn-voice {
+  grid-column: 2;
+  grid-row: 1;
+}
+.demo-nav[data-stacked="true"] .dn-end {
+  grid-column: 3;
+  grid-row: 1;
+}
+.demo-nav[data-stacked="true"] .dn-eta {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  line-height: 1.25;
 }
 .dn-voice,
 .dn-end {

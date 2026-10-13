@@ -15,6 +15,16 @@ object BannerText {
         return capitalizeFirst(t, lang)
     }
 
+    /**
+     * UX audit 2026-10-13 UX-04 (navigation-ux §2.1): in the **displayed** banner and turn-row text the politeness
+     * particle («үү» / «уу») is joined to its verb with a no-break space, so it never starts a line alone. Display only:
+     * resources, voice text, the notification, TalkBack text and the QA golden texts keep the plain space.
+     */
+    fun displayText(s: String): String = PARTICLE.replace(s, " $1")
+
+    /** «үү» = U+04AF U+04AF, «уу» = U+0443 U+0443 (escaped: no Cyrillic literal in Kotlin sources, ResourcesTest). */
+    private val PARTICLE = Regex(" (үү|уу)(?!\\p{L})")
+
     /** Upper-cases the first letter; idempotent (glossary forms are often lower case). */
     fun capitalizeFirst(s: String, lang: Lang): String =
         if (s.isEmpty()) s else s.substring(0, s.offsetByCodePoints(0, 1)).uppercase(lang.locale) + s.substring(s.offsetByCodePoints(0, 1))

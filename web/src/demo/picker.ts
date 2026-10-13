@@ -8,12 +8,14 @@ import { ROUTE_ICONS } from "../ui/routeIcons";
 import { DEMO_ICONS, h, icon } from "./dom";
 import type { DemoRouteSummary, ManifestEnd } from "./routeData";
 
-export type PickerState = "none" | "loading" | "error" | "offline";
+/** `ended` = the undo row after «Дуусгах» (UX audit 2026-10-13 UX-01 (2), AC 35): «Замчлал дууслаа» + «Буцаах». */
+export type PickerState = "none" | "loading" | "error" | "offline" | "ended";
 
 export interface PickerHandlers {
   select(index: number): void;
   retry(): void;
   start(): void;
+  undo(): void;
 }
 
 /** Place name of a route end: manifest data, or the UI term «Сонгосон цэг» when the manifest has none (U1). */
@@ -30,8 +32,11 @@ export class PickerView {
   private readonly stateIcon: HTMLElement;
   private readonly stateText: HTMLElement;
   readonly retryBtn: HTMLButtonElement;
+  readonly undoBtn: HTMLButtonElement;
   readonly startBtn: HTMLButtonElement;
   private readonly startLabel: HTMLElement;
+  private readonly list: HTMLElement;
+  private readonly footer: HTMLElement;
   private selected = -1;
   private state: PickerState = "none";
 
@@ -54,7 +59,10 @@ export class PickerView {
     this.stateText = h("span", { class: "txt", id: "demo-state-text" });
     this.retryBtn = h("button", { type: "button", class: "act", "data-testid": "demo-retry", "aria-describedby": "demo-state-text" });
     this.retryBtn.addEventListener("click", () => this.on.retry());
-    this.stateRow = h("div", { class: "state demo-state", "data-testid": "demo-state", hidden: "" }, this.stateIcon, this.stateText, this.retryBtn);
+    // Undo (UX-01 (2)): the same text-button slot as «Дахин оролдох», 48 px, named by its label; described by the row text.
+    this.undoBtn = h("button", { type: "button", class: "act", "data-testid": "demo-undo", "aria-describedby": "demo-state-text", hidden: "" });
+    this.undoBtn.addEventListener("click", () => this.on.undo());
+    this.stateRow = h("div", { class: "state demo-state", "data-testid": "demo-state", hidden: "" }, this.stateIcon, this.stateText, this.retryBtn, this.undoBtn);
     const live = h("div", { role: "status", class: "demo-state-live" }, this.stateRow);
     this.startLabel = h("span", {});
     this.startBtn = h("button", { type: "button", class: "demo-start", "data-testid": "demo-start", "aria-disabled": "true" }, icon(DEMO_ICONS.play), this.startLabel);
@@ -62,9 +70,20 @@ export class PickerView {
       if (this.startBtn.getAttribute("aria-disabled") === "true") return;
       this.on.start();
     });
-    const footer = h("div", { class: "demo-footer" }, live, this.startBtn);
-    this.section = h("section", { class: "demo-picker", "aria-labelledby": "demo-heading", "data-testid": "demo-picker" }, h("div", { class: "demo-head" }, this.heading, this.label), list, footer);
+    this.list = list;
+    this.footer = h("div", { class: "demo-footer" }, live, this.startBtn);
+    this.section = h("section", { class: "demo-picker", "aria-labelledby": "demo-heading", "data-testid": "demo-picker" }, h("div", { class: "demo-head" }, this.heading, this.label), list, this.footer);
+    // UX-09 (Design notes 14): the footer casts a scroll shadow while the list can scroll further.
+    list.addEventListener("scroll", () => this.updateScrollShadow(), { passive: true });
+    if (typeof ResizeObserver === "function") new ResizeObserver(() => this.updateScrollShadow()).observe(list);
     this.render();
+  }
+
+  /** `can-scroll` on the footer while rows are cut below the list's visible area (landscape phones). */
+  updateScrollShadow(): void {
+    const l = this.list;
+    const more = l.scrollHeight - l.clientHeight - l.scrollTop > 1;
+    this.footer.classList.toggle("can-scroll", more);
   }
 
   private onKey(e: KeyboardEvent, i: number): void {
@@ -110,6 +129,7 @@ export class PickerView {
     this.label.textContent = t.t("route.options");
     this.startLabel.textContent = t.t("nav.start");
     this.retryBtn.textContent = t.t("action.retry");
+    this.undoBtn.textContent = t.t("action.undo");
     this.routes.forEach((r, i) => this.renderRow(this.rows[i]!, r));
     this.renderState();
   }
@@ -143,14 +163,15 @@ export class PickerView {
     const s = this.state;
     this.stateRow.hidden = s === "none";
     this.stateRow.dataset.state = s;
-    this.stateRow.classList.toggle("has-act", s === "error");
+    this.stateRow.classList.toggle("has-act", s === "error" || s === "ended");
     this.retryBtn.hidden = s !== "error";
+    this.undoBtn.hidden = s !== "ended";
     if (s === "none") {
       this.stateText.textContent = "";
       return;
     }
     const t = (k: Parameters<I18n["t"]>[0]) => this.i18n.t(k);
-    this.stateText.textContent = t(s === "loading" ? "status.loading" : s === "error" ? "status.genericError" : "status.offline");
-    this.stateIcon.innerHTML = s === "loading" ? '<span class="spin small"></span>' : s === "error" ? ICONS.error : ICONS.cloudOff;
+    this.stateText.textContent = t(s === "loading" ? "status.loading" : s === "error" ? "status.genericError" : s === "ended" ? "nav.ended" : "status.offline");
+    this.stateIcon.innerHTML = s === "loading" ? '<span class="spin small"></span>' : s === "error" ? ICONS.error : s === "ended" ? DEMO_ICONS.info : ICONS.cloudOff;
   }
 }

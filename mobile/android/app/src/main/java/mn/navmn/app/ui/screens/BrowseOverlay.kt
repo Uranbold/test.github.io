@@ -69,6 +69,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import mn.navmn.app.R
@@ -178,6 +179,11 @@ data class BrowseModel(
     val locating: Boolean = false,
     /** NAV-022 O6: the offline-map message (ready / failed / storage) in R2 under the search row (null: none). */
     val packMessage: (@Composable (Modifier) -> Unit)? = null,
+    /**
+     * NAV-005 AC 101 (screen spec › Undo snackbar): extra space below the narrow-window controls column while the undo
+     * snackbar shows (its height + 16 dp, M3 FAB behaviour). On wide windows the controls keep their lane (0).
+     */
+    val controlsBottomInset: Dp = 0.dp,
 )
 
 @Composable
@@ -729,7 +735,7 @@ fun BrowseOverlay(
                     StatusMessages(m, a, Modifier.weight(1f, fill = false))
                 }
                 Column(Modifier.fillMaxWidth()) {
-                    MapControls(m, a, Modifier.align(Alignment.End).padding(end = 16.dp, bottom = 16.dp))
+                    MapControls(m, a, Modifier.align(Alignment.End).padding(end = 16.dp, bottom = 16.dp + m.controlsBottomInset))
                     m.card?.let { CoordinateCard(it, m, strings, a, Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) }
                 }
             }

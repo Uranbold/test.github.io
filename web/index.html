@@ -19,9 +19,11 @@
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
-    <div id="ui" class="ui">
+    <!-- Landmarks (UX audit 2026-10-13 UX-08): the overlay is the page's main landmark, the search field a search
+         landmark; the attribution footer stays. The bottom controls' own labelled region waits for a glossary term. -->
+    <main id="ui" class="ui">
       <div class="r1" data-testid="top-bar">
-        <div class="search" id="search">
+        <div class="search" id="search" role="search">
           <div class="field" data-testid="search-field">
             <svg class="lead" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9.5 3a6.5 6.5 0 0 1 5.2 10.4l5.4 5.4-1.4 1.4-5.4-5.4A6.5 6.5 0 1 1 9.5 3Zm0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z" /></svg>
             <input id="search-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-results" maxlength="200" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" data-testid="search-input" data-i18n-aria-label="search.label" data-i18n-placeholder="search.placeholder" />
@@ -134,7 +136,7 @@
         <p><a id="attribution-osm" data-testid="attribution-osm" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener"><span data-i18n="attribution.osm"></span></a></p>
         <p id="attribution-esa" data-testid="attribution-esa" data-i18n="attribution.esa" hidden></p>
       </footer>
-    </div>
+    </main>
 
     <div id="search-live" class="sr-only" aria-live="polite" data-testid="search-live"></div>
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>

@@ -147,6 +147,43 @@ class ReplayLocationSourceTest {
         assertTrue("wake lock released", !r.wake.held)
     }
 
+    /**
+     * NAV-005 AC 101 in the demo build (navigation-ux §13.1): the on-screen «Дуусгах» cancels the collection and holds
+     * the replay clock; «Буцаах» resumes the clock and a new collection continues with the next undelivered point at
+     * the replay time of «Дуусгах» (0 repeated points, no restart from point 0). A re-arm starts from 0 again.
+     */
+    @Test
+    fun aNewCollectionAfterAnUndoContinuesFromTheNextUndeliveredPoint() = runTest {
+        val r = Rig(this, g1)
+        val anchor = r.source.freshGoodFix()!!.elapsedMs
+        var job = backgroundScope.launch { r.source.guidanceUpdates().collect { r.got += testScheduler.currentTime to it } }
+        advanceTimeBy(10_050)
+        runCurrent()
+        val n = r.got.size
+        assertEquals(10, n)
+        job.cancel() // «Дуусгах»: GuidanceEngine cancels the location job …
+        r.clock.pause() // … and DemoVariant.holdForUndo freezes the replay time
+        advanceTimeBy(4_000)
+        runCurrent()
+        assertEquals("nothing while held", n, r.got.size)
+        r.clock.resume() // «Буцаах»: DemoVariant.resumeFromUndo
+        job = backgroundScope.launch { r.source.guidanceUpdates().collect { r.got += testScheduler.currentTime to it } }
+        advanceTimeBy(5_050)
+        runCurrent()
+        val indices = r.got.map { indexOf(g1, it.second, anchor) }
+        assertEquals("continues with point ${n + 1}, no repeats: $indices", (1..n + 5).toList(), indices)
+        job.cancel()
+        // A new «Эхлэх» (re-arm, fresh start fix) replays from the first point again.
+        r.source.arm(g1)
+        val anchor2 = r.source.freshGoodFix()!!.elapsedMs
+        r.got.clear()
+        job = backgroundScope.launch { r.source.guidanceUpdates().collect { r.got += testScheduler.currentTime to it } }
+        advanceTimeBy(2_050)
+        runCurrent()
+        assertEquals(listOf(1, 2), r.got.map { indexOf(g1, it.second, anchor2) })
+        job.cancel()
+    }
+
     @Test
     fun notArmedOrNotStartedEmitsNothingAndStartIsIdempotentUntilRearmed() = runTest {
         val clock = ReplayClock({ testScheduler.currentTime })

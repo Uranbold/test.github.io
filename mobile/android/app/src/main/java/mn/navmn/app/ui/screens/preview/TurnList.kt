@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import mn.navmn.app.R
 import mn.navmn.app.i18n.Lang
 import mn.navmn.app.i18n.Strings
+import mn.navmn.app.instructions.BannerText
 import mn.navmn.app.preview.turnlist.TurnRow
 import mn.navmn.app.preview.turnlist.TurnRowText
 import mn.navmn.app.ui.components.maneuverIcon
@@ -160,7 +161,9 @@ private fun TurnRowItem(row: TurnRow, active: Boolean, lang: Lang, strings: Stri
         ) {
             Icon(painterResource(maneuverIcon(row.key.key)), contentDescription = null, tint = t.uiOnSurfaceVariant.c(), modifier = Modifier.size(24.dp))
             Column(Modifier.weight(1f)) {
-                Text(text, style = NavType.bodyLarge, color = t.uiOnSurface.c())
+                // UX-04: displayed text keeps the politeness particle with its verb (U+00A0); the row's TalkBack text
+                // (contentDescription above) stays the resource string.
+                Text(BannerText.displayText(text), style = NavType.bodyLarge, color = t.uiOnSurface.c())
                 if (row.street.isNotEmpty()) {
                     Text(row.street, style = NavType.body, color = t.uiOnSurfaceVariant.c(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }

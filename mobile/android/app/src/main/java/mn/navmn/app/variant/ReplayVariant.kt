@@ -45,6 +45,15 @@ interface ReplayVariant {
     fun retryTiles()
 
     /**
+     * NAV-005 AC 101 in a replay build (navigation-ux §13.1, §14.3): an on-screen «Дуусгах» holds the replay time, so
+     * «Буцаах» resumes the replay from the time at «Дуусгах» as «Үргэлжлүүлэх» does. No-ops by default.
+     */
+    fun holdForUndo() {}
+
+    /** «Буцаах»: the replay time runs again; the next guidance session continues with the next track point. */
+    fun resumeFromUndo() {}
+
+    /**
      * NavApplication.onCreate: the tile copy and the picker catalogue (§9). Must not touch MapLibre: nothing has called
      * `MapLibre.getInstance` yet, and MapLibre's HTTP classes throw in their static initialiser before it (bug
      * B-NAV019-01, the demo crashed on open).

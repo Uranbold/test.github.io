@@ -1,5 +1,7 @@
 package mn.navmn.app.ui
 
+import android.app.Activity
+import android.os.Build
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
@@ -10,9 +12,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,8 +47,10 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.awaitCancellation
@@ -69,6 +79,7 @@ import mn.navmn.app.route.TravelMode
 import mn.navmn.app.route.alternatives.AlternativeHitTest
 import mn.navmn.app.search.SearchView
 import mn.navmn.app.ui.components.AttributionStrip
+import mn.navmn.app.ui.components.MessageSnackbar
 import mn.navmn.app.ui.components.rememberStrings
 import mn.navmn.app.pack.PackSectionModel
 import mn.navmn.app.ui.screens.BrowseActions
@@ -215,7 +226,39 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
     LaunchedEffect(Unit) {
         val am = context.getSystemService(AccessibilityManager::class.java)
         vm.touchExploration = { am?.isTouchExplorationEnabled == true }
+        // NAV-005 AC 101: the undo window follows the system "time to take action" setting, as M3 snackbars do.
+        vm.undoWindowMs = {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && am != null) {
+                am.getRecommendedTimeoutMillis(AppViewModel.UNDO_WINDOW_MS.toInt(), AccessibilityManager.FLAG_CONTENT_CONTROLS or AccessibilityManager.FLAG_CONTENT_TEXT).toLong()
+            } else AppViewModel.UNDO_WINDOW_MS
+        }
     }
+
+    // NAV-005 AC 101 undo window (screen spec › S1 › Undo window, Components › Undo snackbar): shown on S1 only; it goes
+    // (with the kept copy) when S1 is left, when the app goes to the background, after the timer or a new «Эхлэх».
+    val undo by vm.undo.collectAsState()
+    val snackbarState = remember { SnackbarHostState() }
+    val s1Left = preview != null || ui.card != null || searchView !is SearchView.Closed || ui.settingsOpen || licencesOpen ||
+        lock.cardVisible || points.editor != null
+    val showUndo = undo != null && !guiding && !s1Left
+    LaunchedEffect(undo, s1Left) { if (undo != null && s1Left) vm.dropUndo() }
+    val endedText = stringResource(R.string.nav_ended)
+    val undoText = stringResource(R.string.action_undo)
+    LaunchedEffect(showUndo) {
+        if (!showUndo) return@LaunchedEffect
+        val result = snackbarState.showSnackbar(message = endedText, actionLabel = undoText, withDismissAction = false, duration = SnackbarDuration.Indefinite)
+        if (result == SnackbarResult.ActionPerformed) vm.undoEnd()
+    }
+    DisposableEffect(lifecycleOwner) {
+        val activity = context as? Activity
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && activity?.isChangingConfigurations != true) vm.dropUndo()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val undoShowing = snackbarState.currentSnackbarData != null
+    var undoPx by remember { mutableIntStateOf(0) }
 
     // System Back (screen spec › Interactions).
     BackHandler(enabled = guiding || preview != null || ui.card != null || searchView !is SearchView.Closed || ui.settingsOpen || lock.cardVisible) {
@@ -461,6 +504,9 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                         packMessage = packMessage?.takeIf { !ui.settingsOpen }?.let { msg ->
                             { mod: Modifier -> PackMessageCard(msg, lang, onRetry = { pack.dismissMessage(); pack.download() }, onClose = pack::dismissMessage, modifier = mod) }
                         },
+                        // AC 101: the narrow-window controls column sits 16 dp above the undo snackbar (the lane on
+                        // wide windows keeps its place; the snackbar then uses the width left of it).
+                        controlsBottomInset = if (undoShowing && laneStart == null) with(density) { undoPx.toDp() } + 16.dp else 0.dp,
                     ),
                     strings = strings,
                     a = BrowseActions(
@@ -542,6 +588,19 @@ private fun NavScreen(vm: AppViewModel, mapSurface: MapSurface, platform: Platfo
                     onDecline = { pack.onOfferClosed(offer, accepted = false) },
                 )
             }
+            // NAV-005 AC 101 undo snackbar: bottom of S1 (also the replay build's P1), 16 dp gutters, 8 dp above R5
+            // (the attribution strip is below this Box, so it is never covered). D5 wide windows: the width left of the
+            // controls lane.
+            val lane = laneStart
+            val laneWidth = if (lane != null) with(density) { (lane - mapRect.left).toDp() } - 8.dp else null
+            SnackbarHost(
+                hostState = snackbarState,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .then(if (laneWidth != null && laneWidth > 120.dp) Modifier.width(laneWidth) else Modifier.fillMaxWidth())
+                    .padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                    .onGloballyPositioned { undoPx = it.size.height },
+            ) { data -> MessageSnackbar(data) }
         }
         AttributionStrip(showEsa = !guiding && zoom < 8, modifier = Modifier.navigationBarsPadding())
     }

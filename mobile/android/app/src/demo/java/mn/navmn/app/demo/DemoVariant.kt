@@ -104,6 +104,16 @@ class DemoVariant @Inject constructor(
         replayClock.resume()
     }
 
+    /** NAV-005 AC 101 (NAV-019 §13.1): an on-screen «Дуусгах» freezes the replay time for the 5 s undo window. */
+    override fun holdForUndo() {
+        replayClock.pause()
+    }
+
+    /** «Буцаах»: the replay time runs again; [ReplayLocationSource] continues with the next undelivered track point. */
+    override fun resumeFromUndo() {
+        replayClock.resume()
+    }
+
     @Composable
     override fun StartScreen(host: ReplayHost, modifier: Modifier) {
         val list by picker.state.collectAsState()

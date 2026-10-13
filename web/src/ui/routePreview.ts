@@ -16,6 +16,7 @@ import { SearchController } from "../search/searchController";
 import { refusingFetch, UNAVAILABLE_CLIENT } from "../search/unavailableClient";
 import { computeEta, formatDistance, formatDuration, formatEta, formatNextDay, formatRouteCount } from "../route/format";
 import { instructionText, maneuverKey, streetName } from "../route/instructions";
+import { setInstruction } from "./instructionNode";
 import type { OsrmRoute, OsrmRouteResponse } from "../route/osrm";
 import { RouteClient } from "../route/routeClient";
 import {
@@ -729,7 +730,7 @@ export class RoutePreview {
       const name = streetName(s.name);
       const isArrive = s.maneuver.type === "arrive";
       const inEl = h("span", { class: "in" });
-      inEl.textContent = text;
+      setInstruction(inEl, text); // UX-04: verb + particle never break (textContent unchanged)
       const tx = h("span", { class: "tx" }, inEl);
       if (name) {
         const st = h("span", { class: "st" });

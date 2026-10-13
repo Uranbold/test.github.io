@@ -170,16 +170,25 @@ class GuidanceCore(
      * first good fix (≤ 10 s, else the NAV-005 GPS-lost state) without a depart prompt. [showNotice] shows
      * «Замчлал сэргэлээ» for 3 s (not on the silent system restart, screen spec Design note 6).
      */
-    fun startRestored(showNotice: Boolean) {
+    fun startRestored(showNotice: Boolean, kept: GuidanceState? = null) {
         check(!started) { "already started" }
         started = true
         restoring = true
         val now = clock.elapsedMs()
         gps.start(now)
         if (showNotice) resumedUntil = now + RESUMED_NOTICE_MS
-        log.d("guidance restored gen=${plan.generation} steps=${plan.steps.size}")
+        if (kept != null) {
+            // NAV-005 AC 101 «Буцаах» (screen spec › Interactions): the ended session's numbers and last manoeuvre stay on
+            // screen, distance frozen and dimmed (the GPS-lost look), until the first good fix places the session.
+            progress = kept.progress
+            keptBanner = (kept.banner as? Banner.Maneuver)?.copy(stale = true)
+        }
+        log.d("guidance restored gen=${plan.generation} steps=${plan.steps.size} kept=${kept != null}")
         emit()
     }
+
+    /** The banner shown while a «Буцаах» restart waits for its first good fix (null: the NAV-012 «Ачаалж байна…» look). */
+    private var keptBanner: Banner.Maneuver? = null
 
     /** The first good fix of a restored session: start step, or an off-route episode (> 50 m from every step). */
     private fun finishRestore(fix: Fix, now: Long) {
@@ -568,7 +577,7 @@ class GuidanceCore(
     private fun emit() {
         val now = clock.elapsedMs()
         val snap = snapshot
-        val banner: Banner = if (restoring && phase == GuidancePhase.NAVIGATING) Banner.Restoring else when (phase) {
+        val banner: Banner = if (restoring && phase == GuidancePhase.NAVIGATING) (keptBanner ?: Banner.Restoring) else when (phase) {
             GuidancePhase.ARRIVED, GuidancePhase.ENDED -> plan.steps.last().let { Banner.Arrival(it.key, it.street) }
             GuidancePhase.OFF_ROUTE -> Banner.Rerouting(policy.secondary)
             GuidancePhase.NAVIGATING -> {

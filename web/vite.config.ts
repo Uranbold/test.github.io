@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, runnerImport, type Plugin } from "vite";
 import { navmnCsp } from "./buildtools/csp";
@@ -112,11 +112,41 @@ function noFixturesInBuild(): Plugin {
   };
 }
 
+/** Removes every `$description` (documentation) from a parsed tokens.json; values and structure are untouched. */
+export function stripTokenDescriptions(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripTokenDescriptions);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) if (k !== "$description") out[k] = stripTokenDescriptions(v);
+    return out;
+  }
+  return value;
+}
+
+/**
+ * docs/design/tokens.json carries `$description` prose next to every value (the UX designer's notes, e.g. the
+ * NAV-017 demo-mode build and its test ids). Only the values are needed at runtime, so the descriptions are dropped
+ * before Vite inlines the JSON into any bundle: smaller output, and the public builds keep containing no demo text
+ * (NAV-017 AC 4, src/demo/build.test.ts).
+ */
+function tokensWithoutDescriptions(): Plugin {
+  const tokensPath = resolve(designDir, "tokens.json");
+  return {
+    name: "navmn-tokens-without-descriptions",
+    enforce: "pre",
+    transform(code, id) {
+      if (id.split("?")[0] !== tokensPath) return null;
+      return { code: JSON.stringify(stripTokenDescriptions(JSON.parse(code))), map: null };
+    },
+  };
+}
+
 // The config stays a plain object (tests/e2e wrap it with `{ ...base }`). Demo mode is decided per Vite mode by the
 // plugins in buildtools/demoMode.ts (NAV-017, ADR-0011 §2): base, the compile-time switch and the demo-only settings.
 export default defineConfig({
   // navmnCsp (SEC-4B, ADR-0018 §1) must stay LAST: its post hook hashes the final HTML of every other plugin.
   plugins: [
+    tokensWithoutDescriptions(),
     bootIndicator(),
     staticDemoGuard(),
     ...demoModePlugins({ webRoot, repoRoot, parseStaticDemo: (raw) => parseStaticDemo(raw) }),

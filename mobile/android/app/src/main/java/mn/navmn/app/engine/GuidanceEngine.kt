@@ -70,6 +70,8 @@ class GuidanceEngine(
     private val clock: Clock = SystemClocks,
     /** NAV-021: a usable on-device routing file for this session (offline reroutes, AC 15). */
     private val onDeviceAvailable: () -> Boolean = { false },
+    /** NAV-005 AC 101: the ended session's last state for a «Буцаах» restart (with [firstFix] null); null otherwise. */
+    private val kept: GuidanceState? = null,
 ) {
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "navmn-guidance").apply { isDaemon = true } }
     private val dispatcher = executor.asCoroutineDispatcher()
@@ -116,7 +118,7 @@ class GuidanceEngine(
                 onDeviceAvailable = onDeviceAvailable,
                 voiceInventory = VoiceInventory.fromAssets(appContext),
             )
-            if (firstFix != null) core.start(firstFix) else core.startRestored(showResumedNotice)
+            if (firstFix != null) core.start(firstFix) else core.startRestored(showResumedNotice, kept)
             locationJob = launch { location.guidanceUpdates().collect { core.onFix(it) } }
             launch {
                 while (isActive) {

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,12 +43,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -167,7 +171,15 @@ fun NavBanner(banner: Banner, lang: Lang, strings: Strings, maxHeight: Dp, modif
                 Column(
                     Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
                 ) {
-                    Text(instruction, style = NavType.navInstruction, color = onBg, maxLines = 3, modifier = Modifier.testTag("nav-banner-text"))
+                    // UX-04: the politeness particle is joined to its verb (U+00A0) in the displayed string only; the
+                    // node's accessible text stays the resource string (navigation-ux §2.1).
+                    Text(
+                        BannerText.displayText(instruction),
+                        style = NavType.navInstruction,
+                        color = onBg,
+                        maxLines = 3,
+                        modifier = Modifier.testTag("nav-banner-text").semantics { text = AnnotatedString(instruction) },
+                    )
                     if (second != null) {
                         Text(
                             second,
@@ -252,19 +264,72 @@ fun StatusMessage(kind: String, icon: Int, text: String, modifier: Modifier = Mo
     }
 }
 
-/** TripProgressPanel (RP): «Хүрэх цаг», remaining time · distance, «Тохиргоо», round «Дуусгах» (AC 22). */
+/** Screen spec › Settings button (RP), navigation-ux §14.2: the destructive «Дуусгах» gets twice the standard gap. */
+val END_BUTTON_GAP = 16.dp
+
+/**
+ * TripProgressPanel (RP; AC 22, navigation-ux §14.1, PO 2026-10-13 UX-02 (b)): line 1 = **remaining time** («25 мин»,
+ * `titleLarge`, plus the OF24 icon for an on-device route), line 2 = «Хүрэх цаг 14:35 · 12,4 км» (`bodyLarge`, two
+ * chunks that wrap at the separator first), then «Тохиргоо» · 16 dp · round «Дуусгах». Stacked rows (line 1 + the
+ * buttons, line 2 at the full width) from an effective font factor of 1.15, the banner's threshold.
+ */
 @Composable
 fun TripProgressPanel(state: GuidanceState, lang: Lang, strings: Strings, onSettings: () -> Unit, onEnd: () -> Unit, modifier: Modifier = Modifier) {
     val t = LocalTokens.current
     val night = LocalNight.current
+    val stacked = minOf(LocalDensity.current.fontScale, OVERLAY_CAP) >= STACKED_FROM
     val p = state.progress
     val eta = Formatters.eta(p.etaBaseWallMs, p.durationRemaining, ZoneId.systemDefault())
     val etaText = Formatters.etaText(eta, strings)
     val time = Formatters.duration(p.durationRemaining, strings)
     val dist = Formatters.distance(p.distanceRemaining, lang, strings)
-    val base = "$etaText, ${strings[StringKey.NAV_REMAINING_TIME]} $time, ${strings[StringKey.NAV_REMAINING_DISTANCE]} $dist"
+    // Accessible text in visual order (§14.1): «үлдсэн хугацаа 25 мин, Хүрэх цаг 14:35, үлдсэн зай 12,4 км».
+    val base = "${strings[StringKey.NAV_REMAINING_TIME]} $time, $etaText, ${strings[StringKey.NAV_REMAINING_DISTANCE]} $dist"
     // NAV-021 AC 28 (screen spec F9): the progress node gains «, Офлайн газрын зургаас» while the route came from the device.
     val a11y = if (state.onDeviceRoute) "$base, ${strings[StringKey.OFFLINE_INDICATOR_A11Y]}" else base
+    // NAV-012 R1: the skeleton only while the restoring banner shows (an undo restart keeps the ended session's numbers).
+    val skeleton = state.restoring && state.banner == Banner.Restoring
+    val line1: @Composable (Modifier) -> Unit = { m ->
+        Row(m, verticalAlignment = Alignment.CenterVertically) {
+            Text(time, style = NavType.titleLarge, color = t.uiOnSurface.c(), modifier = Modifier.testTag("nav-remaining"))
+            if (state.onDeviceRoute) {
+                // F9 (audit §8 A4): icon only, 20 dp, 8 dp after the remaining time on line 1; adds no panel height.
+                Spacer(Modifier.width(8.dp))
+                OfflineIndicatorIcon()
+            }
+        }
+    }
+    val line2: @Composable (Modifier) -> Unit = { m ->
+        FlowRow(Modifier.testTag("nav-eta").then(m)) {
+            Text("$etaText ·", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), softWrap = true)
+            Text(" $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), softWrap = true)
+        }
+    }
+    val buttons: @Composable () -> Unit = {
+        val settings = stringResource(R.string.settings_title)
+        IconButton(onClick = onSettings, modifier = Modifier.size(48.dp).testTag("nav-settings")) {
+            Icon(painterResource(R.drawable.ic_settings), contentDescription = settings)
+        }
+        Spacer(Modifier.width(END_BUTTON_GAP))
+        val end = stringResource(R.string.nav_end)
+        OutlinedIconButton(
+            onClick = onEnd,
+            border = BorderStroke(1.dp, t.uiOutline.c()),
+            modifier = Modifier.size(48.dp).testTag("nav-end"),
+        ) {
+            Icon(painterResource(R.drawable.ic_close), contentDescription = end, tint = t.uiError.c())
+        }
+    }
+    val skeletonView: @Composable (Modifier) -> Unit = { m ->
+        // NAV-012 R1: two static skeleton bars until the first good fix (decorative; no shimmer).
+        val loading = strings[StringKey.STATUS_LOADING]
+        Column(m.testTag("nav-progress-skeleton").clearAndSetSemantics { contentDescription = loading }) {
+            val bar = if (night) t.uiOutlineVariant.c() else t.uiSurfaceContainer.c()
+            Box(Modifier.fillMaxWidth(0.6f).height(20.dp).background(bar, RoundedCornerShape(4.dp)))
+            Spacer(Modifier.height(8.dp))
+            Box(Modifier.fillMaxWidth(0.4f).height(16.dp).background(bar, RoundedCornerShape(4.dp)))
+        }
+    }
     Surface(
         color = t.uiSurface.c(),
         contentColor = t.uiOnSurface.c(),
@@ -273,41 +338,27 @@ fun TripProgressPanel(state: GuidanceState, lang: Lang, strings: Strings, onSett
         border = if (night) BorderStroke(1.dp, t.uiOutlineVariant.c()) else null,
         modifier = modifier.fillMaxWidth().testTag("nav-progress"),
     ) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (state.restoring) {
-                // NAV-012 R1: two static skeleton bars until the first good fix (decorative; no shimmer).
-                val loading = strings[StringKey.STATUS_LOADING]
-                Column(Modifier.weight(1f).testTag("nav-progress-skeleton").clearAndSetSemantics { contentDescription = loading }) {
-                    val bar = if (night) t.uiOutlineVariant.c() else t.uiSurfaceContainer.c()
-                    Box(Modifier.fillMaxWidth(0.6f).height(20.dp).background(bar, RoundedCornerShape(4.dp)))
-                    Spacer(Modifier.height(8.dp))
-                    Box(Modifier.fillMaxWidth(0.4f).height(16.dp).background(bar, RoundedCornerShape(4.dp)))
+        if (stacked && !skeleton) {
+            // Stacked layout (factor ≥ 1.15): row 1 = line 1 + buttons, row 2 = line 2 at the full panel width. One
+            // TalkBack node (line 1 carries the whole text in visual order; line 2 is decorative), the buttons stay reachable.
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(Modifier.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    line1(Modifier.weight(1f).padding(end = 12.dp).clearAndSetSemantics { contentDescription = a11y })
+                    buttons()
                 }
-            } else Column(Modifier.weight(1f).clearAndSetSemantics { contentDescription = a11y }) {
-                Text(etaText, style = NavType.titleLarge, color = t.uiOnSurface.c(), modifier = Modifier.testTag("nav-eta"))
-                if (state.onDeviceRoute) {
-                    // F9: icon only, 20 dp, 8 dp after the text, centred on line 2; adds no panel height.
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("$time · $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.testTag("nav-remaining"))
-                        Spacer(Modifier.width(8.dp))
-                        OfflineIndicatorIcon()
-                    }
+                line2(Modifier.fillMaxWidth().clearAndSetSemantics {})
+            }
+        } else {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (skeleton) {
+                    skeletonView(Modifier.weight(1f))
                 } else {
-                    Text("$time · $dist", style = NavType.bodyLarge, color = t.uiOnSurfaceVariant.c(), modifier = Modifier.testTag("nav-remaining"))
+                    Column(Modifier.weight(1f).padding(end = 12.dp).clearAndSetSemantics { contentDescription = a11y }) {
+                        line1(Modifier)
+                        line2(Modifier)
+                    }
                 }
-            }
-            val settings = stringResource(R.string.settings_title)
-            IconButton(onClick = onSettings, modifier = Modifier.size(48.dp).testTag("nav-settings")) {
-                Icon(painterResource(R.drawable.ic_settings), contentDescription = settings)
-            }
-            Spacer(Modifier.width(8.dp))
-            val end = stringResource(R.string.nav_end)
-            OutlinedIconButton(
-                onClick = onEnd,
-                border = BorderStroke(1.dp, t.uiOutline.c()),
-                modifier = Modifier.size(48.dp).testTag("nav-end"),
-            ) {
-                Icon(painterResource(R.drawable.ic_close), contentDescription = end, tint = t.uiError.c())
+                buttons()
             }
         }
     }
@@ -444,11 +495,15 @@ fun GuidanceOverlay(
                                 description = stringResource(if (orientation == Orientation.HEADING_UP) R.string.control_north_up else R.string.control_heading_up),
                                 onClick = onToggleOrientation,
                                 modifier = Modifier.testTag("nav-orientation"),
+                                // UX-17 (screen spec › Accessibility): TalkBack also reads the CURRENT mode as the state.
+                                stateDescription = stringResource(if (orientation == Orientation.HEADING_UP) R.string.control_heading_up else R.string.control_north_up),
                             )
                         }
                         Spacer(Modifier.height(if (!following) 12.dp else 16.dp))
                         if (state.voiceNoticeVisible) {
-                            Box(Modifier.padding(horizontal = 8.dp).clickable(onClick = onDismissNotice).testTag("nav-voice-notice")) {
+                            // UX-10 (screen spec › Voice notice): the tap target has the button role and the «Хаах» action name.
+                            val close = stringResource(R.string.action_close)
+                            Box(Modifier.padding(horizontal = 8.dp).clickable(role = Role.Button, onClickLabel = close, onClick = onDismissNotice).testTag("nav-voice-notice")) {
                                 StatusMessage("voice-notice", R.drawable.ic_info, strings[StringKey.NAV_VOICE_UNAVAILABLE])
                             }
                             Spacer(Modifier.height(8.dp))

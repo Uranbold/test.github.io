@@ -21,12 +21,14 @@ import { fitPadding, follow, followPadding, RESET_MS, START_MS, ZoomBySpeed, typ
 import { el } from "./dom";
 import { GuidanceView } from "./guidanceView";
 import { DemoMapLayers } from "./mapLayers";
-import { PickerView, placeName } from "./picker";
+import { PickerView, placeName, type PickerState } from "./picker";
 import { RouteDataLoader, type DemoRouteSummary, type PreparedRoute } from "./routeData";
 import { ScreenWakeLock } from "./wakeLock";
 
 const LOADING_DELAY_MS = 300; // motion.loading-delay
 const RECENTER_TIMEOUT_MS = 15_000; // motion.nav-recenter-timeout
+/** motion.nav-end-undo (NAV-017 AC 35, UX audit 2026-10-13 UX-01 (2)): the undo window after «Дуусгах». */
+export const UNDO_MS = 5_000;
 const ARRIVAL_TAIL_MS = 5_000;
 const FIT_MAX_ZOOM = 17;
 const FIT_MS = 700; // motion.route-camera
@@ -86,6 +88,12 @@ export class DemoController {
   private loadingTimer: number | null = null;
   private waitingOnline = false;
   private replay: Replay | null = null;
+  /**
+   * The replay held for the undo window after «Дуусгах» (screen spec › Interactions › Undo): the engine is paused at
+   * the replay time of «Дуусгах» and its state (entry, track index, mute, camera) kept in memory for UNDO_MS; «Буцаах»
+   * resumes it (the pause/resume rule: 0 repeated prompts, no depart prompt), anything else drops it. Never persisted.
+   */
+  private held: { replay: Replay; index: number; timer: number } | null = null;
   private muted: boolean;
   private readonly onVisibility = () => this.visibilityChanged();
   private readonly onAnyTap = () => this.audio.ensureUnlocked(this.i18n.lang);
@@ -99,11 +107,11 @@ export class DemoController {
     private readonly routes: readonly DemoRouteSummary[],
   ) {
     this.cluster = this.langBtn.parentElement as HTMLElement;
-    this.picker = new PickerView(i18n, routes, { select: (i) => this.select(i), retry: () => this.retry(), start: () => this.startReplay() });
+    this.picker = new PickerView(i18n, routes, { select: (i) => this.select(i), retry: () => this.retry(), start: () => this.startReplay(), undo: () => this.undoEnd() });
     this.view = new GuidanceView(i18n, {
       recenter: () => this.recenter(),
       toggleVoice: () => this.toggleVoice(),
-      end: () => this.endReplay(),
+      end: () => this.endReplay(true), // «Дуусгах»: the one end with an undo window
       close: () => this.endReplay(),
       dismissNotice: () => this.replay?.core.dismissVoiceNotice(),
     });
@@ -174,6 +182,7 @@ export class DemoController {
     if (this.replay) return;
     const s = this.routes[i];
     if (!s) return;
+    this.dropHeld(); // a row selection ends the undo window
     const state = this.pickerState;
     if (i === this.selected && state !== "error" && state !== "offline") return;
     this.selected = i;
@@ -201,8 +210,8 @@ export class DemoController {
     if (s && !this.replay) this.load(s);
   }
 
-  private pickerState: "none" | "loading" | "error" | "offline" = "none";
-  private setPickerState(s: "none" | "loading" | "error" | "offline"): void {
+  private pickerState: PickerState = "none";
+  private setPickerState(s: PickerState): void {
     const hadRetryFocus = document.activeElement === this.picker.retryBtn;
     this.pickerState = s;
     this.picker.setState(s);
@@ -314,6 +323,7 @@ export class DemoController {
   private startReplay(): void {
     const p = this.prepared;
     if (!p || this.replay) return;
+    this.dropHeld(); // «Эхлэх» ends the undo window
     this.picker.setStartEnabled(false); // a second tap starts nothing
     const lang = this.i18n.lang;
     this.audio.resetReplay();
@@ -502,20 +512,33 @@ export class DemoController {
     this.replay?.core.setMuted(this.muted);
   }
 
-  /** «Дуусгах», «Хаах», track end (AC 33, 35, 16). */
-  private endReplay(): void {
+  /**
+   * «Дуусгах» (`undoable`), «Хаах», track end (AC 33, 35, 16). Everything AC 35 asks happens at once (utterance
+   * stopped, route and puck removed, wake lock released, picker within 1 s). An undoable end keeps the replay paused at
+   * this replay time for the undo window (UX-01 (2)); not after arrival or a track end.
+   */
+  private endReplay(undoable = false): void {
     const r = this.replay;
     if (!r) return;
     this.replay = null;
     if (r.recenterTimer !== null) window.clearTimeout(r.recenterTimer);
-    r.engine.stop();
-    r.core.end();
-    this.audio.stop();
-    this.audio.endReplay();
+    const hold = undoable && r.arrivedAt === null && !r.engine.isEnded;
+    const index = this.selected;
+    if (hold) {
+      r.engine.pause(); // the replay clock stops at the time of «Дуусгах»
+      r.core.silence();
+      this.audio.stop();
+    } else {
+      r.engine.stop();
+      r.core.end();
+      this.audio.stop();
+      this.audio.endReplay();
+    }
     this.wakeLock.release();
     document.removeEventListener("visibilitychange", this.onVisibility);
     document.removeEventListener("pointerdown", this.onAnyTap, true);
     this.layers.setRoute(null);
+    this.layers.removePuck();
     this.layers.setPhase("picker");
     this.leaveGuidanceLayout();
     const m = this.map;
@@ -525,10 +548,64 @@ export class DemoController {
     this.selected = -1;
     this.prepared = null;
     this.picker.setSelected(-1);
+    this.dropHeld();
     this.setPickerState("none");
     this.picker.setStartEnabled(false);
     this.showPicker();
+    if (hold) {
+      this.held = { replay: r, index, timer: window.setTimeout(() => this.dropHeld(), UNDO_MS) };
+      this.setPickerState("ended");
+    }
     this.picker.heading.focus({ preventScroll: true });
+  }
+
+  /** The undo window closes without «Буцаах» (timer, row selection, «Эхлэх»): the held replay ends for good. */
+  private dropHeld(): void {
+    const h = this.held;
+    if (!h) return;
+    this.held = null;
+    window.clearTimeout(h.timer);
+    h.replay.engine.stop();
+    h.replay.core.end();
+    this.audio.endReplay();
+    if (this.pickerState === "ended") this.setPickerState("none");
+  }
+
+  /**
+   * «Буцаах» (AC 35, screen spec › Interactions): D2 within 1 s from the replay time at «Дуусгах»; the entry re-selected,
+   * route, puck, camera and wake lock back, focus to the banner instruction; 0 repeated prompts, no depart prompt.
+   */
+  private undoEnd(): void {
+    const h = this.held;
+    if (!h || this.replay) return;
+    this.held = null;
+    window.clearTimeout(h.timer);
+    const r = h.replay;
+    const p = r.prepared;
+    const lang = this.i18n.lang;
+    this.selected = h.index;
+    this.prepared = p;
+    this.picker.setSelected(h.index);
+    this.setPickerState("none");
+    this.picker.setStartEnabled(false);
+    this.cancelLoad();
+    this.replay = r;
+    this.audio.ensureUnlocked(lang);
+    r.core.setLanguage(lang); // a language switch during the window applies (AC 31)
+    r.core.setMuted(this.muted);
+    this.enterGuidanceLayout(p);
+    this.layers.setRoute(p.line, this.names(p.summary));
+    const puck = r.core.state().puck;
+    if (puck) this.layers.placePuck(puck.position, r.course);
+    r.following = true;
+    r.engine.resume();
+    this.view.render(r.core.state(), performance.now(), true);
+    this.view.setFollowing(true);
+    this.resumeFollowing(START_MS);
+    this.wakeLock.request();
+    document.addEventListener("visibilitychange", this.onVisibility);
+    document.addEventListener("pointerdown", this.onAnyTap, true);
+    this.view.instruction.focus({ preventScroll: true });
   }
 
   private visibilityChanged(): void {

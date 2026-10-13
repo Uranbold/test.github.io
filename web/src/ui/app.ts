@@ -16,7 +16,7 @@ import {
 import type { CreateMapOptions } from "../map/createMap";
 import { MAX_ZOOM, MIN_ZOOM, P1 } from "../map/createMap";
 import type { LatLon } from "../search/coords";
-import { saveLang, saveTheme } from "../prefs";
+import { onSystemThemeChange, saveLang, saveTheme } from "../prefs";
 import { buildStyle, EMPTY_LOCATION, LOCATION_SOURCE_ID, SOURCE_ID, type LocationData, type Theme } from "../style/buildStyle";
 import { cancelBootReveal, hasBootReveal } from "../boot/bootLoading";
 import { type StatusMachine, type StatusView } from "../state/status";
@@ -343,6 +343,8 @@ export class App {
     u.zoomOut.addEventListener("click", () => this.zoomBy(-1));
     u.locateBtn.addEventListener("click", () => this.location?.press());
     u.bannerRetry.addEventListener("click", () => this.reloadTiles());
+    // NAV-002 › States › Night (PO 2026-10-13, UX-07 (b)): follow a system scheme change while the user never toggled.
+    onSystemThemeChange((theme) => this.applyTheme(theme));
     u.cardRetry.addEventListener("click", () => this.onCardRetry());
     u.locRetry.addEventListener("click", () => this.location?.retry());
     u.locClose.addEventListener("click", () => {
@@ -375,10 +377,17 @@ export class App {
     this.route?.langChanged();
   }
 
+  /** The toggle (AC 26–28): stores the choice; from now on the page no longer follows the system scheme (UX-07). */
   private setTheme(theme: Theme): void {
+    saveTheme(theme);
+    this.applyTheme(theme);
+  }
+
+  /** Applies a theme without storing it (the toggle, and a system change while nothing is stored). 0 requests. */
+  private applyTheme(theme: Theme): void {
+    if (theme === this.theme) return;
     this.theme = theme;
     this.ui.root.dataset.theme = theme;
-    saveTheme(theme);
     this.renderThemeButton();
     this.tooltip.refresh();
     // Camera untouched: the style has no center/zoom (AC 27). Location layers are part of the style.

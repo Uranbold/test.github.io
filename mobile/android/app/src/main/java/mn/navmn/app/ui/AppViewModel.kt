@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import mn.navmn.app.engine.EndedSession
 import mn.navmn.app.engine.GuidanceSession
 import mn.navmn.app.engine.GuidanceState
 import mn.navmn.app.engine.Trip
@@ -748,17 +749,69 @@ class AppViewModel @Inject constructor(
         }
         // NAV-019 edge case: a double tap on «Эхлэх» starts one replay only (no second depart prompt).
         if (replay != null && session.engine.value != null) return
+        dropUndo() // AC 101: a new «Эхлэх» ends the undo window
         _ui.update { it.copy(orientation = Orientation.HEADING_UP, cameraFollowing = true, followingMe = false) }
         session.start(route, Trip(s.destination.point, PointRules.storedName(s.destination), s.mode, s.avoidUnpaved && s.mode == TravelMode.CAR), fix)
     }
 
+    /**
+     * S5 on-screen «Дуусгах» (AC 19 teardown unchanged) with the NAV-005 AC 101 undo window: the ended session's
+     * in-memory copy and the user's orientation are kept for [undoWindowMs] (`motion.nav-end-undo`, extended by the
+     * system "time to take action" setting), then dropped. Nothing is persisted (AC 66–67). The notification and
+     * lock-screen «Дуусгах» go through [GuidanceSession.end] directly and open no window.
+     */
     fun onEnd() {
+        val orientation = _ui.value.orientation
+        val ended = session.endForUndo()
+        preview.close()
+        if (ended == null) return
+        replay?.holdForUndo()
+        openUndoWindow(UndoWindow(ended, orientation))
+    }
+
+    /** S6 «Хаах» after arrival: no undo (screen spec › Known limitations 12). */
+    fun onArrivalClose() {
         session.end()
         preview.close()
     }
 
-    /** S6 «Хаах» after arrival. */
-    fun onArrivalClose() = onEnd()
+    /** NAV-005 AC 101: the undo window of the last on-screen «Дуусгах» (S1 snackbar «Замчлал дууслаа» + «Буцаах»). */
+    class UndoWindow(val ended: EndedSession, val orientation: Orientation)
+
+    private val _undo = MutableStateFlow<UndoWindow?>(null)
+    val undo: StateFlow<UndoWindow?> = _undo.asStateFlow()
+    private var undoJob: Job? = null
+
+    /** The window length: the Activity provides the accessibility-extended timeout (M3 snackbar rule); 5 s by default. */
+    var undoWindowMs: () -> Long = { UNDO_WINDOW_MS }
+
+    private fun openUndoWindow(w: UndoWindow) {
+        undoJob?.cancel()
+        _undo.value = w
+        undoJob = viewModelScope.launch {
+            delay(undoWindowMs().coerceAtLeast(UNDO_WINDOW_MS))
+            if (_undo.value === w) _undo.value = null
+        }
+    }
+
+    /** The window closes without «Буцаах»: timer, S1 left, background, a new «Эхлэх», or a process death (nothing kept). */
+    fun dropUndo() {
+        undoJob?.cancel()
+        undoJob = null
+        _undo.value = null
+    }
+
+    /**
+     * «Буцаах» (AC 101): guidance restarts on the kept route with the NAV-012 restore rules, 0 requests, no depart
+     * prompt, the orientation as before, the camera following; the destination in the search bar is unchanged.
+     */
+    fun undoEnd() {
+        val w = _undo.value ?: return
+        dropUndo()
+        if (!session.resume(w.ended)) return
+        _ui.update { it.copy(orientation = w.orientation, cameraFollowing = true, followingMe = false) }
+        replay?.resumeFromUndo()
+    }
 
     fun toggleMute() = settings.setMuted(!settings.muted.value)
 
@@ -782,5 +835,8 @@ class AppViewModel @Inject constructor(
         /** D13: Ulaanbaatar, P1, zoom 12. */
         val DEFAULT_CENTER = LatLon(47.9189, 106.9176)
         const val DEFAULT_ZOOM = 12.0
+
+        /** tokens.json `motion.nav-end-undo` (NAV-005 AC 101): the undo window after an on-screen «Дуусгах». */
+        const val UNDO_WINDOW_MS = 5_000L
     }
 }

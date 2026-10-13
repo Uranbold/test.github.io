@@ -80,6 +80,9 @@ enum class StringKey(val resName: String) {
     NAV_THEN("nav_then"),
     NAV_REMAINING_TIME("nav_remaining_time"),
     NAV_REMAINING_DISTANCE("nav_remaining_distance"),
+    // NAV-005 AC 101 undo snackbar (glossary A15, A14)
+    NAV_ENDED("nav_ended"),
+    ACTION_UNDO("action_undo"),
     UNIT_M("unit_m"),
     UNIT_KM("unit_km"),
     UNIT_H("unit_h"),

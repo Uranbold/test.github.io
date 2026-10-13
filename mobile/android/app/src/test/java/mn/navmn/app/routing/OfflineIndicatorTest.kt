@@ -98,6 +98,10 @@ class OfflineIndicatorTest {
     fun guidanceOnAnOnDeviceRouteShowsTheIconAndAppendsOf25ToTheProgressNode() {
         show(state(onDevice = true))
         rule.onNodeWithTag("offline-indicator-icon", useUnmergedTree = true).assertIsDisplayed()
+        // UX audit §8 A4: the icon follows the remaining time on line 1 (same row, after it).
+        val icon = rule.onNodeWithTag("offline-indicator-icon", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val remaining = rule.onNodeWithTag("nav-remaining", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("icon after «25 мин» on line 1: $icon vs $remaining", icon.left >= remaining.right && icon.top < remaining.bottom && icon.bottom > remaining.top)
         val descriptions = rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.ContentDescription), useUnmergedTree = true)
             .fetchSemanticsNodes().flatMap { it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
         assertTrue(descriptions.toString(), descriptions.any { it.endsWith(", Офлайн газрын зургаас") })

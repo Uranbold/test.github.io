@@ -100,6 +100,9 @@ class GuidanceOverlayTest {
 
     private fun bounds(tag: String): List<Rect> = rule.onAllNodesWithTag(tag).fetchSemanticsNodes().map { it.boundsInRoot }
 
+    /** Bounds of nodes inside a `clearAndSetSemantics` subtree (the progress panel's text lines). */
+    private fun boundsUnmerged(tag: String): Rect = rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+
     private fun assertAttributionFree() {
         rule.onNodeWithTag("attribution").assertIsDisplayed()
         val a = bounds("attribution").single()
@@ -182,6 +185,82 @@ class GuidanceOverlayTest {
         rule.onNodeWithTag("nav-banner-text", useUnmergedTree = true).assertIsDisplayed()
         val t = rule.onNodeWithTag("nav-banner-text", useUnmergedTree = true).fetchSemanticsNode().config[SemanticsProperties.Text].joinToString()
         assertEquals("Take the exit on the right", t)
+    }
+
+    /** The laid-out (displayed) string of a text node, as opposed to its semantics text. */
+    private fun displayed(tag: String): String {
+        val results = ArrayList<TextLayoutResult>()
+        rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult].action!!.invoke(results)
+        return results.first().layoutInput.text.text
+    }
+
+    /** UX audit UX-04 (navigation-ux §2.1): U+00A0 before the politeness particle in the displayed banner text only. */
+    @Test
+    fun bannerJoinsTheParticleToItsVerbInTheDisplayedTextOnly() {
+        show(state())
+        assertEquals("Баруун талын гарах зам руу эргэнэ\u00A0үү", displayed("nav-banner-text"))
+        val semantics = rule.onNodeWithTag("nav-banner-text", useUnmergedTree = true).fetchSemanticsNode().config[SemanticsProperties.Text].joinToString()
+        assertEquals("accessible text keeps the plain space", "Баруун талын гарах зам руу эргэнэ үү", semantics)
+        assertFalse(semantics.contains('\u00A0'))
+    }
+
+    /** NAV-005 › TripProgressPanel (PO 2026-10-13, UX-02 (b)): remaining time first, «Хүрэх цаг HH:MM · distance» second. */
+    @Test
+    fun progressPanelLeadsWithTheRemainingTimeAndReadsInVisualOrder() {
+        show(state())
+        val remaining = rule.onNodeWithTag("nav-remaining", useUnmergedTree = true).fetchSemanticsNode()
+        assertEquals("25\u00A0мин", remaining.config[SemanticsProperties.Text].joinToString())
+        val etaNode = rule.onNodeWithTag("nav-eta", useUnmergedTree = true).fetchSemanticsNode()
+        val etaTexts = etaNode.children.flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty().map { a -> a.text } }
+        assertTrue("line 2 = «Хүрэх цаг HH:MM ·» + distance, got $etaTexts", etaTexts.size == 2 && etaTexts[0].startsWith("Хүрэх цаг ") && etaTexts[0].endsWith(" ·") && etaTexts[1] == " 12,4\u00A0км")
+        assertTrue("line 1 above line 2", remaining.boundsInRoot.bottom <= etaNode.boundsInRoot.top + 1f)
+        val a11y = rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.ContentDescription))
+            .fetchSemanticsNodes().flatMap { it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
+            .single { it.startsWith("үлдсэн хугацаа") }
+        assertTrue(a11y, Regex("^үлдсэн хугацаа 25\u00A0мин, Хүрэх цаг \\d\\d:\\d\\d, үлдсэн зай 12,4\u00A0км$").matches(a11y))
+    }
+
+    /** UX-01 (1): 16 dp between «Тохиргоо» and «Дуусгах» (every other pair keeps 8 dp). */
+    @Test
+    fun sixteenDpBetweenSettingsAndEnd() {
+        show(state())
+        val gap = with(Density(RuntimeEnvironment.getApplication())) { 16.dp.toPx() }
+        val settings = bounds("nav-settings").single()
+        val end = bounds("nav-end").single()
+        assertEquals(gap, end.left - settings.right, 1f)
+    }
+
+    /** Stacked rows from an effective panel font factor of 1.15: line 2 at the full width below the buttons' row. */
+    @Test
+    fun progressPanelStacksAtLargeFontScales() {
+        show(state(), fontScale = 1.3f)
+        val remaining = boundsUnmerged("nav-remaining")
+        val eta = boundsUnmerged("nav-eta")
+        val end = bounds("nav-end").single()
+        val settings = bounds("nav-settings").single()
+        assertTrue("line 2 below the buttons' row", eta.top >= end.bottom - 1f)
+        assertTrue("line 2 spans the panel width (past the buttons)", eta.right > settings.left)
+        assertTrue("line 1 shares the row with the buttons", remaining.top < end.bottom && remaining.bottom > end.top)
+        assertEquals(with(Density(RuntimeEnvironment.getApplication())) { 16.dp.toPx() }, end.left - settings.right, 1f)
+        assertAttributionFree()
+    }
+
+    /** UX-10: the voice notice's tap target has the button role and the «Хаах» action name. */
+    @Test
+    fun voiceNoticeTapTargetIsAButtonNamedClose() {
+        show(state(notice = true))
+        val node = rule.onNodeWithTag("nav-voice-notice").fetchSemanticsNode()
+        assertEquals(androidx.compose.ui.semantics.Role.Button, node.config.getOrNull(SemanticsProperties.Role))
+        assertEquals("Хаах", node.config[SemanticsActions.OnClick].label)
+    }
+
+    /** UX-17: the orientation button names the target mode (AC 24) and reads the current mode as its state. */
+    @Test
+    fun orientationButtonReadsTheCurrentModeAsState() {
+        show(state(), orientation = Orientation.HEADING_UP)
+        val node = rule.onNodeWithTag("nav-orientation").fetchSemanticsNode()
+        assertEquals(listOf("Хойд зүг дээшээ"), node.config[SemanticsProperties.ContentDescription])
+        assertEquals("Явах чиглэл дээшээ", node.config[SemanticsProperties.StateDescription])
     }
 
     @Test

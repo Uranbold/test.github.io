@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,7 +35,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import mn.navmn.app.R
@@ -110,6 +117,8 @@ fun MapIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     highlighted: Boolean = false,
+    /** NAV-005 UX-17: the current mode of a toggle, read by TalkBack as the state (the description names the target). */
+    stateDescription: String? = null,
 ) {
     val t = LocalTokens.current
     val night = LocalNight.current
@@ -121,7 +130,8 @@ fun MapIconButton(
         shadowElevation = 1.dp,
         modifier = modifier
             .size(48.dp)
-            .then(if (night) Modifier.border(1.dp, t.uiOutlineVariant.c(), CircleShape) else Modifier),
+            .then(if (night) Modifier.border(1.dp, t.uiOutlineVariant.c(), CircleShape) else Modifier)
+            .then(if (stateDescription != null) Modifier.semantics { this.stateDescription = stateDescription } else Modifier),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(painterResource(icon), contentDescription = description, modifier = Modifier.size(24.dp))
@@ -163,3 +173,39 @@ fun MessageCard(
 }
 
 fun Color.Companion.fromToken(v: Long) = v.c()
+
+/**
+ * NAV-005 AC 101 undo snackbar (screen spec › Undo snackbar): an M3 [Snackbar] in the status-message colours
+ * (`ui.message-surface` / `ui.on-message-surface`, action `ui.message-action`, night 1 dp `ui.message-outline`), text
+ * `body` (uncapped: S1 is not a driving screen), action «Буцаах» ≥ 48 dp, the action on its own line when text and
+ * action no longer fit one line at large font scales (M3 two-line layout). The text is a polite live region.
+ */
+@Composable
+fun MessageSnackbar(data: SnackbarData, modifier: Modifier = Modifier) {
+    val t = LocalTokens.current
+    val night = LocalNight.current
+    val shape = RoundedCornerShape(12.dp)
+    val twoLine = LocalDensity.current.fontScale >= 1.5f
+    Snackbar(
+        modifier = modifier
+            .then(if (night) Modifier.border(1.dp, t.uiMessageOutline.c(), shape) else Modifier)
+            .testTag("nav-ended-snackbar"),
+        action = {
+            val label = data.visuals.actionLabel
+            if (label != null) {
+                TextButton(
+                    onClick = { data.performAction() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = t.uiMessageAction.c()),
+                    modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).testTag("nav-undo"),
+                ) { Text(label, style = NavType.label) }
+            }
+        },
+        actionOnNewLine = twoLine,
+        shape = shape,
+        containerColor = t.uiMessageSurface.c(),
+        contentColor = t.uiOnMessageSurface.c(),
+        actionContentColor = t.uiMessageAction.c(),
+    ) {
+        Text(data.visuals.message, style = NavType.body, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+    }
+}

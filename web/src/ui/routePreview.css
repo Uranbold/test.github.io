@@ -78,9 +78,10 @@
     animation: card-in var(--motion-duration-short, 150ms) linear;
   }
 }
-/* WCAG 2.2 SC 2.4.11: focused elements scroll fully below the sticky header. */
+/* WCAG 2.2 SC 2.4.11: focused elements scroll fully below the sticky header. The margin scales with the text (UX audit
+   2026-10-13 UX-22): at text zoom 150–200 % the header is taller than its 100 % height of 64 px. */
 .route-panel :is(button, input, [tabindex]) {
-  scroll-margin-top: 64px;
+  scroll-margin-top: calc(var(--size-control) + 1rem);
 }
 
 /* ---- Header (sticky) */
@@ -105,6 +106,12 @@
   line-height: 1.5rem;
   font-weight: 600;
   overflow-wrap: anywhere;
+  /* UX-22: the sticky title clamps to 2 lines at the panel width (3 lines of 32 px took ~150 px of the sheet at 200 %). */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 .rp-head h2:focus,
 .rp-card h2:focus {
@@ -500,6 +507,10 @@ svg.mirror {
   font-size: 1rem;
   line-height: 1.5rem;
   overflow-wrap: anywhere;
+}
+/* UX-04 (navigation-ux §2.1): the final verb and its politeness particle stay on one line (src/ui/instructionNode.ts). */
+.step .in .nb {
+  white-space: nowrap;
 }
 .step .st {
   font-size: 0.875rem;
