@@ -23,7 +23,7 @@ object BannerText {
     fun displayText(s: String): String = PARTICLE.replace(s, " $1")
 
     /** «үү» = U+04AF U+04AF, «уу» = U+0443 U+0443 (escaped: no Cyrillic literal in Kotlin sources, ResourcesTest). */
-    private val PARTICLE = Regex(" (үү|уу)(?!\\p{L})")
+    private val PARTICLE = Regex(" (\u04AF\u04AF|\u0443\u0443)(?!\\p{L})")
 
     /** Upper-cases the first letter; idempotent (glossary forms are often lower case). */
     fun capitalizeFirst(s: String, lang: Lang): String =
