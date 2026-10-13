@@ -115,8 +115,8 @@ No pack (set-none)                 Downloading (set-downloading)      Installed,
 
 ```
 S3 collapsed summary               S2 results                         S5 progress panel
-│ 18 мин · 7,4 км  [✓ Офлайн]    │ │ [← Гандан                  ✕] │ │ Хүрэх цаг 14:35        ⚙  (✕) │
-│ Хүрэх цаг 14:08                │ │ [✓ Офлайн]                     │ │ 25 мин · 12,4 км ✓             │
+│ 18 мин · 7,4 км  [✓ Офлайн]    │ │ [← Гандан                  ✕] │ │ 25 мин ✓             ⚙    (✕) │
+│ Хүрэх цаг 14:08                │ │ [✓ Офлайн]                     │ │ Хүрэх цаг 14:35 · 12,4 км      │
 │ [▶          Эхлэх            ] │ │ ◎ Гандан хийд                  │
                                    │   Хийд · Сонгинохайрхан …      │  Coordinate card
                                    │ ◎ Гандангийн гудамж …          │ │ Ойролцоох газар [✓ Офлайн]    │
@@ -132,7 +132,7 @@ S3 collapsed summary               S2 results                         S5 progres
 - **F6. S1 messages.** O6 messages use the NAV-002 / NAV-005 message card in R2 under the search row, with the NAV-005 D5 top-group cap (the card shrinks and scrolls inside; it never runs under the map controls).
 - **F7. Indicator component.** Non-interactive label, min height 24 dp (`size.offline-indicator`), padding 2/8/2/6 dp, radius `md` 8 dp, fill `ui.surface-container`, border 1 dp `ui.outline-variant`, icon `offline_pin` 16 dp + 4 dp gap + «Офлайн» (`caption` 12/16, weight 500), text and icon `ui.on-surface-variant` (8.44:1 day, 7.27:1 night). Scales with the font scale (27 dp at 130 %, 38 dp at 200 %), **never truncated, never wraps internally** (one word). Never a touch target (no ripple, no click).
 - **F8. Indicator placement (S2, S3, cards).** It sits **on the line of its anchor** and wraps to the next line as a whole when that line is full; it never covers the summary, a result name, the search field, «Эхлэх», «Маршрут гаргах» or R5 (checked). S3: after the duration · distance text of the summary (every option of the same answer shares the source, so the summary carries it for the selected option; in the expanded «Маршрут сонгох» group it appears once after the group heading). S2: a header row (about 36 dp at 100 %) above the first result (start-aligned, padding 8/16/4), **once per list** (NAV-023 AC 21); for «Илэрц олдсонгүй» after the text. Coordinate card: after the «Ойролцоох газар» label. Place card: after the type · address line. In the wide side column the indicator scrolls together with its anchor.
-- **F9. Indicator in S5 guidance.** Icon only, 20 dp `offline_pin`, `ui.on-surface-variant`, after «25 мин · 12,4 км» on line 2 of the NAV-005 progress panel, 8 dp gap, vertically centred on the line; it follows the panel's 1.3 font cap. It adds **no height** to the panel at 360 dp (76 dp at 100 %, 128 dp at 130 %, same as without it). Never in the banner, the Then strip, the status area or on the map.
+- **F9. Indicator in S5 guidance.** Icon only, 20 dp `offline_pin`, `ui.on-surface-variant`, after the remaining time «25 мин» on **line 1** of the NAV-005 progress panel (since 2026-10-13 the panel leads with the remaining time, UX audit UX-02; on the new, longer line 2 the icon made «Хүрэх цаг 14:35 · 12,4 км» wrap at 360 dp and added 24 dp, so it moved: NAV-012 checker re-run, 960 combinations, 0 problems), 8 dp gap, vertically centred on the line; it follows the panel's 1.3 font cap. It adds **no height** to the panel at 360 dp (76 dp at 100 %, 128 dp at 130 %, same as without it). Never in the banner, the Then strip, the status area or on the map.
 
 ### Behaviour rules
 

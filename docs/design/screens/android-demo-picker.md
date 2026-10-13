@@ -75,7 +75,7 @@ P1 picker (entry 1 failed to load)       P2 preview (collapsed NAV-018 sheet)   
 ││ Маршрут сонгох                 ││ PL  ││   │○ Сүхбаатарын талбай  │     ││     │              ●  puck (still)     │ map
 │├────────────────────────────────┤│     ││   │📍 Зайсан Голден Вилл  │     ││     │                      [🔊] [⬆]   │ RC
 ││○ Сүхбаатарын талбай            ││ E1  ││   └──────────────────────┘     ││     │┌────────────────────────────────┐│ RP
-││📍 Зайсан Голден Вилл            ││     ││ [  Машин ][ Явган ][ Дугуй ]   ││     ││ Хүрэх цаг 14:35        [⚙] (✕)││
+││📍 Зайсан Голден Вилл            ││     ││ [  Машин ][ Явган ][ Дугуй ]   ││     ││ 4 мин                [⚙]   (✕)││
 ││Машин · 4,3 км · 5 мин          ││     ││ 5 мин · 4,3 км                 ││     ││ 4 мин · 3,1 км   (frozen)      ││
 ││   ◯ Алдаа гарлаа               ││     ││ Хүрэх цаг 14:08                ││     │└────────────────────────────────┘│
 │├────────────────────────────────┤│     ││ [▶          Эхлэх            ] ││     │                                  │
@@ -102,7 +102,7 @@ P1 picker (entry 1 failed to load)       P2 preview (collapsed NAV-018 sheet)   
 ││└────┘ эргэнэ үү         ││                                            │
 │└─────────────────────────┘│ [◎ Байршил руу буцах]          [🔊] [⬆]    │
 │[⚗ Туршилтын горим]        │┌──────────────────────────────────────────┐│
-│[⏸ Түр зогсоох]  (RD wraps)││ Хүрэх цаг 14:35                 [⚙] (✕) ││
+│[⏸ Түр зогсоох]  (RD wraps)││ 4 мин                         [⚙]   (✕) ││
 │ (column scrolls if needed)│└──────────────────────────────────────────┘│
 ├───────────────────────────┴────────────────────────────────────────────┤
 │ © OpenStreetMap contributors                                           │
@@ -219,7 +219,7 @@ NAV-005 S6 unchanged (arrival variant, arrival panel with the destination name a
 - **P1 system Back:** leaves the app (Android default for a home screen); the next launch shows P1.
 - **P2:** NAV-018 interactions; ✕ / Back → P1 (≤ 1 s); «Эхлэх» → F3.
 - **P3 «Түр зогсоох» / «Үргэлжлүүлэх»:** toggles within 1 s (navigation-ux §13). Also over the lock screen (non-destructive, like the voice button).
-- **P3 «Дуусгах»** (screen, lock screen or notification): ends at once, no confirmation (NAV-005 Design notes 1), also while paused; P1 within 2 s with no entry marked.
+- **P3 «Дуусгах»** (screen, lock screen or notification): ends at once, no confirmation (NAV-005 Design notes 1), also while paused; P1 within 2 s with no entry marked. **Undo (UX audit 2026-10-13, UX-01 (2)):** after the on-screen «Дуусгах» P1 shows the NAV-005 undo snackbar «Замчлал дууслаа» + «Буцаах» for 5 s; «Буцаах» returns to P3 and resumes the replay from the track time at «Дуусгах» (the «Үргэлжлүүлэх» rules, navigation-ux §13.2 and §14.3). The progress panel follows NAV-005 › TripProgressPanel (remaining time first, 16 dp before «Дуусгах»); the wireframe `NAV-019-android-demo.html` was updated and re-run (720 combinations, 0 problems).
 - **P3 system Back:** NAV-005 rule unchanged (app to background, the replay continues).
 - **P4 «Хаах»:** P1.
 - **No typing while the replay runs:** the NAV-011 typing lock never engages in the demo (it has no device fixes, AC 17); no text field is reachable from P3 anyway.

@@ -114,6 +114,16 @@
   .panel { flex-wrap: nowrap; }
   /* UX-01 (1): 16 dp between «Тохиргоо» and «Дуусгах» (panel gap 12 + 4), so a bumped finger on the gear cannot hit the end button. */
   .panel .end { margin-left: 4px; }
+  /* Stacked progress panel from an effective factor of 1.15 (same threshold as the banner, navigation-ux §2.5): row 1 = remaining time + the
+     two buttons, row 2 = «Хүрэх цаг 14:35 · 12,4 км» at the full panel width. Measured: the row layout wrapped line 2 at 130 % and took the
+     map band in the A1-notice state below 64 dp at 360×640 (en 54 dp); stacked, line 2 stays on one line and the panel is 16 dp lower. */
+  :root[data-stacked="1"] .panel.progress { display: grid; grid-template-columns: minmax(0,1fr) auto auto; grid-template-areas: "l1 gear end" "l2 l2 l2"; gap: 0 12px; align-items: center; padding: 8px 16px; }
+  :root[data-stacked="1"] .panel.progress .txt { display: contents; }
+  :root[data-stacked="1"] .panel.progress .eta { grid-area: l1; }
+  /* Stacked: line 2 is one line in its own row, so it takes the single-line height (1.25) instead of body-large's running-text 1.5. */
+  :root[data-stacked="1"] .panel.progress .meta { grid-area: l2; line-height: 1.25; }
+  :root[data-stacked="1"] .panel.progress [data-check="settings"] { grid-area: gear; }
+  :root[data-stacked="1"] .panel.progress .end { grid-area: end; }
 
   /* S1 after «Дуусгах» (UX-01 (2), PO Q3 (b)): search row, map controls column, undo snackbar «Замчлал дууслаа» + «Буцаах» for 5 s. */
   #s1top { position: absolute; z-index: 2; top: 0; left: 0; right: 0; padding: 8px 16px 0; display: flex; gap: 8px; align-items: flex-start; }
@@ -266,7 +276,7 @@ function render() {
   const status = $("status"); status.innerHTML = "";
   const rc = $("rc"); rc.innerHTML = "";
   $("mbx").innerHTML = ""; $("bottom").innerHTML = "";
-  document.querySelectorAll("#scrim, #s1top").forEach((e) => e.remove());
+  document.querySelectorAll("#scrim, #s1top, #app > #ctrls").forEach((e) => e.remove());
   if (st === "ended") {
     // S1 map within 2 s of «Дуусгах»: no route; the undo snackbar sits at the bottom (where the thumb just was), above R5;
     // the map controls column moves up above it (M3 snackbar + FAB behaviour), the search row is unchanged.
@@ -274,8 +284,17 @@ function render() {
     s1.innerHTML = `<div class="searchbar" data-box="search" data-control role="search" aria-label="${t.searchPh}">${ICON.search}<span>${t.searchPh}</span></div>
       <button class="iconbtn tonal" data-control aria-label="${t.settings}">${ICON.gear}</button>`;
     $("app").appendChild(s1);
-    $("mbx").innerHTML = `<div id="ctrls">${[["plus", t.zoomIn], ["minus", t.zoomOut], ["loc", t.myLoc]].map(([i, n]) => `<button class="iconbtn" data-control aria-label="${n}">${ICON[i]}</button>`).join("")}</div>`;
+    const ctrls = `<div id="ctrls">${[["plus", t.zoomIn], ["minus", t.zoomOut], ["loc", t.myLoc]].map(([i, n]) => `<button class="iconbtn" data-control aria-label="${n}">${ICON[i]}</button>`).join("")}</div>`;
     $("bottom").innerHTML = `<div class="snack" data-box="snackbar" role="status"><span class="txt" data-check="snackbar-text">${t.ended}</span><button class="btn text" data-control data-check="undo">${t.undo}</button></div>`;
+    if (root.dataset.orient === "land") {
+      // D5 wide arrangement: the controls keep their lane on the right (bottom-aligned, 16 dp from the edge and from R5);
+      // the snackbar, like the coordinate card, uses the width left of the lane.
+      const c = document.createElement("div"); c.innerHTML = ctrls; const el = c.firstChild; $("app").appendChild(el);
+      el.style.bottom = ($("attr").getBoundingClientRect().height + 16) + "px";
+      $("bottom").querySelector(".snack").style.marginRight = "64px";
+    } else {
+      $("mbx").innerHTML = ctrls; // portrait: the column sits 16 dp above the snackbar (M3 snackbar + FAB behaviour)
+    }
   } else if (guidance) {
     b.dataset.box = "banner";
     let icon = ICON.right, dist = t.dist300, instr = t.turnR, street = t.street, cls = "";
@@ -303,7 +322,7 @@ function render() {
       ? `<div class="panel notice" data-box="voice-notice" role="status" style="margin-bottom:8px"><span class="ico" aria-hidden="true"></span><span>${t.voiceNotice}</span></div>` : "")
       + (st === "arrival"
       ? `<div class="panel" data-box="progress"><div class="txt"><div class="eta">${t.dest}</div></div><button class="btn filled" data-control>${t.close}</button></div>`
-      : `<div class="panel" data-box="progress"><div class="txt"><div class="eta" data-check="progress-line1">${t.remaining}</div><div class="meta" data-check="progress-line2"><span class="chunk">${t.eta} ·</span> <span class="chunk">${t.distLeft}</span></div></div><button class="iconbtn" style="box-shadow:none;outline:0;flex:none" data-control data-check="settings" aria-label="${t.settings}">${ICON.gear}</button><button class="btn outlined round end" data-control data-check="end" aria-label="${t.end}" title="${t.end}">${ICON.x}</button></div>`);
+      : `<div class="panel progress" data-box="progress"><div class="txt"><div class="eta" data-check="progress-line1">${t.remaining}</div><div class="meta" data-check="progress-line2"><span class="chunk">${t.eta} ·</span> <span class="chunk">${t.distLeft}</span></div></div><button class="iconbtn" style="box-shadow:none;outline:0;flex:none" data-control data-check="settings" aria-label="${t.settings}">${ICON.gear}</button><button class="btn outlined round end" data-control data-check="end" aria-label="${t.end}" title="${t.end}">${ICON.x}</button></div>`);
   } else {
     // S3 preview sheet (S1 search bar omitted: unchanged NAV-003 layout)
     let region;

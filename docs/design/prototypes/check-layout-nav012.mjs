@@ -118,10 +118,10 @@ for (const [w, h] of viewports) {
           info.panelH = Math.round(panel.getBoundingClientRect().height * 10) / 10;
           const oi = document.querySelector('[data-check="offline-icon"]');
           if (oi) {
-            const ob = oi.getBoundingClientRect(), pb = panel.getBoundingClientRect(), meta = oi.closest(".meta").getBoundingClientRect();
+            const ob = oi.getBoundingClientRect(), pb = panel.getBoundingClientRect(), meta = oi.closest(".eta, .meta").getBoundingClientRect(); // since 2026-10-13 the icon follows the remaining time on line 1
             info.iconPx = Math.round(ob.width * 10) / 10;
             if (ob.left < pb.left - 0.5 || ob.right > pb.right + 0.5 || ob.top < pb.top - 0.5 || ob.bottom > pb.bottom + 0.5) out.push("offline icon outside the progress panel");
-            if (ob.right > meta.right + 0.5) out.push("offline icon wraps out of the meta line");
+            if (ob.right > meta.right + 0.5) out.push("offline icon wraps out of its line");
             if (ob.width < 19.5) out.push(`offline icon ${ob.width.toFixed(1)}dp < 20dp`);
             const of25 = document.documentElement.lang === "en" ? "From the offline map" : "Офлайн газрын зургаас";
             if (oi.getAttribute("aria-label") !== of25) out.push("offline icon accessible name is not OF25");

@@ -11,7 +11,7 @@ Copy in the diagrams is quoted by resource key (see the screen spec, §Copy). Mo
 
 ```mermaid
 flowchart TD
-    A([User opens http://localhost:5173]) --> B[Read saved theme + language<br/>default: day D12, mn — AC 26, 30]
+    A([User opens http://localhost:5173]) --> B[Read saved theme + language<br/>default: system colour scheme (prefers-color-scheme; UX-07, PO 2026-10-13, replaces D12 'day'), mn — AC 26, 30]
     B --> C[Render chrome: top controls, attribution strip<br/>html lang + title from resources — AC 30, 34]
     C --> D[Create map: centre P1 Sükhbaatar Square D13, z12, bearing 0<br/>source pmtiles://GATEWAY/tiles/basemap.pmtiles — AC 2, 3, 5]
     D --> E{First idle with tiles<br/>within 300 ms?}
@@ -124,8 +124,8 @@ sequenceDiagram
     Note over UI,M: Map labels do not change (PO decision D11). Open messages switch language too.
 ```
 
-- If storage is unavailable (private mode, blocked), the toggles still work for the session and the next visit starts at day + mn.
-- PO decisions of 2026-09-30 (`docs/requirements/decisions.md`): **D11** the English UI keeps the Cyrillic map labels (`name:mn` → `name` → `name:en` in both languages); **D12** day is the default theme, the manual choice is remembered (no automatic switching in NAV-002); **D15** the page title is «Газрын зураг» / "Map" until a product name exists.
+- If storage is unavailable (private mode, blocked), the toggles still work for the session and the next visit starts at the system colour scheme + mn.
+- PO decisions of 2026-09-30 (`docs/requirements/decisions.md`): **D11** the English UI keeps the Cyrillic map labels (`name:mn` → `name` → `name:en` in both languages); **D12** day is the default theme, the manual choice is remembered (no automatic switching in NAV-002) — **superseded 2026-10-13** (UX audit UX-07, PO decision (b)): the first visit follows `prefers-color-scheme` and a system change while nothing is stored; the manual choice still wins and is remembered (screen spec › States › Night); **D15** the page title is «Газрын зураг» / "Map" until a product name exists.
 
 ## F5. Message precedence (AC 45)
 

@@ -109,11 +109,21 @@
   :root[data-theme="night"] .panel { box-shadow: none; outline: 1px solid var(--outline-variant); }
   .panel .eta { font-size: calc(22px * var(--fsP)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
   .panel .meta { font-size: calc(16px * var(--fsP)); line-height: 1.5; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
-  /* Change 7c / android-offline-pack F9: icon-only OF24 after the remaining time and distance, 20 dp, follows the 1.3 cap, adds no panel height */
-  .panel .meta .off { display: inline-block; width: calc(20px * var(--fsP)); height: calc(20px * var(--fsP)); margin-left: 8px; vertical-align: -0.2em; color: var(--on-surface-variant); }
-  .panel .meta .off svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  /* Change 7c / android-offline-pack F9: icon-only OF24 after the remaining time on line 1 (since 2026-10-13 the panel leads with it), 20 dp, follows the 1.3 cap, adds no panel height */
+  .panel .off { display: inline-block; width: calc(20px * var(--fsP)); height: calc(20px * var(--fsP)); margin-left: 8px; vertical-align: -0.2em; color: var(--on-surface-variant); }
+  .panel .off svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .panel .txt { min-width: 0; flex: 1 1 0; }
   .panel { flex-wrap: nowrap; }
+  /* NAV-005 progress panel since 2026-10-13 (UX audit UX-01/UX-02): line 1 = remaining time, line 2 = «Хүрэх цаг 14:35 · 12,4 км» (wraps at the
+     separator first); 16 dp between «Тохиргоо» and «Дуусгах»; stacked rows from an effective factor of 1.15 (NAV-005-guidance.html). */
+  .panel .meta .chunk { display: inline-block; }
+  .panel .end { margin-left: 4px; }
+  :root[data-stacked="1"] .panel.progress { display: grid; grid-template-columns: minmax(0,1fr) auto auto; grid-template-areas: "l1 gear end" "l2 l2 l2"; gap: 0 12px; align-items: center; padding: 8px 16px; }
+  :root[data-stacked="1"] .panel.progress .txt { display: contents; }
+  :root[data-stacked="1"] .panel.progress .eta { grid-area: l1; }
+  :root[data-stacked="1"] .panel.progress .meta { grid-area: l2; line-height: 1.25; }
+  :root[data-stacked="1"] .panel.progress [data-check="settings"] { grid-area: gear; }
+  :root[data-stacked="1"] .panel.progress .end { grid-area: end; }
   .panel.notice { background: var(--message-surface); color: var(--on-message-surface); display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; font-size: calc(14px * var(--fsP)); }
   :root[data-theme="night"] .panel.notice { outline: 1px solid var(--message-outline); }
   .panel.notice .ico { width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; }
@@ -258,7 +268,7 @@ const T = {
     then: "Дараа нь", rerouting: "Маршрутыг дахин тооцоолж байна", loading: "Ачаалж байна…",
     gpsLost: "GPS дохио тасарлаа", offline: "Интернэт холболт алга", resumed: "Замчлал сэргэлээ",
     arriveR: "Таны очих газар баруун талд байна", arrived: "Та очих газартаа ирлээ", dest: "Зайсан толгой",
-    eta: "Хүрэх цаг 14:35", meta: "25 мин · 12,4 км", offA11y: "Офлайн газрын зургаас",
+    remaining: "25 мин", eta: "Хүрэх цаг 14:35", distLeft: "12,4 км", offA11y: "Офлайн газрын зургаас",
     end: "Дуусгах", recenter: "Байршил руу буцах", mute: "Дууг хаах", unmute: "Дууг нээх", northUp: "Хойд зүг дээшээ",
     settings: "Тохиргоо", close: "Хаах", previewTitle: "Маршрут харах", car: "Машин", walk: "Явган", bike: "Дугуй", route1: "Маршрут 1",
     dur: "13 мин", dist: "4,6 км", avoid: "Шороон замаас зайлсхийх", myLoc: "Миний байршил", etaP: "Хүрэх цаг 14:03", start: "Эхлэх", openSettings: "Тохиргоо нээх",
@@ -274,7 +284,7 @@ const T = {
     then: "Then", rerouting: "Recalculating route", loading: "Loading…",
     gpsLost: "GPS signal lost", offline: "No internet connection", resumed: "Navigation resumed",
     arriveR: "Your destination is on the right", arrived: "You have arrived at your destination", dest: "Зайсан толгой",
-    eta: "Arrive at 14:35", meta: "25 min · 12.4 km", offA11y: "From the offline map",
+    remaining: "25 min", eta: "Arrive at 14:35", distLeft: "12.4 km", offA11y: "From the offline map",
     end: "End", recenter: "Back to my location", mute: "Mute", unmute: "Unmute", northUp: "North up",
     settings: "Settings", close: "Close", previewTitle: "Route preview", car: "Car", walk: "Walk", bike: "Bike", route1: "Route 1",
     dur: "13 min", dist: "4.6 km", avoid: "Avoid unpaved roads", myLoc: "My location", etaP: "Arrive at 14:03", start: "Start", openSettings: "Open settings",
@@ -378,10 +388,10 @@ function renderGuidance(st, t, root) {
     + (restoring ? "" : puckHtml(false));
   const panelTxt = restoring
     ? `<div class="txt" aria-hidden="true"><span class="skel" style="width:70%;height:22px;margin:4px 0 8px"></span><span class="skel" style="width:45%;height:16px"></span></div>`
-    : `<div class="txt"><div class="eta">${t.eta}</div><div class="meta">${t.meta}${st === "restored-offline" ? `<span class="off" data-check="offline-icon" role="img" aria-label="${t.offA11y}">${ICON.offpin}</span>` : ""}</div></div>`;
+    : `<div class="txt"><div class="eta" data-check="progress-line1">${t.remaining}${st === "restored-offline" ? `<span class="off" data-check="offline-icon" role="img" aria-label="${t.offA11y}">${ICON.offpin}</span>` : ""}</div><div class="meta" data-check="progress-line2"><span class="chunk">${t.eta} ·</span> <span class="chunk">${t.distLeft}</span></div></div>`;
   $("bottom").innerHTML = st === "lock-arrival"
     ? `<div class="panel" data-box="progress"><div class="txt"><div class="eta">${t.dest}</div></div><button class="btn filled" data-control>${t.close}</button></div>`
-    : `<div class="panel" data-box="progress">${panelTxt}<button class="iconbtn" style="box-shadow:none;outline:0;flex:none" data-control aria-label="${t.settings}">${ICON.gear}</button><button class="btn outlined round" data-control aria-label="${t.end}" title="${t.end}">${ICON.x}</button></div>`;
+    : `<div class="panel progress" data-box="progress">${panelTxt}<button class="iconbtn" style="box-shadow:none;outline:0;flex:none" data-control data-check="settings" aria-label="${t.settings}">${ICON.gear}</button><button class="btn outlined round end" data-control data-check="end" aria-label="${t.end}" title="${t.end}">${ICON.x}</button></div>`;
 }
 
 function renderPreview(t, expanded) {

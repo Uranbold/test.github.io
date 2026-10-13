@@ -220,6 +220,16 @@
   :root[data-stacked="1"] #banner .textcol { grid-area: text; margin-top: 8px; }
   .panel { background: var(--surface); color: var(--on-surface); border-radius: 16px; padding: 12px 16px; min-height: 72px; display: flex; align-items: center; gap: 8px 12px; }
   .panel .txt { min-width: 0; flex: 1 1 0; }
+  /* NAV-005 progress panel since 2026-10-13 (UX audit UX-01/UX-02): line 1 = remaining time, line 2 = «Хүрэх цаг 14:35 · 12,4 км» (wraps at the
+     separator first); 16 dp between «Тохиргоо» and «Дуусгах»; stacked rows from an effective factor of 1.15 (NAV-005-guidance.html). */
+  .panel .meta .chunk { display: inline-block; }
+  .panel .end { margin-left: 4px; }
+  :root[data-stacked="1"] .panel.progress { display: grid; grid-template-columns: minmax(0,1fr) auto auto; grid-template-areas: "l1 gear end" "l2 l2 l2"; gap: 0 12px; align-items: center; padding: 8px 16px; }
+  :root[data-stacked="1"] .panel.progress .txt { display: contents; }
+  :root[data-stacked="1"] .panel.progress .eta { grid-area: l1; }
+  :root[data-stacked="1"] .panel.progress .meta { grid-area: l2; line-height: 1.25; }
+  :root[data-stacked="1"] .panel.progress [data-check="settings"] { grid-area: gear; }
+  :root[data-stacked="1"] .panel.progress .end { grid-area: end; }
   .panel .eta { font-size: calc(22px * var(--fsP)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
   .panel .meta { font-size: calc(16px * var(--fsP)); line-height: 1.5; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
   .panel .chip { font-size: calc(12px * var(--fsP)); }
@@ -259,7 +269,7 @@ const T = {
     swap: "Эхлэх цэг, очих газрыг солих", destName: "Зайсан толгой", noRes: "Илэрц олдсонгүй", clear: "Хайлтыг арилгах",
     r: [["Гандан хийд", "Хийд · Сонгинохайрхан дүүрэг, 7-р хороо"], ["Гандангийн гудамж", "Гудамж · Сонгинохайрхан дүүрэг"], ["Гандан плаза", "Худалдааны төв · Баянгол дүүрэг, 2-р хороо"]],
     point: "Сонгосон цэг", near: "Ойролцоох газар", place: "Гандантэгчинлэн хийд", placeMeta: "Хийд · Сонгинохайрхан дүүрэг, 7-р хороо, Улаанбаатар", directions: "Маршрут гаргах",
-    dist300: "300 м", turnR: "Баруун тийш эргэнэ үү", street: "Энхтайвны өргөн чөлөө", eta: "Хүрэх цаг 14:35", meta: "25 мин · 12,4 км", end: "Дуусгах", mute: "Дууг хаах", northUp: "Хойд зүг дээшээ",
+    dist300: "300 м", turnR: "Баруун тийш эргэнэ үү", street: "Энхтайвны өргөн чөлөө", remaining: "25 мин", eta: "Хүрэх цаг 14:35", distLeft: "12,4 км", end: "Дуусгах", mute: "Дууг хаах", northUp: "Хойд зүг дээшээ",
   },
   en: {
     of1: "Offline map", of2: "Download Mongolia map", of3: "Map, routes and search work even without an internet connection",
@@ -276,7 +286,7 @@ const T = {
     swap: "Swap start and destination", destName: "Zaisan Hill", noRes: "No results found", clear: "Clear search",
     r: [["Gandan Monastery", "Monastery · Songinokhairkhan District, 7th khoroo"], ["Гандангийн гудамж", "Street · Songinokhairkhan District"], ["Гандан плаза", "Shopping centre · Bayangol District, 2nd khoroo"]],
     point: "Selected point", near: "Nearest place", place: "Gandantegchinlen Monastery", placeMeta: "Monastery · Songinokhairkhan District, 7th khoroo, Ulaanbaatar", directions: "Directions",
-    dist300: "300 m", turnR: "Turn right", street: "Энхтайвны өргөн чөлөө", eta: "Arrive at 14:35", meta: "25 min · 12.4 km", end: "End", mute: "Mute", northUp: "North up",
+    dist300: "300 m", turnR: "Turn right", street: "Энхтайвны өргөн чөлөө", remaining: "25 min", eta: "Arrive at 14:35", distLeft: "12.4 km", end: "End", mute: "Mute", northUp: "North up",
   },
 };
 const SET = ["set-none", "set-none-nomanifest", "set-downloading", "set-waiting", "set-verifying", "set-installed", "set-update",
@@ -474,9 +484,9 @@ function render() {
     if (root.dataset.stacked === "1") { const b = $("top").querySelector(".main"); b.insertBefore(b.querySelector(".dist"), b.querySelector(".textcol")); }
     $("mid").innerHTML = `<div id="rc">${[["vol", t.mute], ["compass", t.northUp]].map(([i, n]) => `<button class="iconbtn fab elev" data-control aria-label="${n}">${I[i]}</button>`).join("")}</div>
       <div id="puck" style="position:absolute;left:50%;top:70%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;background:var(--puck);border:3px solid var(--puck-stroke);outline:1px solid var(--puck-outline)"></div>`;
-    $("bottom").innerHTML = `<div class="panel elev" data-box="progress"><div class="txt"><div class="eta" data-box="eta">${t.eta}</div>
-      <div class="meta"><span data-box="remaining">${t.meta}</span>${P.v === "c" ? "" : chip(t, gv)}</div>${P.v === "c" ? chip(t, gv) : ""}</div>
-      <button class="iconbtn" data-control aria-label="${t.settings}">${I.gear}</button><button class="btn outlined" data-control aria-label="${t.end}">${I.x}</button></div>`;
+    $("bottom").innerHTML = `<div class="panel elev progress" data-box="progress"><div class="txt"><div class="eta" data-box="remaining" data-check="progress-line1">${t.remaining}${P.v === "c" ? "" : chip(t, gv)}</div>
+      <div class="meta" data-box="eta" data-check="progress-line2"><span class="chunk">${t.eta} ·</span> <span class="chunk">${t.distLeft}</span></div>${P.v === "c" ? chip(t, gv) : ""}</div>
+      <button class="iconbtn" data-control data-check="settings" aria-label="${t.settings}">${I.gear}</button><button class="btn outlined end" data-control data-check="end" aria-label="${t.end}">${I.x}</button></div>`;
     $("top").style.maxHeight = root.dataset.orient === "port" ? Math.floor($("app").clientHeight * 0.5) + "px" : "";
     $("top").style.overflow = "auto";
   }

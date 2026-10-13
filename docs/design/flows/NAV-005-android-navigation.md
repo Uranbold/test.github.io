@@ -139,7 +139,10 @@ stateDiagram-v2
     OffRoute --> Ended: «Дуусгах», swipe-away
     GpsLost --> Ended: «Дуусгах», swipe-away
     Ended --> [*]: within 2 s (5 s after swipe-away) — service stopped,<br/>notification removed, 0 fixes, audio stopped → S1 map without route (AC 19–20)
+    Ended --> OnRoute: «Буцаах» on the S1 undo snackbar within 5 s of an on-screen «Дуусгах» (UX-01) —<br/>S5 ≤ 2 s from the kept route, service and notification back, no depart prompt,<br/>one catch-up prompt after the first good fix (navigation-ux §14)
 ```
+
+**Undo window (UX audit 2026-10-13, UX-01 (2), PO (b)).** Only the on-screen «Дуусгах» (S5 in the foreground) opens it: S1 shows the M3 snackbar «Замчлал дууслаа» + «Буцаах» for 5 s (`motion.nav-end-undo`, extended by the Android "time to take action" setting) while the app keeps an in-memory copy of the ended session. Everything AC 19 requires still happens at «Дуусгах». «Буцаах» restarts guidance on the kept route with the NAV-012 restore rules (§12.4): first good fix ≤ 50 m → on route, > 50 m → OffRoute with a reroute, none within 10 s → GpsLost. The notification action, the lock screen, swipe-away and arrival «Хаах» have no undo (screen spec › Known limitations 12).
 
 Independent of these states and allowed in all of them: mute / unmute (AC 37), orientation toggle (AC 24), map gestures and recenter (AC 25), theme / language / rotation (AC 59, 60, 64), network loss on the route (F8), Home / screen off (guidance continues, AC 17), Back (= Home: the task moves to the background, guidance continues; nothing destructive on Back).
 

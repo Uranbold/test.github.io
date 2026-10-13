@@ -160,6 +160,15 @@
   .panel .meta .chunk { display: inline-block; }
   /* UX-01 (1), web too: 16 px between the voice button and «Дуусгах» (panel gap 8 + 8). */
   .panel .btn.round.end { margin-left: 8px; }
+  /* Stacked progress panel from text zoom 115 % (the banner's threshold, navigation-ux §11.3): row 1 = remaining time + voice + «Дуусгах»,
+     row 2 = «Хүрэх цаг 14:35 · 6,1 км» at the full panel width (measured on Android: the row layout wrapped line 2 and cost 16 dp of map band). */
+  :root[data-stacked="1"] .panel.progress { display: grid; grid-template-columns: minmax(0,1fr) auto auto; grid-template-areas: "l1 voice end" "l2 l2 l2"; gap: 0 8px; align-items: center; padding: 8px 12px 8px 16px; }
+  :root[data-stacked="1"] .panel.progress .txt { display: contents; }
+  :root[data-stacked="1"] .panel.progress .eta { grid-area: l1; }
+  /* Stacked: line 2 is one line in its own row, so it takes the single-line height (1.25) instead of body-large's running-text 1.5. */
+  :root[data-stacked="1"] .panel.progress .meta { grid-area: l2; line-height: 1.25; }
+  :root[data-stacked="1"] .panel.progress [data-check="voice"] { grid-area: voice; }
+  :root[data-stacked="1"] .panel.progress .end { grid-area: end; }
   .panel .dest { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 8px; font-size: calc(22px * var(--fsB)); line-height: 1.27; font-weight: 500; }
   .panel .dest svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
 </style>
@@ -283,7 +292,7 @@ function render() {
     const bottom = stack
       + (st === "arrival"
         ? `<div class="panel card" data-box="progress"><div class="txt"><div class="dest">${I.flag24}<span>${ROUTES[0].d}</span></div></div><button class="btn filled" data-control>${t.close}</button></div>`
-        : `<div class="panel card" data-box="progress"><div class="txt"><div class="eta" data-check="progress-line1">${t.remaining}</div><div class="meta" data-check="progress-line2"><span class="chunk">${t.eta} 14:35 ·</span> <span class="chunk">${t.distLeft}</span></div></div>
+        : `<div class="panel card progress" data-box="progress"><div class="txt"><div class="eta" data-check="progress-line1">${t.remaining}</div><div class="meta" data-check="progress-line2"><span class="chunk">${t.eta} 14:35 ·</span> <span class="chunk">${t.distLeft}</span></div></div>
            <button class="iconbtn flat" data-control data-check="voice" aria-label="${t.mute}">${I.vol}</button><button class="btn round end" data-control data-check="end" aria-label="${t.end}">${I.x}</button></div>`);
     app.innerHTML = `<div id="map">${mapSvg(true)}</div>
       <div id="top"><div id="banner" class="card${nodist ? " nodist" : ""}" data-box="banner"><div class="icon" aria-hidden="true">${icon}</div>${stacked ? distEl : ""}<div class="textcol">${stacked ? "" : distEl}<div class="instr" data-check="instruction">${instr}</div>${street ? `<div class="street">${street}</div>` : ""}</div></div>

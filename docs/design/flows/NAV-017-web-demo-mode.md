@@ -30,7 +30,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A(["PO opens https://#lt;demo-host#gt;/#lt;demo-folder#gt;/ in Safari"]) --> L["Page loads from the sub-folder (relative URLs, AC 2), no password prompt<br/>(public folder, D107, D116; AC 8); robots noindex (AC 3); language and theme from storage or defaults<br/>(Mongolian, day; D12) — no location prompt, Geolocation never called"]
+    A(["PO opens https://#lt;demo-host#gt;/#lt;demo-folder#gt;/ in Safari"]) --> L["Page loads from the sub-folder (relative URLs, AC 2), no password prompt<br/>(public folder, D107, D116; AC 8); robots noindex (AC 3); language and theme from storage or defaults<br/>(Mongolian; theme = system colour scheme, UX-07, PO 2026-10-13) — no location prompt, Geolocation never called"]
     L --> T{"Map ready?<br/>(NAV-002 rules)"}
     T -- "> 300 ms" --> LD["NAV-002 loading pill «Ачаалж байна…»"] --> T
     T -- "tiles fail at start" --> TC["NAV-002 blocking card «Газрын зургийг ачаалж чадсангүй»<br/>+ «Дахин оролдох»; the picker waits"]
@@ -98,11 +98,12 @@ stateDiagram-v2
     Free --> Ended: «Дуусгах»
     Following --> Ended: last fix applied without arrival — AC 16
     Arrived --> Picker: «Хаах» — AC 33
-    Ended --> Picker: ≤ 1 s
+    Ended --> Picker: ≤ 1 s; after «Дуусгах» the undo row «Замчлал дууслаа» + «Буцаах» for 5 s (UX-01)
+    Picker --> Following: «Буцаах» within 5 s of «Дуусгах» — same replay time, 0 repeated prompts, no depart prompt
     Picker --> [*]
 ```
 - **Paused** is invisible: the page is hidden. The replay clock, the progress values and any utterance or chime stop; nothing is produced while hidden; on return nothing has been passed, so nothing is announced late (AC 15). Paused from **Free** returns to **Free**; the 15 s recenter timer restarts.
-- **Ended** (AC 35): utterance or chime stopped, route and puck removed, wake lock released ≤ 1 s, picker with **no** entry selected, camera eases to bearing 0 and pitch 0 (300 ms) at the same centre and zoom. Focus moves to the picker heading.
+- **Ended** (AC 35): utterance or chime stopped, route and puck removed, wake lock released ≤ 1 s, picker with **no** entry selected, camera eases to bearing 0 and pitch 0 (300 ms) at the same centre and zoom. Focus moves to the picker heading. **Undo (UX audit 2026-10-13, UX-01 (2), PO (b)):** after «Дуусгах» (not after a track end) the picker footer shows «Замчлал дууслаа» + «Буцаах» for 5 s (`motion.nav-end-undo`); «Буцаах» returns to **Following** from the replay time at «Дуусгах» (the §11.6 pause/resume rule: no gap on the replay clock, 0 repeated prompts, no depart prompt), entry re-selected, route and puck drawn, camera to the follow pose, wake lock re-requested, focus to the banner instruction. A row selection, «Эхлэх», reload or the 5 s drop the kept state.
 - **Arrived** (AC 32–34): banner arrival variant; arrival prompt once (it waits ≤ 3 s for a current utterance); replay clock stopped; arrival panel with the destination name and «Хаах»; 0 further prompts or chimes, also while the G4 test track stands 10 m before the end for 30 s. The camera keeps following the puck (which no longer moves) until «Хаах».
 - **Allowed in every replay state** (no state change): mute / unmute (AC 30), language switch (AC 31), theme switch and rotation (AC 41), network loss (F7). Not offered: off-route, reroute, GPS loss (story › Out of scope).
 - **Browser Back or reload during a replay** leaves or reloads the page; the replay is not resumable and the next load shows the picker (no state in the URL, AC 43).

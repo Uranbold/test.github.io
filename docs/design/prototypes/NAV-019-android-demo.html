@@ -111,6 +111,17 @@
   .panel .eta { font-size: calc(22px * var(--fsP)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
   .panel .meta { font-size: calc(16px * var(--fsP)); line-height: 1.5; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
   .panel .txt { min-width: 0; flex: 1 1 0; }
+  .panel { flex-wrap: nowrap; }
+  /* NAV-005 progress panel since 2026-10-13 (UX audit UX-01/UX-02): line 1 = remaining time, line 2 = «Хүрэх цаг 14:35 · 12,4 км» (wraps at the
+     separator first); 16 dp between «Тохиргоо» and «Дуусгах»; stacked rows from an effective factor of 1.15 (NAV-005-guidance.html). */
+  .panel .meta .chunk { display: inline-block; }
+  .panel .end { margin-left: 4px; }
+  :root[data-stacked="1"] .panel.progress { display: grid; grid-template-columns: minmax(0,1fr) auto auto; grid-template-areas: "l1 gear end" "l2 l2 l2"; gap: 0 12px; align-items: center; padding: 8px 16px; }
+  :root[data-stacked="1"] .panel.progress .txt { display: contents; }
+  :root[data-stacked="1"] .panel.progress .eta { grid-area: l1; }
+  :root[data-stacked="1"] .panel.progress .meta { grid-area: l2; line-height: 1.25; }
+  :root[data-stacked="1"] .panel.progress [data-check="settings"] { grid-area: gear; }
+  :root[data-stacked="1"] .panel.progress .end { grid-area: end; }
   .panel.notice { background: var(--message-surface); color: var(--on-message-surface); display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; font-size: calc(14px * var(--fsP)); margin-bottom: 8px; }
   .ico { width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; flex: none; }
   .btn { min-height: 48px; min-width: 48px; border-radius: 9999px; font: inherit; font-size: calc(14px * var(--fs)); font-weight: 500; padding: 8px 20px; display: inline-flex; align-items: center; gap: 8px; border: 0; text-align: left; }
@@ -192,7 +203,7 @@ const T = {
     street: "Энхтайвны өргөн чөлөө", streetLong: "Чингисийн өргөн чөлөө, Нарны замын уулзвараас урагш", then: "Дараа нь",
     rerouting: "Маршрутыг дахин тооцоолж байна",
     voiceNotice: "Энэ утсанд монгол дуут заавар ажиллахгүй байна. Заавар зөвхөн дэлгэцэнд харагдана.",
-    arriveR: "Таны очих газар баруун талд байна", eta: "Хүрэх цаг 14:35", meta: "4 мин · 3,1 км",
+    arriveR: "Таны очих газар баруун талд байна", remaining: "4 мин", eta: "Хүрэх цаг 14:35", distLeft: "3,1 км",
     end: "Дуусгах", recenter: "Байршил руу буцах", mute: "Дууг хаах", northUp: "Хойд зүг дээшээ",
   },
   en: {
@@ -205,7 +216,7 @@ const T = {
     street: "Энхтайвны өргөн чөлөө", streetLong: "Чингисийн өргөн чөлөө, Нарны замын уулзвараас урагш", then: "Then",
     rerouting: "Recalculating route",
     voiceNotice: "Mongolian voice guidance is not available on this phone. Instructions are shown on screen only.",
-    arriveR: "Your destination is on the right", eta: "Arrive at 14:35", meta: "4 min · 3.1 km",
+    arriveR: "Your destination is on the right", remaining: "4 min", eta: "Arrive at 14:35", distLeft: "3.1 km",
     end: "End", recenter: "Back to my location", mute: "Mute", northUp: "North up",
   },
 };
@@ -310,7 +321,7 @@ function render() {
     $("bottom").innerHTML = (st === "notice" ? `<div class="panel notice" data-box="voice-notice" role="status"><span class="ico" aria-hidden="true"></span><span>${t.voiceNotice}</span></div>` : "")
       + (st === "arrival"
         ? `<div class="panel" data-box="progress"><div class="txt"><div class="eta" lang="mn">Зайсан Голден Вилл</div></div><button class="btn filled" data-control>${t.close}</button></div>`
-        : `<div class="panel" data-box="progress"><div class="txt"><div class="eta">${t.eta}</div><div class="meta">${t.meta}</div></div><button class="iconbtn flat" data-control aria-label="${t.settings}">${I.gear}</button><button class="btn outlined round" data-control aria-label="${t.end}">${I.x}</button></div>`);
+        : `<div class="panel progress" data-box="progress"><div class="txt"><div class="eta" data-check="progress-line1">${t.remaining}</div><div class="meta" data-check="progress-line2"><span class="chunk">${t.eta} ·</span> <span class="chunk">${t.distLeft}</span></div></div><button class="iconbtn flat" data-control data-check="settings" aria-label="${t.settings}">${I.gear}</button><button class="btn outlined round end" data-control data-check="end" aria-label="${t.end}">${I.x}</button></div>`);
   }
   // RB is capped at 50 % of the app height in portrait guidance; RD stays visible below it (Layout rule D2).
   $("top").style.maxHeight = root.dataset.orient === "port" && surface === "guidance" ? Math.floor($("app").clientHeight * 0.5) + "px" : "";
