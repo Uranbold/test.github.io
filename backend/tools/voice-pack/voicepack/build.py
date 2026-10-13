@@ -203,6 +203,7 @@ def _process_job(args: tuple) -> dict:
         "encodedFrames": enc.encoded_frames,
         "durationMs": audio.duration_ms(enc.frames, clip_rate),
         "rms": p.active_rms_db,
+        "peak": p.peak_db,
     }
 
 
@@ -350,7 +351,9 @@ def run_build(opts: BuildOptions, reporter: Reporter, synth_factory: Callable | 
     njobs = opts.jobs or min(4, os.cpu_count() or 1)
     reporter.info(f"processing and encoding {len(items)} clips ({njobs} worker(s))")
     results = _run_jobs(_process_job, items, njobs)
-    audio.check_rms_outliers([(f"{r['key']} ({r['take']})", r["rms"]) for r in results])
+    for label, dev in audio.check_rms_outliers([(f"{r['key']} ({r['take']})", r["rms"], r["peak"]) for r in results]):
+        reporter.warn(f"level band: {label} is peak-limited at {dev:+.2f} dB from the pack median (allowed down to "
+                      f"-{audio.PEAK_LIMITED_FLOOR_DB:.0f} dB; listen to it, pack-format §4)", key=label, deviation_db=round(dev, 2))
     sha = {(r["key"], r["take"]): hashlib.sha256(r["aac"]).hexdigest() for r in results}
     for (k, t), h in sha.items():
         if t == NON_FINAL and sha.get((k, FINAL)) == h:

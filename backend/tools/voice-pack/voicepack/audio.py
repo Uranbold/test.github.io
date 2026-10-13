@@ -334,17 +334,38 @@ def check_clip(p: Processed, key: str) -> None:
         raise check_failed(key, "internal-silence", f"{gap:.0f} ms below {SILENCE_THRESHOLD_DBFS} dBFS (max {MAX_INTERNAL_SILENCE_MS} ms)")
 
 
-def check_rms_outliers(items: list[tuple[str, float]]) -> None:
-    """Active RMS within +-2 dB of the pack median. items: (label, active RMS dBFS)."""
+PEAK_LIMITED_MARGIN_DB = 0.1
+PEAK_LIMITED_FLOOR_DB = 3.0
+
+
+def is_peak_limited(active_rms_db: float, peak_db: float) -> bool:
+    """pack-format §4 level band: the ceiling capped the gain (delivered peak >= ceiling − 0.1 dB) and the clip is
+    still below the target. Determined from the delivered PCM only."""
+    return peak_db >= PEAK_CEILING_DBFS - PEAK_LIMITED_MARGIN_DB and active_rms_db < TARGET_RMS_DBFS
+
+
+def check_rms_outliers(items: list[tuple[str, float, float]]) -> list[tuple[str, float]]:
+    """pack-format §4 level band over the delivered clips. items: (label, active RMS dBFS, peak dBFS).
+    Deviation from the pack median (all entries): <= +2 dB for every clip; >= −2 dB, or >= −3 dB for a peak-limited
+    clip. Raises rms-outlier on the first violation; returns the peak-limited clips below −2 dB (to be named in the
+    run output, not a failure)."""
     if not items:
-        return
-    vals = sorted(v for _, v in items)
+        return []
+    vals = sorted(v for _, v, _ in items)
     m = len(vals)
     median = vals[m // 2] if m % 2 else (vals[m // 2 - 1] + vals[m // 2]) / 2
-    bad = [(k, v) for k, v in items if abs(v - median) > RMS_TOLERANCE_DB]
+    bad, named = [], []
+    for k, v, pk in items:
+        dev = v - median
+        floor = -PEAK_LIMITED_FLOOR_DB if is_peak_limited(v, pk) else -RMS_TOLERANCE_DB
+        if dev > RMS_TOLERANCE_DB or dev < floor:
+            bad.append((k, dev, floor))
+        elif dev < -RMS_TOLERANCE_DB:
+            named.append((k, dev))
     if bad:
-        first = ", ".join(f"{k} {v - median:+.2f} dB" for k, v in bad[:10])
-        raise check_failed(bad[0][0], "rms-outlier", f"{len(bad)} clip(s) off the pack median {median:.2f} dBFS by more than {RMS_TOLERANCE_DB} dB: {first}")
+        first = ", ".join(f"{k} {d:+.2f} dB (allowed {f:+.0f} to +{RMS_TOLERANCE_DB:.0f})" for k, d, f in bad[:10])
+        raise check_failed(bad[0][0], "rms-outlier", f"{len(bad)} clip(s) outside the level band around the pack median {median:.2f} dBFS: {first}")
+    return named
 
 
 # ----------------------------------------------------------------------------------------------- nonFinal cut
