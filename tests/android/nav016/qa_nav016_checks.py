@@ -203,16 +203,20 @@ def cmd_scan(a):
                   "backend/tools/voice-pack/out/FEMALE5v2-v1/review/index.html",
                   "mobile/android/voicepack-local/pack/manifest.json"):
         (ok if git("check-ignore", "-q", probe).returncode == 0 else fail)("AC 19", f"git-ignored: {probe}")
-    # AC 8: no non-empty token value in tracked files. Non-values: the empty key, the scan pattern "=." itself,
-    # placeholders (…, <value>, SENTINEL-*) as in backend/tools/voice-pack/tests/test_repo.py.
-    r = git("grep", "-n", "-E", TOKEN_VAR + "=.")
+    # AC 8: the token scan as clarified in the task breakdown (B10, 2026-10-13): tracked and untracked files, the name
+    # followed by optional spaces and "=" or ":"; the value is the text after it and optional spaces, one leading quote
+    # removed, up to the next whitespace, quote or backtick. Non-values: empty, "." (the scan pattern quoted in docs),
+    # "<…" placeholders, anything containing "…", and shell/compose references ($NAME, ${NAME}). QA reading: a name
+    # that is itself inside "${…}" (e.g. "${CHIMEGE_API_TOKEN:-}") is a shell reference, not an assignment.
+    r = git("grep", "--untracked", "-n", "-E", TOKEN_VAR + " *[=:]")
     values = []
+    pat = re.compile(r"(\$\{)?" + re.escape(TOKEN_VAR) + r" *[=:] *[\"']?([^\s\"'`]*)")
     for line in r.stdout.splitlines():
-        for v in re.findall(re.escape(TOKEN_VAR) + r"=([^\s`'\"]*)", line):
-            if v in ("", ".") or "…" in v or v.startswith("<") or v.startswith("SENTINEL"):
+        for ref, v in pat.findall(line):
+            if ref or v in ("", ".") or "…" in v or v.startswith("<") or re.fullmatch(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?", v):
                 continue
             values.append(line[:140])
-    (fail if values else ok)("AC 8", f"non-empty {TOKEN_VAR} values in tracked files: {values}")
+    (fail if values else ok)("AC 8", f"non-empty {TOKEN_VAR} values in tracked or untracked files: {values}")
     env = [p for p in ("backend/.env.example", ".env.example") if (REPO / p).exists()]
     has = [p for p in env if TOKEN_VAR + "=" in (REPO / p).read_text(encoding="utf-8").split("\n")]
     (ok if has else fail)("AC 8", f".env.example with an empty `{TOKEN_VAR}=` line: {has}")
