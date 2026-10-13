@@ -7,7 +7,7 @@
 <!--
   Static wireframe of the NAV-017 web demo mode (owner: ux-designer). Checks the DESIGN, not the app.
   CSS px (iPhone Safari: 1 CSS px = 1 pt). Hash parameters:
-    state  picker | picker-selected | picker-loading | picker-error | picker-offline |
+    state  picker | picker-selected | picker-loading | picker-error | picker-offline | picker-ended (undo row after «Дуусгах») |
            guidance | long | notice | recenter | offline | worst | arrival
     theme  day | night         lang  mn | en          tz  1 | 2 (text zoom: root font size 100 % / 200 %)
     insets t,r,b,l             simulated env(safe-area-inset-*) in px, e.g. 0,47,21,47 (landscape notch)
@@ -152,9 +152,14 @@
   .notice .ico { width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; }
   .panel { background: var(--surface); color: var(--on-surface); border-radius: 16px; padding: 12px 12px 12px 16px; min-height: 72px; display: flex; align-items: center; gap: 8px; }
   .panel .txt { min-width: 0; flex: 1 1 0; }
+  /* Progress panel (UX audit 2026-10-13, UX-02, PO Q1 (b)): line 1 = remaining time (title-large), line 2 = «Хүрэх цаг HH:MM · distance» (body-large). */
   .panel .eta { font-size: calc(22px * var(--fsB)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
   .panel .eta small { font-size: calc(16px * var(--fsB)); color: var(--on-surface-variant); font-weight: 400; }
   .panel .meta { font-size: calc(16px * var(--fsB)); line-height: 1.5; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+  /* Line 2 wraps at the « · » separator first (two chunks); a chunk wraps inside only when it alone is wider than the column. */
+  .panel .meta .chunk { display: inline-block; }
+  /* UX-01 (1), web too: 16 px between the voice button and «Дуусгах» (panel gap 8 + 8). */
+  .panel .btn.round.end { margin-left: 8px; }
   .panel .dest { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 8px; font-size: calc(22px * var(--fsB)); line-height: 1.27; font-weight: 500; }
   .panel .dest svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
 </style>
@@ -171,7 +176,8 @@ const T = {
     d300: "300 м", d1: "1,2 км", turnR: "Баруун тийш эргэнэ үү", offRampR: "Баруун талын гарах зам руу эргэнэ үү",
     street: "Энхтайвны өргөн чөлөө", streetLong: "Чингисийн өргөн чөлөө, Нарны замын уулзвараас урагш",
     voiceNotice: "Энэ утсанд монгол дуут заавар ажиллахгүй байна. Заавар зөвхөн дэлгэцэнд харагдана.",
-    arriveR: "Таны очих газар баруун талд байна", remaining: "9 мин · 6,1 км", scale: "1 км" },
+    arriveR: "Таны очих газар баруун талд байна", remaining: "9 мин", distLeft: "6,1 км", scale: "1 км",
+    ended: "Замчлал дууслаа", undo: "Буцаах" },
   en: { demo: "Demo mode", routes: "Choose a route", car: "Car", walk: "Walk", start: "Start", end: "End",
     loading: "Loading…", error: "Something went wrong", retry: "Try again", offline: "No internet connection", close: "Close",
     lang: "Монгол", night: "Night mode", day: "Day mode", northUp: "North up", zin: "Zoom in", zout: "Zoom out",
@@ -179,7 +185,8 @@ const T = {
     d300: "300 m", d1: "1.2 km", turnR: "Turn right", offRampR: "Take the exit on the right",
     street: "Энхтайвны өргөн чөлөө", streetLong: "Чингисийн өргөн чөлөө, Нарны замын уулзвараас урагш",
     voiceNotice: "Mongolian voice guidance is not available on this phone. Instructions are shown on screen only.",
-    arriveR: "Your destination is on the right", remaining: "9 min · 6.1 km", scale: "1 km" },
+    arriveR: "Your destination is on the right", remaining: "9 min", distLeft: "6.1 km", scale: "1 km",
+    ended: "Navigation ended", undo: "Undo" },
 };
 // PLACEHOLDER manifest data (names are map data: same Cyrillic text in both UI languages, D11).
 const ROUTES = [
@@ -187,7 +194,7 @@ const ROUTES = [
   { o: "Сүхбаатарын талбай", d: "Улсын их дэлгүүр", mode: "walk", km: [1, 2], min: 15 },
   { o: "Сонгосон цэг", d: "Сонгосон цэг", mode: "car", km: [7, 8], min: 13 },
 ];
-const STATES = ["picker", "picker-selected", "picker-loading", "picker-error", "picker-offline",
+const STATES = ["picker", "picker-selected", "picker-loading", "picker-error", "picker-offline", "picker-ended",
   "guidance", "long", "notice", "recenter", "offline", "worst", "arrival"];
 const I = {
   right: '<svg viewBox="0 0 56 56"><path d="M16 48V26a6 6 0 0 1 6-6h20"/><path d="M34 11l9 9-9 9"/></svg>',
@@ -241,7 +248,7 @@ function render() {
   const attr = `<div id="attr" data-box="attribution"><a href="#" data-attr-link>© OpenStreetMap contributors</a></div>`;
   const insetDivs = `${it ? `<div class="inset" data-inset style="left:0;right:0;top:0;height:${it}px"></div>` : ""}${ir ? `<div class="inset" data-inset style="top:0;bottom:0;right:0;width:${ir}px"></div>` : ""}${ib ? `<div class="inset" data-inset style="left:0;right:0;bottom:0;height:${ib}px"></div>` : ""}${il ? `<div class="inset" data-inset style="top:0;bottom:0;left:0;width:${il}px"></div>` : ""}`;
   if (picker) {
-    const sel = st === "picker" ? -1 : 0;
+    const sel = st === "picker" || st === "picker-ended" ? -1 : 0;
     const entries = ROUTES.map((r, i) => `<button class="entry" role="radio" aria-checked="${i === sel}" data-control data-entry>
         <span class="radio" aria-hidden="true"></span>
         <span><span class="pt"><i aria-hidden="true"></i><span>${r.o}</span></span><span class="pt"><i class="pin" aria-hidden="true"></i><span>${r.d}</span></span>
@@ -250,8 +257,10 @@ function render() {
     if (st === "picker-loading") stateRow = `<div class="state" data-box-in="state" role="status"><span class="ico" aria-hidden="true"></span><span>${t.loading}</span></div>`;
     if (st === "picker-error") stateRow = `<div class="state" role="status"><span class="ico" aria-hidden="true" style="color:var(--error)"></span><span>${t.error}</span><span class="acts"><button class="btn text" data-control>${t.retry}</button></span></div>`;
     if (st === "picker-offline") stateRow = `<div class="state" role="status"><span class="ico" aria-hidden="true"></span><span>${t.offline}</span></div>`;
+    // After «Дуусгах» (UX-01 (2), PO Q3 (b)): the undo row «Замчлал дууслаа» + «Буцаах» in the pinned footer for 5 s, no entry selected.
+    if (st === "picker-ended") stateRow = `<div class="state" role="status" data-box-in="state" data-state="ended"><span class="ico" aria-hidden="true"></span><span data-check="snackbar-text">${t.ended}</span><span class="acts"><button class="btn text" data-control data-check="undo">${t.undo}</button></span></div>`;
     const enabled = st === "picker-selected";
-    app.innerHTML = `<div id="map">${mapSvg(st !== "picker")}</div>
+    app.innerHTML = `<div id="map">${mapSvg(sel >= 0)}</div>
       <div id="r1"><button class="langbtn" data-control lang="${P.lang === "mn" ? "en" : "mn"}">${t.lang}</button><button class="iconbtn" data-control aria-label="${themeBtn[1]}">${I[themeBtn[0]]}</button><button class="iconbtn" data-control aria-label="${t.northUp}">${I.compass}</button></div>
       <div id="r2">${st === "picker-offline" ? `<div class="msg card" data-box="status-offline" role="status"><span class="ico" aria-hidden="true"></span><span>${t.offline}</span></div>` : ""}</div>
       <div id="r4"><span class="scale">${t.scale}</span><div class="zoom card"><button class="iconbtn flat" data-control aria-label="${t.zin}">+</button><button class="iconbtn flat" data-control aria-label="${t.zout}">−</button></div></div>
@@ -274,8 +283,8 @@ function render() {
     const bottom = stack
       + (st === "arrival"
         ? `<div class="panel card" data-box="progress"><div class="txt"><div class="dest">${I.flag24}<span>${ROUTES[0].d}</span></div></div><button class="btn filled" data-control>${t.close}</button></div>`
-        : `<div class="panel card" data-box="progress"><div class="txt"><div class="eta">${t.eta} 14:35</div><div class="meta">${t.remaining}</div></div>
-           <button class="iconbtn flat" data-control aria-label="${t.mute}">${I.vol}</button><button class="btn round" data-control aria-label="${t.end}">${I.x}</button></div>`);
+        : `<div class="panel card" data-box="progress"><div class="txt"><div class="eta" data-check="progress-line1">${t.remaining}</div><div class="meta" data-check="progress-line2"><span class="chunk">${t.eta} 14:35 ·</span> <span class="chunk">${t.distLeft}</span></div></div>
+           <button class="iconbtn flat" data-control data-check="voice" aria-label="${t.mute}">${I.vol}</button><button class="btn round end" data-control data-check="end" aria-label="${t.end}">${I.x}</button></div>`);
     app.innerHTML = `<div id="map">${mapSvg(true)}</div>
       <div id="top"><div id="banner" class="card${nodist ? " nodist" : ""}" data-box="banner"><div class="icon" aria-hidden="true">${icon}</div>${stacked ? distEl : ""}<div class="textcol">${stacked ? "" : distEl}<div class="instr" data-check="instruction">${instr}</div>${street ? `<div class="street">${street}</div>` : ""}</div></div>
         <div id="rd"><span class="badge" data-box="badge">${I.flask}<span>${t.demo}</span></span><span class="btns"><button class="langbtn" data-control lang="${P.lang === "mn" ? "en" : "mn"}">${t.lang}</button><button class="iconbtn" data-control aria-label="${themeBtn[1]}">${I[themeBtn[0]]}</button></span></div>

@@ -16,6 +16,10 @@
 //     (64px / 80px while the A1 voice notice shows); the puck point is inside the uncovered map (AC 22)
 //   - picker: «Эхлэх» is visible without scrolling; the picker heading is visible (AC 8)
 //   - no horizontal overflow
+//   - UX audit 2026-10-13 (UX-01, UX-02): the voice button and «Дуусгах» are >= 16px apart; the progress panel's two text
+//     lines («9 мин»; «Хүрэх цаг 14:35 · 6,1 км») are not clipped; in the "picker-ended" state (picker within 1 s of
+//     «Дуусгах») the undo row's text is not clipped and «Буцаах» is a control (size checked as every control).
+//     INFO: progress panel height and line-2 line count per viewport and text zoom.
 // Default font: Liberation Sans (Arial/Helvetica metrics; close to SF Pro Text). --wide: DejaVu Sans (stress test).
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -38,7 +42,7 @@ const viewports = [
   [390, 664, "0,0,0,0", "Safari bars, iPhone 12-15"],
   [844, 340, "0,47,0,47", "Safari bars, landscape"],
 ];
-const states = ["picker", "picker-selected", "picker-loading", "picker-error", "picker-offline",
+const states = ["picker", "picker-selected", "picker-loading", "picker-error", "picker-offline", "picker-ended",
   "guidance", "long", "notice", "recenter", "offline", "worst", "arrival"];
 const zooms = [1, 2];
 
@@ -47,7 +51,7 @@ const page = await browser.newPage();
 await page.goto(`${url}#toolbar=0`);
 let runs = 0;
 const failures = [], infos = [], outsideTarget = [];
-const lineInfo = new Map(), bandInfo = new Map(), smallInfo = new Set(), scrollInfo = new Set();
+const lineInfo = new Map(), bandInfo = new Map(), smallInfo = new Set(), scrollInfo = new Set(), panelInfo = new Map();
 
 for (const [w, h, insets, label] of viewports) {
   await page.setViewportSize({ width: w, height: h });
@@ -144,6 +148,25 @@ for (const [w, h, insets, label] of viewports) {
         if (cy < topBottom || cy > bottomTop) out.push("puck centre is under the UI");
         if (wide && cx < rect(top).right) out.push("puck centre is under the left column");
       }
+      // Progress panel (UX-01, UX-02): >= 16px between the voice button and «Дуусгах»; text lines not clipped; measurements.
+      const voice = document.querySelector('[data-check="voice"]'), end = document.querySelector('[data-check="end"]');
+      if (voice && end) {
+        const gap = end.getBoundingClientRect().left - voice.getBoundingClientRect().right;
+        if (gap < 15.5) out.push(`voice to «Дуусгах» gap ${gap.toFixed(0)}px < 16px`);
+        for (const k of ["progress-line1", "progress-line2"]) {
+          const el = document.querySelector(`[data-check="${k}"]`);
+          if (el && el.scrollWidth > el.clientWidth + 1) out.push(`${k} clipped`);
+        }
+        const l2 = document.querySelector('[data-check="progress-line2"]');
+        info.panelHeight = Math.round(prog.getBoundingClientRect().height);
+        info.line2Lines = l2 ? Math.round(l2.getBoundingClientRect().height / parseFloat(getComputedStyle(l2).lineHeight)) : 0;
+      }
+      // Undo row after «Дуусгах»: text not clipped, action present (its size is checked as every control).
+      const snackText = document.querySelector('[data-check="snackbar-text"]');
+      if (snackText) {
+        if (snackText.scrollWidth > snackText.clientWidth + 1) out.push("undo row text clipped");
+        if (!document.querySelector('[data-check="undo"]')) out.push("undo row without an undo action");
+      }
       // picker (AC 8): heading and «Эхлэх» visible without scrolling
       const startBtn = document.querySelector("[data-start]");
       if (startBtn) {
@@ -165,6 +188,10 @@ for (const [w, h, insets, label] of viewports) {
       if (r.info.entriesVisible < 3 && state === "picker-selected" && theme === "day" && lang === "mn") infos.push(k);
     }
     for (const s of r.info.small) smallInfo.add(`${key}: ${s}`);
+    if (r.info.panelHeight != null) {
+      const prev = panelInfo.get(key) ?? { h: 0, l: 0 };
+      panelInfo.set(key, { h: Math.max(prev.h, r.info.panelHeight), l: Math.max(prev.l, r.info.line2Lines) });
+    }
     for (const s of r.info.scrolls) scrollInfo.add(`${key} ${state}: #${s}`);
     // Outside the design target (screen spec › Known limitations 1): Safari with its toolbars shown on a 375 px iPhone
     // (375x548) at 200 % text zoom. Reported as INFO, not failed. Every AC 37 viewport is in the target.
@@ -176,6 +203,7 @@ await browser.close();
 for (const [k, v] of lineInfo) console.log(`INFO  max banner instruction lines ${k}: ${v}`);
 for (const [k, v] of bandInfo) console.log(`INFO  min portrait map band ${k}: ${v}px`);
 for (const k of infos) console.log(k);
+for (const [k, v] of panelInfo) console.log(`INFO  max progress panel height ${k}: ${v.h}px (line 2 up to ${v.l} line(s))`);
 for (const k of scrollInfo) console.log(`INFO  scrolls: ${k}`);
 for (const k of smallInfo) console.log(`INFO  control 44-48px: ${k}`);
 for (const f of outsideTarget) console.log(`INFO  outside target: ${f}`);

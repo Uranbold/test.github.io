@@ -105,10 +105,29 @@
   :root[data-orient="land"] #bottom { grid-column: 2; grid-row: 2; padding: 8px; }
   .panel { background: var(--surface); color: var(--on-surface); border-radius: 16px; padding: 12px 16px; min-height: 72px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
   :root[data-theme="night"] .panel { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  /* Progress panel (UX audit 2026-10-13, UX-02, PO Q1 (b)): line 1 = remaining time (title-large), line 2 = «Хүрэх цаг HH:MM · distance» (body-large). */
   .panel .eta { font-size: calc(22px * var(--fsP)); line-height: 1.27; font-weight: 500; font-variant-numeric: tabular-nums; }
   .panel .meta { font-size: calc(16px * var(--fsP)); line-height: 1.5; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+  /* Line 2 wraps at the « · » separator first (two chunks); a chunk wraps inside only when it alone is wider than the column. */
+  .panel .meta .chunk { display: inline-block; }
   .panel .txt { min-width: 0; flex: 1 1 0; }
   .panel { flex-wrap: nowrap; }
+  /* UX-01 (1): 16 dp between «Тохиргоо» and «Дуусгах» (panel gap 12 + 4), so a bumped finger on the gear cannot hit the end button. */
+  .panel .end { margin-left: 4px; }
+
+  /* S1 after «Дуусгах» (UX-01 (2), PO Q3 (b)): search row, map controls column, undo snackbar «Замчлал дууслаа» + «Буцаах» for 5 s. */
+  #s1top { position: absolute; z-index: 2; top: 0; left: 0; right: 0; padding: 8px 16px 0; display: flex; gap: 8px; align-items: flex-start; }
+  #s1top .searchbar { flex: 1 1 0; min-width: 0; min-height: 56px; border-radius: 28px; background: var(--surface); color: var(--on-surface-variant); display: flex; align-items: center; gap: 12px; padding: 8px 16px; font-size: calc(16px * var(--fs)); box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  :root[data-theme="night"] #s1top .searchbar { box-shadow: none; outline: 1px solid var(--outline-variant); }
+  #s1top .searchbar svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+  #s1top .searchbar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #s1top .iconbtn.tonal { background: var(--primary-container); color: var(--on-primary-container); flex: none; }
+  #ctrls { position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; }
+  /* M3 snackbar: 16 dp side margins, min 48 dp, text + action; the action moves to its own line (right-aligned) when the row does not fit. */
+  .snack { background: var(--message-surface); color: var(--on-message-surface); border: 1px solid var(--message-outline); border-radius: 8px; min-height: 48px; padding: 0 8px 0 16px; margin: 0 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; font-size: calc(14px * var(--fs)); line-height: 1.43; box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15); }
+  :root[data-theme="night"] .snack { box-shadow: none; }
+  .snack .txt { flex: 1 1 auto; min-width: 0; padding: 14px 0; }
+  .snack .btn.text { color: var(--message-action); margin-left: auto; flex: none; }
   .panel.notice { background: var(--message-surface); color: var(--on-message-surface); display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; font-size: calc(14px * var(--fsP)); }
   :root[data-theme="night"] .panel.notice { outline: 1px solid var(--message-outline); }
   .panel.notice .ico { width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; }
@@ -175,8 +194,9 @@ const T = {
     then: "Дараа нь", rerouting: "Маршрутыг дахин тооцоолж байна", unavailable: "Маршрутын үйлчилгээ түр ажиллахгүй байна",
     gpsLost: "GPS дохио тасарлаа", offline: "Интернэт холболт алга",
     voiceNotice: "Энэ утсанд монгол дуут заавар ажиллахгүй байна. Заавар зөвхөн дэлгэцэнд харагдана.",
-    arriveR: "Таны очих газар баруун талд байна", dest: "Зайсан толгой", eta: "Хүрэх цаг 14:35", meta: "25 мин · 12,4 км",
+    arriveR: "Таны очих газар баруун талд байна", dest: "Зайсан толгой", remaining: "25 мин", eta: "Хүрэх цаг 14:35", distLeft: "12,4 км",
     end: "Дуусгах", recenter: "Байршил руу буцах", mute: "Дууг хаах", northUp: "Хойд зүг дээшээ", settings: "Тохиргоо", close: "Хаах",
+    ended: "Замчлал дууслаа", undo: "Буцаах", searchPh: "Газар, хаяг хайх", zoomIn: "Томруулах", zoomOut: "Жижигрүүлэх",
     previewTitle: "Маршрут харах", myLoc: "Миний байршил", car: "Машин", walk: "Явган", avoid: "Шороон замаас зайлсхийх",
     dur: "13 мин", dist: "4,6 км", etaP: "Хүрэх цаг 14:03", start: "Эхлэх",
     denied: "Байршлын зөвшөөрөл олгоогүй байна", deniedHint: "Утасны тохиргоонд байршлын зөвшөөрлийг асаана уу", openSettings: "Тохиргоо нээх",
@@ -188,15 +208,16 @@ const T = {
     then: "Then", rerouting: "Recalculating route", unavailable: "Routing is temporarily unavailable",
     gpsLost: "GPS signal lost", offline: "No internet connection",
     voiceNotice: "Mongolian voice guidance is not available on this phone. Instructions are shown on screen only.",
-    arriveR: "Your destination is on the right", dest: "Зайсан толгой", eta: "Arrive at 14:35", meta: "25 min · 12.4 km",
+    arriveR: "Your destination is on the right", dest: "Зайсан толгой", remaining: "25 min", eta: "Arrive at 14:35", distLeft: "12.4 km",
     end: "End", recenter: "Back to my location", mute: "Mute", northUp: "North up", settings: "Settings", close: "Close",
+    ended: "Navigation ended", undo: "Undo", searchPh: "Search for a place or address", zoomIn: "Zoom in", zoomOut: "Zoom out",
     previewTitle: "Route preview", myLoc: "My location", car: "Car", walk: "Walk", avoid: "Avoid unpaved roads",
     dur: "13 min", dist: "4.6 km", etaP: "Arrive at 14:03", start: "Start",
     denied: "Location permission is turned off", deniedHint: "Allow location access in your phone settings", openSettings: "Open settings",
     outOfArea: "The start or destination is outside the service area", rationale: "Allow access to your location", cont: "Continue",
   },
 };
-const STATES = ["guidance", "then", "worst", "reroute", "reroute-failed", "gps-lost", "offline", "notice", "arrival",
+const STATES = ["guidance", "then", "worst", "reroute", "reroute-failed", "gps-lost", "offline", "notice", "arrival", "ended",
   "preview-route", "preview-denied", "preview-state", "rationale"];
 const ICON = {
   right: '<svg viewBox="0 0 56 56"><path d="M16 48V26a6 6 0 0 1 6-6h20"/><path d="M34 11l9 9-9 9"/></svg>',
@@ -210,6 +231,9 @@ const ICON = {
   loc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>',
+  search: '<svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M15 15l5 5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  minus: '<svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>',
 };
 function params() {
   const p = new URLSearchParams(location.hash.slice(1));
@@ -226,7 +250,7 @@ function render() {
   root.style.setProperty("--fs", P.scale); root.style.setProperty("--fsB", fsB); root.style.setProperty("--fsD", fsD); root.style.setProperty("--fsP", fsP);
   root.dataset.stacked = fsB >= 1.15 ? "1" : "0";
   root.style.setProperty("--font", P.font === "narrow" ? '"Liberation Sans", Roboto, sans-serif' : '"DejaVu Sans", Roboto, sans-serif');
-  const st = P.state, guidance = !st.startsWith("preview") && st !== "rationale";
+  const st = P.state, guidance = !st.startsWith("preview") && st !== "rationale" && st !== "ended";
 
   // map
   const puckStale = st === "gps-lost" || st === "worst";
@@ -242,8 +266,17 @@ function render() {
   const status = $("status"); status.innerHTML = "";
   const rc = $("rc"); rc.innerHTML = "";
   $("mbx").innerHTML = ""; $("bottom").innerHTML = "";
-  document.querySelectorAll("#scrim").forEach((e) => e.remove());
-  if (guidance) {
+  document.querySelectorAll("#scrim, #s1top").forEach((e) => e.remove());
+  if (st === "ended") {
+    // S1 map within 2 s of «Дуусгах»: no route; the undo snackbar sits at the bottom (where the thumb just was), above R5;
+    // the map controls column moves up above it (M3 snackbar + FAB behaviour), the search row is unchanged.
+    const s1 = document.createElement("div"); s1.id = "s1top";
+    s1.innerHTML = `<div class="searchbar" data-box="search" data-control role="search" aria-label="${t.searchPh}">${ICON.search}<span>${t.searchPh}</span></div>
+      <button class="iconbtn tonal" data-control aria-label="${t.settings}">${ICON.gear}</button>`;
+    $("app").appendChild(s1);
+    $("mbx").innerHTML = `<div id="ctrls">${[["plus", t.zoomIn], ["minus", t.zoomOut], ["loc", t.myLoc]].map(([i, n]) => `<button class="iconbtn" data-control aria-label="${n}">${ICON[i]}</button>`).join("")}</div>`;
+    $("bottom").innerHTML = `<div class="snack" data-box="snackbar" role="status"><span class="txt" data-check="snackbar-text">${t.ended}</span><button class="btn text" data-control data-check="undo">${t.undo}</button></div>`;
+  } else if (guidance) {
     b.dataset.box = "banner";
     let icon = ICON.right, dist = t.dist300, instr = t.turnR, street = t.street, cls = "";
     if (st === "then" || st === "worst") { instr = t.offRampR; icon = ICON.ramp; street = t.streetLong; }
@@ -270,7 +303,7 @@ function render() {
       ? `<div class="panel notice" data-box="voice-notice" role="status" style="margin-bottom:8px"><span class="ico" aria-hidden="true"></span><span>${t.voiceNotice}</span></div>` : "")
       + (st === "arrival"
       ? `<div class="panel" data-box="progress"><div class="txt"><div class="eta">${t.dest}</div></div><button class="btn filled" data-control>${t.close}</button></div>`
-      : `<div class="panel" data-box="progress"><div class="txt"><div class="eta">${t.eta}</div><div class="meta">${t.meta}</div></div><button class="iconbtn" style="box-shadow:none;outline:0;flex:none" data-control aria-label="${t.settings}">${ICON.gear}</button><button class="btn outlined round" data-control aria-label="${t.end}" title="${t.end}">${ICON.x}</button></div>`);
+      : `<div class="panel" data-box="progress"><div class="txt"><div class="eta" data-check="progress-line1">${t.remaining}</div><div class="meta" data-check="progress-line2"><span class="chunk">${t.eta} ·</span> <span class="chunk">${t.distLeft}</span></div></div><button class="iconbtn" style="box-shadow:none;outline:0;flex:none" data-control data-check="settings" aria-label="${t.settings}">${ICON.gear}</button><button class="btn outlined round end" data-control data-check="end" aria-label="${t.end}" title="${t.end}">${ICON.x}</button></div>`);
   } else {
     // S3 preview sheet (S1 search bar omitted: unchanged NAV-003 layout)
     let region;

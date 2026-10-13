@@ -13,6 +13,10 @@
 //     bottom panel is >= 150dp at font scale 1 and >= 80dp at 1.3 and 2 (Layout rule 4; 320x568 reported as INFO only);
 //     the puck point (70 % of the band) is inside the uncovered map (AC 23)
 //   - no horizontal overflow
+//   - UX audit 2026-10-13 (UX-01, UX-02): «Тохиргоо» and «Дуусгах» are >= 16dp apart; the progress panel's two text lines
+//     («25 мин»; «Хүрэх цаг 14:35 · 12,4 км») are not clipped; in the "ended" state (S1 within 2 s of «Дуусгах») the undo
+//     snackbar text is not clipped, «Буцаах» is a >= 48dp control and the snackbar covers neither the attribution nor the
+//     map controls (the generic checks above). INFO: progress panel height and line-2 line count per viewport and scale.
 // Runs with Liberation Sans (Arial metrics, slightly wider than Roboto, the Android default) by default; pass --wide for
 // DejaVu Sans (much wider), a stress test whose failures are reported but are not a design target.
 // INFO lines (not failures): banner instruction line counts and map band heights.
@@ -27,7 +31,7 @@ const { chromium } = require("playwright");
 const font = process.argv.includes("--wide") ? "wide" : "narrow";
 const url = pathToFileURL(join(here, "NAV-005-guidance.html")).href;
 const viewports = [[360, 640], [412, 915], [320, 568], [640, 360]];
-const states = ["guidance", "then", "worst", "reroute", "reroute-failed", "gps-lost", "offline", "notice", "arrival",
+const states = ["guidance", "then", "worst", "reroute", "reroute-failed", "gps-lost", "offline", "notice", "arrival", "ended",
   "preview-route", "preview-denied", "preview-state", "rationale"];
 const scales = [1, 1.3, 2];
 
@@ -39,6 +43,8 @@ const failures = [];
 const lineInfo = new Map(); // key: vp/scale/lang -> max instruction lines
 const bandInfo = new Map(); // key: vp/scale -> min band
 const scrollInfo = new Set(); // combinations where the banner region scrolls
+const panelInfo = new Map(); // key: vp/scale -> max progress panel height and line-2 line count
+const snackInfo = new Map(); // key: vp/scale/lang -> snackbar height
 const outside = []; // problems outside the design target
 
 for (const [w, h] of viewports) {
@@ -135,6 +141,26 @@ for (const [w, h] of viewports) {
           if (cy < topBottom || cy > bottomTop) out.push("puck centre is under the UI");
         }
       }
+      // Progress panel (UX-01, UX-02): >= 16dp between «Тохиргоо» and «Дуусгах»; text lines not clipped; measurements.
+      const settings = document.querySelector('[data-check="settings"]'), end = document.querySelector('[data-check="end"]');
+      if (settings && end) {
+        const gap = end.getBoundingClientRect().left - settings.getBoundingClientRect().right;
+        if (gap < 15.5) out.push(`«Тохиргоо» to «Дуусгах» gap ${gap.toFixed(0)}dp < 16dp`);
+        for (const k of ["progress-line1", "progress-line2"]) {
+          const el = document.querySelector(`[data-check="${k}"]`);
+          if (el && el.scrollWidth > el.clientWidth + 1) out.push(`${k} clipped`);
+        }
+        const l2 = document.querySelector('[data-check="progress-line2"]');
+        info.panelHeight = Math.round(prog.getBoundingClientRect().height);
+        info.line2Lines = l2 ? Math.round(l2.getBoundingClientRect().height / parseFloat(getComputedStyle(l2).lineHeight)) : 0;
+      }
+      // Undo snackbar (S1 after «Дуусгах»): text not clipped; the action is a control (size checked above).
+      const snackText = document.querySelector('[data-check="snackbar-text"]');
+      if (snackText) {
+        if (snackText.scrollWidth > snackText.clientWidth + 1) out.push("snackbar text clipped");
+        info.snackHeight = Math.round(document.querySelector('[data-box="snackbar"]').getBoundingClientRect().height);
+        if (!document.querySelector('[data-check="undo"]')) out.push("snackbar without an undo action");
+      }
       // Preview sheet at font scale 1 on 360x640 and larger: every control is visible without scrolling (Layout rule 6).
       const sheetScroll = document.querySelector("#sheet .scroll");
       if (sheetScroll && window.__scale === 1 && innerWidth >= 360 && innerHeight >= 640 && sheetScroll.scrollHeight > sheetScroll.clientHeight + 1)
@@ -146,6 +172,11 @@ for (const [w, h] of viewports) {
     if (r.info.lines != null) lineInfo.set(key, Math.max(lineInfo.get(key) ?? 0, r.info.lines));
     if (r.info.band != null) { const k = `${w}x${h} scale ${scale}`; bandInfo.set(k, Math.min(bandInfo.get(k) ?? 1e9, r.info.band)); }
     if (r.info.scrolls) scrollInfo.add(`${w}x${h} ${state} scale ${scale}`);
+    if (r.info.panelHeight != null) {
+      const k = `${w}x${h} scale ${scale}`, prev = panelInfo.get(k) ?? { h: 0, l: 0 };
+      panelInfo.set(k, { h: Math.max(prev.h, r.info.panelHeight), l: Math.max(prev.l, r.info.line2Lines) });
+    }
+    if (r.info.snackHeight != null) snackInfo.set(`${w}x${h} scale ${scale} ${lang}`, r.info.snackHeight);
     // 320x568 above font scale 1 is outside the design target (screen spec › Known limitations): reported, not failed.
     const target = !(w < 360 && scale > 1);
     for (const p of r.out) (target ? failures : outside).push(`${w}x${h} ${state} ${theme} ${lang} scale=${scale}: ${p}`);
@@ -155,6 +186,8 @@ await browser.close();
 for (const [k, v] of lineInfo) console.log(`INFO  max banner instruction lines ${k}: ${v}`);
 for (const [k, v] of bandInfo) console.log(`INFO  min portrait map band ${k}: ${v}dp`);
 for (const k of scrollInfo) console.log(`INFO  scroll region (banner column or preview sheet) scrolls: ${k}`);
+for (const [k, v] of panelInfo) console.log(`INFO  max progress panel height ${k}: ${v.h}dp (line 2 up to ${v.l} line(s))`);
+for (const [k, v] of snackInfo) console.log(`INFO  undo snackbar height ${k}: ${v}dp`);
 for (const f of outside) console.log(`INFO  outside target: ${f}`);
 for (const f of failures) console.log(`FAIL  ${f}`);
 console.log(`\n${runs} combinations (font: ${font}), ${failures.length} problem(s), ${outside.length} outside the design target (INFO)`);
