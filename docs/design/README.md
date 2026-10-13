@@ -7,7 +7,10 @@
 - `map-style.md`: MapLibre style spec
 - `navigation-ux.md`: active navigation rules (banners, voice timing, lanes, speed limit)
 
+Audits: [`ux-audit-2026-10-13.md`](ux-audit-2026-10-13.md) (web demo and Android app against the UX laws, Nielsen's heuristics, NHTSA glance rules and WCAG 2.2; prioritised findings, top 10, PO questions).
+
 Checks (run from the repo root):
+- `CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome node docs/design/prototypes/audit-web.mjs demo|app|extra|arrival`: the UX audit's measurement run on the **production web builds** (`web/dist`, `web/dist-demo-mode`; build them first). Serves the build with `audit-web-serve.mjs` (PMTiles from `backend/data/tiles/basemap.pmtiles` with HTTP Range), mocks the gateway from the QA fixtures, and for every state at 390×844 / 1280×800 / 844×390 × day/night × mn/en writes a screenshot and measures touch targets (< 44 / < 48 px), gaps < 8 px, overlaps, accessible names, the WCAG contrast of every visible text, the smallest font, the Tab order with focus rings, and axe-core (from `tests/e2e/node_modules`). Output goes to `$AUDIT_OUT` (default the OS temp dir, `navmn-ux-audit/`), never into the repo. Chromium only.
 - `node docs/design/prototypes/check-contrast.mjs`: WCAG contrast of every token pair in `tokens.json › contrastPairs`, day/night flavor key parity, and `map-style.md` table values vs `tokens.json`.
 - `node docs/design/prototypes/check-location-dot.mjs`: NAV-005 section N, Android browse location dot (map-style §7.8): the 64-vertex accuracy polygon within ±10 % of the accuracy, the zoom from which the circle is larger than the dot (per accuracy, at three Mongolian latitudes), the on-screen circle size by zoom, and the composite contrast and night glare of the translucent circle. Its states are drawn in `prototypes/NAV-005-location-dot.html` (`#theme=night&lang=en&raw=1`).
 - `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node docs/design/prototypes/check-layout.mjs`: layout rules of the NAV-002 wireframe at 5 viewports x every state x day/night x mn/en (uses the Playwright copy in `tests/e2e`, installs nothing).

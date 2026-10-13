@@ -18,9 +18,11 @@ import mn.navmn.app.instructions.VoiceText
 import mn.navmn.app.log.DebugLog
 import mn.navmn.app.support.TestStrings
 import mn.navmn.app.support.TestVoice
+import mn.navmn.app.voice.pack.AudioTrackSink
 import mn.navmn.app.voice.pack.ClipDecodeException
 import mn.navmn.app.voice.pack.ClipDecoder
 import mn.navmn.app.voice.pack.DecodedPcm
+import mn.navmn.app.voice.pack.FrameworkLikeTrack
 import mn.navmn.app.voice.pack.PackEntry
 import mn.navmn.app.voice.pack.PackFiles
 import mn.navmn.app.voice.pack.PackPolicy
@@ -238,6 +240,39 @@ class PackVoiceOutputTest {
         b.voice.play(prompt(8, VoiceContent.OffRoute))
         idle(1_000)
         assertEquals("the rest of the session is the chime", 1, sinks.started.size)
+    }
+
+    /**
+     * Regression, PO phone test 2026-10-13 ("only the chime sounds", FEMALE5v2 and MALE4v2 demo APKs): the production
+     * sink [AudioTrackSink] over a track that follows the framework MODE_STATIC state machine (STATE_NO_STATIC_DATA until
+     * the write). Every Mongolian prompt of a session plays from the pack; no PLAYBACK_FAILED, no A1, no chime.
+     */
+    @Test
+    fun theProductionSinkPlaysEveryPromptOfTheSessionFromThePack() {
+        val tracks = ArrayList<FrameworkLikeTrack>()
+        val sinks = mn.navmn.app.voice.pack.PcmSinkFactory { AudioTrackSink { _, _ -> FrameworkLikeTrack().also { tracks += it } } }
+        val source = VoicePackSource(built.packFiles(), { TestVoice.inventory }, PackPolicy.OPTIONAL, DebugLog.NONE, Executor { it.run() })
+        val v = VoiceOutput(ctx, source, FakeDecoder(), sinks, slowDecode, DebugLog.NONE)
+        val done = ArrayList<Long>()
+        var fallbacks = 0
+        v.onDone = { done += it }
+        v.onFallback = { fallbacks++ }
+        v.prepare()
+        idle()
+        val prompts = listOf(prompt(21, chained), prompt(22, VoiceContent.OffRoute), prompt(23, VoiceContent.GpsLost))
+        for (p in prompts) {
+            shadowOf(audio).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+            v.play(p)
+            idle(10_000)
+        }
+        assertEquals("no PLAYBACK_FAILED: A1 never shows", 0, fallbacks)
+        assertEquals(prompts.map { it.id }, done)
+        assertEquals("one static track per prompt, each written then played", 3, tracks.size)
+        for ((p, t) in prompts.zip(tracks)) {
+            assertEquals(1, t.plays)
+            assertArrayEquals("the prompt's pack PCM", expectedPcm(p), t.written)
+            assertTrue("released after the prompt", t.released)
+        }
     }
 
     @Test

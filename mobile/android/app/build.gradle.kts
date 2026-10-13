@@ -780,6 +780,9 @@ tasks.withType<Test>().configureEach {
     systemProperty("nav.repoRoot", repoRoot.absolutePath)
     // NAV-016: the configured voice pack (VoiceDurationCheck, the QA interop test) and where the voice reports go.
     systemProperty("nav.voicePackDir", voicePackSetting.orEmpty())
+    // Opt-in: validate the voicepack/ assets of a built APK at runtime rules (RealPackRuntimeValidationTest), e.g.
+    // -Pnav.voiceApk=/path/app-demo.apk (never a committed file).
+    systemProperty("nav.voiceApk", providers.gradleProperty("nav.voiceApk").orNull ?: "")
     systemProperty("nav.voiceReportDir", layout.buildDirectory.dir("reports/voice").get().asFile.absolutePath)
     // Opt-in live checks against the dev gateway (LiveGatewayTest), e.g. -Pnav.liveGateway=http://127.0.0.1:8080
     systemProperty("nav.liveGateway", providers.gradleProperty("nav.liveGateway").orNull ?: "")
