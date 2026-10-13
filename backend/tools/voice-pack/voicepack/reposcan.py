@@ -27,9 +27,6 @@ AUDIO_RE = re.compile(r"\.(aac|m4a|wav|mp3|ogg|opus|flac|amr|3gp|webm)$", re.I)
 CHIME_ALLOWED_RE = re.compile(r"(^|/)res/raw/chime[^/]*$")
 _REF_RE = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 _DEFAULT_OPS = (":-", ":=", "-", "=")
-# Documentation lines that quote a FAILING example of the scan on purpose (path, exact text of the expansion). Only
-# exact matches are skipped. Pending the architect: the task file quotes `${...:-abc123}` as the example that fails.
-DOC_EXAMPLES = {("docs/architecture/tasks/NAV-016-mongolian-voice-clip-pack.md", "${" + TOKEN_VAR + ":-abc123}")}
 _NONVALUE_OPS = (":?", ":+", "?", "+")
 
 
@@ -88,8 +85,6 @@ def scan_token(repo: Path) -> list[str]:
         path, _, rest = line.partition(":")
         lineno, _, text = rest.partition(":")
         for v in token_findings(text):
-            if any(path == p and v.startswith(x) for p, x in DOC_EXAMPLES):
-                continue
             hits.append(f"{path}:{lineno}")  # never the text: a real value must not reach a CI log
     return hits
 

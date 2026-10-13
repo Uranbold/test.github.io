@@ -109,6 +109,22 @@ def _read_capped(path: Path, cap: int) -> bytes | None:
     return None if len(data) > cap else data
 
 
+def _read_bounded(path: Path, limit: int) -> bytes:
+    """Read at most `limit` bytes without following a link."""
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        chunks, n = [], 0
+        while n < limit:
+            b = os.read(fd, min(1 << 16, limit - n))
+            if not b:
+                break
+            chunks.append(b)
+            n += len(b)
+    finally:
+        os.close(fd)
+    return b"".join(chunks)
+
+
 def _lstat(p: Path):
     try:
         return os.lstat(p)
@@ -232,15 +248,17 @@ def verify_pack(pack_dir: Path, *, policy: str = "release", expected_inventory_s
     total = len(raw) + sum(sizes.values())
     if total > PACK_CAP:
         _fail("FILE_INVALID", f"pack total {total} bytes (cap {PACK_CAP})")
-    # V10 (bounded, no-follow reads; a size change since V9 is FILE_INVALID)
+    # V10: no-follow reads of at most the size V9 recorded + 1 bytes; a count that differs from that size (the file
+    # grew, shrank or vanished after V9) is V9 FILE_INVALID, and the hash is compared only after the count matches
+    # (pack-format §8.2).
     for e in m["entries"]:
         f = e["file"]
         try:
-            data = _read_capped(root / f, CLIP_CAP)
+            data = _read_bounded(root / f, sizes[f] + 1)
         except OSError:
-            _fail("FILE_INVALID", f"{f}: cannot be read without following a link")
-        if data is None or len(data) != sizes[f]:
-            _fail("FILE_INVALID", f"{f}: size changed while verifying")
+            _fail("FILE_INVALID", f"{f}: changed or vanished after the file checks (or is now a link)")
+        if len(data) != sizes[f]:
+            _fail("FILE_INVALID", f"{f}: {len(data)} bytes read, {sizes[f]} recorded by the file checks")
         if hashlib.sha256(data).hexdigest() != e["sha256"]:
             _fail("FILE_HASH_MISMATCH", f)
     # G1 (generator only): nothing else in the pack directory, links included (never followed)

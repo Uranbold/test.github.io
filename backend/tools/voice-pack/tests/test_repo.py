@@ -76,7 +76,7 @@ class TokenScanRuleTest(unittest.TestCase):
         "  {N} = abc": True, "{N}:\"abc\"": True, "{N}=.": False, "{N}=<value>": False, "{N}=SENTINEL-…": False,
         "{N}=$X": False, "{N}=${{X}}": False, "{N}=${{X:-}}": False, "{N}=${{X:-abc}}": True,
         "[[ -n \"${{{N}:-}}\" ]]": False, "${{{N}:?not set}}": False, "${{{N}-}}": False, "${{{N}:+x}}": False,
-        "${{{N}}}": False, "${{{N}:-$OTHER}}": False, "${{{N}:-abc123}}": True, "${{{N}=abc}}": True,
+        "${{{N}}}": False, "${{{N}:-$OTHER}}": False, "${{{N}:-abc123}}": True, "${{{N}:-abc…}}": False, "${{{N}:-<value>}}": False, "${{{N}=abc}}": True,
         "${{{N}-abc}}": True, "${{{N}:=abc}}": True, "-e {N} -e HTTPS_PROXY": False, "`{N}`: the token": False,
         "{{\"{N}\": token}}": False,
     }

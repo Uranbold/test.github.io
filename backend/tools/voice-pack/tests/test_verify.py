@@ -290,6 +290,31 @@ class FileRulesTest(unittest.TestCase):
         (pack / "more").symlink_to(pack / "clips", target_is_directory=True)
         self.expect(pack, "UNLISTED_FILE")
 
+    def test_clips_absent_or_empty_is_file_missing(self):
+        pack = copy_pack()
+        shutil.rmtree(pack / "clips")
+        self.expect(pack, "FILE_MISSING")
+        pack = copy_pack()
+        for f in (pack / "clips").iterdir():
+            f.unlink()
+        self.expect(pack, "FILE_MISSING")
+
+    def test_size_change_between_v9_and_v10_is_file_invalid(self):
+        """§8.2: V10 reads at most the V9 size + 1; a different count (grew, shrank, vanished) is V9 FILE_INVALID."""
+        from unittest import mock
+
+        from voicepack import verify as verify_mod
+
+        real = verify_mod._read_bounded
+        for name, fake in (("grew", lambda p, n: real(p, n) + b"x"),
+                           ("shrank", lambda p, n: real(p, n)[:-1]),
+                           ("vanished", lambda p, n: (_ for _ in ()).throw(FileNotFoundError(2, "gone")))):
+            with self.subTest(name):
+                pack = copy_pack()
+                with mock.patch.object(verify_mod, "_read_bounded", side_effect=fake) as rb:
+                    self.expect(pack, "FILE_INVALID")
+                self.assertEqual(rb.call_args_list[0].args[1], (pack / self.first_clip(pack)).stat().st_size + 1)
+
     def test_pack_directory_itself_through_a_link_is_fine(self):
         pack = copy_pack()
         link = pack.parent / "via-link"

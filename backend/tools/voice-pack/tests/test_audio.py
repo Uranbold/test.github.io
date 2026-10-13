@@ -101,9 +101,51 @@ class ProcessTest(unittest.TestCase):
                     audio.check_clip(p, "k")
 
     def test_rms_outlier_3db_fails(self):
-        audio.check_rms_outliers([("a", -20.0), ("b", -20.1), ("c", -19.9), ("d", -21.5)])
+        audio.check_rms_outliers([("a", -20.0, -6), ("b", -20.1, -6), ("c", -19.9, -6), ("d", -21.5, -6)])
         with self.assertRaisesRegex(AudioCheckError, "d: rule rms-outlier"):
-            audio.check_rms_outliers([("a", -20.0), ("b", -20.1), ("c", -19.9), ("d", -17.0)])
+            audio.check_rms_outliers([("a", -20.0, -6), ("b", -20.1, -6), ("c", -19.9, -6), ("d", -17.0, -6)])
+
+
+class LevelBandTest(unittest.TestCase):
+    """pack-format §4 level band (2026-10-13, task B5): a peak-limited clip may sit down to −3 dB below the pack
+    median and is named; every other clip keeps −2 dB; the +2 dB side holds for all."""
+
+    BASE = [(f"c{i}", -20.0, -6.0) for i in range(9)]  # median −20 dBFS, peaks well below the ceiling
+
+    def test_peak_limited_at_minus_2_5_passes_and_is_named(self):
+        named = audio.check_rms_outliers(self.BASE + [("pl", -22.5, -1.0)])
+        self.assertEqual([(k, round(d, 2)) for k, d in named], [("pl", -2.5)])
+        self.assertEqual(audio.check_rms_outliers(self.BASE + [("pl", -21.5, -1.0)]), [], "within −2 dB: not named")
+        self.assertTrue(audio.is_peak_limited(-22.5, -1.1))
+        self.assertFalse(audio.is_peak_limited(-22.5, -1.11))
+        self.assertFalse(audio.is_peak_limited(-20.0, -1.0), "at the target: not peak-limited")
+
+    def test_peak_limited_at_minus_3_1_fails(self):
+        with self.assertRaisesRegex(AudioCheckError, "pl: rule rms-outlier"):
+            audio.check_rms_outliers(self.BASE + [("pl", -23.1, -1.0)])
+
+    def test_not_peak_limited_at_minus_2_1_fails(self):
+        with self.assertRaisesRegex(AudioCheckError, "np: rule rms-outlier"):
+            audio.check_rms_outliers(self.BASE + [("np", -22.1, -3.0)])
+
+    def test_plus_2_1_fails_whether_or_not_peak_limited(self):
+        for peak in (-1.0, -6.0):
+            with self.subTest(peak=peak), self.assertRaisesRegex(AudioCheckError, "hi: rule rms-outlier"):
+                audio.check_rms_outliers(self.BASE + [("hi", -17.9, peak)])
+
+    def test_near_silent_clip_with_one_click_fails(self):
+        """A full-scale click reaches the ceiling, but the crest factor puts the clip far below the −3 dB floor
+        (or it fails its edge-silence, internal-silence or duration check first)."""
+        noise = [round(10 * math.sin(i * 0.7)) for i in range(round(0.6 * R))]  # about −73 dBFS, below the threshold
+        x = noise[: len(noise) // 2] + [32767, -32768, 32767] + noise[len(noise) // 2:]
+        hum = tone(600, amp=580, f=150)  # about −38 dBFS: quiet, but above −45 dBFS, so it counts as active
+        x2 = silence(100) + hum[:6000] + [32767, -32768, 32767] + hum[6000:] + silence(100)
+        for name, clip in (("click in near silence", x), ("click on a quiet hum", x2)):
+            with self.subTest(name), self.assertRaisesRegex(
+                    AudioCheckError, "rule (edge-silence|internal-silence|rms-outlier|duration)"):
+                p = audio.process(array("h", clip), R, "click")
+                audio.check_clip(p, "click")
+                audio.check_rms_outliers(self.BASE + [("click", p.active_rms_db, p.peak_db)])
 
     def test_silent_clip_fails(self):
         with self.assertRaisesRegex(AudioCheckError, "rule silent"):
