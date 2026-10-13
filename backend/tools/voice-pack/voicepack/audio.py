@@ -243,6 +243,7 @@ class Processed:
     gain_db: float
     active_rms_db: float
     peak_db: float
+    edge_retrims: int = 0  # re-trims on the delivered PCM (see `process`); 0 for every clip of pack FEMALE5v2 v1
 
     @property
     def frames(self) -> int:
@@ -254,11 +255,18 @@ class Processed:
 
 
 MAX_LEVEL_ITERATIONS = 8
+MAX_EDGE_RETRIMS = 4
 
 
-def _trim_and_fade(samples, rate: int, threshold_db: float) -> tuple[int, int, list[float]] | None:
-    """Speech region (first to last 10 ms window above threshold_db) + the edge margin, then the linear fades."""
+def _trim_and_fade(samples, rate: int, threshold_db: float, lo: int = 0, hi: int | None = None
+                   ) -> tuple[int, int, list[float]] | None:
+    """Speech region (first to last 10 ms window above threshold_db, searched within the raw windows lo..hi) + the
+    edge margin, then the linear fades."""
     flags = active_flags(samples, rate, threshold_db)
+    if hi is not None:
+        del flags[hi + 1:]
+    if lo:
+        flags[:lo] = [False] * min(lo, len(flags))
     if not any(flags):
         return None
     w = window_len(rate)
@@ -286,14 +294,62 @@ def process(samples, rate: int, key: str) -> Processed:
     RMS, so the gain is negative (−1 to −10 dB) and the soft decay at the end of a word, above −45 dBFS raw, falls
     below it after the gain (50–70 ms of "trailing silence"). The gain depends on the region and the region on the
     gain, so both are iterated to a fixed point (in practice 2–3 rounds); the sample operations keep the
-    pack-format §4 order: trim, fades, gain."""
+    pack-format §4 order: trim, fades, gain.
+
+    Edge re-trim (2026-10-13). The region is found on the signal BEFORE the fades (the §4 order is trim, fades, gain). A 10 ms fade covers the
+    5 ms margin plus half of the region's edge window, so an edge window that is only just above the threshold can
+    be active before the fade and silent in the delivered PCM. That happens with a breath or noise blip shortly
+    after the last word (MALE4v2 `fixed.gpsRestored`, 2026-10-13: speech decays to −41 dBFS raw, 50 ms at −46 to
+    −52 dBFS follow, then one 10 ms window at −40.2 dBFS; with G = −4.22 dB it is 0.6 dB above the threshold, the
+    fade-out takes 1 dB off it, and the delivered PCM ends with 90 ms of silence). The region's edge is then not
+    active at the delivered level, which §4 requires. So, when the delivered PCM's leading or trailing silence
+    exceeds the §4 limit (40 ms), the search bounds are re-derived from the delivered PCM's own first and last
+    active windows (mapped back to raw windows) and the fixed point is run again, at most MAX_EDGE_RETRIMS times.
+    A clip whose delivered edges pass is never re-trimmed, so every clip of a pack that passed before (FEMALE5v2 v1,
+    manifest 6023abbe…) is unchanged: 33 of its clips have 20–40 ms edges of this very shape, and the limit, not
+    the shape, is the contract."""
     if not any(active_flags(samples, rate)):
         raise check_failed(key, "silent", f"no 10 ms window above {SILENCE_THRESHOLD_DBFS} dBFS")
+    w = window_len(rate)
+    lo, hi = 0, None
     gain_db = 0.0
+    retrims = 0
+    while True:
+        start, y, gain = _converge(samples, rate, key, gain_db, lo, hi)
+        gain_db = 20 * math.log10(gain)
+        out = array("h", (max(-32768, min(32767, round(v * gain))) for v in y))
+        lead, trail = edge_silence_ms(out, rate)
+        if (lead <= MAX_EDGE_SILENCE_MS and trail <= MAX_EDGE_SILENCE_MS) or retrims >= MAX_EDGE_RETRIMS:
+            break
+        flags = active_flags(out, rate)
+        if not any(flags):
+            raise check_failed(key, "silent", "no active window in the delivered PCM")
+        i = flags.index(True)
+        j = len(flags) - 1 - flags[::-1].index(True)
+        # delivered window i starts at raw frame start + i*w; window j ends at raw frame start + (j+1)*w - 1
+        new_lo, new_hi = (start + i * w) // w, (start + (j + 1) * w - 1) // w
+        if (new_lo, new_hi) == (lo, hi):
+            break  # cannot shrink any further: deliver it, check_clip reports the edge
+        lo, hi = new_lo, new_hi
+        retrims += 1
+    return Processed(
+        samples=out,
+        rate=rate,
+        gain_db=gain_db,
+        active_rms_db=active_rms_dbfs(out, rate),
+        peak_db=to_dbfs(peak_abs(out)),
+        edge_retrims=retrims,
+    )
+
+
+def _converge(samples, rate: int, key: str, gain_db: float, lo: int, hi: int | None) -> tuple[int, list[float], float]:
+    """The §4 fixed point: trim → fades → gain, repeated until the region is unchanged and G moves by less than
+    0.01 dB, at most MAX_LEVEL_ITERATIONS rounds; the last round is delivered. Returns (start frame, faded
+    samples, linear gain)."""
     region = None
     for _ in range(MAX_LEVEL_ITERATIONS):
         thr_in = SILENCE_THRESHOLD_DBFS - gain_db  # input level that becomes −45 dBFS after the gain
-        r = _trim_and_fade(samples, rate, thr_in)
+        r = _trim_and_fade(samples, rate, thr_in, lo, hi)
         if r is None:
             raise check_failed(key, "silent", f"no 10 ms window above {SILENCE_THRESHOLD_DBFS} dBFS after the gain")
         start, end, y = r
@@ -309,14 +365,7 @@ def process(samples, rate: int, key: str) -> Processed:
         region, gain_db = (start, end), new_db
         if done:
             break
-    out = array("h", (max(-32768, min(32767, round(v * gain))) for v in y))
-    return Processed(
-        samples=out,
-        rate=rate,
-        gain_db=20 * math.log10(gain),
-        active_rms_db=active_rms_dbfs(out, rate),
-        peak_db=to_dbfs(peak_abs(out)),
-    )
+    return start, y, gain
 
 
 def check_clip(p: Processed, key: str) -> None:

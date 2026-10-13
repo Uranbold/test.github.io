@@ -204,6 +204,7 @@ def _process_job(args: tuple) -> dict:
         "durationMs": audio.duration_ms(enc.frames, clip_rate),
         "rms": p.active_rms_db,
         "peak": p.peak_db,
+        "edgeRetrims": p.edge_retrims,
     }
 
 
@@ -294,7 +295,9 @@ def run_build(opts: BuildOptions, reporter: Reporter, synth_factory: Callable | 
     delay = ff.measure_encoder_delay(opts.clip_rate, opts.bitrate_kbps)
     if delay != EXPECTED_ENCODER_DELAY:
         raise ConfigError(f"measured encoder delay {delay} frames, expected {EXPECTED_ENCODER_DELAY} (ffmpeg {ff.version})")
-    reporter.info(f"ffmpeg {ff.version}: aac encoder delay {delay} frames", ffmpeg=ff.version, encoder_delay=delay)
+    build = f" (build {ff.version_raw})" if ff.version_raw != ff.version else ""
+    reporter.info(f"ffmpeg {ff.version}{build}: aac encoder delay {delay} frames", ffmpeg=ff.version,
+                  ffmpeg_build=ff.version_raw, encoder_delay=delay)
     # 4. synthesiser (token check, exit 2; --cache-only: no token, no network code)
     if opts.cache_only:
         if cache_dir is None or not (cache_dir / "wav").is_dir():
@@ -351,6 +354,11 @@ def run_build(opts: BuildOptions, reporter: Reporter, synth_factory: Callable | 
     njobs = opts.jobs or min(4, os.cpu_count() or 1)
     reporter.info(f"processing and encoding {len(items)} clips ({njobs} worker(s))")
     results = _run_jobs(_process_job, items, njobs)
+    for r in results:
+        if r["edgeRetrims"]:
+            reporter.info(f"edge re-trim: {r['key']} ({r['take']}) re-trimmed {r['edgeRetrims']}x on the delivered PCM "
+                          f"(an edge blip the fade silenced; audio.process); listen to it",
+                          key=f"{r['key']} ({r['take']})", edge_retrims=r["edgeRetrims"])
     for label, dev in audio.check_rms_outliers([(f"{r['key']} ({r['take']})", r["rms"], r["peak"]) for r in results]):
         reporter.warn(f"level band: {label} is peak-limited at {dev:+.2f} dB from the pack median (allowed down to "
                       f"-{audio.PEAK_LIMITED_FLOOR_DB:.0f} dB; listen to it, pack-format §4)", key=label, deviation_db=round(dev, 2))

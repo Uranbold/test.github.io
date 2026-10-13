@@ -137,6 +137,17 @@ def best_lag(reference, other, max_lag: int = ALIGN_SEARCH, window: int = 4096) 
     return best_lag_v
 
 
+_RELEASE_RE = re.compile(r"(\d+(?:\.\d+)+)(?:-.*)?$")
+
+
+def release_version(raw: str) -> str:
+    """The release behind a build's version string: '7.0.2-static' (johnvansickle static build) and
+    '7.0.2-<distro>' are release 7.0.2, so they satisfy the pin and write the same `codec.encoder`
+    (ffmpeg-7.0.2-aac) as the reference image. '7.0', 'N-116000-g…' and 'n7.0.2' stay as they are."""
+    m = _RELEASE_RE.match(raw)
+    return m.group(1) if m else raw
+
+
 class Ffmpeg:
     def __init__(self, path: str | None = None, *, allow_any_version: bool = False):
         exe = path or os.environ.get(FFMPEG_ENV) or shutil.which("ffmpeg")
@@ -150,9 +161,10 @@ class Ffmpeg:
             raise ConfigError(f"ffmpeg at {exe!r} does not run ({type(e).__name__})") from None
         m = re.search(rb"ffmpeg version (\S+)", out)
         raw = m.group(1).decode("ascii", "replace") if m else "unknown"
-        self.version = re.sub(r"[^A-Za-z0-9._+-]", "", raw)[:32] or "unknown"
+        self.version_raw = re.sub(r"[^A-Za-z0-9._+-]", "", raw)[:32] or "unknown"
+        self.version = release_version(self.version_raw)
         if self.version != PINNED_FFMPEG_VERSION and not allow_any_version:
-            raise ConfigError(f"ffmpeg {self.version} is not the pinned {PINNED_FFMPEG_VERSION} (use the reference image, "
+            raise ConfigError(f"ffmpeg {self.version_raw} is not the pinned {PINNED_FFMPEG_VERSION} (use the reference image, "
                               "or --ffmpeg-any-version for a development run without byte identity)")
         enc = subprocess.run([exe, "-hide_banner", "-encoders"], capture_output=True, timeout=30, env=child_env()).stdout
         if not re.search(rb"^\s*A\S*\s+aac\s", enc, re.MULTILINE):
@@ -163,7 +175,7 @@ class Ffmpeg:
         """An instance for worker processes, after the parent has checked the binary."""
         obj = cls.__new__(cls)
         obj.exe = exe
-        obj.version = version
+        obj.version = obj.version_raw = version
         return obj
 
     @property
