@@ -2,12 +2,12 @@
 id: NAV-016
 title: Mongolian voice clip pack (Android): build-time Chimege generator, versioned private pack, segment output from the voice text generator, gapless playback with the chime fallback, plus the D95 coordinated change (Mongolian km rounding and the spoken-form layer)
 phase: 1
-priority: must         # BA MoSCoW mapping: under D91 NAV-005 does not reach external users before NAV-016 ships (or an AC 10-passing voice exists). Triage proposed P1 / standard (F5 row); the PO said "Just go forward" (D228) but did not confirm the class separately (Open question 5)
+priority: must         # triage P1 / standard, PO-confirmed 2026-10-13 (D233). BA MoSCoW mapping: under D91 NAV-005 does not reach external users before NAV-016 ships (or an AC 10-passing voice exists)
 size: L
 needs_design: true     # no new screen; navigation-ux §4.1 (pending block comes into force), §4.6 (Mongolian voice = pack, D80) and §4.7 (longest prompts from the spoken forms) need UX updates
 needs_backend: true    # build-time generator tooling in backend/tools/voice-pack/ (ADR-0010 §4); no runtime service, no gateway or openapi.yaml change
 needs_mobile: true     # Android playback and the Kotlin generator; the web voice text port of the D95 coordinated change (text only, no clips on the web)
-status: ready          # 2026-10-13, D228: start now. NAV-007 AC 9 gate waived for building; ADR-0010 acceptance happens in this lane (architect)
+status: ready          # 2026-10-13, D228: start now. NAV-007 AC 9 gate waived for building; ADR-0010 acceptance happens in this lane (architect). Open questions 1–5 decided 2026-10-13 (D229–D233)
 ---
 
 # NAV-016: Mongolian voice clip pack for Android
@@ -53,10 +53,10 @@ Secondary personas:
   - 11 voices. This story uses `FEMALE5v2` and `MALE4v2` (D226).
   - The token is held by the PO, lives in the environment only, and is never in the repository.
 - **F4 pre-screen (D226):** 8 prompts in spoken form × 11 voices at 22,050 Hz: 88/88 succeeded, every clip within NAV-007 AC 11 (single max 3.43 s, chained max 6.35 s). These were **whole-prompt** clips. **Segment joins and non-final takes were not tested**, so the join quality (D87) is first heard with this story's pack. `FEMALE3v2` and `FEMALE5v2` gave identical durations, so they may be the same voice.
-- **D95 coordinated change: the preconditions are not recorded as met (BA check, 2026-10-13).** D95/D101 say the Mongolian km rounding and the spoken-form layer ship with NAV-016, in **one** change to Android, the NAV-017 web port and the regenerated voice golden set, **after NAV-005 is accepted and NAV-017 is finished**.
-  - **NAV-005:** the QA test plan (`docs/qa/test-plans/NAV-005.md`, "Post-acceptance QA items (2026-10-01, after NAV-005 was accepted)") treats it as accepted. The backlog row and the story still say `ready`, and the D104 edit "after NAV-005 acceptance" has not been applied, so no PO acceptance is recorded in the requirements.
-  - **NAV-017:** built. QA run 3 verified the fix round, and the real-iPhone result is recorded (D109; `docs/qa/reports/NAV-017-device-1.md`: AC 49 pass, AC 48 partial). It is not recorded as finished.
-  - **Consequence:** sections D and I (the coordinated change) need the PO's confirmation first (Open question 4). Sections A–C and E–H can be built first. Segment output (section D) is needed before playback can be tested end to end (ADR-0010 decision 2 builds it in the same change as the rounding).
+- **D95 coordinated change: preconditions met ([D232](../decisions.md), 2026-10-13).** D95/D101 say the Mongolian km rounding and the spoken-form layer ship with NAV-016, in **one** change to Android, the NAV-017 web port and the regenerated voice golden set, after NAV-005 is accepted and NAV-017 is finished.
+  - The PO confirmed both on 2026-10-13. NAV-005 and NAV-017 are now `done`, and D104 is applied (NAV-005 has the D91 reference and the D102 line).
+  - So sections D and I are part of this story.
+  - *History:* on the morning of 2026-10-13 the BA found neither acceptance recorded (NAV-005 was only treated as accepted in the QA test plan), which is why the question was asked.
 - **Scope by platform.** Android playback only. iOS (NAV-015) and web clip playback come later, on the same pack format (ADR-0010 §3). **Exception, required by D101:** the NAV-017 web voice text gets the same Mongolian rounding and spoken-form layer in this story (text only, no clips), so the cross-platform golden check (NAV-017 AC 26, R10) keeps passing.
 - **What exists today:**
   - Android voice text: `mobile/android/app/src/main/java/mn/navmn/app/instructions/VoiceText.kt` (digits, NAV-005 AC 32 rounding). Voice selection and output: `voice/VoiceSelection.kt` and `voice/VoiceOutput.kt` (device TTS, chime, A1). Schedule: `voiceplan/VoiceSchedule.kt`.
@@ -89,13 +89,13 @@ Spoken texts are the glossary wording in lower case (the generator compares case
 | Arrival | `instr.arrive`, `.left`, `.right` | «та очих газартаа ирлээ», «таны очих газар зүүн талд байна», «таны очих газар баруун талд байна» | 3 | no (`arrive` is never `{first}`, navigation-ux §4.4) |
 | Tails | `tail.approach` (A11), `tail.continue` (A12) | «очих газартаа хүрнэ», «үргэлжлүүлэн явна уу» | 2 | no |
 | Join | `join.then` (A13) | «дараа нь» | 1 | no |
-| Fixed | `fixed.offRoute`, `fixed.gpsLost`, `fixed.gpsRestored` | «та маршрутаас гарлаа»; GPS prompts «GPS дохио тасарлаа» / «GPS дохио сэргэлээ»: **the spoken form of "GPS" is missing** (Chimege accepts Cyrillic only), see Missing glossary terms | 3 | no |
+| Fixed | `fixed.offRoute`, `fixed.gpsLost`, `fixed.gpsRestored` | «та маршрутаас гарлаа», «жи пи эс дохио тасарлаа», «жи пи эс дохио сэргэлээ». "GPS" is spoken «жи пи эс» (glossary section 7 "GPS (spoken form)", [D231](../decisions.md)). The voice text keeps «GPS дохио тасарлаа» / «GPS дохио сэргэлээ» | 3 | no |
 
-**Totals per voice:** 265 `final` + 39 `nonFinal` = **304 entries**. Until the GPS spoken form exists, the total is 302 (AC 4). ADR-0010's illustrative key `tail.arrive` for A11 is named `tail.approach` here, so that it is not confused with the arrival `instr.arrive`. The architect aligns ADR-0010 decision 2.
+**Totals per voice:** 265 `final` + 39 `nonFinal` = **304 entries** (AC 4). ADR-0010's illustrative key `tail.arrive` for A11 is named `tail.approach` here, so that it is not confused with the arrival `instr.arrive`. The architect aligns ADR-0010 decision 2.
 
-### Missing glossary terms (not invented here; Open question 3)
-1. **Spoken (Cyrillic) form of "GPS"** for `fixed.gpsLost` and `fixed.gpsRestored`. The glossary allows the Latin token "GPS" in the voice **text** (section 7), but the generator cannot send Latin to Chimege, and a spelled-out form is new Mongolian.
-2. **Voice setting labels** (for example a "Voice" row and "Female" / "Male" options). Needed only if the PO chooses a voice setting (Open question 1).
+### Glossary terms
+1. **Spoken (Cyrillic) form of "GPS": added 2026-10-13** as «жи пи эс» (glossary section 7, `needs native review`, [D231](../decisions.md); the PO pre-reviewed and chose it). It is used only in the spoken layer.
+2. **Voice setting labels** (for example a "Voice" row and "Female" / "Male" options): **not needed now.** There is no setting ([D229](../decisions.md)). They are added only if the PO chooses a setting after the NAV-007 panel.
 
 No term is needed for "clip pack", "segment" or "take": they are team-internal and never shown.
 
@@ -107,7 +107,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
    - the result equals the "Segment inventory" table above: same keys, takes and spoken texts
    - two runs on the same commit give byte-identical inventory output (UTF-8, LF, sorted by key then take)
 2. **Given** the inventory, **When** it is checked, **Then**:
-   - every non-distance spoken text equals the Android `mn` resource value for the same phrase, compared case-insensitively. Those resources are already glossary-checked (NAV-005 AC 61).
+   - every non-distance spoken text equals the Android `mn` resource value for the same phrase, compared case-insensitively. Those resources are already glossary-checked (NAV-005 AC 61). The one exception: in `fixed.gpsLost` / `fixed.gpsRestored` the token "GPS" is replaced by the glossary spoken form «жи пи эс» (D231).
    - every distance spoken text equals `spoken_mn` of the same `key` in the TSV, byte for byte
    - the check fails on any difference and names the key
 3. **Given** every spoken text in the inventory, **When** it is scanned, **Then** it has:
@@ -117,7 +117,13 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
    - **0** Avoid terms (NAV-007 AC 16 scan)
    - length **≤ 300** characters
    - only Cyrillic letters (including «ө», «ү», «ё»), spaces and the punctuation allowed by the vendor (the architect lists it from the Chimege documents)
-4. **Given** the glossary has no spoken form for "GPS" yet, **When** the inventory is built, **Then** `fixed.gpsLost` and `fixed.gpsRestored` are left out (302 entries), and those two prompts play the **chime** with their unchanged on-screen text (NAV-005 AC 51–52) even when the pack is valid. **When** the glossary row exists, **Then** both keys are added with that exact spoken form (304 entries) and the chime exception ends. This is the interim behaviour named in Open question 3.
+4. **Given** the glossary row "GPS (spoken form)" «жи пи эс» (section 7, [D231](../decisions.md)), **When** the inventory is built, **Then**:
+   - it has **304** entries per voice
+   - `fixed.gpsLost` has the spoken text «жи пи эс дохио тасарлаа»
+   - `fixed.gpsRestored` has the spoken text «жи пи эс дохио сэргэлээ»
+   - with a valid pack, the GPS lost and restored prompts play from the pack (NAV-005 AC 51–52), and their on-screen text stays «GPS дохио тасарлаа» / «GPS дохио сэргэлээ»
+
+   If the panel revises the row, the spoken texts change with it (AC 5).
 5. **Given** a change to the TSV or to any glossary wording used in the inventory, **When** the inventory is rebuilt, **Then** its `inventorySha256` changes, and an older pack is rejected by the build and by the app (AC 20, AC 46).
 
 ### B. Build-time generator (Chimege)
@@ -169,6 +175,8 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     - `review/review.tsv` with the columns `key`, `take`, `spoken_mn`, `result` (`ok` / `bad`), `note`
     - `review/prompts/`, with the two longest prompts of AC 33 and 20 coverage prompts rendered with the manifest's join rules (AC 21)
 
+    The PO uses these files for the per-segment listen before the first NAV-007 AC 10 session and before any public build ([D230](../decisions.md)). Internal PO builds do not need it.
+
 ### C. Pack format and private artifact
 18. **Given** a pack, **When** `manifest.json` is read, **Then** it holds:
     - `schemaVersion` (1)
@@ -203,7 +211,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     - there is no pause before the first segment or after the last
     - the app, the review renderer (AC 17) and any NAV-007 AC 10 harness use these same rules and values
 
-### D. Voice text generator: segment output, spoken layer and Mongolian rounding (the D95 coordinated change, after Open question 4)
+### D. Voice text generator: segment output, spoken layer and Mongolian rounding (the D95 coordinated change; preconditions met, D232)
 22. **Given** a voice trigger in the Mongolian UI, **When** the Android generator (`VoiceText`) runs, **Then**:
     - it returns, for each prompt, the **display text** (digits, unchanged role: golden set, NAV-005 AC 40), the **spoken text** (C3a, D93) and the ordered list of **segments** (key + take), all from one pure function on the JVM
     - in the English UI it returns the English text unchanged (D96) and an **empty** segment list
@@ -233,12 +241,13 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     | continue on, 995,000 m | no prompt | — | — |
     | `arrive` | «Та очих газартаа ирлээ» | «та очих газартаа ирлээ» | `instr.arrive` |
     | off-route | «Та маршрутаас гарлаа» | «та маршрутаас гарлаа» | `fixed.offRoute` |
+    | GPS lost / restored | «GPS дохио тасарлаа» / «GPS дохио сэргэлээ» | «жи пи эс дохио тасарлаа» / «жи пи эс дохио сэргэлээ» | `fixed.gpsLost` / `fixed.gpsRestored` |
 
     The spoken `cont.km.*` texts are the TSV `spoken_mn` values (QA checks them against the shared fixture). "…" in the table abbreviates only the repeated tail «километр үргэлжлүүлэн явна уу».
 24. **Given** any Mongolian prompt, **When** its spoken text is compared with its segments, **Then** the spoken text equals the segments' spoken texts joined as follows (first letters compared case-insensitively):
     - a space after a distance prefix and after `cont.km.*`
     - «, » before `join.then` and a space after it
-25. **Given** every Mongolian prompt for G1, G2, G5, G8, G9, G10 and the AC 27 fixture, **When** the spoken text is scanned, **Then** it has **0** characters `[0-9]`, and every spoken distance phrase equals a `spoken_mn` value of the TSV (NAV-005 AC 32 pending note, NAV-007 AC 13 last bullet).
+25. **Given** every Mongolian prompt for G1, G2, G5, G8, G9, G10 and the AC 27 fixture, **When** the spoken text is scanned, **Then** it has **0** characters `[0-9]` and **0** Latin letters (so "GPS" is always «жи пи эс», D231), and every spoken distance phrase equals a `spoken_mn` value of the TSV (NAV-005 AC 32 pending note, NAV-007 AC 13 last bullet).
 26. **Given** the voice golden set (QA-owned), **When** it is regenerated for this change, **Then**:
     - the `mn` display texts follow AC 22a–22b
     - it gains a spoken-text column and a segment-list column
@@ -306,7 +315,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     - a stub pack in a `release` / `demo` variant
 
 ### H. Voice choice
-45. **Given** this story, **When** the app is built, **Then** **one** voice is bundled: the one in `nav.voicePackDir`. The default pack for every PO build is **`FEMALE5v2`**. A `MALE4v2` pack is generated by the same command, and an internal build with it is made by pointing `nav.voicePackDir` at it (for the PO and for the NAV-007 AC 10 sessions on both D226 voices). **No** voice setting is shown in the UI, because the UX has no voice setting (navigation-ux §4.5: "no user setting in this slice"). A user setting is Open question 1.
+45. **Given** this story, **When** the app is built, **Then** **one** voice is bundled: the one in `nav.voicePackDir`. The default pack for every PO build is **`FEMALE5v2`**. A `MALE4v2` pack is generated by the same command, and an internal build with it is made by pointing `nav.voicePackDir` at it (for the PO and for the NAV-007 AC 10 sessions on both D226 voices). **No** voice setting is shown in the UI ([D229](../decisions.md)). Whether drivers get a female/male setting is decided after the NAV-007 panel has rated both voices, through a change on this story.
 46. **Given** a pack whose `voiceId` is not `FEMALE5v2` or `MALE4v2`, or whose `inventorySha256` does not match the app, **When** a `release` or `demo` build runs, **Then** it fails (AC 20). A `debug` build plays the fallback (AC 41).
 
 ### I. Web port of the coordinated change (D101; text only, no clips)
@@ -327,7 +336,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 53. **Given** a public build is prepared (any distribution beyond the PO and the team: store, website or outside testers), **When** the release checklist is run, **Then** all of these hold. Until they do, pack builds go only to the PO by direct file transfer (D228, D180) and are never published.
     - `decisions.md` has a D row recording Chimege's written output terms, allowing in-app redistribution and stating the data location (D226, D228)
     - the NAV-007 sign-off record lists the AC 9 device matrix, the AC 10 listening scores on this pack version and voice, and the AC 11 duration evidence (D228)
-    - the native per-segment listen for that pack version is complete with **0** `bad` rows in `review.tsv` (ADR-0010 §4; who listens is Open question 2)
+    - the PO's native per-segment listen for that pack version is complete with **0** `bad` rows in `review.tsv` (ADR-0010 §4, [D230](../decisions.md)). The same listen is also done before the first NAV-007 AC 10 session.
 54. **Given** guidance, **When** prompts play, **Then** no route-derived data leaves the device for voice, because the pack plays locally. At build time the generator sends Chimege **only** inventory spoken texts (glossary wording and numerals, no coordinates, street names or user data).
 
 ### K. Verification
@@ -353,12 +362,12 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
     - the NAV-007 AC 9–11 runs, which are NAV-007's
 
 ## Edge cases
-- **GPS lost / restored:** `fixed.gpsLost` / `fixed.gpsRestored` play from the pack once the spoken form of "GPS" exists. Until then they are a chime plus their on-screen text (AC 4).
+- **GPS lost / restored:** `fixed.gpsLost` / `fixed.gpsRestored` play from the pack, spoken «жи пи эс …» (AC 4, D231). The on-screen text keeps «GPS».
 - **No network:** the pack plays fully offline (AC 37). Generation needs the network only on the build machine.
 - **Off-route:** stops the current prompt and plays `fixed.offRoute` (AC 35). The catch-up prompt after a reroute comes from the pack.
 - **Unpaved roads / countryside:** continue-on prompts to 990 km. At 995 km or more nothing is spoken, and the next manoeuvre's prompts still play (D102).
 - **No route / no result:** no voice prompt exists for these (on-screen only, NAV-005), so the pack is unaffected.
-- **Cyrillic / Latin:** Chimege rejects Latin, so "GPS" needs a Cyrillic spoken form (AC 3, AC 4). Street names are never spoken (C5), so OSM `name` / `name:mn` data cannot reach the pack.
+- **Cyrillic / Latin:** Chimege rejects Latin, so "GPS" is spoken «жи пи эс» (AC 3, AC 4, D231). Street names are never spoken (C5), so OSM `name` / `name:mn` data cannot reach the pack.
 - **Winter:** no specific behaviour. Prompts must stay audible over a heater fan or with windows closed. This is covered by the NAV-007 AC 10 ≥ 70 dB(A) condition, not here.
 - **Phone reports an `mn` TTS voice** (for example a user-installed eSpeak NG): the pack still plays (D80, AC 32).
 - **Pack from an older glossary revision:** the build fails (`release` / `demo`) or the fallback plays (`debug`). Never a pack with stale wording (AC 5, AC 20).
@@ -373,9 +382,8 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 - **`FEMALE3v2` / `FEMALE5v2` may be the same voice (D226):** no impact on this story. It is relevant if the PO wants a second female option later.
 - **Join prosody (D87):** the pre-screen used whole prompts only. The `nonFinal` takes and the pauses are first tested with this pack. If the panel flags broken joins, pauses or takes change through a change on this story. ADR-0010 lists this as a revisit trigger.
 - **Wording churn:** every glossary or TSV change after the NAV-007 panel (including a D92 overrule) means regenerating, re-listening and rebuilding. Batch panel revisions (ADR-0010 Consequences).
-- **Missing GPS spoken form:** the two GPS prompts stay a chime until the glossary row exists (AC 4).
+- **GPS spoken form «жи пи эс»** is `needs native review` (D231). If the panel revises it, the two GPS segments are regenerated.
 - **Encoder padding:** AAC-type codecs add priming samples. AC 15 catches this, and the architect picks a codec and decode path that meets it.
-- **D95 preconditions** are not recorded as met (Context, Open question 4).
 - **OSM data:** none. The voice speaks no street names, `maxspeed` or lanes.
 
 ## Out of scope
@@ -383,11 +391,11 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 - Spoken street names (spike F7), runtime or cloud TTS, on-device models, downloadable packs (ADR-0010 §5 "Later").
 - An English pack: English keeps device TTS (D80, D96).
 - Human voice talent: optional later (D77 b2).
-- A user voice setting or speech-rate setting (Open question 1).
+- A user voice setting (decided after the NAV-007 panel, D229) or a speech-rate setting.
 - Publishing clips anywhere public (D79).
 - Changing the prompt schedule, banner text or notification text (ADR-0010 "Unchanged").
 
-## NAV-005, NAV-017 and NAV-019 behaviour that changes when this ships (those stories are not edited now)
+## NAV-005, NAV-017 and NAV-019 behaviour that changes when this ships (those stories' AC are not edited now; NAV-005 and NAV-017 are `done`, D232)
 - **NAV-005:**
   - AC 32: the pending D92–D96 note comes into force (section D).
   - AC 33: adds the spoken-text scan (AC 25).
@@ -396,7 +404,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
   - AC 40: the generator also returns segments.
   - AC 71: new tests.
   - AC 73: real-phone pack items.
-  - D104: the D91 reference is still to be added after acceptance.
+  - D104: already applied 2026-10-13 (D232). NAV-005 has the D91 reference and the D102 line in its AC 32 note.
 - **NAV-017:** the voice text port follows AC 22a–22c and the spoken layer (AC 47–48). The golden check uses the regenerated set. No clips are added (D75).
 - **NAV-019:** the `demo` build bundles the pack (AC 50). The PO hears the Mongolian voice instead of the chime plus A1.
 - **NAV-007:** no AC change. AC 10 (a) and AC 11 (clip pack) run on this pack. AC 13's last bullet becomes applicable.
@@ -415,30 +423,32 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 6. How a NAV-007 AC 10 harness reuses the manifest and join rules (AC 21).
 
 ## Open questions
-1. **Voice choice for drivers.** The PO picked a female and a male candidate (D226), and the UX has no voice setting. Options:
+**None open.** All five were decided by the PO on 2026-10-13 ("All as recommended", relayed by the orchestrator) as the BA recommendation: Q1 → [D229](../decisions.md), Q2 → [D230](../decisions.md), Q3 → [D231](../decisions.md), Q4 → [D232](../decisions.md), Q5 → [D233](../decisions.md). The questions are kept below as asked.
+
+1. **Voice choice for drivers. Decided: (c), [D229](../decisions.md).** The PO picked a female and a male candidate (D226), and the UX has no voice setting. Options:
    - (a) bundle `FEMALE5v2` only, no setting
    - (b) bundle both voices with a setting (about +1.3 MB; needs glossary rows and a UX spec)
    - (c) ship `FEMALE5v2` now, and decide between (a) and (b) after the NAV-007 panel has rated both voices (AC 10)
 
    **BA recommendation: (c).** It keeps the APK small and adds no unreviewed strings now, and the panel result shows whether a second voice is worth a setting.
-2. **Who does the native per-segment listen** (ADR-0010 §4: "every segment is checked by a native listener before a pack is released"), and when. Options:
+2. **Who does the native per-segment listen. Decided: (b), [D230](../decisions.md)** (ADR-0010 §4: "every segment is checked by a native listener before a pack is released"), and when. Options:
    - (a) the PO, before every internal build
    - (b) the PO, before the first NAV-007 AC 10 session and before any public build, not for internal PO builds
    - (c) a NAV-007 panel member, before any public build
 
    **BA recommendation: (b),** using the generator's review page (AC 17). About 304 clips take roughly 30–40 minutes per voice (estimate), and internal builds are themselves listening checks.
-3. **Spoken form of "GPS"** (missing glossary term), for the two GPS prompts. Options:
+3. **Spoken form of "GPS". Decided: (a) «жи пи эс», glossary row added, [D231](../decisions.md).** Asked as a missing glossary term for the two GPS prompts. Options:
    - (a) «жи пи эс»
    - (b) «жи пи ес»
    - (c) no GPS segment: those two prompts stay a chime with their on-screen text
 
    Any wording starts `needs native review`, the PO pre-reviews it and the NAV-007 panel decides (AC 10 checks "GPS"). **BA recommendation: the PO pre-reviews (a) and (b), and the chosen one is added as a glossary row; until then (c) applies (AC 4).**
-4. **D95 preconditions.** NAV-005 acceptance and "NAV-017 finished" are not recorded (Context). Options:
+4. **D95 preconditions. Decided: (a), [D232](../decisions.md); NAV-005 and NAV-017 are `done`, and D104 is applied.** NAV-005 acceptance and "NAV-017 finished" are not recorded (Context). Options:
    - (a) the PO confirms now that NAV-005 is accepted and NAV-017 is finished. The coordinated change (sections D and I) is built in this story. The BA then records the acceptance and applies D104.
    - (b) build sections A–C and E–H first with the stub segment lists, and start sections D and I only after the PO records both acceptances
 
    **BA recommendation: (a)** if the PO is content with both (QA already treats NAV-005 as accepted since 2026-10-01, and NAV-017's fix round passed). Under (b) the player cannot be tested end to end, because segment output and the rounding are one change (ADR-0010 decision 2).
-5. **Priority / class.** The triage proposal is P1 / standard (F5 row). The PO's "Just go forward" (D228) started the story but did not set the class. **BA recommendation: P1 / standard** (MoSCoW must: D91 makes NAV-016 a gate for the NAV-005 external release).
+5. **Priority / class. Decided: P1 / standard, [D233](../decisions.md).** The triage proposal is P1 / standard (F5 row). The PO's "Just go forward" (D228) started the story but did not set the class. **BA recommendation: P1 / standard** (MoSCoW must: D91 makes NAV-016 a gate for the NAV-005 external release).
 
 ## Traceability
 | AC | Screen spec | API operation | Code | Test | Issues |
@@ -450,7 +460,7 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 | AC 27–30 (domain, duration) | navigation-ux §4.7 | none | — | JVM domain test and duration check | NAV-007 AC 11 |
 | AC 31–40 (playback) | navigation-ux §4.5, §4.6, §12.5, §12.6 | none | `voice/` (pack player, selection) | Robolectric with fake clock and fake TTS; PO phone check (AC 56) | D80 |
 | AC 41–44 (fallback) | navigation-ux §4.6, §4.8 | none | `voice/` | corruption tests | NAV-005 AC 39 |
-| AC 45–46 (voice choice) | — | none | Gradle property | build tests | D226, Open question 1 |
+| AC 45–46 (voice choice) | — | none | Gradle property | build tests | D226, D229 |
 | AC 47–49 (web port) | navigation-ux §11.5 | none | `web/src/guidance/voiceText.ts` | web unit tests, NAV-017 golden check | D101 |
 | AC 50–54 (builds, gates, privacy) | — | none (`openapi.yaml` unchanged) | Gradle variants | APK size and scan tests, release checklist | D228, D17, D91 |
 | AC 55–57 (verification) | — | — | — | QA report, PO phone check | D108 |
@@ -459,3 +469,4 @@ No term is needed for "clip pack", "segment" or "take": they are team-internal a
 | Date | Issue | Change | Why |
 |---|---|---|---|
 | 2026-10-13 | Spike follow-up F5 (triage log 2026-10-01, F5 row); PO "Just go forward" 2026-10-13 ([D228](../decisions.md)) after [D226](../decisions.md)/[D227](../decisions.md) | Created from the draft backlog row. Status `ready`. AC 1–57 (with 22a–22c) in sections A–K: segment inventory (304 entries per voice), Chimege build-time generator with stub and fake server, private pack (D79) via `nav.voicePackDir`, the D95 coordinated change (Android rounding, spoken layer, segment output, web text port, golden set), domain and duration checks, gapless Android playback, chime plus A1 fallback, a single bundled voice (`FEMALE5v2` default), release gates. Five open questions for the PO; six architect design questions; missing glossary terms listed (spoken "GPS", voice setting labels) | D228 starts NAV-016 now: the AC 9 gate is waived for building and F4 is met by D226/D227. ADR-0010 is accepted in this lane |
+| 2026-10-13 | PO "All as recommended" in chat to Open questions 1–5 ([D229–D233](../decisions.md), relayed by the orchestrator) | **Open questions:** all five marked decided. **Frontmatter:** priority P1 / standard confirmed (D233). **Context:** the D95 preconditions are met (D232: NAV-005 accepted, NAV-017 finished, D104 applied), so sections D and I are in scope; section D heading updated. **Inventory:** the fixed GPS segments are spoken «жи пи эс дохио тасарлаа» / «жи пи эс дохио сэргэлээ» (new glossary row "GPS (spoken form)", D231); 304 entries per voice with no interim count; "Missing glossary terms" became "Glossary terms". **AC 2:** GPS exception to the resource match. **AC 4:** rewritten: the GPS prompts play from the pack, the on-screen text keeps «GPS», and the interim chime is removed. **AC 23:** GPS row added. **AC 25:** 0 Latin letters in spoken text. **AC 17, AC 53:** the PO does the per-segment listen before the first AC 10 session and before any public build (D230). **AC 45:** no voice setting, decided after the panel (D229). Edge cases, risks, Out of scope, the NAV-005 change list (D104 applied) and Traceability updated. No other AC changed | The PO accepted every BA recommendation |
