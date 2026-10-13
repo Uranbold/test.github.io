@@ -11,6 +11,7 @@
 - **Clarifications** (none changes the format or `schemaVersion`):
   - 2026-10-13, after the integration review: §8.1 says which check owns which fault (V2/V3/V4/V8), the integer and control-character reading rules, the generator-only `UNLISTED_FILE` check, and the `debug` rule for V7.
   - 2026-10-13, security VP-4/VP-5 and QA follow-ups: §8.2 adds file-type, location and size rules for pack files, checked in V2 and V9 with the new reason code `FILE_INVALID` (a validation change, not a manifest change, so `schemaVersion` stays 1). §8.3 marks packs built against a fake server as `source.vendor` = `stub`.
+  - 2026-10-13, backend fix round (MALE4v2 run): §4 states that `silenceThresholdDbfs` is a level of the delivered (post-gain) clip, and defines windows and active-speech RMS exactly. §4 lets a **peak-limited** clip sit up to 3 dB below the pack median instead of 2 dB (the only relaxation; every pack that passed before still passes, and the processing parameters and manifest bytes are unchanged). §8.2 states the codes for a file that changes size between V9 and V10, and for an empty or missing `clips/`.
 
 Key words: **must** = required for a valid pack or a conforming client.
 
@@ -83,18 +84,31 @@ Same cache contents + same inventory + same voice + same options + the same gene
 ## 4. Clip audio (NAV-016 AC 14, AC 15)
 - **Codec:** AAC-LC, mono, raw **ADTS** stream (`.aac`) at `codec.sampleRateHz` (default 22,050), target `codec.bitrateKbps` (default **24**). It is encoded by the ffmpeg version pinned in the generator image, with bit-exact flags and no metadata. The encoder's priming is `codec.encoderDelayFrames` (1,024 for the ffmpeg `aac` encoder, measured 2026-10-13: ADTS output has exactly `ceil((frames + 1024) / 1024)` access units, and the decoded onset is shifted by 1,024 frames).
 - **Processing order:** raw vendor WAV → (nonFinal only: cut, ADR-0010 §4.3) → trim → fades → gain → checks → encode. The parameters are recorded in `processing`:
-  - **Trim:** the speech region runs from the first to the last 10 ms window whose RMS is above `silenceThresholdDbfs` (−45). Keep `edgeMarginMs` (5) of the original signal before and after it.
+  - **Level reference (clarified 2026-10-13):** `silenceThresholdDbfs` (−45) is a level of the **delivered** clip, never of the vendor WAV. "Delivered" means the 16-bit PCM after gain and rounding, which is the PCM that is encoded. Every comparison with the threshold uses that level:
+    - the trim's speech region;
+    - the windows that make up the active-speech RMS, both for setting the gain and for the checks;
+    - the edge-silence check and the internal-silence check.
+
+    Before the gain is applied, the generator therefore compares the signal with `silenceThresholdDbfs − G`, where `G` is the clip's gain in dB. The region depends on `G`, and `G` depends on the region. So the generator starts with `G` = 0 and repeats trim → fades → gain until the region is unchanged and `G` changes by less than 0.01 dB, for at most 8 rounds. The last round's region and gain are delivered, and the checks then run on the delivered PCM. The samples are trimmed, faded and gained once each, in that order. (Reason: Chimege delivers about −17 to −10 dBFS active RMS, so `G` is negative. With a raw-level threshold, 50–70 ms of soft word decay would fall below −45 dBFS after the gain and fail the 40 ms edge-silence check.)
+  - **Windows and active RMS:** a window is `floor(rate / 100)` frames (220 at 22,050 Hz). Windows start at the first sample of the signal being measured, and the last window may be shorter. dBFS is relative to 32,768. A window is **active** if its RMS is strictly above the threshold. **Active-speech RMS** = the square root of (the sum of squares over all active windows ÷ their total frame count).
+  - **Trim:** the speech region runs from the first to the last active window. Keep `edgeMarginMs` (5) of the original signal before and after it.
   - **Fades:** linear `fadeMs` (10) fade-in at the first sample and fade-out at the last sample.
-  - **Gain:** one gain per clip, so that the active-speech RMS (the RMS over the 10 ms windows above the threshold) reaches `targetRmsDbfs` (−20). The gain is lowered if the peak would exceed `peakCeilingDbfs` (−1). No limiter and no dither: plain round-half-even to 16-bit.
-- **Checks, each failing the run with the key named:**
+  - **Gain:** one gain per clip, so that the active-speech RMS reaches `targetRmsDbfs` (−20). The gain is lowered if the sample peak would exceed `peakCeilingDbfs` (−1). No limiter, no compression and no dither: plain round-half-even to 16-bit.
+- **Checks, each failing the run with the key named.** All are measured on the delivered PCM:
   - mono
   - leading and trailing silence ≤ 40 ms
   - peak ≤ −1 dBFS
-  - active RMS within ±2 dB of the pack median
+  - active RMS within the **level band** below
   - 150 ms ≤ duration ≤ 4,000 ms
   - no internal run of windows below the threshold longer than 500 ms
   - decode check (§5) passes with the pinned ffmpeg decoder
   - for a `nonFinal` entry: its file `sha256` differs from the `final` file of the same key
+- **Level band (decided 2026-10-13, backend fix round):**
+  - **Pack median:** the median of the delivered active RMS (dBFS) over **all** entries of the pack, both takes. With an even count it is the mean of the two middle values. Deviation = clip active RMS − pack median.
+  - **Peak-limited clip:** a clip whose delivered sample peak is ≥ `peakCeilingDbfs` − 0.1 dB (≥ −1.1 dBFS) **and** whose delivered active RMS is below `targetRmsDbfs`. This is the case where the ceiling capped the gain. The clip could only get louder through a limiter, which this format forbids. It is determined from the delivered PCM, never from a flag set during processing, so `verify`-style tools and QA can recompute it.
+  - **Rule:** every clip has a deviation ≤ +2 dB. A clip that is not peak-limited has a deviation ≥ −2 dB. A peak-limited clip has a deviation ≥ **−3 dB** (the floor). A peak-limited clip below the floor fails the run with the rule `rms-outlier`, like any other outlier. A near-silent clip with an isolated click reaches the ceiling, but its crest factor puts it far below the floor, so it still fails.
+  - **Reporting:** the run output names every peak-limited clip whose deviation is below −2 dB, with its key, take and deviation, so the PO's listen (D230) can look at it. That output is not a failure.
+  - **Why** (MALE4v2, 2026-10-13): `dist.m.70` `final` has a 21.03 dB crest factor. With the −1 dBFS ceiling it can reach only −22.03 dBFS active RMS, which is −2.03 dB from the median. 13 MALE4v2 clips are peak-limited, and the next worst is −1.48 dB. Lowering `targetRmsDbfs` would change every delivered `FEMALE5v2` clip and invalidate pack v1 (manifest SHA-256 `6023abbe…80b9`) and its listen. A limiter would change the vendor speech and break the "no limiter" rule. Re-synthesising the entry would need changed text or a bypassed cache, and it gives no guarantee of a lower crest factor. This rule only relaxes the old ±2 dB band for clips that cannot be made louder, so every pack that passed before still passes, and `processing` and `schemaVersion` are unchanged.
 - `frames` = the processed PCM length. `encodedFrames` = the number of ADTS access units × 1,024. `durationMs` = round-half-up(`frames` × 1000 / `codec.sampleRateHz`).
 
 ## 5. Trim rule (every decoder, every platform)
@@ -187,6 +201,9 @@ A pack directory is read from a path the builder chooses (`nav.voicePackDir`, `v
 **Where each fault is reported** (same code everywhere, §8.1 order):
 - `manifest.json` absent (no-follow check): V1 `NO_PACK`. Present but a link, not a regular file, or over 1 MiB: V2 `MANIFEST_UNREADABLE`, before it is parsed. Readers read at most cap + 1 bytes.
 - A listed file absent (no-follow check): V9 `FILE_MISSING`. A listed file that is a link, not a regular file, outside `root`, or over 256 KiB, or `clips/` that is a link: V9 `FILE_INVALID`. V9 checks the files in `entries` order and reports the first fault; the total-size cap is checked after every per-file check has passed, still in V9 (`FILE_INVALID`), so V10 never hashes an oversized pack.
+- *Clarified 2026-10-13 (mobile fix round):*
+  - **`clips/` absent or empty:** this is not a fault of `clips/` itself. Every listed file is then absent, so the result is V9 `FILE_MISSING` for the first entry in `entries` order. `clips/` gives V9 `FILE_INVALID` only if it exists and is a link or is not a directory. That check runs before the per-file checks.
+  - **A file that changes between V9 and V10:** V10 reads at most the size V9 recorded + 1 bytes. If the bytes read differ in count from that size (the file grew, shrank or vanished after V9), the result is V9 `FILE_INVALID`, not `FILE_HASH_MISMATCH` or `FILE_MISSING`. The hash is compared only after the count matches. A size change that the Gradle copy sees also gives `FILE_INVALID`. On Android assets this cannot happen in practice, but a bounded read that disagrees with the asset length gives the same code.
 - G1 `UNLISTED_FILE` (generator only) also covers unlisted links in the pack directory.
 
 **Android runtime:** the pack is read from APK assets, which hold only regular file contents written by the Gradle copy. The link and real-path rules are therefore met by construction and are not re-checked at runtime. The size caps **are** checked at runtime (asset length, or a bounded read of at most cap + 1 bytes), with the same codes.
