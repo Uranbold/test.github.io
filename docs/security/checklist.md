@@ -1,6 +1,6 @@
 # Release security checklist (owner: security-engineer)
 
-Status: first version, 2026-10-08 (SP-8, task SEC-4C); gate status added 2026-10-11 after the final security pass on SEC-2 / SEC-4A / SEC-4B / SEC-4C (section "Gate status 2026-10-11" at the end). Threats and finding IDs: `threat-model.md` and `audits/2026-10-07-full-project.md`. Decisions: D212–D215.
+Status: first version, 2026-10-08 (SP-8, task SEC-4C); gate status added 2026-10-11 after the final security pass on SEC-2 / SEC-4A / SEC-4B / SEC-4C (section "Gate status 2026-10-11" at the end); NAV-016 voice clip pack gates C20–C24 added 2026-10-13 (NAV-016 AC 52–53, D79, D180, D228, D230; review `audits/2026-10-13-NAV-016.md`, section "Gate status 2026-10-13 (NAV-016)" at the end). Threats and finding IDs: `threat-model.md` and `audits/2026-10-07-full-project.md`. Decisions: D212–D215.
 
 How to use it:
 - Three gates: **A** at every story's Verify stage, **B** before the first staging deploy (and re-run on any new host), **C** before the first public release (and every public release after it).
@@ -69,6 +69,11 @@ Owners: BE `backend-engineer`, MO `mobile-engineer`, AR `architect`, QA `qa-engi
 | C17 | Incident-response runbook reviewed by the PO; key inventory current | SE, PO | `incident-response.md` reviewed date |
 | C18 | Re-run the audit's "Not verified" items on the real host and release build (image scans, merged manifest, R8 output, response headers, GitHub settings) | SE | New audit report under `audits/` |
 | C19 | Agent least privilege (SP-6) decided by the PO | PO | Decision row; if (a), `.claude/settings.json` deny rules exist |
+| C20 | **Voice pack, NAV-016 AC 53 gate 1: Chimege written output terms.** A `decisions.md` D row records the vendor's written terms. They allow in-app redistribution of the clips and state the data location (D226, D228). Until C20–C22 all pass, **no build with a pack goes beyond the PO** (C23) | PO, BA | The D row exists, and quotes the date and where the signed terms are kept (not in the repo, D46); counsel question 1 of `audits/2026-10-13-NAV-016.md` answered |
+| C21 | **Voice pack, AC 53 gate 2: NAV-007 sign-off for this exact pack.** The record lists the AC 9 device matrix, the AC 10 listening scores and the AC 11 duration evidence for the **same** (`voiceId`, `packVersion`, manifest SHA-256) as the release build (D228) | QA, PO | Sign-off record in `docs/qa/`; its triple equals the one `make -C backend voice-pack-verify DIR=<pack>` prints and the `assets/voicepack/manifest.json` SHA-256 inside the release APK (`unzip -p app-release.apk assets/voicepack/manifest.json \| sha256sum`) |
+| C22 | **Voice pack, AC 53 gate 3: the PO's native per-segment listen for this exact pack** is complete (ADR-0010 §4, D230): every row of `review/review.tsv` has a result and **0** rows are `bad`. The same listen was done before the first NAV-007 AC 10 session | PO | Row count of `review.tsv` = manifest entry count; `awk -F'\t' 'NR>1 && $4!="ok"' review.tsv` prints nothing; the listened pack's manifest SHA-256 equals the APK's (C21). This is also the only control that tells real vendor audio from a fake-server or placeholder pack labelled with the vendor (VP-5) |
+| C23 | **Voice pack custody until C20–C22 pass (D79, D180, D228):** APKs with a pack go to the PO only, by direct file transfer; never to a store, a website, GitHub Releases or CI artifacts, or to outside testers. No clip, pack manifest or review file in git (AC 19); CI never calls the vendor | OR, PO, SE | Repo-wide scan: `git ls-files \| grep -iE '\.(wav\|m4a\|aac\|mp3\|ogg\|opus\|flac)$'` → only the chime path, if any; no tracked `manifest.json` containing `inventorySha256`; no `review/index.html`; `.github/workflows/` has no generator step; the release notes name the recipients |
+| C24 | **Voice pack token:** `CHIMEGE_API_TOKEN` and its value appear **0** times in the repo, its history, the APK and the Gradle configuration (AC 8, AC 52). The token was rotated after every exposure: the 2026-10-13 chat exposure (VP-8) must be rotated **before the first real pack is built**. The token is never pasted into a chat, an issue or a file | PO, SE | PO confirms the new token and the revocation of the old one, with a date; `gitleaks detect` on the full history → 0; APK zip scan for the variable name → 0; `make -C backend voice-pack-test` sentinel test passes |
 
 ## Gate status 2026-10-11
 
@@ -110,3 +115,24 @@ From the re-check in `audits/2026-10-07-full-project.md` (section "Re-check 2026
 
 
 **Gate C** (public release), only the items whose state changed: C3 route limits met in the repo (UI text check by QA/BA still needed); C8 met in the repo (re-run on the release build); C9 partly (CSP meta verified in all three builds on 2026-10-11; web-root headers are a PO action); C13 and C16 met on the working branch but **not on the default branch** (GitHub serves `SECURITY.md` and issue forms from `master`); C10 not met (open medium findings: BE-3 residual, BE-6, SP-3, SP-4, SP-5 until merged, SP-6, SP-7, SP-10, SP-11, WS-1; high: SP-2). Every other gate C item is unchanged and open.
+
+## Gate status 2026-10-13 (NAV-016)
+
+From the NAV-016 Verify review, `audits/2026-10-13-NAV-016.md` (base `653db4d`, head `4a64023`). Findings: medium 1 (VP-8), low 5 (VP-1 to VP-5), info 5. Nothing critical or high, so the story is not blocked. VP-8 blocks gate C through C24.
+
+**Gate A** for NAV-016:
+
+| # | Status |
+|---|---|
+| A1 | Met: threat model updated 2026-10-13 (AS7, AS9, TB10, rows 7.4, 8.8, 10.1–10.7) |
+| A2 | Partly: regex scan of the diff plus a token-prefix search of the tree, every ref and every git object → 0; `gitleaks` not installed |
+| A3 | Met: only loopback, `.invalid` and the public vendor API URL |
+| A4 | Met: `CHIMEGE_API_TOKEN=`, `NAV_VOICE_PACK_OUT=`, `NAV_VOICE_PACK_CACHE=` in `backend/.env.example`, all empty |
+| A5 | Met: pip hashes equal PyPI's, image digests equal Docker Hub's, OSV clean for the six Python packages and `androidx.test:runner:1.5.0`, runner pins equal Google Maven's |
+| A6 | Met: pack reason codes only in debug logs; generator logs hold no coordinates or token (sentinel test) |
+| A7 | Met: no Android manifest change |
+| A8 | Not applicable: no HTTP operation added (`openapi.yaml` unchanged) |
+| A9 | Not checked by the security-engineer (glossary is a BA item) |
+| A10 | Met: findings recorded in the NAV-016 review |
+
+**Gate C** voice pack items: C20, C21 and C22 are open (they are the AC 53 gates). C23 is met in the repo (no audio or pack file on any ref, CI never calls the vendor; VP-3 asks for repo-wide prevention). C24 is **open** until the PO confirms the token rotation (VP-8).

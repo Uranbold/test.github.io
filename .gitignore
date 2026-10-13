@@ -15,3 +15,12 @@ local.properties
 *.aab
 *.pmtiles
 crash-*.txt
+
+# Voice clip audio (NAV-016, D79): never commit vendor audio
+*.aac
+*.m4a
+*.wav
+*.opus
+*.ogg
+*.flac
+*.mp3
