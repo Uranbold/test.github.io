@@ -132,6 +132,7 @@ class DemoHarness(
             locationJob?.cancel()
             if (e == GuidanceEvent.Ended) tickJob?.cancel()
         },
+        voiceInventory = mn.navmn.app.support.TestVoice.inventory,
     )
 
     init {

@@ -269,7 +269,8 @@ class VoiceSchedulerTest {
         assertEquals(listOf(2_400.0, 500.0), heard.map { it.first })
         assertEquals(PromptKind.CATCH_UP, heard[0].second.kind)
         assertTrue(heard[0].second.content is VoiceContent.ContinueOn)
-        assertEquals("2,4 километр үргэлжлүүлэн явна уу", VoiceText.render(heard[0].second.content, Lang.MN, mn))
+        // NAV-016 D94: whole km in the Mongolian continue-on («2,4 километр …» before NAV-016).
+        assertEquals("2 километр үргэлжлүүлэн явна уу", VoiceText.render(heard[0].second.content, Lang.MN, mn))
         assertEquals("500 метрт очих газартаа хүрнэ", VoiceText.render(heard[1].second.content, Lang.MN, mn))
     }
 }

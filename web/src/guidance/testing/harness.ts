@@ -116,14 +116,26 @@ export interface GoldenRow {
   tS: number;
   maneuver: string;
   text: string;
+  /** NAV-016 AC 26: the spoken text and the segment tokens (pack-format §7, "-" for none); absent in a pre-NAV-016 set. */
+  spoken?: string;
+  segments?: string;
 }
 
+/**
+ * The QA voice golden set. NAV_VOICE_GOLDEN (a path) points the check at a candidate file instead, e.g. the one the
+ * Android golden writer leaves in mobile/android/app/build/reports/voice/ before QA regenerates the committed set.
+ */
 export function goldenRows(): GoldenRow[] {
-  return readRepo("tests/gpx/nav005/golden/voice-golden.tsv")
+  const override = process.env.NAV_VOICE_GOLDEN;
+  const text = override ? readFileSync(override, "utf8") : readRepo("tests/gpx/nav005/golden/voice-golden.tsv");
+  return text
     .split("\n")
     .filter((l) => l && !l.startsWith("#"))
     .map((l) => {
-      const [track, lang, t, maneuver, text] = l.split("\t");
-      return { track: track!, lang: lang!, tS: Number(t), maneuver: maneuver!, text: text! };
+      const [track, lang, t, maneuver, text, spoken, segments] = l.split("\t");
+      const row: GoldenRow = { track: track!, lang: lang!, tS: Number(t), maneuver: maneuver!, text: text! };
+      if (spoken !== undefined) row.spoken = spoken;
+      if (segments !== undefined) row.segments = segments;
+      return row;
     });
 }

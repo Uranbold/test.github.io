@@ -60,6 +60,19 @@ val configuredPackBase: String? = navSetting("nav.packBaseUrl", "NAV_PACK_BASE_U
 // NAV-019 AC 4 (ADR-0016 §8.3): the NAV-017 route manifest; its picker routes and tracks are copied at build time.
 val demoManifestFile: File = webDir.resolve("src/demo/routes.manifest.json")
 
+// ------------------------------------------------------------------------------------------------ voice pack (NAV-016)
+// M1 (AC 1, 2, 5, 20): the canonical voice inventory (docs/architecture/voice-pack/pack-format.md §2.3) from the BA's
+// spoken table and the architect's inventory file, computed at configuration time (two small files) so its hash can be a
+// BuildConfig field. The same bytes become the asset voice/inventory.tsv (generateVoiceInventory). Rule:
+// navmn.buildlogic.VoiceInventoryBuilder (buildSrc, also run by the JVM tests).
+val voiceDistanceTsv: File = repoRoot.resolve("docs/requirements/glossary-c3-spoken.tsv")
+val voiceInventoryTsv: File = repoRoot.resolve("docs/architecture/voice-pack/inventory.tsv")
+val voiceInventory: navmn.buildlogic.VoiceInventoryBuilder.Inventory = navmn.buildlogic.VoiceInventoryBuilder.build(voiceDistanceTsv, voiceInventoryTsv)
+// M5 (AC 20, 45, 50): the pack to bundle, an unpacked pack directory (…/<voice>-v<n>/pack). Gradle property → environment →
+// the uncommitted gateway.local.properties, like nav.demoTilesFile (D182). Never committed, never downloaded. "none" =
+// build without a pack (debug and demo only). Rule: navmn.buildlogic.VoicePackGuard (buildSrc, also run by the JVM tests).
+val voicePackSetting: String? = navSetting(navmn.buildlogic.VoicePackGuard.PROPERTY, navmn.buildlogic.VoicePackGuard.ENV)
+
 android {
     namespace = "mn.navmn.app"
     compileSdk = 36
@@ -72,6 +85,8 @@ android {
         versionCode = 1
         versionName = "0.1.0-nav005"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // NAV-016 M1 (AC 5, 20, 46): the inventory a bundled voice pack must match (pack-format §2.3).
+        buildConfigField("String", "VOICE_INVENTORY_SHA256", quoted(voiceInventory.sha256))
     }
 
     buildTypes {
@@ -82,6 +97,8 @@ android {
             buildConfigField("boolean", "DEBUG_LOGS", "true")
             // B-NAV019-01: the last crash's stack trace is stored app-private and shown on the next launch (no adb needed).
             buildConfigField("boolean", "CRASH_DIAGNOSTICS", "true")
+            // NAV-016 AC 50: a pack is optional in debug builds (stub packs allowed).
+            buildConfigField("String", "VOICE_PACK_POLICY", quoted("OPTIONAL"))
         }
         release {
             // Not minified in this slice (no store upload, D17); R8 rules for JNA/UniFFI come with NAV-012.
@@ -90,6 +107,8 @@ android {
             buildConfigField("String", "PACK_BASE_URL", quoted(configuredPackBase.orEmpty())) // NAV-022 P14
             buildConfigField("boolean", "DEBUG_LOGS", "false")
             buildConfigField("boolean", "CRASH_DIAGNOSTICS", "false")
+            // NAV-016 AC 50: release and demo builds accept only a real pack (pack-format §8 V5, V6).
+            buildConfigField("String", "VOICE_PACK_POLICY", quoted("REQUIRED_REAL"))
         }
         // NAV-019 (ADR-0016 §2): the demo build for the PO's phone. Installs next to the debug app (.demo), signed with the
         // local debug key (nothing signing-related is committed), not debuggable, not minified (ADR-0013 B-A8 still open).
@@ -145,6 +164,8 @@ android {
         localeFilters += listOf("mn", "en")
         // NAV-019 (ADR-0016 §8.3): the bundled demo archive stays uncompressed (streamed copy, known length).
         noCompress += "pmtiles"
+        // NAV-016 (ADR-0010 §3.3): voice clips are already compressed; stored as they are (also on aapt's default list).
+        noCompress += "aac"
     }
 
     testOptions {
@@ -381,6 +402,69 @@ val syncDemoAssets by tasks.registering(SyncDemoAssets::class) {
     dependsOn(checkDemoTiles)
 }
 
+/**
+ * NAV-016 M1: the asset voice/inventory.tsv, exactly the canonical inventory bytes of pack-format §2.3 (the app parses it
+ * with VoiceInventory; its hash equals BuildConfig.VOICE_INVENTORY_SHA256, checked by VoiceInventoryTest).
+ */
+abstract class GenerateVoiceInventory : DefaultTask() {
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val distanceTsv: RegularFileProperty
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val inventoryTsv: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val inv = navmn.buildlogic.VoiceInventoryBuilder.build(distanceTsv.get().asFile, inventoryTsv.get().asFile)
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        out.resolve("voice").mkdirs()
+        out.resolve("voice/inventory.tsv").writeBytes(inv.bytes)
+    }
+}
+
+val generateVoiceInventory by tasks.registering(GenerateVoiceInventory::class) {
+    group = "build"
+    description = "Writes the canonical voice inventory asset voice/inventory.tsv (NAV-016 M1, pack-format §2.3)"
+    distanceTsv.set(voiceDistanceTsv)
+    inventoryTsv.set(voiceInventoryTsv)
+    outputDir.set(layout.buildDirectory.dir("generated/voiceInventory"))
+}
+
+/**
+ * NAV-016 M5 (AC 20, 45, 46, 50): checks the pack named by nav.voicePackDir (pack-format §8 V1–V10 plus the variant
+ * policy, navmn.buildlogic.VoicePackGuard) and copies only manifest.json and the listed clips into the generated asset
+ * folder voicepack/. No pack (debug, or demo with "none"): an empty folder, so the app plays the fallback. Never
+ * downloads anything. Every failure names nav.voicePackDir and the first failed check.
+ */
+abstract class BundleVoicePack : DefaultTask() {
+    @get:Input abstract val policy: Property<String>
+    @get:Input @get:Optional abstract val setting: Property<String>
+    @get:Input abstract val compiledInventorySha256: Property<String>
+    /** The pack files, so that a changed pack re-runs the check (empty when no directory is configured). */
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val packFiles: ConfigurableFileCollection
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun bundle() {
+        val result = navmn.buildlogic.VoicePackGuard.check(
+            setting.orNull,
+            navmn.buildlogic.VoicePackGuard.Policy.valueOf(policy.get()),
+            compiledInventorySha256.get(),
+        )
+        if (result.problem != null) throw GradleException(result.problem)
+        result.warning?.let { logger.warn(it) }
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        val target = out.resolve("voicepack").apply { mkdirs() }
+        for (rel in result.files) result.dir.resolve(rel).copyTo(target.resolve(rel), overwrite = true)
+        if (result.files.isNotEmpty()) logger.lifecycle("NAV-016: bundled voice pack ${result.dir} (${result.files.size - 1} clips)")
+    }
+}
+
+val voicePackDirFiles: FileCollection = files(
+    voicePackSetting?.takeIf { it != navmn.buildlogic.VoicePackGuard.NONE }?.let { File(it) }?.takeIf { it.isAbsolute && it.isDirectory }
+        ?.let { fileTree(it) } ?: emptyList<File>(),
+)
+
 // NAV-019 review housekeeping (ADR-0016 known gap 8) with the NAV-019 bug-lane regression test kept runnable
 // (NAV-005 test plan §8 Q9, option a). Without nav.demoTilesFile the demo build type has no unit-test variant, so
 // ./gradlew test, check and build work with no demo properties (the replay code is tested in testDebugUnitTest). With
@@ -592,6 +676,21 @@ androidComponents {
         variant.sources.java?.addGeneratedSourceDirectory(generateTokenColours, GenerateTokenColours::outputDir)
         variant.sources.assets?.addGeneratedSourceDirectory(syncBasemapAssets, SyncBasemapAssets::outputDir)
     }
+    // NAV-016 M1/M5: every variant gets the inventory asset and its voicepack/ folder (empty without a pack).
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(generateVoiceInventory, GenerateVoiceInventory::outputDir)
+        val buildType = variant.buildType ?: "release"
+        val bundle = tasks.register<BundleVoicePack>("bundleVoicePack${variant.name.replaceFirstChar { it.uppercase() }}") {
+            group = "build"
+            description = "Checks nav.voicePackDir and bundles the voice pack into the ${variant.name} assets (NAV-016 AC 20, 50)"
+            policy.set(navmn.buildlogic.VoicePackGuard.policyFor(buildType).name)
+            voicePackSetting?.let { setting.set(it) }
+            compiledInventorySha256.set(voiceInventory.sha256)
+            packFiles.from(voicePackDirFiles)
+            outputDir.set(layout.buildDirectory.dir("generated/voicePack/${variant.name}"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(bundle, BundleVoicePack::outputDir)
+    }
     // NAV-019 AC 4–5: only the demo build type gets the demo assets; debug and release never see them.
     onVariants(selector().withBuildType("demo")) { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(syncDemoAssets, SyncDemoAssets::outputDir)
@@ -610,6 +709,10 @@ val syncSharedTestResources by tasks.registering(Sync::class) {
     into(sharedTestResourcesDir)
 }
 android.sourceSets.getByName("test").resources.srcDir(sharedTestResourcesDir)
+// NAV-016 M1: the generated inventory asset is also on the unit-test classpath (/voice/inventory.tsv).
+android.sourceSets.getByName("test").resources.srcDir(layout.buildDirectory.dir("generated/voiceInventory"))
+tasks.matching { it.name.startsWith("process") && it.name.endsWith("UnitTestJavaRes") }
+    .configureEach { dependsOn(generateVoiceInventory) }
 tasks.matching { it.name.startsWith("process") && it.name.endsWith("UnitTestJavaRes") }
     .configureEach { dependsOn(syncSharedTestResources) }
 
@@ -667,6 +770,9 @@ tasks.withType<Test>().configureEach {
     systemProperty("jna.library.path", hostFerrostarCache.resolve(ferrostarVersion).absolutePath)
     systemProperty("nav.hostFerrostar", hostFerrostarMode)
     systemProperty("nav.repoRoot", repoRoot.absolutePath)
+    // NAV-016: the configured voice pack (VoiceDurationCheck, the QA interop test) and where the voice reports go.
+    systemProperty("nav.voicePackDir", voicePackSetting.orEmpty())
+    systemProperty("nav.voiceReportDir", layout.buildDirectory.dir("reports/voice").get().asFile.absolutePath)
     // Opt-in live checks against the dev gateway (LiveGatewayTest), e.g. -Pnav.liveGateway=http://127.0.0.1:8080
     systemProperty("nav.liveGateway", providers.gradleProperty("nav.liveGateway").orNull ?: "")
     // Robolectric downloads android-all from Maven Central; use Google's mirror (ADR-0009 F12).
@@ -676,6 +782,27 @@ tasks.withType<Test>().configureEach {
         events("failed", "skipped")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
+}
+
+// NAV-016 M4 (AC 29): demo and release builds with a pack fail when any prompt of the generator domain is too long
+// (single > 5,000 ms, chained > 8,000 ms; Σ durationMs + pauses from the bundled manifest). The check is the JVM test
+// VoiceDurationCheck (the same code testDebugUnitTest runs against the stub manifest), run here on the real pack with
+// enforcement on. Not wired without a pack ("none" in demo): then nothing is spoken from a pack.
+val checkVoicePackDurations by tasks.registering(Test::class) {
+    group = "verification"
+    description = "Fails when a prompt from the bundled voice pack exceeds the NAV-007 AC 11 limits (NAV-016 AC 29)"
+    val unit = tasks.named<Test>("testDebugUnitTest")
+    testClassesDirs = files(unit.map { it.testClassesDirs })
+    classpath = files(unit.map { it.classpath })
+    filter {
+        includeTestsMatching("mn.navmn.app.voice.VoiceDurationCheck")
+        isFailOnNoMatchingTests = true
+    }
+    systemProperty("nav.voiceDurationEnforce", "true")
+    outputs.upToDateWhen { false }
+}
+if (!voicePackSetting.isNullOrBlank() && voicePackSetting != navmn.buildlogic.VoicePackGuard.NONE) {
+    tasks.matching { it.name == "preDemoBuild" || it.name == "preReleaseBuild" }.configureEach { dependsOn(checkVoicePackDurations) }
 }
 
 // ------------------------------------------------------------------------------------------------ dependency locking (SEC-4B)
@@ -732,4 +859,8 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
     // Desktop JNA (with the linux/macOS dispatch library) for the host Ferrostar core; the AAR variant has none.
     testRuntimeOnly(libs.jna.jvm)
+    // NAV-016 M7: ClipDecoderInstrumentedTest (real MediaCodec on an emulator or device; needs QA's stub clips).
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

@@ -10,8 +10,8 @@ const t = (lang: Lang) => {
   const i = new I18n(lang);
   return (k: Parameters<I18n["t"]>[0]) => i.t(k, lang);
 };
-const m = (c: VoiceContent) => renderVoice(c, "mn", t("mn"));
-const e = (c: VoiceContent) => renderVoice(c, "en", t("en"));
+const m = (c: VoiceContent) => renderVoice(c, "mn", t("mn")) ?? "(no prompt)";
+const e = (c: VoiceContent) => renderVoice(c, "en", t("en")) ?? "(no prompt)";
 const k = (type: string, modifier?: string, exit?: number, bearing?: number): KeyResult => maneuverKey({ type, modifier, exit, bearing_after: bearing });
 const man = (key: KeyResult, d: number, then: KeyResult | null = null): VoiceContent => ({ kind: "maneuver", key, distanceM: d, then });
 
@@ -35,7 +35,8 @@ describe("NAV-017 AC 24 voice text (NAV-005 AC 32 examples)", () => {
       [260, "250 метрт баруун тийш эргэнэ үү"],
       [995, "1 километрт баруун тийш эргэнэ үү"],
       [2010, "2 километрт баруун тийш эргэнэ үү"],
-      [9940, "9,9 километрт баруун тийш эргэнэ үү"],
+      // NAV-016 D92: the Mongolian voice km prefix is 1, 1,5 or whole km (English keeps one decimal, D96).
+      [9940, "10 километрт баруун тийш эргэнэ үү"],
       [9950, "10 километрт баруун тийш эргэнэ үү"],
       [12_400, "12 километрт баруун тийш эргэнэ үү"],
     ];
@@ -68,7 +69,8 @@ describe("NAV-017 AC 24 voice text (NAV-005 AC 32 examples)", () => {
     expect(m({ kind: "depart", key: k("depart", undefined, undefined, 0), then: null })).toBe("Хойд зүг рүү явна уу");
     expect(m({ kind: "approaching", distanceM: 310 })).toBe("300 метрт очих газартаа хүрнэ");
     expect(m({ kind: "continueOn", distanceM: 12_300 })).toBe("12 километр үргэлжлүүлэн явна уу");
-    expect(m({ kind: "continueOn", distanceM: 2_480 })).toBe("2,5 километр үргэлжлүүлэн явна уу");
+    // NAV-016 D94 (AC 23): whole km for the Mongolian continue-on below 99,500 m (before NAV-016 «2,5 километр …»).
+    expect(m({ kind: "continueOn", distanceM: 2_480 })).toBe("2 километр үргэлжлүүлэн явна уу");
     expect(m(man(k("roundabout", undefined, 2), 200, k("turn", "slight right")))).toBe(
       "200 метрт тойрогт ороод хоёрдугаар гарцаар гарна уу, дараа нь бага зэрэг баруун тийш эргэнэ үү",
     );

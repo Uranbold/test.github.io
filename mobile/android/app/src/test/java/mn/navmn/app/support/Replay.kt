@@ -195,6 +195,7 @@ class Replay(
         log = DebugLog { log += it },
         onDeviceAvailable = onDeviceAvailable,
         onNewRoute = { newRoutes += it },
+        voiceInventory = TestVoice.inventory,
     )
 
     fun bannerText(b: Banner, l: Lang): String {

@@ -797,3 +797,69 @@ Run it with the §3 checks after a dependency change.
   not changed since; they do not prove that the publishers' builds were trustworthy (PGP signature verification is out
   of scope). The single-maintainer and small-team risk in 11.4 is documented, not removed.
 - **`aapt2` on macOS and Windows** is not pinned yet (11.2, "Other operating systems").
+
+## 12. Voice pack (NAV-016)
+
+Mongolian voice prompts play from a pre-generated clip pack (ADR-0010; contract
+`docs/architecture/voice-pack/pack-format.md`). English keeps device TTS. Without a valid pack, Mongolian prompts are the
+chime and the A1 notice shows once per session. The pack is a private build artefact (D79): it is never committed,
+never downloaded, and the app never needs the vendor token.
+
+### 12.1 Bundling a pack: `nav.voicePackDir`
+
+The property points at an unpacked pack directory, the `pack/` folder the generator writes
+(`<out>/<voice>-v<n>/pack`, with `manifest.json` and `clips/`). Like `nav.demoTilesFile`, it can come from the command
+line, the environment (`NAV_VOICE_PACK_DIR`) or the uncommitted `gateway.local.properties`. Use an absolute path, outside
+the repository or under the git-ignored `mobile/android/voicepack-local/`.
+
+```bash
+# PO build with the FEMALE5v2 pack (D229)
+./gradlew :app:assembleDemo -Pnav.demoTilesFile=<path-to>.pmtiles -Pnav.voicePackDir=<path-to>/FEMALE5v2-v1/pack
+# a debug build with the generator's stub pack
+./gradlew :app:assembleDebug -Pnav.voicePackDir=<path-to>/FEMALE5v2-v1/pack
+# a demo build without a pack (chime + A1)
+./gradlew :app:assembleDemo -Pnav.demoTilesFile=<path-to>.pmtiles -Pnav.voicePackDir=none
+```
+
+| Variant | Pack | Checked by `bundleVoicePack<Variant>` |
+|---|---|---|
+| `debug` | optional; a stub pack is allowed | V1–V10 of pack-format §8. A pack for other glossary wording (V7) is bundled with a warning and the app plays the fallback (AC 46) |
+| `demo` | required and real (`source.vendor` not `stub`, `voiceId` `FEMALE5v2` or `MALE4v2`), unless the value is exactly `none` | V1–V10 + V5, V6 |
+| `release` | required and real; `none` is refused | V1–V10 + V5, V6 |
+
+Every failure names `nav.voicePackDir` and the first failed check (for example `V10 FILE_HASH_MISMATCH`). Only
+`manifest.json` and the clips it lists are copied into the APK assets `voicepack/`; `.aac` is stored uncompressed. With a
+pack, `demo` and `release` builds also run `checkVoicePackDurations` (NAV-016 AC 29: every prompt of the generator
+domain ≤ 5,000 ms single, ≤ 8,000 ms chained, from the pack's `durationMs` plus the manifest pauses).
+
+### 12.2 Code map
+
+| Path | What |
+|---|---|
+| `buildSrc/.../VoiceInventoryBuilder.java` | canonical inventory (pack-format §2.3) → asset `voice/inventory.tsv` and `BuildConfig.VOICE_INVENTORY_SHA256` (task `generateVoiceInventory`) |
+| `buildSrc/.../VoicePackGuard.java`, `MiniJson.java` | build-time pack check and variant policy (tasks `bundleVoicePack<Variant>`) |
+| `instructions/VoiceText.kt` | display text, spoken text and segments; Mongolian km rounding D92/D94/D102 |
+| `voice/pack/VoiceInventory.kt` | the inventory asset; `Take`, `Segment` |
+| `voice/pack/VoicePackValidator.kt`, `VoicePackSource.kt` | runtime V1–V10 at preview open and after a restore (reason codes in the debug log only) |
+| `voice/pack/ClipDecoder.kt` | `MediaCodecClipDecoder` and `ClipTrim` (pack-format §5) |
+| `voice/pack/PromptAssembler.kt`, `PcmSink.kt` | join rules and duration (pack-format §6); one `AudioTrack` per prompt |
+| `voice/VoiceRouting.kt`, `voice/VoiceOutput.kt` | Mongolian = pack or chime (never device TTS), English = TTS or chime |
+
+### 12.3 Tests and reports
+
+- `./gradlew :app:testDebugUnitTest` runs the inventory, voice text, domain, duration, validator, trim, assembler,
+  routing, player (Robolectric, fake decoder) and `VoicePackGuard` tests. The duration check uses a stub manifest at
+  70 ms per character unless `-Pnav.voicePackDir` is set; it writes `app/build/reports/voice/longest-prompts.tsv` (the
+  generator's `render --prompts` input). With the stub manifest it only reports; with a real pack it enforces the limits.
+- QA interop (task breakdown §3.1): `./gradlew :app:testDebugUnitTest -Pnav.voicePackDir=<stub pack>` also runs
+  `VoicePackValidatorTest.interopWithTheGeneratorPack` on the generator's pack.
+- `QaGpxReplayTest.tcR13` writes the voice golden candidate (with the `spoken` and `segments` columns, AC 26) to
+  `app/build/reports/voice/voice-golden.tsv`; QA regenerates the committed set with `QA_UPDATE_GOLDEN=1`.
+- Instrumented (emulator or device, not run in the agent environment):
+  `./gradlew :app:connectedDebugAndroidTest -Pnav.voicePackDir=<stub pack>` runs `ClipDecoderInstrumentedTest` on the
+  real `MediaCodec`.
+
+### 12.4 Not verified in this environment
+
+Real-device playback, join silence and measured durations (AC 33), validation time (AC 39), the instrumented decoder
+test (AC 15 on `MediaCodec`), Bluetooth wake-up clipping, and the PO phone check (AC 56).

@@ -4,6 +4,10 @@
 import { describe, expect, test } from "vitest";
 import type { Lang } from "../i18n/i18n";
 import { goldenRows, parseGpx, readRepo, runReplay } from "./testing/harness";
+import type { Segment } from "./voiceText";
+
+/** pack-format §7 prompt list tokens: `<key>:<take>` separated by spaces, "-" for an empty list. */
+const segmentTokens = (s: readonly Segment[]): string => (s.length === 0 ? "-" : s.map((x) => `${x.key}:${x.take}`).join(" "));
 
 const MANIFEST = JSON.parse(readRepo("tests/gpx/nav005/manifest.json")) as {
   tracks: { id: string; file: string; route: string; mode: "car" | "walk"; also_en?: string }[];
@@ -26,6 +30,11 @@ describe("NAV-017 AC 26 golden parity", () => {
       const got = r.spoken.map((s) => ({ t: s.atMs / 1000, m: String(s.prompt.maneuver?.step ?? "-"), text: s.prompt.text }));
       const want = goldenRows().filter((g) => g.track === id && g.lang === lang);
       expect(got.map((g) => `${g.m}\t${g.text}`)).toEqual(want.map((w) => `${w.maneuver}\t${w.text}`));
+      // NAV-016 AC 48: the web spoken texts (and segment lists) equal the golden columns once the set has them.
+      if (want.every((w) => w.spoken !== undefined)) {
+        const spokenGot = r.spoken.map((s) => `${s.prompt.spoken ?? s.prompt.text}\t${segmentTokens(s.prompt.segments ?? [])}`);
+        expect(spokenGot).toEqual(want.map((w) => `${w.spoken}\t${w.segments}`));
+      }
       for (let i = 0; i < want.length; i++) expect(Math.abs(got[i]!.t - want[i]!.tS), `row ${i} «${want[i]!.text}»`).toBeLessThanOrEqual(2);
       expect(r.arrivals).toBe(1);
     });

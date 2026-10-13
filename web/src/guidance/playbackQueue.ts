@@ -6,13 +6,19 @@
 //  4./6. mute, «Дуусгах», language switch, page hidden: `clear()`.
 import type { Lang } from "../i18n/i18n";
 import { VoiceConstants, type ManeuverRef } from "./voiceSchedule";
+import type { Segment } from "./voiceText";
 
 export type PromptClass = "maneuver" | "arrival";
 
 /** A rendered prompt ready to be spoken (text already in the UI language at trigger time). */
 export interface SpokenPrompt {
   id: number;
+  /** The display text (digits; the golden-set text). */
   text: string;
+  /** NAV-016 AC 47: what speech says (Mongolian: the C3a spoken form). Absent = `text`. */
+  spoken?: string;
+  /** NAV-016 AC 22: the Mongolian segment list (empty in English). Not played on the web (no clips, AC 49). */
+  segments?: Segment[];
   lang: Lang;
   cls: PromptClass;
   maneuver: ManeuverRef | null;

@@ -1,10 +1,15 @@
 package mn.navmn.app.voiceplan
 
 import mn.navmn.app.i18n.Lang
+import mn.navmn.app.voice.pack.Segment
 
 enum class PromptClass { MANEUVER, CLIENT, ARRIVAL }
 
-/** A rendered prompt ready to be spoken (text already in the UI language at trigger time). */
+/**
+ * A rendered prompt ready to be spoken (text already in the UI language at trigger time). [text] is the display text
+ * (digits; golden set). NAV-016: [spoken] is what the voice says (Mongolian: the C3a spoken form) and [segments] the
+ * clip list the pack plays (empty in English).
+ */
 data class SpokenPrompt(
     val id: Long,
     val text: String,
@@ -12,6 +17,8 @@ data class SpokenPrompt(
     val cls: PromptClass,
     val maneuver: Pair<Int, Int>?,
     val triggerAtMs: Long,
+    val spoken: String = text,
+    val segments: List<Segment> = emptyList(),
 )
 
 /** Plays one prompt (TextToSpeech or the chime, with audio focus). Calls back through the engine when it ends. */

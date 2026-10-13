@@ -73,7 +73,7 @@ class QaVoiceCatchUpTest {
      *    "In {n} meters, you will arrive"), n <= 500;
      *  - 500 m < d < 2 km: no prompt;
      *  - d >= 2 km: "continue on" A12 («{n} километр үргэлжлүүлэн явна уу» / "Continue for {n} kilometers"), as in the
-     *    §4.3 example 2,400 m -> «2,4 километр үргэлжлүүлэн явна уу».
+     *    §4.3 example 2,400 m -> «2 километр үргэлжлүүлэн явна уу» (NAV-016 D94; «2,4 километр …» before NAV-016).
      * Then, after a suppressed catch-up, the normal approaching prompt fires exactly once at its main trigger (<= 500 m).
      */
     @Test
@@ -116,7 +116,7 @@ class QaVoiceCatchUpTest {
         }
         // §4.3 example, word for word.
         val at2400 = VoiceScheduler(walk = false).also { it.start(g9, 0); it.onRouteActive() }.evaluate(VoiceScheduler.Input(60_000, g9, last - 1, 2_400.0, 22.0))
-        assertEquals("§4.3 example 2,400 m", "2,4 километр үргэлжлүүлэн явна уу", at2400?.let { VoiceText.render(it.content, Lang.MN, TestStrings.of(Lang.MN)) })
+        assertEquals("§4.3 example 2,400 m (NAV-016 D94)", "2 километр үргэлжлүүлэн явна уу", at2400?.let { VoiceText.render(it.content, Lang.MN, TestStrings.of(Lang.MN)) })
 
         // After a suppressed catch-up (980 m, 1,000 m, 1,500 m, 1,999.5 m), drive on at 22 m/s with the clock following the
         // drive, 1 Hz: exactly one approaching prompt, at d <= 500 m, the normal (non-catch-up) prompt.

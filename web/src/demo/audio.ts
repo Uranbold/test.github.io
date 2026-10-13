@@ -456,7 +456,7 @@ export class AudioOut {
   private speak(p: SpokenPrompt): void {
     const synth = this.env.speechSynthesis!;
     const voice = this.voiceFor(p.lang)!;
-    const u = new this.env.SpeechSynthesisUtterance!(p.text);
+    const u = new this.env.SpeechSynthesisUtterance!(p.spoken ?? p.text); // NAV-016 AC 47: the spoken form
     u.voice = voice;
     u.lang = voice.lang;
     u.rate = 1;
@@ -505,11 +505,11 @@ export class AudioOut {
           synth.cancel();
           this.finish(p.id);
         }
-      }, Math.min(WATCHDOG_CAP_MS, modelledMs(p.text) + WATCHDOG_EXTRA_MS)),
+      }, Math.min(WATCHDOG_CAP_MS, modelledMs(p.spoken ?? p.text) + WATCHDOG_EXTRA_MS)),
     );
     this.speechPrimed = true;
     this.stats.utterances++;
-    this.log.add({ kind: "speak", text: p.text, lang: u.lang, voice: voice.name ?? null });
+    this.log.add({ kind: "speak", text: p.spoken ?? p.text, lang: u.lang, voice: voice.name ?? null });
     synth.speak(u);
   }
 

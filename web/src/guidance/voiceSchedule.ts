@@ -151,6 +151,17 @@ export class VoiceScheduler {
     else this.lastPromptAt.set(id, started);
   }
 
+  /**
+   * NAV-016 D102: the prompt for `maneuver` triggered at `triggerAtMs` produced no text (a Mongolian continue-on of
+   * 995 km or more). It does not count for rule 2, and a manoeuvre without a started prompt counts as not yet spoken (so
+   * a later GPS-restore catch-up still announces it). The fired kinds stay marked: the next prompts follow the table.
+   */
+  onPromptSuppressed(maneuver: ManeuverRef, triggerAtMs: number): void {
+    this.onPromptDropped(maneuver, triggerAtMs);
+    const id = ref(maneuver.gen, maneuver.step);
+    if (!this.lastStartedAt.has(id)) this.spoken.delete(id);
+  }
+
   private earlyThreshold(fast: boolean, gap: number, key: KeyResult): number | null {
     if (this.walk || isArrive(key) || key.key === "roundabout.leave") return null;
     if (fast && gap >= VoiceConstants.EARLY_FAST_MIN_GAP_M) return VoiceConstants.EARLY_FAST_M;

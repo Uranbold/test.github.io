@@ -28,6 +28,7 @@ import mn.navmn.app.voiceplan.SpeedTracker
 import mn.navmn.app.voiceplan.SpokenPrompt
 import mn.navmn.app.voiceplan.VoiceProfile
 import mn.navmn.app.voiceplan.VoiceScheduler
+import mn.navmn.app.voice.pack.VoiceInventory
 
 /**
  * The guidance logic of ADR-0009, single-threaded and pure: every call must come from the one engine thread (or a
@@ -59,6 +60,12 @@ class GuidanceCore(
      * Default false: exactly the NAV-005 behaviour (AC 13, 30).
      */
     private val onDeviceAvailable: () -> Boolean = { false },
+    /**
+     * NAV-016 (M2): the canonical voice inventory compiled into the app; the Mongolian spoken text and the clip segments
+     * of every prompt come from it. The default (empty) gives segments without spoken texts, so the pack voice plays the
+     * chime (never a partial prompt); production and the replay harnesses pass the real inventory.
+     */
+    private val voiceInventory: VoiceInventory = VoiceInventory.EMPTY,
 ) {
     private var route: ParsedRoute = initialRoute
     private val plan get() = route.plan
@@ -523,8 +530,13 @@ class GuidanceCore(
         }
         // AC 38: a regular trigger for the same manoeuvre within 5 s after the catch-up is skipped.
         if (p.kind != PromptKind.CATCH_UP && callGate.isSuppressed(p.maneuver, now)) return
-        val text = VoiceText.render(p.content, lang, stringsFor(lang))
-        queue.enqueue(SpokenPrompt(++promptIds, text, lang, cls, p.maneuver, now), now)
+        val vp = VoiceText.prompt(p.content, lang, stringsFor(lang), voiceInventory)
+        if (vp == null) {
+            // NAV-016 D102: no Mongolian continue-on prompt at 995 km or more; the next manoeuvre's prompts still play.
+            p.maneuver?.let { scheduler.onPromptSuppressed(it, now) }
+            return
+        }
+        queue.enqueue(SpokenPrompt(++promptIds, vp.display, lang, cls, p.maneuver, now, vp.spoken, vp.segments), now)
     }
 
     private fun maybeReroute(now: Long) {

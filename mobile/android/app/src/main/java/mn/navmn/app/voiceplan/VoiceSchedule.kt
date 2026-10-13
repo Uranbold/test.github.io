@@ -171,6 +171,16 @@ class VoiceScheduler(private val profile: VoiceProfile) {
         if (started == null) lastPromptAt.remove(maneuver) else lastPromptAt[maneuver] = started
     }
 
+    /**
+     * NAV-016 D102: the prompt for [maneuver] triggered at [triggerAtMs] produced no text (a Mongolian continue-on of
+     * 995 km or more). It does not count for rule 2, and a manoeuvre without a started prompt counts as not spoken yet,
+     * so a later GPS-restore catch-up still announces it. The fired kinds stay marked: the next prompts follow the table.
+     */
+    fun onPromptSuppressed(maneuver: Pair<Int, Int>, triggerAtMs: Long) {
+        onPromptDropped(maneuver, triggerAtMs)
+        if (maneuver !in lastStartedAt) spoken -= maneuver
+    }
+
     /** §4.3: one catch-up prompt within 1 s after a new route is active (or the driver is back on the old one). */
     fun onRouteActive() {
         pendingCatchUp = CatchUp.REROUTE

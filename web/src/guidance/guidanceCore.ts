@@ -11,7 +11,7 @@ import { isGood, latLonOf, type Fix } from "./fix";
 import type { LatLon } from "./geo";
 import { PlaybackQueue, type PromptClass, type Speaker } from "./playbackQueue";
 import type { GuidancePlan } from "./plan";
-import { renderVoice, type T } from "./voiceText";
+import { voicePrompt, type T } from "./voiceText";
 import { SpeedTracker, VoiceScheduler, type ScheduledPrompt } from "./voiceSchedule";
 
 export type GuidancePhase = "navigating" | "arrived" | "ended";
@@ -121,7 +121,7 @@ export class GuidanceCore {
   /** The depart prompt's text in the current language, without enqueuing it (for the «Эхлэх» audio unlock). */
   departText(): string {
     const s = new VoiceScheduler(this.deps.mode === "walk").start(this.plan, 0);
-    return renderVoice(s.content, this.lang, this.deps.t(this.lang));
+    return voicePrompt(s.content, this.lang, this.deps.t(this.lang))?.display ?? "";
   }
 
   /** «Эхлэх» with the first simulated fix: the depart prompt at once (NAV-017 AC 27). */
@@ -285,8 +285,15 @@ export class GuidanceCore {
 
   private speak(p: ScheduledPrompt, cls: PromptClass, now: number): void {
     if (this.muted) return; // muted prompts count as handled (ADR-0009 §3.3)
-    const text = renderVoice(p.content, this.lang, this.deps.t(this.lang));
-    this.queue.enqueue({ id: ++this.promptIds, text, lang: this.lang, cls, maneuver: p.maneuver, triggerAtMs: now }, now);
+    const vp = voicePrompt(p.content, this.lang, this.deps.t(this.lang));
+    if (!vp) {
+      // NAV-016 D102: no Mongolian continue-on prompt at 995 km or more; the next manoeuvre's prompts still play.
+      if (p.maneuver) this.scheduler.onPromptSuppressed(p.maneuver, now);
+      return;
+    }
+    // AC 47: a Mongolian utterance receives the spoken text (C3a); the display text stays the golden-set text.
+    const prompt = { id: ++this.promptIds, text: vp.display, spoken: vp.spoken, segments: vp.segments, lang: this.lang, cls, maneuver: p.maneuver, triggerAtMs: now };
+    this.queue.enqueue(prompt, now);
   }
 
   private emit(): void {

@@ -138,6 +138,20 @@ describe("NAV-017 AC 1, 3, 4 build outputs", () => {
     for (const marker of DIAG_MARKERS) expect(demoText).toContain(marker);
   });
 
+  test("NAV-016 AC 49, AC 6: no pack clip, no pack directory reference and no vendor name in any build output", () => {
+    // The vendor name is assembled at runtime: AC 6 allows 0 occurrences anywhere in web/, this file included.
+    const vendor = ["chi", "mege"].join("");
+    for (const dir of ["demo", "static", "normal"]) {
+      const list = files(join(out, dir));
+      expect(list.filter((f) => /\.(aac|m4a|wav)$/i.test(f)), dir).toEqual([]);
+      for (const f of list.filter((x) => /\.(js|css|html|json|txt|map)$/.test(x))) {
+        const text = readFileSync(join(out, dir, f), "utf8").toLowerCase();
+        expect(text.includes("voicepack"), `${dir}/${f} references a voice pack directory`).toBe(false);
+        expect(text.includes(vendor), `${dir}/${f} names the voice vendor`).toBe(false);
+      }
+    }
+  });
+
   test("ADR-0011 §10: the demo adds at most 1.5 MB over the static-demo build", () => {
     const size = (dir: string) => files(join(out, dir)).filter((f) => !f.startsWith("fonts/") && !f.startsWith("sprites/") && !f.startsWith("demo-routes/")).reduce((a, f) => a + statSync(join(out, dir, f)).size, 0);
     expect(size("demo") - size("static")).toBeLessThanOrEqual(1.5 * 1024 * 1024);

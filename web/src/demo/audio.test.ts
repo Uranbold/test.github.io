@@ -157,6 +157,16 @@ describe("NAV-017 AC 27–30 speech and the D23 chime", () => {
     expect(a.speaks("en")).toBe(true);
   });
 
+  test("NAV-016 AC 47: a Mongolian utterance speaks the spoken form, never the digits", async () => {
+    const x = env(["mn-MN"]);
+    const a = new AudioOut(x.e);
+    await a.decide();
+    const sp = a.speaker({ done: () => undefined, fallback: () => undefined });
+    sp.play({ ...prompt(8, "300 метрт баруун тийш эргэнэ үү"), spoken: "гурван зуун метрт баруун тийш эргэнэ үү" });
+    expect(x.spoken[0]!.text).toBe("гурван зуун метрт баруун тийш эргэнэ үү");
+    expect(x.spoken.filter((u) => /[0-9]/.test(u.text))).toEqual([]);
+  });
+
   test("with a Mongolian voice: voice and lang set explicitly, rate/pitch/volume 1, done on end", async () => {
     const x = env(["mn-MN"]);
     const a = new AudioOut(x.e);

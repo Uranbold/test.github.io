@@ -29,6 +29,7 @@ import mn.navmn.app.route.RouteRequest
 import mn.navmn.app.route.RouteRequester
 import mn.navmn.app.settings.SettingsRepository
 import mn.navmn.app.voice.GuidanceVoice
+import mn.navmn.app.voice.pack.VoiceInventory
 import mn.navmn.app.voiceplan.Speaker
 import mn.navmn.app.voiceplan.SpokenPrompt
 import java.util.concurrent.Executors
@@ -113,6 +114,7 @@ class GuidanceEngine(
                 log = log,
                 onNewRoute = onNewRoute,
                 onDeviceAvailable = onDeviceAvailable,
+                voiceInventory = VoiceInventory.fromAssets(appContext),
             )
             if (firstFix != null) core.start(firstFix) else core.startRestored(showResumedNotice)
             locationJob = launch { location.guidanceUpdates().collect { core.onFix(it) } }

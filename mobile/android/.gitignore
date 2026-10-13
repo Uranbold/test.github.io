@@ -11,3 +11,6 @@ app/build/
 *.iml
 captures/
 .kotlin/
+# NAV-016 (D79, AC 19): voice clip packs are private build artifacts. Keep a local pack only under voicepack-local/
+# (or outside the repository) and pass it with -Pnav.voicePackDir; never commit clips or a pack manifest.
+voicepack-local/

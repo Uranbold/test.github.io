@@ -263,6 +263,7 @@ class QaRun(
         onState = { s -> states += clock.now to s },
         onEvent = { events += clock.now to it },
         log = DebugLog { log += it },
+        voiceInventory = mn.navmn.app.support.TestVoice.inventory,
     )
 
     fun bannerText(b: Banner, l: Lang = lang): String {

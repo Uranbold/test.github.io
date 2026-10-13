@@ -35,7 +35,8 @@ class VoiceTextTest {
         assertEquals("250 метрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 260.0)))
         assertEquals("1 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 995.0)))
         assertEquals("2 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 2010.0)))
-        assertEquals("9,9 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 9940.0)))
+        // NAV-016 D92: the Mongolian voice km prefix is 1, 1,5 or whole km («9,9» before NAV-016; English keeps it, D96).
+        assertEquals("10 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 9940.0)))
         assertEquals("10 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 9950.0)))
         assertEquals("12 километрт баруун тийш эргэнэ үү", m(VoiceContent.Maneuver(turn, 12_400.0)))
     }
@@ -86,7 +87,8 @@ class VoiceTextTest {
         assertEquals("Хойд зүг рүү явна уу", m(VoiceContent.Depart(k("depart", bearing = 0.0))))
         assertEquals("300 метрт очих газартаа хүрнэ", m(VoiceContent.Approaching(310.0)))
         assertEquals("12 километр үргэлжлүүлэн явна уу", m(VoiceContent.ContinueOn(12_300.0)))
-        assertEquals("2,5 километр үргэлжлүүлэн явна уу", m(VoiceContent.ContinueOn(2_480.0)))
+        // NAV-016 D94 (AC 23): whole km below 99,500 m («2,5 километр …» before NAV-016).
+        assertEquals("2 километр үргэлжлүүлэн явна уу", m(VoiceContent.ContinueOn(2_480.0)))
         assertEquals(
             "200 метрт тойрогт ороод хоёрдугаар гарцаар гарна уу, дараа нь бага зэрэг баруун тийш эргэнэ үү",
             m(VoiceContent.Maneuver(k("roundabout", null, 2.0), 200.0, k("turn", "slight right"))),
