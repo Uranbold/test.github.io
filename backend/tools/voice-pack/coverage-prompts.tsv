@@ -1,0 +1,21 @@
+id	segments	covers
+cov-01-turn-chain	dist.m.200:final instr.turn.right:nonFinal join.then:final instr.turn.slightLeft:final	turns; nonFinal family turn in a chain
+cov-02-uturn-chain	dist.m.100:final instr.uturn:nonFinal join.then:final instr.turn.left:final	U-turn; nonFinal family uturn in a chain
+cov-03-straight-chain	instr.straight:nonFinal join.then:final instr.keep.right:final	straight; nonFinal family straight in a chain
+cov-04-keep-chain	dist.m.300:final instr.keep.left:nonFinal join.then:final instr.merge.right:final	keep; nonFinal family keep in a chain
+cov-05-merge-chain	dist.m.150:final instr.merge:nonFinal join.then:final instr.offRamp.left:final	merge; nonFinal family merge in a chain
+cov-06-ramp-chain	dist.km.1:final instr.onRamp.right:nonFinal join.then:final instr.turn.sharpLeft:final	ramps; nonFinal family ramp in a chain
+cov-07-roundabout-chain	dist.m.250:final instr.roundabout.exit.6:nonFinal join.then:final instr.roundabout.leave:final	roundabout; nonFinal family roundabout in a chain
+cov-08-depart-chain	instr.depart.nw:nonFinal join.then:final instr.turn.left:final	depart; nonFinal family depart in a chain (chained depart)
+cov-09-offramp-km1_5	dist.km.1_5:final instr.offRamp.right:final	dist.km.1_5 prefix; off-ramp
+cov-10-roundabout-enter	dist.m.50:final instr.roundabout.enter:final	roundabout without an exit number
+cov-11-arrive-right	instr.arrive.right:final	one arrival side
+cov-12-cont-2	cont.km.2:final tail.continue:final	continue-on 2 km
+cov-13-cont-99	cont.km.99:final tail.continue:final	continue-on 99 km
+cov-14-cont-100	cont.km.100:final tail.continue:final	continue-on 100 km (three digits)
+cov-15-cont-990	cont.km.990:final tail.continue:final	continue-on 990 km (longest range)
+cov-16-approach-30	dist.m.30:final tail.approach:final	approaching at 30 m
+cov-17-approach-500	dist.m.500:final tail.approach:final	approaching at 500 m
+cov-18-gps-lost	fixed.gpsLost:final	GPS lost
+cov-19-gps-restored	fixed.gpsRestored:final	GPS restored
+cov-20-off-route	fixed.offRoute:final	off-route

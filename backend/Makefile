@@ -27,7 +27,8 @@ endif
 .PHONY: help up down restart ps logs smoke smoke-backend perf contract rate-limit-check cors-check rebuild-data \
         clean-data stats tiles-info build-info rebuild rollback status slot-checksums nav006-up nav006-ps \
         nav006-test-setup nav006-test-teardown pipeline-test pack-publish pack-status pack-test search-eval gate2-image \
-        nav020-test-setup nav020-test-teardown
+        nav020-test-setup nav020-test-teardown voice-pack-image voice-pack-test voice-pack-stub voice-pack-build \
+        voice-pack-verify voice-pack-render
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -193,3 +194,39 @@ pack-static-check: ## NAV-022: check a static host serving an export (PACK_BASE_
 
 pack-export-test: ## NAV-022: export + .htaccess on Apache httpd with shared-host defaults (project navmn-nav022, 127.0.0.1:18191; ~110 MB image, removed after)
 	pipeline/nav022-static-test.sh $(NAV022_TEST_ROOT)
+
+# ---------------------------------------------------------------- NAV-016 voice clip pack generator (ADR-0010)
+# Build-time tool only (tools/voice-pack/README.md). Default runner: the digest-pinned reference image (byte identity,
+# NAV-016 AC 13); VOICE_PACK_RUNNER=host uses this machine's python (.venv) and ffmpeg (NAV_VOICE_PACK_FFMPEG).
+# OUT and CACHE: outside the repository (or git-ignored). The Chimege token is read from CHIMEGE_API_TOKEN in the
+# calling shell only and passed to the container by name; it is never a make variable, never in .env.
+VOICE_PACK_IMAGE  ?= navmn-voice-pack:1.0.0
+VOICE_PACK_RUNNER ?= image
+VOICE_PACK_PYTHON ?= $(CURDIR)/.venv/bin/python
+VOICE_PACK_BUILD_ARGS ?=
+VOICE_PACK_DEPS = $(if $(filter host,$(VOICE_PACK_RUNNER)),.venv/bin/python)
+VOICE_PACK_RUN = VOICE_PACK_RUNNER=$(VOICE_PACK_RUNNER) VOICE_PACK_IMAGE=$(VOICE_PACK_IMAGE) \
+                 VOICE_PACK_PYTHON=$(VOICE_PACK_PYTHON) PROMPTS=$(PROMPTS) tools/voice-pack/run.sh
+
+voice-pack-image: ## NAV-016: build the generator reference image (python 3.11 + ffmpeg 7.0.2, digest-pinned; VOICE_PACK_BUILD_ARGS=)
+	docker build $(VOICE_PACK_BUILD_ARGS) -t $(VOICE_PACK_IMAGE) tools/voice-pack
+
+voice-pack-test: $(VOICE_PACK_DEPS) ## NAV-016: generator tests, stub + fake Chimege server only (no network, no token)
+	$(VOICE_PACK_RUN) test
+
+voice-pack-stub: $(VOICE_PACK_DEPS) ## NAV-016: stub pack, OUT=<dir outside the repo> [VOICE=FEMALE5v2] [PACK_VERSION=1] [PROMPTS=]
+	@test -n "$(OUT)" || { echo "usage: make voice-pack-stub OUT=<dir outside the repo> [VOICE=FEMALE5v2|MALE4v2] [PACK_VERSION=1] [PROMPTS=<list.tsv>]"; exit 2; }
+	$(VOICE_PACK_RUN) stub "$(OUT)" "$(or $(VOICE),FEMALE5v2)" "$(or $(PACK_VERSION),1)"
+
+voice-pack-build: $(VOICE_PACK_DEPS) ## NAV-016: REAL pack via Chimege (PO machine; token in the shell env) VOICE= PACK_VERSION= OUT= CACHE= [PROMPTS=]
+	@test -n "$(VOICE)" && test -n "$(PACK_VERSION)" && test -n "$(OUT)" && test -n "$(CACHE)" || \
+	  { echo "usage: make voice-pack-build VOICE=FEMALE5v2|MALE4v2 PACK_VERSION=<n> OUT=<dir> CACHE=<dir> [PROMPTS=<list.tsv>]"; exit 2; }
+	$(VOICE_PACK_RUN) build "$(OUT)" "$(VOICE)" "$(PACK_VERSION)" "$(CACHE)"
+
+voice-pack-verify: $(VOICE_PACK_DEPS) ## NAV-016: pack-format §8 checks, DIR=<pack dir> [POLICY=release|demo|debug]
+	@test -n "$(DIR)" || { echo "usage: make voice-pack-verify DIR=<.../pack> [POLICY=release|demo|debug]"; exit 2; }
+	$(VOICE_PACK_RUN) verify "$(DIR)" "$(or $(POLICY),release)"
+
+voice-pack-render: $(VOICE_PACK_DEPS) ## NAV-016: render a prompt list (NAV-007 AC 10 harness), PACK= PROMPTS= OUT=
+	@test -n "$(PACK)" && test -n "$(PROMPTS)" && test -n "$(OUT)" || { echo "usage: make voice-pack-render PACK=<.../pack> PROMPTS=<list.tsv> OUT=<dir>"; exit 2; }
+	$(VOICE_PACK_RUN) render "$(PACK)" "$(PROMPTS)" "$(OUT)"

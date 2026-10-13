@@ -28,6 +28,8 @@
 #    limits (BE-3: packs per-client connection cap -> 429 RateLimited with CORS once, Range resume, bandwidth after
 #    the initial burst on packs and tiles, tile range reads never limited, bad values and a missing 18-*.sh refused);
 #    X-Content-Type-Options: nosniff exactly once on every response (BE-12/BE-13)
+# 11. NAV-016 voice-pack generator (backend/tools/voice-pack): syntax, image pins, repository scans and the path rule
+#    (stdlib, no ffmpeg); the full stub + fake-server suite runs too when the reference image exists
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 B=$ROOT/backend
@@ -668,5 +670,26 @@ tail -n 3 "$TMP/ut.log"
 python3 -m unittest discover -s "$B/pack/tests" > "$TMP/ut2.log" 2>&1 || { tail -n 30 "$TMP/ut2.log"; fail "search builder unit tests"; }
 tail -n 3 "$TMP/ut2.log"
 rm -rf "$B/pipeline/__pycache__" "$B/pipeline/tests/__pycache__" "$B/pack/__pycache__" "$B/pack/tests/__pycache__"
+
+echo "== NAV-016 voice-pack generator (build-time tool; never calls the vendor here)"
+VP=$B/tools/voice-pack
+bash -n "$VP/run.sh" || fail "bash -n run.sh"
+if command -v shellcheck >/dev/null; then shellcheck -x -S warning "$VP/run.sh"; fi
+python3 -m py_compile "$VP"/voicepack/*.py "$VP"/voicepack/synth/*.py "$VP"/tests/*.py || fail "voice-pack py_compile"
+find "$VP" -name __pycache__ -type d -prune -exec rm -rf {} +
+for img in $(sed -n 's/^ARG [A-Z_]*_IMAGE=\(.*\)$/\1/p' "$VP/Dockerfile"); do
+  [[ "$img" =~ $PIN ]] || fail "voice-pack image not pinned as tag@sha256: $img"
+done
+# repository scans (token value, ignore rules, no audio, hosts, pins) + path rule: stdlib only, no ffmpeg, no network
+(cd "$VP" && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_repo tests.test_cache.PathRuleTest) > "$TMP/vp.log" 2>&1 \
+  || { tail -n 30 "$TMP/vp.log"; fail "voice-pack repository scans"; }
+tail -n 1 "$TMP/vp.log"
+# the full suite (stub + fake server, --network none) when the reference image exists: make -C backend voice-pack-image
+if docker image inspect "${VOICE_PACK_IMAGE:-navmn-voice-pack:1.0.0}" >/dev/null 2>&1; then
+  make -s -C "$B" voice-pack-test > "$TMP/vp-full.log" 2>&1 || { tail -n 40 "$TMP/vp-full.log"; fail "make voice-pack-test"; }
+  grep -E '^(Ran|OK)' "$TMP/vp-full.log" | tr '\n' ' '; echo
+else
+  echo "   (reference image not built: full generator suite skipped; run make -C backend voice-pack-image voice-pack-test)"
+fi
 
 echo "OK: backend static checks passed"

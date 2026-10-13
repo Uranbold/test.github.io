@@ -353,6 +353,23 @@ A `Content-Encoding` header, a missing ETag, a 200 instead of 206, or a 200 page
 
 **What was verified where:** `make pack-export-test` runs the export and the `.htaccess` on Apache httpd 2.4 configured like a shared host (`.gz` as a content coding, compression on, 7-day expiry, a CMS fallback page). With the `.htaccess` every check passes. Without it, the same host fails (negative control). LiteSpeed reads the same directives (`SetEnv no-gzip`, `RemoveEncoding`, `AddType`, `Header set`), but that was **not** tested here. Run step 3 against the real host.
 
+## Voice clip pack generator (NAV-016, ADR-0010)
+
+Build-time tool in [`tools/voice-pack/`](tools/voice-pack/README.md): it turns the Mongolian voice inventory into the
+private clip pack the Android build bundles (`-Pnav.voicePackDir`), plus review files for the PO's listen. No
+service, no gateway path, no `openapi.yaml` change; the vendor is called at build time only, from the PO's machine.
+
+```sh
+make voice-pack-image                       # once: python 3.11 + ffmpeg 7.0.2 + jsonschema, every base digest-pinned
+make voice-pack-test                        # stub + local fake vendor only (--network none, no token), ~2.5 min
+make voice-pack-stub OUT=<dir outside the repo>             # stub pack -> <dir>/FEMALE5v2-v1/pack
+make voice-pack-verify DIR=<dir>/FEMALE5v2-v1/pack POLICY=debug
+make voice-pack-build VOICE=FEMALE5v2 PACK_VERSION=1 OUT=<dir> CACHE=<dir>   # REAL pack; token only in the shell env
+```
+
+The token is `CHIMEGE_API_TOKEN` in the calling shell only (the `.env.example` key stays empty); custody of the
+cache and packs, exit codes and the review page are in the tool's README.
+
 ## How the stack starts
 
 ```

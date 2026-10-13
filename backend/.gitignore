@@ -8,3 +8,11 @@ data/
 *.mbtiles
 *.jsonl.zst
 __pycache__/
+# NAV-016 voice-pack generator (ADR-0010, D79, AC 19): outputs, the vendor cache, review files and audio never go
+# into git. Prefer an OUT/CACHE outside the repository; these paths are the only ignored ones inside it.
+tools/voice-pack/out/
+tools/voice-pack/cache/
+tools/voice-pack/**/review/
+tools/voice-pack/**/*.aac
+tools/voice-pack/**/*.m4a
+tools/voice-pack/**/*.wav
