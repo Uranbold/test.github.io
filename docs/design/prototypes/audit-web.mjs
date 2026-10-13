@@ -584,7 +584,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 try {
   if (ONLY === "demo" || ONLY === "all") await auditDemo(browser);
   if (ONLY === "arrival") await auditArrival(browser);
-  if (ONLY === "extra") await auditExtra(browser); else if (ONLY !== "demo") await auditApp(browser);
+  if (ONLY === "extra") await auditExtra(browser); else if (ONLY === "app" || ONLY === "all") await auditApp(browser);
 } finally {
   await browser.close();
   for (const s of servers) s.kill();
