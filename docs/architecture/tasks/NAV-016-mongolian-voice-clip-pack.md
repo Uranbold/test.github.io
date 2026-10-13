@@ -1,7 +1,7 @@
 # NAV-016 task breakdown: Mongolian voice clip pack (generator, Android playback, D95 coordinated change)
 
 - **Story:** [NAV-016](../../requirements/stories/NAV-016-mongolian-voice-clip-pack.md) (P1 / standard, D233; status `ready`, D228)
-- **PO decisions in force:** D226/D227 (Chimege, `FEMALE5v2` + `MALE4v2`), D228 (build now; public release gated), D229 (`FEMALE5v2` only bundled, no setting), D230 (the PO listens per segment before the first AC 10 session and any public build), D231 («жи пи эс»), D232 (D95 preconditions met: sections D and I are in scope)
+- **PO decisions in force:** D226/D227 (Chimege, `FEMALE5v2` + `MALE4v2`), D228 (build now; public release gated), D229 (`FEMALE5v2` only bundled, no setting), D230 (the PO listens per segment before the first AC 10 session and any public build), D231 («жи пи эс»), D232 (D95 preconditions met: sections D and I are in scope), D234 (the pasted token is kept, risk accepted; the custody rule is unchanged, ADR-0010 §4.5), D236 (two internal `demo` APKs, one per voice, no setting; ADR-0010 §5)
 - **Design:** [ADR-0010](../adr/0010-mongolian-voice-pregenerated-clip-pack.md) (**accepted** 2026-10-13)
 - **Contract (the interface between backend and mobile):** [`../voice-pack/pack-format.md`](../voice-pack/pack-format.md), [`../voice-pack/manifest.schema.json`](../voice-pack/manifest.schema.json), [`../voice-pack/inventory.tsv`](../voice-pack/inventory.tsv). Read them before starting. Neither side changes them; ask the architect.
 - **`openapi.yaml`: untouched.** There is no runtime service, no gateway path and no client HTTP call. The generator calls Chimege at build time only.
@@ -77,6 +77,8 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
   - body: the request text in UTF-8
   - content type: the value the orchestrator confirms from the F4 pre-screen (open item), kept in one constant
 - `--api-base` is accepted only for a loopback host (`127.0.0.1`, `::1`, `localhost`). Anything else exits 2.
+- **Fake-server marker (added 2026-10-13, pack-format §8.3, security VP-5):** whenever `--api-base` is set, the manifest gets `source.vendor` = `stub` and `source.apiVersion` = `stub`, and the cache keys and `index.jsonl` use the vendor value `fake`. Only a run without `--api-base` may write `chimege`.
+- **Proxy (added 2026-10-13, ADR-0010 §4.5):** use the standard library's proxy handling (`HTTPS_PROXY`) and the default verified TLS context, which honours `SSL_CERT_FILE`. Never disable verification. Never print proxy variables; `redact.py` also removes the credential part of a proxy URL.
 - Token: `os.environ["CHIMEGE_API_TOKEN"]` only. Missing or empty: exit 2 with `CHIMEGE_API_TOKEN is not set` and 0 requests. Never put it in a URL, `repr`, an exception or a log line. Every stdout/stderr/log write goes through `redact.py`, which replaces the token value.
 - Retry policy (ADR-0010 §4.2):
   - **retry** on 429, 500, 502, 503, 504, a timeout (30 s) or a connection error: at most 3 retries after the first attempt, waiting 1 s, 2 s, 4 s, or `Retry-After` (seconds, capped at 60 s)
@@ -91,6 +93,9 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
   - 400 + `Error-Code: 4005` → 1 attempt, then exit 4 naming the key and "special characters"
   - 401 → 1 attempt; 403 + 1000 → exit 4 with the token message
   - at most 2 requests are ever open at once (measured in the fake)
+  - a run against the fake server writes `source.vendor` = `stub`, and `voicepack verify --policy demo` on its pack gives `STUB_NOT_ALLOWED`
+  - unit test on the cache-key function: the same entry gets different keys in a fake-server run (`fake`) and a real run (`chimege`), so a shared cache directory never serves fake audio to a real run
+  - with `HTTPS_PROXY=http://user:SENTINEL-PROXY@127.0.0.1:<port>` set, 0 occurrences of `SENTINEL-PROXY` in any output (same places as the token sentinel)
   - **sentinel test (AC 9):** `CHIMEGE_API_TOKEN=SENTINEL-…` across the success, 401, 429, 500 and timeout runs; afterwards a grep of stdout, stderr, the log file, the exception texts, the manifest, the cache directory (index and file names), the review files and the pack directory finds 0 occurrences
 
 ### B4. Cache (AC 10)
@@ -156,6 +161,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 - `python -m voicepack verify DIR [--policy release|demo|debug]` runs schema validation and V1–V10 and prints the reason code of the first failure. The PO runs it before handing a pack to a build; QA runs it in the interop test (§3).
 - **Checks:** each corruption of NAV-016 AC 44 (one byte changed, one file deleted, truncated manifest, changed `inventorySha256`, `schemaVersion` 99, stub under `--policy release`) gives the expected reason code.
 - **Added 2026-10-13 (pack-format §8.1):** after V10, the generator-only check G1 `UNLISTED_FILE` (not a client code). Fault ownership exactly as in §8.1: a top-level non-object gives `MANIFEST_UNREADABLE`; `1.0` where the schema says integer gives V3; strings with control characters give V3 (whole-string matching, no reliance on Python's `$`). Add the §8.1 fixtures, including the two-fault case.
+- **Added 2026-10-13 (pack-format §8.2, security VP-4):** no-follow file checks, the real-path check and the size caps (manifest 1 MiB, clip 256 KiB, pack 6 MiB) with `FILE_INVALID` in V9 and `MANIFEST_UNREADABLE` in V2; `build` applies them to its own output before the rename. Read at most cap + 1 bytes. **Fixtures:** `manifest.json` as a symlink → `MANIFEST_UNREADABLE`; a manifest over 1 MiB → `MANIFEST_UNREADABLE`; a listed clip that is a symlink to a file outside the pack (and one to a file inside it) → `FILE_INVALID`; `clips/` as a symlink → `FILE_INVALID`; a dangling symlink in place of a clip → `FILE_INVALID`; a clip of 262,145 bytes → `FILE_INVALID`; a pack whose clips are each under the cap but total over 6 MiB → `FILE_INVALID`; an unlisted symlink → G1 `UNLISTED_FILE`. Fixtures that need links are created by the test at run time, never committed.
 
 ### B10. CLI, Makefile, Docker, configuration, ignore rules (AC 8, 13, 19)
 - `python -m voicepack build --voice FEMALE5v2|MALE4v2 --pack-version N --synth chimege|stub --out DIR [--cache DIR] [--bitrate-kbps 24] [--join-pause-ms 80] [--then-pause-ms 80] [--take-method carrier-then-v1] [--prompts FILE] [--replace]`
@@ -164,14 +170,17 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
   - `voice-pack-test`: the unittest suite; no network, no token
   - `voice-pack-stub OUT=…`
   - `voice-pack-build VOICE=… PACK_VERSION=… OUT=… CACHE=…`: runs the reference image, passes the token by name only (`-e CHIMEGE_API_TOKEN`), mounts the repository read-only and mounts OUT and CACHE
+    - *Added 2026-10-13 (ADR-0010 §4.5):* appends `$(VOICE_PACK_DOCKER_ARGS)` from the environment, empty by default, for machines behind a TLS-intercepting proxy (for example host networking, `-e HTTPS_PROXY`, a read-only CA mount and `-e SSL_CERT_FILE=<mounted path>`). The Makefile, README and `.env.example` name the variable but contain **no** proxy host, port, CA path or credential. The README explains the case generically.
   - `voice-pack-verify DIR=…`
 - `backend/.env.example`: `CHIMEGE_API_TOKEN=` (empty) with a one-line comment ("build machine only; never commit a value; see tools/voice-pack/README.md"), plus `NAV_VOICE_PACK_OUT=` and `NAV_VOICE_PACK_CACHE=`.
 - `backend/.gitignore`: `tools/voice-pack/out/`, `tools/voice-pack/cache/`, `**/review/` under that tool, and `*.aac`, `*.m4a`, `*.wav` under `tools/voice-pack/`.
 - The Dockerfile pins the base image by digest and pins the ffmpeg version. The README states that byte identity (AC 13) is guaranteed only within the reference image.
 - **Checks:**
-  - **AC 8 token scan (definition clarified 2026-10-13):** `git grep --untracked -n -E` for the variable name followed by optional spaces and `=` or `:`. For each hit, the *value* is the text after `=`/`:` and optional spaces, with **one** leading `"` or `'` removed, up to the next whitespace, quote or backtick. A hit is not a value if that text is empty, is `.` (the scan pattern quoted in docs), starts with `<` (a placeholder such as `<value>`), contains `…`, or is a shell or compose reference (`$NAME`, `${NAME}`). Every other hit fails the scan. A quoted value such as `="abc"` or `='abc'` **must** be found, and so must the YAML form `NAME: abc`
+  - **AC 8 token scan (definition clarified 2026-10-13):** `git grep --untracked -n -E` for the variable name followed by optional spaces and `=` or `:`. For each hit, the *value* is the text after `=`/`:` and optional spaces, with **one** leading `"` or `'` removed, up to the next whitespace, quote or backtick. A hit is not a value if that text is empty, is `.` (the scan pattern quoted in docs), starts with `<` (a placeholder such as `<value>`), contains `…`, or is a shell or compose reference (`$NAME`, `${NAME}`). Every other hit fails the scan.
+    - **Clarified 2026-10-13 (QA Q-2):** a hit whose variable name sits **inside a shell parameter expansion**, that is, directly after `${` (for example `${CHIMEGE_API_TOKEN:-}`, `${CHIMEGE_API_TOKEN:?not set}`, `${CHIMEGE_API_TOKEN-}`), is a **reference, not a value**. The `:` or `=` after the name there is an expansion operator, not an assignment, so the text after it is not read as a value. One sub-rule keeps a default from hiding a secret: for the default-value operators `:-`, `-`, `:=` and `=`, the word up to the closing `}` must be empty or itself a reference (`$NAME`, `${NAME}`); any other word fails the scan (`${CHIMEGE_API_TOKEN:-abc123}` fails). The words of `:?` (an error message) and `:+` (the alternative) are not values. A test fixture set for the scan covers these forms plus the existing ones A quoted value such as `="abc"` or `='abc'` **must** be found, and so must the YAML form `NAME: abc`
   - `make voice-pack-test` passes offline
   - the README contains no vendor document text, no token and no host other than the public API base
+  - *added 2026-10-13 (ADR-0010 §4.5, security VP-8):* the README states the token rule: never pasted into a chat, an issue or a PR; agent sessions get it only from an environment the PO sets before the session starts
 
 ### B11. Duration sanity in the generator (supports AC 29, 33)
 - Write the 10 longest superset prompts with durations into `review/prompts.tsv`. The Android domain check (M4) is authoritative; this is an early warning on the PO's machine.
@@ -241,6 +250,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
   - `demo`: required and real (`source.vendor != "stub"`, `voiceId` ∈ {`FEMALE5v2`, `MALE4v2`}), unless the value is exactly `none`
   - `release`: required and real; `none` is refused
 - Every failure names `nav.voicePackDir` and the first failed check.
+- **Files on disk (added 2026-10-13, pack-format §8.2, security VP-4):** resolve `nav.voicePackDir` to its real path once; check `manifest.json`, `clips/` and every listed file with `LinkOption.NOFOLLOW_LINKS`; require each listed file's real path under that root; enforce the caps (manifest 1 MiB, clip 256 KiB, pack 6 MiB). Codes `MANIFEST_UNREADABLE` (V2) and `FILE_INVALID` (V9). The copy writes regular files by content, only for listed paths, never a link or a directory tree.
 - `debug` and V7 (decided 2026-10-13, pack-format §8): only a mismatch with the compiled `inventorySha256` is a warning (the pack is bundled and the app falls back). Unsorted or duplicate entries, or entries that do not hash to the manifest's own value, still fail the build.
 - `BuildConfig.VOICE_PACK_POLICY` (`OPTIONAL` | `REQUIRED_REAL`).
 - No download, ever.
@@ -248,6 +258,7 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 - Add the local pack path pattern (for example `mobile/android/voicepack-local/`) to `.gitignore` under `mobile/`.
 - **Checks:**
   - Gradle TestKit or a script test: a missing directory, a bad hash, a stub pack in `demo`, and `none` in `release` all fail with the property named
+  - the same test: a clip replaced by a symlink to a file outside the pack, and an oversized clip, fail with `FILE_INVALID` and the property named; links are created at test time, never committed
   - a token scan: 0 occurrences of `CHIMEGE_API_TOKEN` in `mobile/` and in the APK (AC 52)
   - AC 51 size comparison with and without the stub pack (the real-pack figure is measured on the PO build)
 
@@ -255,13 +266,14 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 - `voice/pack/VoicePackValidator.kt` (pure):
   ```kotlin
   enum class PackReason { NO_PACK, SCHEMA_UNSUPPORTED, MANIFEST_UNREADABLE, CODEC_UNSUPPORTED, STUB_NOT_ALLOWED, VOICE_NOT_ALLOWED,
-                          INVENTORY_MISMATCH, ENTRY_INVALID, FILE_MISSING, FILE_HASH_MISMATCH, DECODE_FAILED, PLAYBACK_FAILED }
+                          INVENTORY_MISMATCH, ENTRY_INVALID, FILE_MISSING, FILE_INVALID, FILE_HASH_MISMATCH, DECODE_FAILED, PLAYBACK_FAILED }
   sealed interface PackState { data object Pending : PackState; data class Valid(val pack: VoicePack) : PackState; data class Invalid(val reason: PackReason) : PackState }
   fun interface PackFiles { fun read(path: String): ByteArray? }   // AssetPackFiles("voicepack/") in the app
   object VoicePackValidator { fun validate(files: PackFiles, compiled: VoiceInventory, policy: PackPolicy): PackState }
   ```
 - Uses kotlinx.serialization (already a dependency) and `MessageDigest` SHA-256. Runs on a background dispatcher, started from `GuidanceVoice.prepare()` (preview open) and again in a new process after a restore. 0 network.
-- **JVM checks:** each AC 44 corruption → its reason code; a valid stub pack under `OPTIONAL` → `Valid`; a stub under `REQUIRED_REAL` → `STUB_NOT_ALLOWED`. Reason codes are logged only through `DebugLog` (debug builds) and never with coordinates.
+- **Size caps at runtime (added 2026-10-13, pack-format §8.2):** `PackFiles` reads at most cap + 1 bytes (manifest 1 MiB → `MANIFEST_UNREADABLE`; clip 256 KiB or pack total 6 MiB → `FILE_INVALID`). The link and real-path rules are not re-checked on assets (met by construction).
+- **JVM checks:** an oversized manifest, an oversized clip and an over-total pack give their codes; each AC 44 corruption → its reason code; a valid stub pack under `OPTIONAL` → `Valid`; a stub under `REQUIRED_REAL` → `STUB_NOT_ALLOWED`. Reason codes are logged only through `DebugLog` (debug builds) and never with coordinates.
 
 ### M7. Decoder and trim rule (AC 15, 36)
 - `voice/pack/ClipDecoder.kt`:
@@ -320,9 +332,10 @@ Python 3.11. The standard library plus `jsonschema` (already in `backend/scripts
 
 ## 3. Cross-team checks (QA, at verification)
 1. **Interop test:** `make -C backend voice-pack-stub OUT=$TMP` → `python -m voicepack verify $TMP/…/pack --policy debug` → `./gradlew :app:testDebugUnitTest -Pnav.voicePackDir=$TMP/…/pack` with a test (enabled only when the property is set) that runs `VoicePackValidator` on the real stub pack. That proves both sides compute the same canonical inventory and hashes.
-2. **Reason-code parity (added 2026-10-13):** the same corrupted packs through `voicepack verify`, `VoicePackGuard` and `VoicePackValidator` give the same reason code (pack-format §8.1). The one expected difference is G1 `UNLISTED_FILE`, which is generator-only.
+2. **Reason-code parity (added 2026-10-13):** the same corrupted packs through `voicepack verify`, `VoicePackGuard` and `VoicePackValidator` give the same reason code (pack-format §8.1). The one expected difference is G1 `UNLISTED_FILE`, which is generator-only. *Added 2026-10-13:* the §8.2 size-cap fixtures give the same code in all three; the link fixtures run through `voicepack verify` and `VoicePackGuard` only (assets cannot hold links).
 3. **Repository scans** (AC 19, 8, 52, 6): no tracked audio except the chime; no tracked `manifest.json` with `schemaVersion`/`inventorySha256` fields; no tracked `review/`; no non-empty `CHIMEGE_API_TOKEN=`; 0 "chimege" in `mobile/` and `web/`.
 4. **PO run** (AC 56, D230): the PO runs `make voice-pack-build VOICE=FEMALE5v2 PACK_VERSION=1 …`, listens on `review/index.html`, exports `review.tsv`, then builds the `demo` APK with `-Pnav.voicePackDir`. The QA report records (`voiceId`, `packVersion`, manifest SHA-256).
+   - *Updated 2026-10-13 (D236; D235 waives the PO's listen for internal builds):* the same is done for `MALE4v2`. Two separate `demo` APKs from the same source revision, one pack each, no setting. AC 51 is measured per APK, and the QA report records one triple per APK.
 
 ## 4. AC coverage map
 | AC | Tasks |

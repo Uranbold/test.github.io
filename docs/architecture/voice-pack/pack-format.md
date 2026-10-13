@@ -10,6 +10,7 @@
 - **Not in `openapi.yaml`.** Packs are bundled at build time. No HTTP operation serves them (ADR-0010 §5), so `openapi.yaml` is unchanged.
 - **Clarifications** (none changes the format or `schemaVersion`):
   - 2026-10-13, after the integration review: §8.1 says which check owns which fault (V2/V3/V4/V8), the integer and control-character reading rules, the generator-only `UNLISTED_FILE` check, and the `debug` rule for V7.
+  - 2026-10-13, security VP-4/VP-5 and QA follow-ups: §8.2 adds file-type, location and size rules for pack files, checked in V2 and V9 with the new reason code `FILE_INVALID` (a validation change, not a manifest change, so `schemaVersion` stays 1). §8.3 marks packs built against a fake server as `source.vendor` = `stub`.
 
 Key words: **must** = required for a valid pack or a conforming client.
 
@@ -37,6 +38,7 @@ Total today: 217 + 48 = **265 `final` + 39 `nonFinal` = 304 entries per voice** 
 ```
 - `<out>` and the cache directory must be outside the repository, or inside it only at a path that `git check-ignore` reports as ignored. The generator refuses any other path before it sends a request.
 - A pack directory must contain only `manifest.json` and the `clips/` files listed in it.
+- Every file in a pack is a **regular file** inside the pack directory (no symbolic links), within the size caps of §8.2. The generator writes only regular files and never creates links.
 
 ## 2. Inventory, `inventorySha256` and `glossaryRevision`
 
@@ -131,14 +133,14 @@ Checks run in this order. The first failure gives the reason code. Android logs 
 | # | Check | Reason code |
 |---|---|---|
 | V1 | `manifest.json` present (no pack bundled) | `NO_PACK` |
-| V2 | `schemaVersion` readable and in the client's supported set (Android: {1}) | `SCHEMA_UNSUPPORTED` (`MANIFEST_UNREADABLE` if not JSON) |
+| V2 | `manifest.json` is a regular file within the size cap (§8.2); `schemaVersion` readable and in the client's supported set (Android: {1}) | `SCHEMA_UNSUPPORTED` (`MANIFEST_UNREADABLE` if not JSON, not a regular file, or over the cap) |
 | V3 | the rest of the manifest parses as schema v1 (types, patterns, ranges) | `MANIFEST_UNREADABLE` |
 | V4 | `codec` = AAC-LC / ADTS / mono / 16,000 or 22,050 Hz | `CODEC_UNSUPPORTED` |
 | V5 | release and demo builds: `source.vendor` ≠ `stub` | `STUB_NOT_ALLOWED` |
 | V6 | release and demo builds: `voiceId` ∈ {`FEMALE5v2`, `MALE4v2`} | `VOICE_NOT_ALLOWED` |
 | V7 | `entries` sorted and unique; the canonical hash recomputed from `entries` = `inventorySha256` = the compiled value | `INVENTORY_MISMATCH` |
 | V8 | every `file` matches the pattern (no `..`, no absolute path); `durationMs` matches `frames`; `frames` ≤ `encodedFrames` − `encoderDelayFrames` | `ENTRY_INVALID` |
-| V9 | every `file` exists | `FILE_MISSING` |
+| V9 | every `file` exists; each is a regular file whose real path is inside the pack directory, within the per-clip cap; the total pack size is within the pack cap (§8.2) | `FILE_MISSING` (absent); `FILE_INVALID` (link, not a regular file, outside the pack directory, or over a cap) |
 | V10 | every file's SHA-256 = `sha256` | `FILE_HASH_MISMATCH` |
 | (play) | trim rule failure or decoder error | `DECODE_FAILED` |
 | (play) | `AudioTrack` error during a prompt | `PLAYBACK_FAILED` |
@@ -165,6 +167,35 @@ Two reading rules belong to V3, so that "`voicepack verify` passes" implies "the
 **Generator-only check G1 `UNLISTED_FILE`** (`voicepack build` and `voicepack verify`, after V10): the pack directory holds anything other than `manifest.json`, the `clips/` directory and the files the manifest lists (§1.2). It is not a client reason code. Gradle copies only the listed files, and the app reads only listed paths, so an extra file never reaches an APK.
 
 Conformance: a shared fixture set should exist that gives the expected code for each single-fault corruption in this table, plus at least one two-fault case (`codec.bitrateKbps` out of range **and** `codec.name` wrong → V3). Each implementation runs it in its own tests.
+
+### 8.2 Files on disk: type, location and size (normative, added 2026-10-13, security VP-4)
+A pack directory is read from a path the builder chooses (`nav.voicePackDir`, `voicepack verify DIR`). Without these rules a link inside it could make a build copy an arbitrary file from the build machine into an APK, and an oversized file could exhaust memory or the APK budget.
+
+**File rules** (every reader of a pack directory on a file system: `voicepack build` on its own output, `voicepack verify`, the Gradle guard and copy task):
+- Resolve the pack directory once to its real path (`root`). The directory given may itself be reached through a link; everything below it may not.
+- `manifest.json`, the `clips/` directory and every listed `file` must be checked **without following links** (`lstat`; Java `Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)` and `Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS)`). `manifest.json` and every listed file must be a regular file. `clips/` must be a directory and not a link. A link, a device, a FIFO or a socket fails.
+- The real path of each listed file must start with `root` + separator. (The V8 pattern already rules out `..` and absolute paths; this catches links in between.)
+- Read and copy **only** the listed files, by content. The Gradle copy writes regular files into `voicepack/`; it never copies a link and never copies the directory as a tree. A file whose size changes between the check and the read fails the build.
+
+**Size caps** (sizes in bytes, from the file system or the APK asset length):
+| What | Cap | Basis |
+|---|---|---|
+| `manifest.json` | 1,048,576 (1 MiB) | about 80 KB expected for 304 entries; the worst case the schema allows (300-character Cyrillic texts) is about 0.3 MB |
+| one clip file | 262,144 (256 KiB) | the longest clip is 4,000 ms (§4); at the schema's maximum of 64 kbit/s that is about 32 KB plus ADTS headers, so the cap leaves about 8× headroom for encoder overshoot |
+| the whole pack (`manifest.json` + every listed clip) | 6,291,456 (6 MiB) | about 510 s of audio per pack (ADR-0010 §3.3): about 1.6–1.85 MB at 24 kbit/s, about 4.1 MB at 64 kbit/s. A 4 MB cap would reject schema-valid packs above about 56 kbit/s. The **delivery** budget stays NAV-016 AC 51 (≤ 2.0 MB APK growth), which is the tighter gate for every bundled build |
+
+**Where each fault is reported** (same code everywhere, §8.1 order):
+- `manifest.json` absent (no-follow check): V1 `NO_PACK`. Present but a link, not a regular file, or over 1 MiB: V2 `MANIFEST_UNREADABLE`, before it is parsed. Readers read at most cap + 1 bytes.
+- A listed file absent (no-follow check): V9 `FILE_MISSING`. A listed file that is a link, not a regular file, outside `root`, or over 256 KiB, or `clips/` that is a link: V9 `FILE_INVALID`. V9 checks the files in `entries` order and reports the first fault; the total-size cap is checked after every per-file check has passed, still in V9 (`FILE_INVALID`), so V10 never hashes an oversized pack.
+- G1 `UNLISTED_FILE` (generator only) also covers unlisted links in the pack directory.
+
+**Android runtime:** the pack is read from APK assets, which hold only regular file contents written by the Gradle copy. The link and real-path rules are therefore met by construction and are not re-checked at runtime. The size caps **are** checked at runtime (asset length, or a bounded read of at most cap + 1 bytes), with the same codes.
+
+### 8.3 Packs built against a fake server (normative, added 2026-10-13, security VP-5)
+- The generator's `--api-base` accepts only a loopback host, so a run that sets it talks to a fake server (for example `tests/fake_chimege.py`), never to the vendor.
+- Such a run **must** write `source.vendor` = `stub` and `source.apiVersion` = `stub`. `source.voice` and `voiceId` stay as requested. V5 then rejects the pack in `demo` and `release` builds (`STUB_NOT_ALLOWED`), exactly like a stub-synthesiser pack. The schema is unchanged.
+- In its cache keys and `index.jsonl`, such a run uses the vendor value `fake` (distinct from `chimege` and `stub`). Fake audio can then never satisfy a later real request from the same cache directory.
+- Only a run **without** `--api-base`, with `--synth chimege`, may write `source.vendor` = `chimege`.
 
 ## 9. Versioning and compatibility
 | Field | Changes when | Who checks |
