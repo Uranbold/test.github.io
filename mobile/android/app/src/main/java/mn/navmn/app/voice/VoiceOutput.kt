@@ -32,6 +32,7 @@ import mn.navmn.app.voice.pack.PcmSinkFactory
 import mn.navmn.app.voice.pack.PromptAssembler
 import mn.navmn.app.voice.pack.VoicePack
 import mn.navmn.app.voice.pack.VoicePackSource
+import mn.navmn.app.voice.pack.VoicePackValidator
 import mn.navmn.app.voiceplan.SpokenPrompt
 import java.util.Locale
 import java.util.concurrent.Executor
@@ -245,7 +246,8 @@ class VoiceOutput internal constructor(
     private fun assemble(prompt: SpokenPrompt, entries: List<PackEntry>, pack: VoicePack, leadInMs: Int): Pair<ShortArray, Int> {
         val decoded = entries.map { e ->
             clips.get(e.file) ?: run {
-                val bytes = packs.files.read(e.file) ?: throw ClipDecodeException("clip missing")
+                val bytes = packs.files.read(e.file, VoicePackValidator.MAX_CLIP_BYTES + 1)
+                    ?.takeIf { it.size <= VoicePackValidator.MAX_CLIP_BYTES } ?: throw ClipDecodeException("clip missing or over the cap")
                 val pcm = decoder.decode(bytes)
                 Clip(pcm.sampleRateHz, ClipTrim.trim(pcm, e, pack.codec)).also { clips.put(e.file, it) }
             }

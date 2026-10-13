@@ -19,6 +19,8 @@ enum class PackReason {
     INVENTORY_MISMATCH,
     ENTRY_INVALID,
     FILE_MISSING,
+    /** pack-format §8.2 (V9): a listed file over the 256 KiB cap, or the pack over the 6 MiB total (link rules: build time only). */
+    FILE_INVALID,
     FILE_HASH_MISMATCH,
     DECODE_FAILED,
     PLAYBACK_FAILED,
@@ -78,12 +80,22 @@ sealed interface PackState {
 /** Reads a file of the bundled pack by its path relative to the pack directory; null if it does not exist. */
 fun interface PackFiles {
     fun read(path: String): ByteArray?
+
+    /**
+     * pack-format §8.2: a bounded read that returns at most [limit] bytes (the validator passes cap + 1, so an
+     * oversized file is recognised without reading it whole). Implementations over real storage override this.
+     */
+    fun read(path: String, limit: Int): ByteArray? = read(path)?.let { if (it.size > limit) it.copyOf(limit) else it }
 }
 
 /**
  * NAV-016 M6 (AC 39, 40, 44, 46): the runtime pack check, pack-format §8 V1–V10 in order; the first failure gives the
- * reason. Pure (no Android types): the app reads the files from the APK assets `voicepack/` (AssetPackFiles), tests from
+ * reason, with the fault ownership of §8.1 (the same code as the Gradle guard and the generator's `verify` for the same
+ * pack). Pure (no Android types): the app reads the files from the APK assets `voicepack/` (AssetPackFiles), tests from
  * a map. 0 network requests. Runs on a background thread (VoicePackSource).
+ *
+ * §8.2 at runtime: only the size caps (bounded reads of at most cap + 1 bytes). Assets hold only the regular file
+ * contents the Gradle copy wrote, so the link and real-path rules are met by construction and are not re-checked.
  */
 object VoicePackValidator {
     private val json = Json { isLenient = false }
@@ -105,6 +117,11 @@ object VoicePackValidator {
     const val SUPPORTED_SCHEMA = 1L
     const val MANIFEST = "manifest.json"
 
+    /** pack-format §8.2 size caps (bytes). Kept equal to navmn.buildlogic.VoicePackGuard (VoicePackGuardTest checks). */
+    const val MAX_MANIFEST_BYTES = 1_048_576
+    const val MAX_CLIP_BYTES = 262_144
+    const val MAX_PACK_BYTES = 6_291_456L
+
     private class Fail(val reason: PackReason) : Exception()
 
     fun validate(files: PackFiles, compiled: VoiceInventory, policy: PackPolicy): PackState = try {
@@ -118,13 +135,17 @@ object VoicePackValidator {
     private fun v3(): Nothing = fail(PackReason.MANIFEST_UNREADABLE)
 
     private fun check(files: PackFiles, compiledSha: String, policy: PackPolicy): VoicePack {
-        val bytes = runCatching { files.read(MANIFEST) }.getOrNull() ?: fail(PackReason.NO_PACK) // V1
-        // V2
-        val root = runCatching { json.parseToJsonElement(String(bytes, Charsets.UTF_8)) }.getOrNull() as? JsonObject
+        val bytes = runCatching { files.read(MANIFEST, MAX_MANIFEST_BYTES + 1) }.getOrNull() ?: fail(PackReason.NO_PACK) // V1
+        // V2 (§8.2: over 1 MiB is unreadable before it is parsed)
+        if (bytes.size > MAX_MANIFEST_BYTES) fail(PackReason.MANIFEST_UNREADABLE)
+        val text = Charsets.UTF_8.newDecoder().runCatching { decode(java.nio.ByteBuffer.wrap(bytes)).toString() }.getOrNull()
+            ?: fail(PackReason.MANIFEST_UNREADABLE)
+        val root = runCatching { json.parseToJsonElement(text) }.getOrNull() as? JsonObject
             ?: fail(PackReason.MANIFEST_UNREADABLE)
         val schema = (root["schemaVersion"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
         if (schema != SUPPORTED_SCHEMA) fail(PackReason.SCHEMA_UNSUPPORTED)
-        // V3
+        // V3 (§8.1: every schema rule except the V4 codec values and the V8 file pattern; no control characters anywhere)
+        if (hasControlCharacter(root)) v3()
         root.members(TOP)
         val packVersion = root.long("packVersion", 1, Long.MAX_VALUE)
         val voiceId = root.string("voiceId", Regex("^[A-Za-z0-9]{2,32}$"))
@@ -134,6 +155,10 @@ object VoicePackValidator {
         source.string("voice", Regex("^[A-Za-z0-9._-]{1,32}$"))
         if (root.long("sourceSampleRateHz", 0, Long.MAX_VALUE) !in setOf(8_000L, 16_000L, 22_050L)) v3()
         val codec = root.obj("codec").also { it.members(CODEC) }
+        // §8.1: bitrateKbps, encoderDelayFrames and encoder are V3 (before the V4 codec values; the two-fault case → V3)
+        val bitrate = codec.long("bitrateKbps", 16, 64).toInt()
+        val delay = codec.long("encoderDelayFrames", 0, 4096).toInt()
+        codec.string("encoder", Regex("^[A-Za-z0-9._+-]{1,48}$"))
         root.string("takeMethod", Regex("^(carrier-then-v1|comma-v1)$"))
         val joinPause = root.long("joinPauseMs", 0, 300).toInt()
         val thenPause = root.long("thenPauseMs", 0, 300).toInt()
@@ -167,9 +192,6 @@ object VoicePackValidator {
         val codecOk = codec.str("name") == "aac-lc" && codec.str("container") == "adts" && codec.str("fileExtension") == ".aac" &&
             (codec["channels"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull == 1L && (rate == 16_000L || rate == 22_050L)
         if (!codecOk) fail(PackReason.CODEC_UNSUPPORTED)
-        val bitrate = codec.long("bitrateKbps", 16, 64).toInt()
-        val delay = codec.long("encoderDelayFrames", 0, 4096).toInt()
-        codec.string("encoder", Regex("^[A-Za-z0-9._+-]{1,48}$"))
         // V5, V6
         if (policy == PackPolicy.REQUIRED_REAL && vendor == "stub") fail(PackReason.STUB_NOT_ALLOWED)
         if (policy == PackPolicy.REQUIRED_REAL && voiceId !in REAL_VOICES) fail(PackReason.VOICE_NOT_ALLOWED)
@@ -192,10 +214,24 @@ object VoicePackValidator {
             if (e.durationMs.toLong() != expected) fail(PackReason.ENTRY_INVALID)
             if (e.frames > e.encodedFrames - delay) fail(PackReason.ENTRY_INVALID)
         }
-        // V9, V10
-        val contents = entries.map { e -> runCatching { files.read(e.file) }.getOrNull() ?: fail(PackReason.FILE_MISSING) }
+        // V9 (entries order: absent → FILE_MISSING, over 256 KiB → FILE_INVALID; then the 6 MiB pack total), V10
+        var total = bytes.size.toLong()
+        val contents = entries.map { e ->
+            val b = runCatching { files.read(e.file, MAX_CLIP_BYTES + 1) }.getOrNull() ?: fail(PackReason.FILE_MISSING)
+            if (b.size > MAX_CLIP_BYTES) fail(PackReason.FILE_INVALID)
+            total += b.size
+            b
+        }
+        if (total > MAX_PACK_BYTES) fail(PackReason.FILE_INVALID)
         for ((e, b) in entries.zip(contents)) if (VoiceInventory.sha256Hex(b) != e.sha256) fail(PackReason.FILE_HASH_MISMATCH)
         return VoicePack(voiceId, vendor, packVersion, PackCodec(rate!!.toInt(), delay, bitrate), joinPause, thenPause, inventorySha, entries)
+    }
+
+    /** §8.1 reading rule: no string (member name or value) contains U+0000–U+001F. */
+    private fun hasControlCharacter(e: JsonElement): Boolean = when (e) {
+        is JsonObject -> e.any { (k, v) -> k.any { it < ' ' } || hasControlCharacter(v) }
+        is JsonArray -> e.any { hasControlCharacter(it) }
+        is JsonPrimitive -> e.isString && e.content.any { it < ' ' }
     }
 
     private fun compareAscii(a: String, b: String): Int = a.compareTo(b) // keys and takes are ASCII: UTF-16 order = byte order

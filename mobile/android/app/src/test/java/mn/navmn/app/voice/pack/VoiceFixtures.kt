@@ -57,11 +57,12 @@ object TestPacks {
         frames: (String, Take, String) -> Int = { _, _, s -> stubFrames(s) },
         joinPauseMs: Int = 80,
         thenPauseMs: Int = 80,
+        clip: (String, String) -> ByteArray = ::clipBytes,
     ): Built {
         val files = LinkedHashMap<String, ByteArray>()
         val entries = inventory.entries.map { (key, take, spoken) ->
             val file = "clips/$key.${take.id}.aac"
-            val bytes = clipBytes(key, take.id)
+            val bytes = clip(key, take.id)
             files[file] = bytes
             val f = frames(key, take, spoken)
             val encoded = ((f + DELAY + 1023) / 1024) * 1024

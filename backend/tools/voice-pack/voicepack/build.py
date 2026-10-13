@@ -18,6 +18,7 @@ from .codec import BITRATES_KBPS, CLIP_RATES, EXPECTED_ENCODER_DELAY, Ffmpeg, en
 from .errors import AudioCheckError, ConfigError, InventoryError, OutputError, PackInvalid, VoicePackError
 from .inventory import FINAL, NON_FINAL, Inventory, load as load_inventory, sha256_hex
 from .redact import Reporter
+from .synth import chimege as _chimege  # constants only: the cache-key identity of a real run
 from .render import Prompt, parse_prompt_list, prompt_ms, render_prompts, write_prompts_tsv
 from .textrules import TAKE_METHODS, AvoidRules, check_entries, request_text
 from .verify import ALLOWED_VOICES, verify_pack
@@ -47,6 +48,7 @@ class BuildOptions:
     ffmpeg: str | None = None
     ffmpeg_any_version: bool = False
     jobs: int = 0
+    cache_only: bool = False
 
 
 @dataclass
@@ -96,6 +98,29 @@ def _check_options(o: BuildOptions) -> None:
             raise ConfigError(f"{name} must be 0-300")
     if o.take_method not in TAKE_METHODS:
         raise ConfigError(f"--take-method must be one of {TAKE_METHODS}")
+    if o.cache_only:
+        if o.synth != "chimege":
+            raise ConfigError("--cache-only needs --synth chimege (it builds a real pack from cached vendor audio)")
+        if o.api_base is not None:
+            raise ConfigError("--cache-only and --api-base exclude each other")
+
+
+class CacheOnlySynthesiser:
+    """`--cache-only`: the Chimege identity (cache keys and manifest source = chimege / v1.2) without any network
+    code and without the token. Every entry must already be in the cache; synthesize() is never reached because the
+    build checks completeness first, and it refuses if it is."""
+
+    vendor = _chimege.VENDOR
+    api_version = _chimege.API_VERSION
+    cache_vendor = _chimege.VENDOR  # the same keys a real run wrote
+    cache_api_version = _chimege.API_VERSION
+    speed = _chimege.SPEED
+    pitch = _chimege.PITCH
+    max_in_flight = 1
+    requests_sent = 0
+
+    def synthesize(self, request_text: str, voice: str, sample_rate: int, *, label: str = "") -> bytes:
+        raise ConfigError(f"{label or 'entry'}: not in the cache, and --cache-only never sends a request")
 
 
 # ----------------------------------------------------------------------------------------------- synthesis
@@ -261,8 +286,12 @@ def run_build(opts: BuildOptions, reporter: Reporter, synth_factory: Callable | 
     if delay != EXPECTED_ENCODER_DELAY:
         raise ConfigError(f"measured encoder delay {delay} frames, expected {EXPECTED_ENCODER_DELAY} (ffmpeg {ff.version})")
     reporter.info(f"ffmpeg {ff.version}: aac encoder delay {delay} frames", ffmpeg=ff.version, encoder_delay=delay)
-    # 4. synthesiser (token check, exit 2)
-    if synth_factory is not None:
+    # 4. synthesiser (token check, exit 2; --cache-only: no token, no network code)
+    if opts.cache_only:
+        if cache_dir is None or not (cache_dir / "wav").is_dir():
+            raise ConfigError(f"--cache-only: no cache at {cache_dir} (expected a wav/ directory)")
+        synth = CacheOnlySynthesiser()
+    elif synth_factory is not None:
         synth = synth_factory(opts)
     elif opts.synth == "stub":
         from .synth.stub import StubSynthesiser
@@ -272,19 +301,27 @@ def run_build(opts: BuildOptions, reporter: Reporter, synth_factory: Callable | 
         from .synth.chimege import ChimegeSynthesiser
 
         synth = ChimegeSynthesiser(opts.api_base)
-    cache = Cache(cache_dir)
+    cache = Cache(cache_dir, create=not opts.cache_only)
+    cache_vendor = getattr(synth, "cache_vendor", synth.vendor)  # pack-format §8.3: "fake" for a fake-server run
+    cache_api_version = getattr(synth, "cache_api_version", synth.api_version)
     # 5. synthesis
     jobs: list[_Job] = []
     job_of: dict[tuple[str, str], _Job] = {}
     for e in inv.entries:
         text = request_text(e, opts.take_method)
-        fields = cache_fields(vendor=synth.vendor, api_version=synth.api_version, voice=opts.voice,
+        fields = cache_fields(vendor=cache_vendor, api_version=cache_api_version, voice=opts.voice,
                               sample_rate=SOURCE_RATE, speed=synth.speed, pitch=synth.pitch,
                               take_method=opts.take_method if e.take == NON_FINAL else NO_TAKE_METHOD,
                               request_text=text)
         j = _Job(cache_key(fields), fields, text, f"{e.key} ({e.take})")
         jobs.append(j)
         job_of[(e.key, e.take)] = j
+    if opts.cache_only:
+        missing = sorted({j.label for j in jobs if cache.get(j.key) is None})
+        if missing:
+            raise ConfigError(f"--cache-only: {len(missing)} of {len(jobs)} entries are not in the cache "
+                              f"(first: {', '.join(missing[:5])}); 0 requests sent")
+        reporter.info(f"cache-only: all {len(jobs)} entries are in the cache; no request, no token")
     synthesised, hits = synthesize_all(synth, jobs, cache, opts.voice, reporter)
     requests_sent = getattr(synth, "requests_sent", None)
     # 6. processing, encode, decode check

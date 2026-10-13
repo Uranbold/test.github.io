@@ -120,10 +120,12 @@ class VoicePromptTest {
     @Test
     fun aSegmentMissingFromTheInventoryNeverYieldsAComposedNumber() {
         // Outside the AC 27 domain (a walking catch-up 3 km ahead): dist.km.3 has no entry, so the prompt keeps the
-        // segment (the pack voice then plays the chime) and the spoken text falls back to the display text.
+        // segment (the pack voice then plays the chime) and the spoken text is empty, never the display text with its
+        // digits (ADR-0010 §2, integration review 2026-10-13; the web gives the same).
         val p = m(man(k("turn", "right"), 3_000.0))!!
         assertEquals("dist.km.3", p.segments.first().key)
-        assertEquals("3 километрт баруун тийш эргэнэ үү", p.spoken)
+        assertEquals("3 километрт баруун тийш эргэнэ үү", p.display)
+        assertEquals("", p.spoken)
         val empty = VoiceText.prompt(VoiceContent.OffRoute, Lang.MN, mn, VoiceInventory.EMPTY)!!
         assertEquals(listOf(Segment("fixed.offRoute", Take.FINAL)), empty.segments)
         assertTrue(C3Table.byKey.containsKey("dist.km.2") && !C3Table.byKey.containsKey("dist.km.3"))

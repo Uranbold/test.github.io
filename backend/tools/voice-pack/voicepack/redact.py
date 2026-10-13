@@ -27,6 +27,40 @@ def register(value: str | None) -> None:
             _secrets.sort(key=len, reverse=True)
 
 
+PROXY_ENV_NAMES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
+
+
+def register_proxy_credentials(environ=None) -> None:
+    """ADR-0010 §4.5: a proxy URL's credential part (`user:password@`) is treated like the token. Registers the
+    userinfo, the password and, when there is no password, the user name (a token used as the user name)."""
+    import os
+    import urllib.parse
+
+    environ = os.environ if environ is None else environ
+    for name in PROXY_ENV_NAMES:
+        value = environ.get(name) or ""
+        if "@" not in value:
+            continue
+        candidate = value if "://" in value else "http://" + value
+        try:
+            u = urllib.parse.urlsplit(candidate)
+            netloc = u.netloc
+        except ValueError:
+            netloc = candidate.split("://", 1)[-1].split("/", 1)[0]
+        userinfo = netloc.rpartition("@")[0]
+        if not userinfo:
+            continue
+        register(userinfo)
+        register(urllib.parse.unquote(userinfo))
+        user, sep, password = userinfo.partition(":")
+        if sep and password:
+            register(password)
+            register(urllib.parse.unquote(password))
+        elif user:
+            register(user)
+            register(urllib.parse.unquote(user))
+
+
 def clear() -> None:
     """Forget every registered value (tests)."""
     with _lock:
@@ -109,3 +143,14 @@ class Reporter:
         if self._log is not None:
             self._log.close()
             self._log = None
+
+
+SECRET_ENV_NAMES = ("CHIMEGE_API_TOKEN",)
+
+
+def child_env() -> dict:
+    """Environment for every subprocess the generator starts (ffmpeg, git): this process's environment without the
+    token (security VP-6; the token is also removed from os.environ once it has been read)."""
+    import os
+
+    return {k: v for k, v in os.environ.items() if k not in SECRET_ENV_NAMES}

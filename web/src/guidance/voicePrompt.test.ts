@@ -144,6 +144,18 @@ describe("NAV-016 AC 24 / AC 25 / AC 47 over the web domain", () => {
     expect(bad.slice(0, 20)).toEqual([]);
   });
 
+  test("ADR-0010 §2 (D-4): a prompt outside the inventory (catch-up ≥ 2,500 m, no dist.km.3+) is unmapped: spoken empty, display kept, never the digits; inside the domain nothing is unmapped", () => {
+    for (const d of [2_500, 3_000, 4_200, 9_999, 25_000]) {
+      const p = mn(man(k("turn", "left"), d))!;
+      expect(p.unmapped, `${d} m`).toBe(true);
+      expect(p.spoken).toBe("");
+      expect(p.display).toMatch(/^\d+ километрт зүүн тийш эргэнэ үү$/);
+      expect(p.segments[0]!.key).toMatch(/^dist\.km\.\d+$/);
+    }
+    for (let d = 0; d <= 2_000; d += 13) expect(mn(man(k("turn", "left"), d))!.unmapped, `${d} m`).toBeUndefined();
+    expect(en(man(k("turn", "left"), 3_000))).toEqual({ display: "In 3 kilometers, turn left", spoken: "In 3 kilometers, turn left", segments: [] });
+  });
+
   test("English: spoken = display, no segments (D96); renderVoice equals the display", () => {
     for (const c of [man(k("turn", "right"), 1300), { kind: "continueOn", distanceM: 2_480 } as VoiceContent, man(k("roundabout", "right", 2), 200, k("turn", "left"))]) {
       const p = en(c)!;

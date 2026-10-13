@@ -9,10 +9,12 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from voicepack import reposcan
+
 TOOL = Path(__file__).resolve().parents[1]
 REPO = TOOL.parents[2]
 BACKEND = REPO / "backend"
-TOKEN_VAR = "CHIMEGE_API_" + "TOKEN"  # split so this file does not match its own scan
+TOKEN_VAR = reposcan.TOKEN_VAR
 PIN = re.compile(r"^[a-z0-9._/:-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$")
 HAVE_GIT = bool(shutil.which("git")) and (REPO / ".git").exists()
 
@@ -24,17 +26,18 @@ def git(*args: str) -> subprocess.CompletedProcess:
 @unittest.skipUnless(HAVE_GIT, "needs git and the checkout")
 class RepoScanTest(unittest.TestCase):
     def test_no_non_empty_token_value_anywhere(self):
-        """`git grep TOKEN=.` (task B10), tracked and untracked files. Lines that only quote the empty key
-        (`...TOKEN=`), the scan pattern itself (`=.`) or a placeholder (`SENTINEL-…`, `<value>`) are not values."""
-        r = git("grep", "--untracked", "-n", "-E", TOKEN_VAR + "=.")
-        self.assertIn(r.returncode, (0, 1))
-        values = []
-        for line in r.stdout.splitlines():
-            for v in re.findall(re.escape(TOKEN_VAR) + r"=([^\s`'\"]*)", line):
-                if v in ("", ".") or "…" in v or v.startswith("<"):
-                    continue
-                values.append(line[:120])
-        self.assertEqual(values, [], "a non-empty token value is in a tracked or untracked file")
+        """AC 8 scan (task B10 definition, clarified 2026-10-13): tracked and untracked files."""
+        self.assertEqual(reposcan.scan_token(REPO), [], "a non-empty token value is in a tracked or untracked file")
+
+    def test_repo_wide_no_audio_pack_or_review_files(self):
+        """AC 19 / D79 repo-wide (security VP-3): no audio, pack manifest or review page anywhere, tracked or
+        untracked-and-not-ignored."""
+        self.assertEqual(reposcan.scan_audio(REPO), [])
+
+    def test_root_ignore_rules_cover_audio_outside_the_tool(self):
+        for rel in ("mobile/android/app/src/main/assets/voicepack/clips/x.final.aac", "web/public/x.aac", "x.wav",
+                    "docs/y.m4a"):
+            self.assertEqual(git("check-ignore", "-q", rel).returncode, 0, rel)
 
     def test_env_example_keys(self):
         lines = (BACKEND / ".env.example").read_text(encoding="utf-8").splitlines()
@@ -61,6 +64,28 @@ class RepoScanTest(unittest.TestCase):
         for f in tracked + untracked:
             self.assertNotRegex(f, r"\.(wav|m4a|aac|mp3|ogg|opus|flac)$", f)
             self.assertNotRegex(f, r"(^|/)review/|(^|/)manifest\.json$", f)
+
+
+class TokenScanRuleTest(unittest.TestCase):
+    """Fixtures for the AC 8 scan rules (task B10, incl. the QA Q-2 parameter-expansion sub-rule)."""
+
+    N = TOKEN_VAR
+    CASES = {
+        # (line, is a finding)
+        "{N}=": False, "{N}=abc": True, "{N}=\"abc\"": True, "{N}='abc'": True, "{N}: abc": True,
+        "  {N} = abc": True, "{N}:\"abc\"": True, "{N}=.": False, "{N}=<value>": False, "{N}=SENTINEL-…": False,
+        "{N}=$X": False, "{N}=${{X}}": False, "{N}=${{X:-}}": False, "{N}=${{X:-abc}}": True,
+        "[[ -n \"${{{N}:-}}\" ]]": False, "${{{N}:?not set}}": False, "${{{N}-}}": False, "${{{N}:+x}}": False,
+        "${{{N}}}": False, "${{{N}:-$OTHER}}": False, "${{{N}:-abc123}}": True, "${{{N}=abc}}": True,
+        "${{{N}-abc}}": True, "${{{N}:=abc}}": True, "-e {N} -e HTTPS_PROXY": False, "`{N}`: the token": False,
+        "{{\"{N}\": token}}": False,
+    }
+
+    def test_cases(self):
+        for tmpl, finding in self.CASES.items():
+            line = tmpl.format(N=self.N)
+            with self.subTest(line=line):
+                self.assertEqual(bool(reposcan.token_findings(line)), finding)
 
 
 class SourceScanTest(unittest.TestCase):

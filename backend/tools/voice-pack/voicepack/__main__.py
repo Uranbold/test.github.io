@@ -17,6 +17,7 @@ from .codec import BITRATES_KBPS, CLIP_RATES, Ffmpeg
 from .errors import PackInvalid, VoicePackError
 from .inventory import repo_root, sha256_hex
 from .textrules import TAKE_METHODS
+from .synth.chimege import TOKEN_ENV, ChimegeSynthesiser, take_token_from_environ
 from .verify import ALLOWED_VOICES, POLICIES
 
 
@@ -51,6 +52,8 @@ def _parser() -> argparse.ArgumentParser:
     sp.add_argument("--prompts", type=Path, default=None, help="prompt list to render as well (Android longest-prompts.tsv)")
     sp.add_argument("--replace", action="store_true", help="replace an existing <voice>-v<n> output")
     sp.add_argument("--api-base", default=None, help="loopback test server only (127.0.0.1, ::1, localhost)")
+    sp.add_argument("--cache-only", action="store_true",
+                    help="--synth chimege from a complete cache: no token, no request (fails if any entry is missing)")
     sp.add_argument("--jobs", type=int, default=0, help="processing worker processes (default min(4, CPUs))")
     sp.add_argument("--log", default=None, help="append JSON-lines events to this file (redacted)")
     ff_args(sp)
@@ -94,10 +97,10 @@ def _cmd_build(a, rep, synth_factory=None) -> int:
         voice=a.voice, pack_version=a.pack_version, synth=a.synth, out=a.out, repo=a.repo or repo_root(), cache=a.cache,
         bitrate_kbps=a.bitrate_kbps, clip_rate=a.clip_rate, join_pause_ms=a.join_pause_ms, then_pause_ms=a.then_pause_ms,
         take_method=a.take_method, prompts=a.prompts, replace=a.replace, api_base=a.api_base, ffmpeg=a.ffmpeg,
-        ffmpeg_any_version=a.ffmpeg_any_version, jobs=a.jobs,
+        ffmpeg_any_version=a.ffmpeg_any_version, jobs=a.jobs, cache_only=a.cache_only,
     )
     r = run_build(opts, rep, synth_factory=synth_factory)
-    sent = "n/a (stub)" if r.requests_sent is None else str(r.requests_sent)
+    sent = "n/a (stub)" if r.requests_sent is None else str(r.requests_sent) + (" (cache-only)" if opts.cache_only else "")
     rep.info(f"pack: {r.pack_dir}", entries=r.entries)
     rep.info(f"  voiceId {opts.voice}, packVersion {opts.pack_version}, manifest SHA-256 {r.manifest_sha256}",
              manifest_sha256=r.manifest_sha256, pack_version=opts.pack_version, voice=opts.voice)
@@ -149,12 +152,19 @@ def _cmd_render(a, rep) -> int:
 
 def main(argv: list[str] | None = None, *, synth_factory=None) -> int:
     redact.install()
+    # The token is read once and removed from os.environ before anything else runs, so no subprocess or worker
+    # inherits it (security VP-6); proxy credentials are redacted like the token (ADR-0010 §4.5).
+    token = take_token_from_environ()
+    redact.register_proxy_credentials()
     a = _parser().parse_args(argv)
     rep = redact.Reporter(getattr(a, "log", None))
     try:
         if a.cmd == "inventory":
             return _cmd_inventory(a, rep)
         if a.cmd == "build":
+            if synth_factory is None and a.synth == "chimege" and not a.cache_only:
+                def synth_factory(opts, _env={TOKEN_ENV: token}):
+                    return ChimegeSynthesiser(opts.api_base, env=_env)
             return _cmd_build(a, rep, synth_factory)
         if a.cmd == "verify":
             return _cmd_verify(a, rep)

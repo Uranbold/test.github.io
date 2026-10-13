@@ -190,8 +190,10 @@ class QaNav011ActivityTest {
 
     private val field = hasContentDescription("Газар, хаяг хайх")
     private fun exists(text: String) = compose.onAllNodes(hasText(text), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
-    private fun searchUrls() = FakeGateway.urls.filter { it.encodedPath == "/v1/search" }
-    private fun reverseUrls() = FakeGateway.urls.filter { it.encodedPath == "/v1/reverse" }
+    // FakeGateway.urls is a synchronizedList appended by the OkHttp interceptor thread: iterate it under its lock
+    // (QA report NAV-016 §6, the tcA13 flake: ConcurrentModificationException during filter).
+    private fun searchUrls() = synchronized(FakeGateway.urls) { FakeGateway.urls.filter { it.encodedPath == "/v1/search" } }
+    private fun reverseUrls() = synchronized(FakeGateway.urls) { FakeGateway.urls.filter { it.encodedPath == "/v1/reverse" } }
     private fun options() = compose.onAllNodesWithTag("search-coordinate-option").fetchSemanticsNodes().size
 
     /** AC 7 / AC 39 oracle from the story text (same as QaNav011CoordinateTest; independent of the app's parser). */

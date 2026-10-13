@@ -238,7 +238,10 @@ for `'wasm-unsafe-eval'` on the current iOS is assumed, not verified here. A fai
   prompt at 995 km or more (D102). English is unchanged. The spoken texts come from `src/guidance/voiceInventory.json`,
   generated from `docs/requirements/glossary-c3-spoken.tsv` and `docs/architecture/voice-pack/inventory.tsv` with
   `node scripts/gen-voice-inventory.mjs` (regenerate after either file changes; `voiceInventory.test.ts` fails on
-  drift). No audio clips are bundled (AC 49). `NAV_VOICE_GOLDEN=<file> npx vitest run src/guidance/golden.test.ts` runs
+  drift). A Mongolian prompt with a segment outside the inventory (for example a walking catch-up ≥ 2,500 m ahead,
+  «3 километрт» has no `dist.km.3`) is never spoken: it plays the chime for that prompt only, with no A1 and no
+  session fallback (ADR-0010 §2). As a guard, the player never speaks a Mongolian text that contains a digit. No audio
+  clips are bundled (AC 49). `NAV_VOICE_GOLDEN=<file> npx vitest run src/guidance/golden.test.ts` runs
   the golden check against a candidate set (for example `mobile/android/app/build/reports/voice/voice-golden.tsv`).
 - **Storage:** only the NAV-002 keys `navmn.theme`, `navmn.lang` and the voice choice **`navmn.voiceMuted`** (`"1"` =
   muted). No coordinates in storage, the console or the URL; no service worker.

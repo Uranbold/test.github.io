@@ -28,8 +28,9 @@
 #    limits (BE-3: packs per-client connection cap -> 429 RateLimited with CORS once, Range resume, bandwidth after
 #    the initial burst on packs and tiles, tile range reads never limited, bad values and a missing 18-*.sh refused);
 #    X-Content-Type-Options: nosniff exactly once on every response (BE-12/BE-13)
-# 11. NAV-016 voice-pack generator (backend/tools/voice-pack): syntax, image pins, repository scans and the path rule
-#    (stdlib, no ffmpeg); the full stub + fake-server suite runs too when the reference image exists
+# 11. NAV-016 voice-pack generator (backend/tools/voice-pack): syntax, image pins, the repo-wide AC 8 / AC 19 scan
+#    (voicepack/reposcan.py: token values, audio, pack manifests, review pages anywhere), repository scans and the path
+#    rule (stdlib, no ffmpeg); the full stub + fake-server suite runs too when the reference image exists
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 B=$ROOT/backend
@@ -680,6 +681,9 @@ find "$VP" -name __pycache__ -type d -prune -exec rm -rf {} +
 for img in $(sed -n 's/^ARG [A-Z_]*_IMAGE=\(.*\)$/\1/p' "$VP/Dockerfile"); do
   [[ "$img" =~ $PIN ]] || fail "voice-pack image not pinned as tag@sha256: $img"
 done
+# repo-wide AC 8 token-value scan and AC 19 / D79 custody scan (security VP-3): no audio file, pack manifest or review
+# page anywhere in the tree (tracked or untracked and not ignored), not only under the tool. Prints paths, never values.
+python3 -I "$VP/voicepack/reposcan.py" "$ROOT" || fail "NAV-016 repository scan (AC 8 token value / AC 19 audio, pack or review file)"
 # repository scans (token value, ignore rules, no audio, hosts, pins) + path rule: stdlib only, no ffmpeg, no network
 (cd "$VP" && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_repo tests.test_cache.PathRuleTest) > "$TMP/vp.log" 2>&1 \
   || { tail -n 30 "$TMP/vp.log"; fail "voice-pack repository scans"; }

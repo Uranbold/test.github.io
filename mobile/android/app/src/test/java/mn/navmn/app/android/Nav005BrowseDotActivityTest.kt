@@ -291,8 +291,8 @@ class Nav005BrowseDotActivityTest {
         assertEquals(base, content()!!.myLocation)
         assertEquals("the raw fix is still the origin input", raw.lat, vm().myLocation.value!!.lat, 1e-9)
         vm().onQuery("Зайсан")
-        waitFor { FakeGateway.urls.any { it.encodedPath.endsWith("/search") } }
-        val url = FakeGateway.urls.last { it.encodedPath.endsWith("/search") }
+        waitFor { synchronized(FakeGateway.urls) { FakeGateway.urls.any { it.encodedPath.endsWith("/search") } } }
+        val url = synchronized(FakeGateway.urls) { FakeGateway.urls.last { it.encodedPath.endsWith("/search") } }
         assertEquals("D174: bias = shown position (3 decimals)", "47.950", url.queryParameter("lat"))
         assertEquals("106.800", url.queryParameter("lon"))
     }

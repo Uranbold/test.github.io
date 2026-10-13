@@ -4,13 +4,17 @@
 #   run.sh test                                   unit tests (stub + fake server; no network, no token)
 #   run.sh stub   OUT [VOICE] [PACK_VERSION]      stub pack (no token, no network)
 #   run.sh build  OUT VOICE PACK_VERSION CACHE    REAL pack: Chimege, token from CHIMEGE_API_TOKEN in this shell only
+#   run.sh build-cached OUT VOICE PACK_VERSION CACHE
+#                                                 REAL pack from a COMPLETE cache: no token, no request, --network none,
+#                                                 cache mounted read-only; fails if any entry is missing
 #   run.sh verify DIR [POLICY]                    pack-format §8 checks (DIR = .../pack or its run directory)
 #   run.sh render PACK PROMPTS OUT                render a prompt list (NAV-007 AC 10 harness)
 #
 # Environment: VOICE_PACK_RUNNER=image (default; the digest-pinned reference image, byte identity) | host (python +
 # ffmpeg of this machine: VOICE_PACK_PYTHON with jsonschema, NAV_VOICE_PACK_FFMPEG or ffmpeg on PATH);
 # VOICE_PACK_IMAGE (default navmn-voice-pack:1.0.0); PROMPTS=<prompt list> for stub/build; VOICE_PACK_DOCKER_ARGS
-# (extra docker run arguments, e.g. --network host behind a local proxy; build only).
+# (extra docker run arguments for `build` only, set at run time and never committed: e.g. host networking and a
+# read-only CA bundle with SSL_CERT_FILE behind a TLS-intercepting proxy; README "Behind a TLS-intercepting proxy").
 #
 # The token is passed to the container by NAME only (docker run -e CHIMEGE_API_TOKEN); it never appears on a command
 # line, in a file or in this script's output. OUT and CACHE must be outside the repository, or git-ignored inside it
@@ -89,6 +93,20 @@ case "$cmd" in
     fi
     echo "pack (host path): $out/$voice-v$ver/pack   review: $out/$voice-v$ver/review/index.html"
     ;;
+  build-cached)
+    [[ $# -eq 4 ]] || die "usage: run.sh build-cached OUT VOICE PACK_VERSION CACHE"
+    out=$(allowed "$1" OUT); voice=$2; ver=$3; cache=$(allowed "$4" CACHE)
+    [[ -d "$cache/wav" ]] || die "CACHE $cache has no wav/ directory (a cache written by an earlier build)"
+    mkdir -p "$out"
+    if [[ $RUNNER == image ]]; then
+      # no token, no network, no VOICE_PACK_DOCKER_ARGS; the cache is read-only
+      image_run --network none -v "$out:/out" -v "$cache:/cache:ro" "${prompts_mount[@]}" "$IMAGE" \
+        python -m voicepack build --voice "$voice" --pack-version "$ver" --synth chimege --cache-only --out /out --cache /cache "${prompts_arg[@]}"
+    else
+      (cd "$HERE" && env -u CHIMEGE_API_TOKEN "$PY" -m voicepack build --voice "$voice" --pack-version "$ver" --synth chimege --cache-only --out "$out" --cache "$cache" "${prompts_arg[@]}")
+    fi
+    echo "pack (host path): $out/$voice-v$ver/pack   review: $out/$voice-v$ver/review/index.html"
+    ;;
   verify)
     [[ $# -ge 1 && -n "$1" ]] || die "usage: run.sh verify DIR [POLICY]"
     dir=$(abspath "$1"); policy=${2:-release}
@@ -112,6 +130,6 @@ case "$cmd" in
     fi
     ;;
   *)
-    die "usage: run.sh test | stub OUT [VOICE] [PACK_VERSION] | build OUT VOICE PACK_VERSION CACHE | verify DIR [POLICY] | render PACK PROMPTS OUT"
+    die "usage: run.sh test | stub OUT [VOICE] [PACK_VERSION] | build OUT VOICE PACK_VERSION CACHE | build-cached OUT VOICE PACK_VERSION CACHE | verify DIR [POLICY] | render PACK PROMPTS OUT"
     ;;
 esac

@@ -34,6 +34,31 @@ class ProcessTest(unittest.TestCase):
         self.assertLessEqual(trail, 40)
         self.assertLess(abs(p.duration_ms - 810), 25)
 
+    def test_loud_source_with_soft_tail_meets_edge_rule(self):
+        """Regression (first real Chimege build): a source louder than the target (negative gain) with a soft
+        decaying word end. The −45 dBFS threshold is the delivered level, so the region found on the raw level must
+        not leave 50+ ms of after-gain "silence" at the end (or the start)."""
+        n_tail = round(0.3 * R)
+        onset = [round(8000 * (i / n_tail) ** 3 * math.sin(2 * math.pi * 180 * i / R)) for i in range(n_tail)]
+        # the tail decays 0.1 dB/ms from −20 dBFS: above −45 dBFS raw for 250 ms, above it after a −12 dB gain
+        # for only about 130 ms
+        tail = [round(32768 * 10 ** ((-17 - 0.1 * i * 1000 / R) / 20) * math.sin(2 * math.pi * 180 * i / R)) for i in range(n_tail)]
+        x = array("h", silence(200) + onset + tone(700, amp=26000, f=180) + tail + silence(200))
+        p = audio.process(x, R, "k")
+        self.assertLess(p.gain_db, -8, "the fixture must need a clearly negative gain")
+        audio.check_clip(p, "k")  # raises edge-silence with the raw-level region
+        lead, trail = audio.edge_silence_ms(p.samples, R)
+        self.assertLessEqual(max(lead, trail), 20)
+        self.assertAlmostEqual(p.active_rms_db, audio.TARGET_RMS_DBFS, delta=0.3)
+
+    def test_quiet_source_positive_gain_keeps_soft_edges(self):
+        """The other direction: a quiet source (positive gain) keeps soft edges that become audible after the gain."""
+        x = array("h", silence(200) + tone(60, amp=120) + tone(700, amp=1500) + tone(60, amp=120) + silence(200))
+        p = audio.process(x, R, "k")
+        self.assertGreater(p.gain_db, 5)
+        audio.check_clip(p, "k")
+        self.assertGreaterEqual(p.duration_ms, 800, "the soft 60 ms edges are above −45 dBFS after the gain")
+
     def test_fade_has_no_first_sample_step(self):
         x = array("h", tone(500, amp=20000))  # speech from the very first sample: no margin available
         p = audio.process(x, R, "k")

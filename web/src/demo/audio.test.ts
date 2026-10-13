@@ -1,7 +1,10 @@
 // NAV-017 AC 27–31: voice decision, speech output and the D23 chime fallback with stubbed speechSynthesis and Web Audio.
 import { describe, expect, test } from "vitest";
 import type { SpokenPrompt } from "../guidance/playbackQueue";
-import { AudioOut, chimeSamples, chimeWavDataUri, chooseVoice, CHIME_MS, describeVoiceDecision, encodeWav, isUsableVoice, loadMuted, MUTE_KEY, RESUME_WAIT_MS, saveMuted, waitForVoices, type AudioEnv, type ChimeElement } from "./audio";
+import { I18n } from "../i18n/i18n";
+import { maneuverKey } from "../route/instructions";
+import { voicePrompt } from "../guidance/voiceText";
+import { AudioOut, mustNotSpeak, chimeSamples, chimeWavDataUri, chooseVoice, CHIME_MS, describeVoiceDecision, encodeWav, isUsableVoice, loadMuted, MUTE_KEY, RESUME_WAIT_MS, saveMuted, waitForVoices, type AudioEnv, type ChimeElement } from "./audio";
 
 function timers() {
   let now = 0;
@@ -106,6 +109,8 @@ function env(voiceLangs: string[] | (() => string[]), opts: { fireStart?: boolea
 
 const prompt = (id: number, text: string, lang: "mn" | "en" = "mn"): SpokenPrompt => ({ id, text, lang, cls: "maneuver", maneuver: { gen: 0, step: id }, triggerAtMs: 0 });
 const CYRILLIC = /[Ѐ-ӿ]/;
+const mnI18n = new I18n("mn");
+const tMn = (k: Parameters<I18n["t"]>[0]) => mnI18n.t(k, "mn");
 
 describe("NAV-017 AC 28 voice decision", () => {
   test("usable voice regex and en-US preference", () => {
@@ -165,6 +170,47 @@ describe("NAV-017 AC 27–30 speech and the D23 chime", () => {
     sp.play({ ...prompt(8, "300 метрт баруун тийш эргэнэ үү"), spoken: "гурван зуун метрт баруун тийш эргэнэ үү" });
     expect(x.spoken[0]!.text).toBe("гурван зуун метрт баруун тийш эргэнэ үү");
     expect(x.spoken.filter((u) => /[0-9]/.test(u.text))).toEqual([]);
+  });
+
+  test("NAV-016 D-4 (ADR-0010 §2, task M9): an unmapped Mongolian prompt (walking catch-up at 3,000 m) gives 0 utterances and 1 chime, no A1; the next mapped prompt is spoken", async () => {
+    const x = env(["mn-MN"]);
+    const a = new AudioOut(x.e);
+    await a.decide();
+    const done: number[] = [];
+    let fallbacks = 0;
+    const sp = a.speaker({ done: (id) => done.push(id), fallback: () => fallbacks++ });
+    a.unlockForStart("mn");
+    const cat = voicePrompt({ kind: "maneuver", key: maneuverKey({ type: "turn", modifier: "left" }), distanceM: 3_000, then: null }, "mn", tMn)!;
+    expect(cat).toMatchObject({ display: "3 километрт зүүн тийш эргэнэ үү", spoken: "", unmapped: true });
+    sp.play({ ...prompt(1, cat.display), spoken: cat.spoken, segments: cat.segments, unmapped: true });
+    expect(x.spoken).toEqual([]);
+    expect(a.stats).toEqual({ utterances: 0, chimes: 1 });
+    expect(fallbacks).toBe(0);
+    expect(a.fallbackActive).toBe(false);
+    x.tm.advance(CHIME_MS + 10);
+    expect(done).toEqual([1]);
+    const next = voicePrompt({ kind: "maneuver", key: maneuverKey({ type: "turn", modifier: "left" }), distanceM: 300, then: null }, "mn", tMn)!;
+    expect(next.unmapped).toBeUndefined();
+    sp.play({ ...prompt(2, next.display), spoken: next.spoken, segments: next.segments });
+    expect(x.spoken.map((u) => u.text)).toEqual(["гурван зуун метрт зүүн тийш эргэнэ үү"]);
+    expect(a.stats).toEqual({ utterances: 1, chimes: 1 });
+  });
+
+  test("NAV-016 AC 25 / AC 47 guard: a Mongolian prompt whose utterance would contain a digit (no spoken form) is chimed, never spoken; English is unchanged", async () => {
+    const x = env(["mn-MN", "en-US"]);
+    const a = new AudioOut(x.e);
+    await a.decide();
+    let fallbacks = 0;
+    const sp = a.speaker({ done: () => undefined, fallback: () => fallbacks++ });
+    sp.play(prompt(1, "3 километрт зүүн тийш эргэнэ үү"));
+    sp.play({ ...prompt(2, "3 километрт зүүн тийш эргэнэ үү"), spoken: "" });
+    expect(x.spoken).toEqual([]);
+    expect(a.stats.chimes).toBe(2);
+    sp.play(prompt(3, "In 3 kilometers, turn left", "en"));
+    expect(x.spoken.map((u) => u.text)).toEqual(["In 3 kilometers, turn left"]);
+    expect(fallbacks).toBe(0);
+    expect(mustNotSpeak({ lang: "mn", text: "x", spoken: "гурван зуун метрт" })).toBe(false);
+    expect(mustNotSpeak({ lang: "mn", text: "x", spoken: "гурван", unmapped: true })).toBe(true);
   });
 
   test("with a Mongolian voice: voice and lang set explicitly, rate/pitch/volume 1, done on end", async () => {
@@ -278,9 +324,9 @@ describe("NAV-017 AC 27–30 speech and the D23 chime", () => {
     x.tm.advance(300);
     await decided;
     expect(a.speaks("mn")).toBe(true);
-    sp.play(prompt(2, "1 километрт зүүн тийш эргэнэ үү"));
+    sp.play({ ...prompt(2, "1 километрт зүүн тийш эргэнэ үү"), spoken: "нэг километрт зүүн тийш эргэнэ үү" });
     x.tm.advance(10);
-    expect(x.spoken.at(-1)?.text).toBe("1 километрт зүүн тийш эргэнэ үү");
+    expect(x.spoken.at(-1)?.text).toBe("нэг километрт зүүн тийш эргэнэ үү");
     expect(x.spoken.at(-1)?.voice?.lang).toBe("mn-MN");
     expect(a.stats.chimes).toBe(1);
     // primed once per page: a later tap adds no second priming utterance
@@ -366,8 +412,8 @@ describe("Triage item F1: AudioOut feeds the diagnostics event log (memory only)
     a.unlockForStart("mn");
     expect(a.diagnostics()).toMatchObject({ context: "running", unlockRan: true });
     const sp = a.speaker({ done: () => undefined, fallback: () => undefined });
-    const long = "300 метрт баруун тийш эргэнэ үү, дараа нь шууд явна уу";
-    sp.play(prompt(1, long));
+    const long = "гурван зуун метрт баруун тийш эргэнэ үү, дараа нь шууд явна уу";
+    sp.play({ ...prompt(1, "300 метрт баруун тийш эргэнэ үү, дараа нь шууд явна уу"), spoken: long });
     x.tm.advance(10); // onstart after 5 ms
     x.spoken[0]!.onend?.({});
     sp.play(prompt(2, "Тойрог"));

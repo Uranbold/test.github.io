@@ -67,6 +67,30 @@ class QaGpxReplayTest {
     private fun voiceProblems(r: QaRun): List<String> =
         r.spokenTexts().flatMap { t -> Ac27.ac33Problems(t).map { "«$t»: $it" } }.distinct()
 
+    /**
+     * NAV-016 AC 25 per track (QA gap G4): every Mongolian spoken text of the replay has no digit and no Latin letter,
+     * equals its inventory segments joined (pack-format §6), keeps no TSV display phrase (glossary-c3-spoken.tsv), and
+     * where the display text starts with a TSV display phrase, the spoken text starts with that row's spoken_mn.
+     */
+    private fun ac25SpokenProblems(r: QaRun): List<String> {
+        val p = ArrayList<String>()
+        val rows = mn.navmn.app.voice.pack.C3Table.rows.sortedByDescending { it.display.length }
+        val mnPrompts = r.spoken.map { it.second }.filter { it.lang == Lang.MN }
+        if (mnPrompts.isEmpty()) p += "no Mongolian prompt captured"
+        for (sp in mnPrompts) {
+            val s = sp.spoken
+            if (s.isEmpty()) p += "«${sp.text}»: empty spoken text (unmapped prompt) on a car route"
+            if (Regex("[0-9A-Za-z]").containsMatchIn(s)) p += "«$s» has a digit or Latin letter"
+            val composed = VoiceText.spokenText(sp.segments, mn.navmn.app.support.TestVoice.inventory)
+            if (composed != s) p += "«$s» is not its segments joined («$composed»)"
+            rows.filter { Regex("[0-9]").containsMatchIn(it.display) && s.contains(it.display) }.forEach { p += "«$s» keeps the TSV display phrase «${it.display}»" }
+            rows.firstOrNull { sp.text.startsWith(it.display + " ") }?.let { row ->
+                if (!s.startsWith(row.spoken + " ")) p += "«$s» does not start with «${row.spoken}» (${row.key}, display «${sp.text}»)"
+            }
+        }
+        return p.distinct()
+    }
+
     private fun privacyProblems(r: QaRun): List<String> {
         val out = ArrayList<String>()
         r.log.filter { coordinate.containsMatchIn(it) }.forEach { out += "log: $it" }
@@ -297,6 +321,7 @@ class QaGpxReplayTest {
         if (r.spoken.any { it.second.maneuver?.first == 1 && it.second.maneuver?.second == 0 }) p += "UX §4.2 rule 5: depart spoken after reroute"
         p += bannerProblems(r, Lang.MN).map { "AC 28/31: $it" }
         p += voiceProblems(r).map { "AC 33: $it" }
+        p += ac25SpokenProblems(r).map { "NAV-016 AC 25 (G2): $it" }
         if (r.events.count { it.second == GuidanceEvent.Arrived } != 1) p += "AC 55: arrivals ${r.events.count { it.second == GuidanceEvent.Arrived }}"
         p += privacyProblems(r).map { "AC 67: $it" }
         println("G2 spoken: " + r.spoken.map { "${it.first / 1000}s ${it.second.text}" })
@@ -794,6 +819,7 @@ class QaGpxReplayTest {
         p += ac34Problems(r, fixes).map { "AC 34: $it" }
         p += bannerAdvanceProblems(r, fixes).map { "AC 31: $it" }
         p += privacyProblems(r).map { "AC 67: $it" }
+        p += ac25SpokenProblems(r).map { "NAV-016 AC 25 (G10): $it" }
         println("G10 near-end fixes ${nearEarly.map { "${fixes[it].elapsedMs / 1000}s ${Geo.distance(fixes[it].latLon, end).toInt()} m" }}")
         println("G10 spoken: " + r.spoken.map { "${it.first / 1000.0}s ${it.second.text}" })
         println("G10 banners: " + r.bannerChanges().map { "${it.first / 1000.0}s ${it.second}" })

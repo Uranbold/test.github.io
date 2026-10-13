@@ -74,6 +74,59 @@ class VoicePackValidatorTest {
         assertEquals("V8 duration", PackReason.ENTRY_INVALID, reason(validate(manifest { it.replaceFirst(firstDuration.value, "\"durationMs\": ${firstDuration.groupValues[1].toInt() + 5}") })))
     }
 
+    /** pack-format §8.1 conformance (D-3, QA request): every fixture gives its owner's code; the same set runs on the guard. */
+    @Test
+    fun section81FixtureSetGivesTheOwnersCode() {
+        val wrong = PackFaultFixtures.ownership.mapNotNull { c ->
+            val s = validate(c.packFiles())
+            val got = if (s is PackState.Valid) null else reason(s)
+            if (got == c.expected) null else "${c.id}: expected ${c.expected ?: "Valid"}, got ${got ?: s}"
+        }
+        assertEquals(wrong.joinToString("\n"), 0, wrong.size)
+        assertTrue(PackFaultFixtures.ownership.size >= 40)
+    }
+
+    @Test
+    fun theTwoFaultCaseIsV3() {
+        val c = PackFaultFixtures.ownership.single { it.id == "c12-two-fault-bitrate-and-name" }
+        assertEquals("pack-format §8.1: V3 runs before V4", PackReason.MANIFEST_UNREADABLE, reason(validate(c.packFiles())))
+    }
+
+    /** pack-format §8.2 at runtime: the size caps with bounded reads, the same codes as the guard. */
+    @Test
+    fun section82SizeCapsAtRuntime() {
+        for (c in PackFaultFixtures.sizeCaps) {
+            val s = validate(c.packFiles())
+            assertEquals(c.id, c.expected, if (s is PackState.Valid) null else reason(s))
+        }
+        assertEquals(1_048_576, VoicePackValidator.MAX_MANIFEST_BYTES)
+        assertEquals(262_144, VoicePackValidator.MAX_CLIP_BYTES)
+        assertEquals(6_291_456L, VoicePackValidator.MAX_PACK_BYTES)
+    }
+
+    @Test
+    fun readsAreBoundedToCapPlusOne() {
+        val built = TestPacks.build()
+        val limits = HashMap<String, Int>()
+        val files = object : PackFiles {
+            override fun read(path: String): ByteArray? = error("the validator must use the bounded read ($path)")
+
+            override fun read(path: String, limit: Int): ByteArray? {
+                limits[path] = limit
+                return if (path == VoicePackValidator.MANIFEST) built.manifest.toByteArray() else built.files[path]
+            }
+        }
+        assertTrue(validate(files) is PackState.Valid)
+        assertEquals(VoicePackValidator.MAX_MANIFEST_BYTES + 1, limits[VoicePackValidator.MANIFEST])
+        assertEquals(setOf(VoicePackValidator.MAX_CLIP_BYTES + 1), limits.filterKeys { it != VoicePackValidator.MANIFEST }.values.toSet())
+        assertEquals(305, limits.size)
+        // the default bounded read of a plain PackFiles truncates to the limit
+        assertEquals(10, PackFiles { ByteArray(100) }.read("x", 10)!!.size)
+        // the asset reader's helper stops at the limit
+        assertEquals(7, readAtMost(java.io.ByteArrayInputStream(ByteArray(1_000)), 7).size)
+        assertEquals(3, readAtMost(java.io.ByteArrayInputStream(ByteArray(3)), 7).size)
+    }
+
     @Test
     fun aPackForAnotherInventoryIsRejected() {
         val other = VoiceInventory(String(TestVoice.bytes, Charsets.UTF_8).replace("дараа нь", "дараа ни").toByteArray(Charsets.UTF_8))

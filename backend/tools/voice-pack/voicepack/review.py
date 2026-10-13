@@ -137,7 +137,27 @@ def index_html(manifest: dict, prompt_rows: list[dict]) -> bytes:
     data = json.dumps(_page_data(manifest, prompt_rows), ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     data = data.replace("</", "<\\/").replace("<!--", "<\\!--")
     page = _TEMPLATE.replace("@@TITLE@@", html.escape(label("title"))).replace("@@DATA@@", data)
-    return page.encode("utf-8")
+    return page.replace("@@CSP@@", content_security_policy(page)).encode("utf-8")
+
+
+def _csp_hash(text: str) -> str:
+    import base64
+    import hashlib
+
+    return "'sha256-" + base64.b64encode(hashlib.sha256(text.encode("utf-8")).digest()).decode("ascii") + "'"
+
+
+def content_security_policy(page: str) -> str:
+    """Security VP-10: the page runs only its own inline script and style (by hash), loads media only from the
+    local files next to it, and nothing else (no network, no frames, no forms). The JSON data block is not executed,
+    so it needs no script-src entry; the review.tsv export is a download of a blob: link, which CSP does not govern."""
+    import re
+
+    scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
+    styles = re.findall(r"<style>(.*?)</style>", page, re.S)
+    return ("default-src 'none'; script-src " + " ".join(_csp_hash(s) for s in scripts)
+            + "; style-src " + " ".join(_csp_hash(s) for s in styles)
+            + "; media-src 'self' file:; base-uri 'none'; form-action 'none'")  # frame-ancestors is ignored in a meta tag
 
 
 def write_review(review_dir: Path, manifest: dict, prompt_rows: list[dict]) -> None:
@@ -213,6 +233,7 @@ _TEMPLATE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="@@CSP@@">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>@@TITLE@@</title>

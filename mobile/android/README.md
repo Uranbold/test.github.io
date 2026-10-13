@@ -813,8 +813,11 @@ line, the environment (`NAV_VOICE_PACK_DIR`) or the uncommitted `gateway.local.p
 the repository or under the git-ignored `mobile/android/voicepack-local/`.
 
 ```bash
-# PO build with the FEMALE5v2 pack (D229)
+# the two internal demo APKs (D236): same source revision, one pack each, no in-app setting
 ./gradlew :app:assembleDemo -Pnav.demoTilesFile=<path-to>.pmtiles -Pnav.voicePackDir=<path-to>/FEMALE5v2-v1/pack
+#   → app/build/outputs/apk/demo/app-FEMALE5v2-demo.apk, versionName 0.1.0-nav005-demo-FEMALE5v2
+./gradlew :app:assembleDemo -Pnav.demoTilesFile=<path-to>.pmtiles -Pnav.voicePackDir=<path-to>/MALE4v2-v1/pack
+#   → app/build/outputs/apk/demo/app-MALE4v2-demo.apk, versionName 0.1.0-nav005-demo-MALE4v2
 # a debug build with the generator's stub pack
 ./gradlew :app:assembleDebug -Pnav.voicePackDir=<path-to>/FEMALE5v2-v1/pack
 # a demo build without a pack (chime + A1)
@@ -823,12 +826,21 @@ the repository or under the git-ignored `mobile/android/voicepack-local/`.
 
 | Variant | Pack | Checked by `bundleVoicePack<Variant>` |
 |---|---|---|
-| `debug` | optional; a stub pack is allowed | V1–V10 of pack-format §8. A pack for other glossary wording (V7) is bundled with a warning and the app plays the fallback (AC 46) |
+| `debug` | optional; a stub pack is allowed | V1–V10 of pack-format §8. When the only V7 failure is an `inventorySha256` that differs from the app's (a pack from older wording), the pack is bundled with a warning and the app plays the fallback (AC 46). Unsorted or duplicate entries, or entries that do not hash to the manifest's own `inventorySha256`, fail like any other check |
 | `demo` | required and real (`source.vendor` not `stub`, `voiceId` `FEMALE5v2` or `MALE4v2`), unless the value is exactly `none` | V1–V10 + V5, V6 |
 | `release` | required and real; `none` is refused | V1–V10 + V5, V6 |
 
-Every failure names `nav.voicePackDir` and the first failed check (for example `V10 FILE_HASH_MISMATCH`). Only
-`manifest.json` and the clips it lists are copied into the APK assets `voicepack/`; `.aac` is stored uncompressed. With a
+Every failure names `nav.voicePackDir` and the first failed check (for example `V10 FILE_HASH_MISMATCH`), with the fault
+ownership of pack-format §8.1 (the same code as `voicepack verify` and the app). Files on disk follow pack-format §8.2:
+`manifest.json`, `clips/` and every listed clip must be regular files or a directory inside the pack directory's real path,
+never links (`V2 MANIFEST_UNREADABLE`, `V9 FILE_INVALID`), and the caps are 1 MiB for the manifest, 256 KiB per clip and
+6 MiB for the pack. Only `manifest.json` and the clips it lists are copied into the APK assets `voicepack/`, written from
+the verified bytes (never a link or a directory tree); `.aac` is stored uncompressed.
+
+**Which voice an APK carries (D236).** Two internal demo APKs are delivered, one per voice, with the same
+`applicationId` (installing one replaces the other). The bundled pack's `voiceId` (plus `-stub` for a stub pack) is added
+to the APK file name (`app-<voiceId>-<variant>.apk`) and to the versionName (`…-<voiceId>`, shown in the system app info).
+Without a pack the names stay `app-<variant>.apk` and `0.1.0-nav005[-demo]`. The vendor never appears in either. With a
 pack, `demo` and `release` builds also run `checkVoicePackDurations` (NAV-016 AC 29: every prompt of the generator
 domain ≤ 5,000 ms single, ≤ 8,000 ms chained, from the pack's `durationMs` plus the manifest pauses).
 
@@ -837,10 +849,10 @@ domain ≤ 5,000 ms single, ≤ 8,000 ms chained, from the pack's `durationMs` p
 | Path | What |
 |---|---|
 | `buildSrc/.../VoiceInventoryBuilder.java` | canonical inventory (pack-format §2.3) → asset `voice/inventory.tsv` and `BuildConfig.VOICE_INVENTORY_SHA256` (task `generateVoiceInventory`) |
-| `buildSrc/.../VoicePackGuard.java`, `MiniJson.java` | build-time pack check and variant policy (tasks `bundleVoicePack<Variant>`) |
+| `buildSrc/.../VoicePackGuard.java`, `MiniJson.java` | build-time pack check, file rules and variant policy (tasks `bundleVoicePack<Variant>`); `voiceTag` for the per-voice APK names |
 | `instructions/VoiceText.kt` | display text, spoken text and segments; Mongolian km rounding D92/D94/D102 |
 | `voice/pack/VoiceInventory.kt` | the inventory asset; `Take`, `Segment` |
-| `voice/pack/VoicePackValidator.kt`, `VoicePackSource.kt` | runtime V1–V10 at preview open and after a restore (reason codes in the debug log only) |
+| `voice/pack/VoicePackValidator.kt`, `VoicePackSource.kt` | runtime V1–V10 at preview open and after a restore, size caps with bounded reads (reason codes in the debug log only) |
 | `voice/pack/ClipDecoder.kt` | `MediaCodecClipDecoder` and `ClipTrim` (pack-format §5) |
 | `voice/pack/PromptAssembler.kt`, `PcmSink.kt` | join rules and duration (pack-format §6); one `AudioTrack` per prompt |
 | `voice/VoiceRouting.kt`, `voice/VoiceOutput.kt` | Mongolian = pack or chime (never device TTS), English = TTS or chime |
@@ -851,6 +863,9 @@ domain ≤ 5,000 ms single, ≤ 8,000 ms chained, from the pack's `durationMs` p
   routing, player (Robolectric, fake decoder) and `VoicePackGuard` tests. The duration check uses a stub manifest at
   70 ms per character unless `-Pnav.voicePackDir` is set; it writes `app/build/reports/voice/longest-prompts.tsv` (the
   generator's `render --prompts` input). With the stub manifest it only reports; with a real pack it enforces the limits.
+- pack-format §8.1/§8.2 conformance: `PackFaultFixtures` (test sources) holds one corrupted pack per fault plus the
+  two-fault cases and the size caps; `VoicePackValidatorTest` and `VoicePackGuardTest` both run it and assert the same
+  code. The link fixtures are created by `VoicePackGuardTest` at run time (never committed).
 - QA interop (task breakdown §3.1): `./gradlew :app:testDebugUnitTest -Pnav.voicePackDir=<stub pack>` also runs
   `VoicePackValidatorTest.interopWithTheGeneratorPack` on the generator's pack.
 - `QaGpxReplayTest.tcR13` writes the voice golden candidate (with the `spoken` and `segments` columns, AC 26) to

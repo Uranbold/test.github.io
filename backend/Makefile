@@ -27,7 +27,7 @@ endif
 .PHONY: help up down restart ps logs smoke smoke-backend perf contract rate-limit-check cors-check rebuild-data \
         clean-data stats tiles-info build-info rebuild rollback status slot-checksums nav006-up nav006-ps \
         nav006-test-setup nav006-test-teardown pipeline-test pack-publish pack-status pack-test search-eval gate2-image \
-        nav020-test-setup nav020-test-teardown voice-pack-image voice-pack-test voice-pack-stub voice-pack-build \
+        nav020-test-setup nav020-test-teardown voice-pack-image voice-pack-test voice-pack-stub voice-pack-build voice-pack-build-cached \
         voice-pack-verify voice-pack-render
 
 help: ## Show this help
@@ -200,6 +200,8 @@ pack-export-test: ## NAV-022: export + .htaccess on Apache httpd with shared-hos
 # NAV-016 AC 13); VOICE_PACK_RUNNER=host uses this machine's python (.venv) and ffmpeg (NAV_VOICE_PACK_FFMPEG).
 # OUT and CACHE: outside the repository (or git-ignored). The Chimege token is read from CHIMEGE_API_TOKEN in the
 # calling shell only and passed to the container by name; it is never a make variable, never in .env.
+# VOICE_PACK_DOCKER_ARGS (environment, run time only, never committed): extra docker run arguments for
+# voice-pack-build, e.g. behind a TLS-intercepting proxy (tools/voice-pack/README.md). voice-pack-build-cached ignores it.
 VOICE_PACK_IMAGE  ?= navmn-voice-pack:1.0.0
 VOICE_PACK_RUNNER ?= image
 VOICE_PACK_PYTHON ?= $(CURDIR)/.venv/bin/python
@@ -222,6 +224,11 @@ voice-pack-build: $(VOICE_PACK_DEPS) ## NAV-016: REAL pack via Chimege (PO machi
 	@test -n "$(VOICE)" && test -n "$(PACK_VERSION)" && test -n "$(OUT)" && test -n "$(CACHE)" || \
 	  { echo "usage: make voice-pack-build VOICE=FEMALE5v2|MALE4v2 PACK_VERSION=<n> OUT=<dir> CACHE=<dir> [PROMPTS=<list.tsv>]"; exit 2; }
 	$(VOICE_PACK_RUN) build "$(OUT)" "$(VOICE)" "$(PACK_VERSION)" "$(CACHE)"
+
+voice-pack-build-cached: $(VOICE_PACK_DEPS) ## NAV-016: REAL pack from a complete cache, no token, --network none: VOICE= PACK_VERSION= OUT= CACHE= [PROMPTS=]
+	@test -n "$(VOICE)" && test -n "$(PACK_VERSION)" && test -n "$(OUT)" && test -n "$(CACHE)" || \
+	  { echo "usage: make voice-pack-build-cached VOICE=FEMALE5v2|MALE4v2 PACK_VERSION=<n> OUT=<dir> CACHE=<dir> [PROMPTS=<list.tsv>]"; exit 2; }
+	$(VOICE_PACK_RUN) build-cached "$(OUT)" "$(VOICE)" "$(PACK_VERSION)" "$(CACHE)"
 
 voice-pack-verify: $(VOICE_PACK_DEPS) ## NAV-016: pack-format §8 checks, DIR=<pack dir> [POLICY=release|demo|debug]
 	@test -n "$(DIR)" || { echo "usage: make voice-pack-verify DIR=<.../pack> [POLICY=release|demo|debug]"; exit 2; }

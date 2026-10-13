@@ -329,5 +329,246 @@ class SentinelTest(unittest.TestCase):
         self.assertEqual(_grep_tree(cache, needle), [])
 
 
+class ErrorCodeTest(unittest.TestCase):
+    """ADR-0010 §4.1 tables; security VP-7 (Error-Code printed only when it is a short [0-9A-Za-z-] token)."""
+
+    def synth(self, fake):
+        return ChimegeSynthesiser(fake.base, env={"CHIMEGE_API_TOKEN": SENTINEL}, timeout=0.4, sleep=_Sleeps())
+
+    def test_request_error_table_is_4000_to_4008(self):
+        self.assertEqual(set(chimege.REQUEST_ERROR_CODES), {str(c) for c in range(4000, 4009)})
+        self.assertIn("voice-id", chimege.REQUEST_ERROR_CODES["4003"])
+        self.assertIn("special characters", chimege.REQUEST_ERROR_CODES["4005"])
+
+    def fail_with(self, status, code) -> str:
+        with FakeChimege(lambda n, t, h: Reply(status, headers={"Error-Code": code})) as fake:
+            with self.assertRaises(VendorError) as cm:
+                self.synth(fake).synthesize("дараа нь", "FEMALE5v2", 22050, label="join.then (final)")
+        self.assertEqual(len(fake.requests), 1, "4xx fails at once")
+        return str(cm.exception)
+
+    def test_known_unknown_and_invalid_codes(self):
+        self.assertIn("Error-Code 4003: the voice-id is not a valid voice", self.fail_with(400, "4003"))
+        self.assertIn("Error-Code 4099: unknown Error-Code 4099", self.fail_with(400, "4099"))
+        msg = self.fail_with(400, "4005 <b>x</b>")
+        self.assertIn("invalid Error-Code", msg)
+        self.assertNotIn("<b>", msg)
+        msg = self.fail_with(403, "1000;rm")
+        self.assertIn("CHIMEGE_API_TOKEN rejected (code invalid Error-Code: unknown)", msg)
+        self.assertNotIn("rm", msg.replace("rejected", ""))
+        self.assertIn("Error-Code " + "A" * 16 + ":", self.fail_with(400, "A" * 16))
+        self.assertIn("invalid Error-Code", self.fail_with(400, "A" * 17))
+
+    def test_tls_certificate_failure_fails_at_once(self):
+        import ssl
+        import urllib.error
+
+        sleeps = _Sleeps()
+        s = ChimegeSynthesiser("http://127.0.0.1:9/v1.2", env={"CHIMEGE_API_TOKEN": SENTINEL}, timeout=0.4, sleep=sleeps)
+        err = urllib.error.URLError(ssl.SSLCertVerificationError(1, "certificate verify failed"))
+        with mock.patch.object(s._opener, "open", side_effect=err) as op:
+            with self.assertRaisesRegex(VendorError, "TLS certificate not trusted"):
+                s.synthesize("дараа нь", "FEMALE5v2", 22050)
+        self.assertEqual(op.call_count, 1)
+        self.assertEqual(sleeps.waits, [])
+
+    def test_default_https_context_is_verified(self):
+        s = ChimegeSynthesiser(None, env={"CHIMEGE_API_TOKEN": SENTINEL})
+        https = [h for h in s._opener.handlers if isinstance(h, chimege._HTTPSHandler)]
+        self.assertEqual(len(https), 1)
+        self.assertEqual(https[0]._context.verify_mode, __import__("ssl").CERT_REQUIRED)
+        self.assertTrue(https[0]._context.check_hostname)
+
+
+class DeadlineAndSizeCapTest(unittest.TestCase):
+    """Security VP-2: one overall deadline per attempt and a response size cap, both a retryable timeout."""
+
+    def test_slow_drip_body_hits_the_deadline_each_attempt(self):
+        import time as _t
+
+        sleeps = _Sleeps()
+        with FakeChimege(lambda n, t, h: Reply(200, drip=0.05)) as fake:
+            s = ChimegeSynthesiser(fake.base, env={"CHIMEGE_API_TOKEN": SENTINEL}, timeout=0.5, sleep=sleeps)
+            t0 = _t.monotonic()
+            with self.assertRaisesRegex(VendorError, r"after 4 attempts \(last: timeout"):
+                s.synthesize("дараа нь", "FEMALE5v2", 22050)
+            elapsed = _t.monotonic() - t0
+        self.assertEqual(len(fake.requests), 4)
+        self.assertEqual(sleeps.waits, [1, 2, 4])
+        self.assertLess(elapsed, 4 * 0.5 + 2.0, "each attempt ends at its deadline, not when the drip stops")
+
+    def test_response_over_the_cap_is_a_retryable_timeout(self):
+        sleeps = _Sleeps()
+        with FakeChimege() as fake:
+            s = ChimegeSynthesiser(fake.base, env={"CHIMEGE_API_TOKEN": SENTINEL}, timeout=2, sleep=sleeps,
+                                   max_response_bytes=1000)
+            with self.assertRaisesRegex(VendorError, r"after 4 attempts \(last: timeout \(response over 1000 bytes\)"):
+                s.synthesize("дараа нь", "FEMALE5v2", 22050)
+        self.assertEqual(len(fake.requests), 4)
+        self.assertEqual(chimege.MAX_RESPONSE_BYTES, 8 * 1024 * 1024)
+
+
+class FakeServerMarkerTest(unittest.TestCase):
+    """pack-format §8.3 (security VP-5): a run with --api-base writes source.vendor/apiVersion = stub and keys its
+    cache with the vendor value fake."""
+
+    def test_fake_server_pack_is_stub_and_rejected_in_demo(self):
+        repo = make_repo(scratch() / "repo")
+        out, cache = scratch() / "out", scratch() / "cache"
+        with FakeChimege() as fake:
+            rc, so, se = run_cli(build_argv(repo, out, synth="chimege", extra=["--api-base", fake.base, "--cache", str(cache)]),
+                                 synth_factory=factory())
+        self.assertEqual(rc, 0, so + se)
+        import json
+
+        m = json.loads((out / "FEMALE5v2-v1" / "pack" / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(m["source"], {"vendor": "stub", "apiVersion": "stub", "voice": "FEMALE5v2"})
+        rows = [json.loads(ln) for ln in (cache / "index.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual({r["vendor"] for r in rows}, {"fake"})
+        rc, so, se = run_cli(["verify", str(out / "FEMALE5v2-v1" / "pack"), "--policy", "demo",
+                              "--inventory-sha256", m["inventorySha256"]])
+        self.assertEqual(rc, 1)
+        self.assertIn("FAIL STUB_NOT_ALLOWED", so + se)
+
+    def test_cache_keys_differ_between_fake_and_real(self):
+        from voicepack.cache import cache_fields, cache_key
+
+        fake = ChimegeSynthesiser("http://127.0.0.1:9/v1.2", env={"CHIMEGE_API_TOKEN": SENTINEL})
+        real = ChimegeSynthesiser(None, env={"CHIMEGE_API_TOKEN": SENTINEL})
+        self.assertEqual((fake.vendor, fake.api_version, fake.cache_vendor), ("stub", "stub", "fake"))
+        self.assertEqual((real.vendor, real.api_version, real.cache_vendor), ("chimege", "v1.2", "chimege"))
+
+        def key(s):
+            return cache_key(cache_fields(vendor=s.cache_vendor, api_version=s.cache_api_version, voice="FEMALE5v2",
+                                          sample_rate=22050, speed=s.speed, pitch=s.pitch, take_method="none",
+                                          request_text="дараа нь"))
+
+        self.assertNotEqual(key(fake), key(real))
+
+
+class TokenScrubTest(unittest.TestCase):
+    """Security VP-6: after the token is read it is gone from os.environ, and no child process gets it."""
+
+    def test_synthesiser_removes_token_from_environ(self):
+        with mock.patch.dict(os.environ, {"CHIMEGE_API_TOKEN": SENTINEL}):
+            ChimegeSynthesiser("http://127.0.0.1:9/v1.2")
+            self.assertNotIn("CHIMEGE_API_TOKEN", os.environ)
+
+    def test_child_env_never_has_the_token(self):
+        with mock.patch.dict(os.environ, {"CHIMEGE_API_TOKEN": SENTINEL}):
+            self.assertNotIn("CHIMEGE_API_TOKEN", redact.child_env())
+
+    def test_main_takes_the_token_before_anything_runs(self):
+        seen = {}
+
+        class Stop(Exception):
+            pass
+
+        def f(opts):
+            seen["env"] = os.environ.get("CHIMEGE_API_TOKEN")
+            raise Stop()
+
+        repo = make_repo(scratch() / "repo")
+        with mock.patch.dict(os.environ, {"CHIMEGE_API_TOKEN": SENTINEL}):
+            rc, so, se = run_cli(build_argv(repo, scratch() / "out", synth="chimege",
+                                            extra=["--cache", str(scratch() / "c")]), synth_factory=f)
+        self.assertEqual(rc, 1)
+        self.assertIsNone(seen["env"])
+        self.assertNotIn(SENTINEL, so + se)
+
+
+class RedactionLayerTest(unittest.TestCase):
+    """Security VP-1: the second line of defence on its own (fails if redact.register() does nothing)."""
+
+    def setUp(self):
+        redact.clear()
+
+    def test_main_redacts_an_exception_that_carries_the_token(self):
+        repo = make_repo(scratch() / "repo")
+        log = scratch() / "build.log"
+
+        def leaky(opts):
+            chimege.read_token({"CHIMEGE_API_TOKEN": SENTINEL})
+            raise RuntimeError(f"boom token={SENTINEL}")
+
+        rc, so, se = run_cli(build_argv(repo, scratch() / "out", synth="chimege",
+                                        extra=["--cache", str(scratch() / "c"), "--log", str(log)]), synth_factory=leaky)
+        self.assertEqual(rc, 1)
+        text = so + se + log.read_text(encoding="utf-8")
+        self.assertNotIn(SENTINEL, text)
+        self.assertIn("boom token=[redacted]", se)
+        self.assertIn("[redacted]", log.read_text(encoding="utf-8"))
+
+    def test_redacting_stream(self):
+        import io
+
+        redact.register(SENTINEL)
+        inner = io.StringIO()
+        st = redact.RedactingStream(inner)
+        self.assertEqual(st.write(f"a{SENTINEL}b\n"), len(f"a{SENTINEL}b\n"))
+        self.assertEqual(inner.getvalue(), "a[redacted]b\n")
+
+    def test_reporter_lines_and_log_fields(self):
+        redact.register(SENTINEL)
+        log = scratch() / "r.log"
+        rep = redact.Reporter(str(log))
+        out, err = __import__("io").StringIO(), __import__("io").StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rep.info(f"i {SENTINEL}", field=SENTINEL)
+            rep.warn(f"w {SENTINEL}")
+            rep.error(f"e {SENTINEL}", nested={"k": SENTINEL})
+        rep.close()
+        for text in (out.getvalue(), err.getvalue(), log.read_text(encoding="utf-8")):
+            self.assertNotIn(SENTINEL, text)
+            self.assertIn("[redacted]", text)
+
+    def test_empty_value_is_never_registered(self):
+        redact.register("")
+        self.assertEqual(redact.redact("abc"), "abc")
+
+
+class ProxySentinelTest(unittest.TestCase):
+    """ADR-0010 §4.5 / task B3: a proxy URL's credential part is redacted like the token."""
+
+    PROXY_SECRET = "SENTINEL-PROXY"
+
+    def setUp(self):
+        redact.clear()
+
+    def test_proxy_credentials_never_reach_any_output(self):
+        repo = make_repo(scratch() / "repo")
+        proxy = f"http://user:{self.PROXY_SECRET}@127.0.0.1:9"
+        needle = self.PROXY_SECRET.encode()
+        with mock.patch.dict(os.environ, {"HTTPS_PROXY": proxy, "https_proxy": proxy}):
+            # 1. success against the fake server (loopback never uses the proxy)
+            out, cache, log = scratch() / "out", scratch() / "cache", scratch() / "b.log"
+            with FakeChimege() as fake:
+                rc, so, se = run_cli(build_argv(repo, out, synth="chimege", extra=[
+                    "--api-base", fake.base, "--cache", str(cache), "--log", str(log)]), synth_factory=factory())
+            self.assertEqual(rc, 0, se)
+            for text in (so, se, log.read_text(encoding="utf-8")):
+                self.assertNotIn(self.PROXY_SECRET, text)
+            self.assertEqual(_grep_tree(out, needle), [])
+            self.assertEqual(_grep_tree(cache, needle), [])
+
+            # 2. an error text that carries the proxy URL is redacted on every stream
+            log2 = scratch() / "b2.log"
+
+            def leaky(opts):
+                raise RuntimeError("proxy " + os.environ["HTTPS_PROXY"])
+
+            rc, so, se = run_cli(build_argv(repo, scratch() / "o2", synth="chimege", extra=[
+                "--cache", str(scratch() / "c2"), "--log", str(log2)]), synth_factory=leaky)
+            self.assertEqual(rc, 1)
+            for text in (so, se, log2.read_text(encoding="utf-8")):
+                self.assertNotIn(self.PROXY_SECRET, text)
+            self.assertIn("[redacted]@127.0.0.1:9", se)
+
+    def test_user_only_credential(self):
+        redact.register_proxy_credentials({"HTTPS_PROXY": "http://tok3n-value@127.0.0.1:3128"})
+        self.assertEqual(redact.redact("x tok3n-value y"), "x [redacted] y")
+        redact.register_proxy_credentials({"HTTPS_PROXY": "http://127.0.0.1:3128"})  # no credential: nothing to do
+
+
 if __name__ == "__main__":
     unittest.main()

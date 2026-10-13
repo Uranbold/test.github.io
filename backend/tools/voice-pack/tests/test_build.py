@@ -11,6 +11,7 @@ import shutil
 import socket
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.helpers import (REPO, build_argv, make_repo, run_cli, scratch, shared_full_pack, tree_hashes)
 from voicepack import audio
@@ -90,8 +91,9 @@ class DeterminismTest(unittest.TestCase):
         self.assertEqual(schema_errors(m, schema), [])
 
     def test_identity_line_printed(self):
+        run = shared_full_pack()  # first: builds the pack (or skips the test when there is no ffmpeg)
         so = shared_full_pack.__globals__["_shared"]["full0-stdout"]
-        sha = __import__("hashlib").sha256((shared_full_pack() / "pack" / "manifest.json").read_bytes()).hexdigest()
+        sha = __import__("hashlib").sha256((run / "pack" / "manifest.json").read_bytes()).hexdigest()
         self.assertIn(f"voiceId FEMALE5v2, packVersion 1, manifest SHA-256 {sha}", so)
         self.assertRegex(so, r"304 clips, pack size \d+ bytes")
 
@@ -192,6 +194,24 @@ class ReviewTest(unittest.TestCase):
         self.assertFalse(data["meta"]["gpsMissing"])
         for label in ("Play from here", "Download review.tsv", "Stub pack: synthetic tones, not for listening."):
             self.assertIn(label, page)
+
+    def test_index_html_content_security_policy(self):
+        """Security VP-10: a CSP meta that allows only the page's own inline script and style (by hash)."""
+        import base64
+        import hashlib
+
+        page = (self.run_dir / "review" / "index.html").read_text(encoding="utf-8")
+        csp = re.search(r'<meta http-equiv="Content-Security-Policy" content="([^"]+)">', page).group(1)
+        self.assertLess(page.index("Content-Security-Policy"), page.index("<script"))
+        self.assertTrue(csp.startswith("default-src 'none'; "))
+        for tag in ("script", "style"):
+            bodies = re.findall(rf"<{tag}>(.*?)</{tag}>", page, re.S)
+            self.assertEqual(len(bodies), 1, tag)
+            h = base64.b64encode(hashlib.sha256(bodies[0].encode("utf-8")).digest()).decode()
+            self.assertIn(f"{tag}-src 'sha256-{h}'", csp)
+        self.assertNotIn("unsafe-inline", csp)
+        self.assertNotIn("unsafe-eval", csp)
+        self.assertIn("media-src 'self' file:", csp)
 
     def test_prompt_sets(self):
         kinds = [r["kind"] for r in self.rows]
@@ -299,6 +319,75 @@ class ReviewTest(unittest.TestCase):
         rc, so, se = run_cli(build_argv(repo, scratch() / "o2", extra=["--prompts", str(bad)]))
         self.assertEqual(rc, 2)
         self.assertIn("instr.nothing:final", se)
+
+
+class CacheOnlyTest(unittest.TestCase):
+    """--cache-only: a real (chimege) pack from a complete cache, with no token and no network; any missing entry
+    fails before processing; the token stays required for every real request."""
+
+    def setUp(self):
+        from voicepack.cache import NO_TAKE_METHOD, Cache, cache_fields, cache_key
+        from voicepack.inventory import NON_FINAL, load
+        from voicepack.textrules import request_text
+
+        self.repo = make_repo(scratch() / "repo")
+        self.cache = scratch() / "cache"
+        c = Cache(self.cache)
+        stub = StubSynthesiser()
+        self.keys = []
+        for e in load(self.repo).entries:
+            text = request_text(e, "carrier-then-v1")
+            f = cache_fields(vendor="chimege", api_version="v1.2", voice="FEMALE5v2", sample_rate=22050, speed="1",
+                             pitch="1", take_method="carrier-then-v1" if e.take == NON_FINAL else NO_TAKE_METHOD,
+                             request_text=text)
+            k = cache_key(f)
+            c.put(k, f, stub.synthesize(text, "FEMALE5v2", 22050))
+            self.keys.append(k)
+
+    def run_offline(self, argv):
+        """No token in the environment and every socket refused: the run must not even try."""
+        def refuse(*a, **k):
+            raise AssertionError("cache-only must not open a socket")
+
+        env = {k: v for k, v in os.environ.items() if k != "CHIMEGE_API_TOKEN"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(socket, "socket", refuse), \
+                mock.patch.object(socket, "create_connection", refuse):
+            return run_cli(argv)
+
+    def test_complete_cache_builds_a_real_pack_without_token_or_network(self):
+        before = tree_hashes(self.cache)
+        out = scratch() / "out"
+        rc, so, se = self.run_offline(build_argv(self.repo, out, synth="chimege", extra=["--cache", str(self.cache), "--cache-only"]))
+        self.assertEqual(rc, 0, so + se)
+        m = manifest_of(out / "FEMALE5v2-v1")
+        self.assertEqual(m["source"], {"vendor": "chimege", "apiVersion": "v1.2", "voice": "FEMALE5v2"})
+        self.assertIn("HTTP requests sent 0 (cache-only)", so)
+        self.assertIn("cache-only: all 12 entries are in the cache", so)
+        self.assertEqual(tree_hashes(self.cache), before, "the cache is only read")
+
+    def test_missing_entry_fails_before_processing(self):
+        (self.cache / "wav" / f"{self.keys[3]}.wav").unlink()
+        out = scratch() / "out"
+        rc, so, se = self.run_offline(build_argv(self.repo, out, synth="chimege", extra=["--cache", str(self.cache), "--cache-only"]))
+        self.assertEqual(rc, 2, so + se)
+        self.assertIn("--cache-only: 1 of 12 entries are not in the cache", se)
+        self.assertIn("0 requests sent", se)
+        self.assertFalse(list(out.rglob("manifest.json")) if out.exists() else [])
+
+    def test_option_conflicts(self):
+        out = scratch() / "out"
+        rc, so, se = self.run_offline(build_argv(self.repo, out, synth="stub", extra=["--cache", str(self.cache), "--cache-only"]))
+        self.assertEqual(rc, 2)
+        self.assertIn("--cache-only needs --synth chimege", se)
+        rc, so, se = self.run_offline(build_argv(self.repo, out, synth="chimege", extra=[
+            "--cache", str(self.cache), "--cache-only", "--api-base", "http://127.0.0.1:9/v1.2"]))
+        self.assertEqual(rc, 2)
+        self.assertIn("exclude each other", se)
+
+    def test_without_cache_only_the_token_is_still_required(self):
+        rc, so, se = self.run_offline(build_argv(self.repo, scratch() / "out", synth="chimege", extra=["--cache", str(self.cache)]))
+        self.assertEqual(rc, 2)
+        self.assertIn("CHIMEGE_API_TOKEN is not set", se)
 
 
 if __name__ == "__main__":

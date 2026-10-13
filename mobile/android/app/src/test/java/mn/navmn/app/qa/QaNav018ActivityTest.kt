@@ -341,7 +341,7 @@ class QaNav018ActivityTest {
         assertEquals("0 search", 0, searches())
         assertEquals("0 reverse", reversesBefore, reverses())
         assertEquals("exactly one route request", 2, FakeGateway.routeRequests.get())
-        val leaked = FakeGateway.urls.filter { it.encodedPath == "/v1/search" && (it.queryParameter("q") ?: "").contains("47.92") }
+        val leaked = synchronized(FakeGateway.urls) { FakeGateway.urls.filter { it.encodedPath == "/v1/search" && (it.queryParameter("q") ?: "").contains("47.92") } }
         assertTrue("AC 31: the pair never reaches q: $leaked", leaked.isEmpty())
 
         // AC 11 / 15: swap moves the typed point to the start → disabled «Эхлэх» with O1; one request.
@@ -406,7 +406,7 @@ class QaNav018ActivityTest {
         idle(300)
         assertFalse("no coordinate option for a rejected pair", tagged("search-coordinate-option"))
         assertTrue(vm().fieldSearch.view.value !is SearchView.Coordinate)
-        val qs = FakeGateway.urls.filter { it.encodedPath == "/v1/search" }.map { it.queryParameter("q") }
+        val qs = synchronized(FakeGateway.urls) { FakeGateway.urls.filter { it.encodedPath == "/v1/search" } }.map { it.queryParameter("q") }
         assertTrue("sent as typed: $qs", "95.5 200.5" in qs)
         assertTrue("start unchanged", vm().preview.state.value!!.origin is RoutePoint.MyLocation)
         assertEquals(1, FakeGateway.routeRequests.get())

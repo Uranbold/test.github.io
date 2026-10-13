@@ -31,6 +31,11 @@ import mn.navmn.app.voice.pack.TestPacks
 import mn.navmn.app.voice.pack.VoicePack
 import mn.navmn.app.voice.pack.VoicePackSource
 import mn.navmn.app.voice.pack.VoicePackValidator
+import mn.navmn.app.voice.pack.Segment
+import mn.navmn.app.voice.pack.Take
+import mn.navmn.app.voiceplan.PlaybackListener
+import mn.navmn.app.voiceplan.PlaybackQueue
+import mn.navmn.app.voiceplan.Speaker
 import mn.navmn.app.voiceplan.PromptClass
 import mn.navmn.app.voiceplan.SpokenPrompt
 import org.junit.Assert.assertArrayEquals
@@ -105,8 +110,14 @@ class PackVoiceOutputTest {
 
     private class Built(val voice: VoiceOutput, val done: ArrayList<Long>, val fallbacks: IntArray)
 
-    private fun output(files: PackFiles = built.packFiles(), decoder: ClipDecoder = FakeDecoder(), sinks: Sinks = Sinks(), policy: PackPolicy = PackPolicy.OPTIONAL): Built {
-        val source = VoicePackSource(files, { TestVoice.inventory }, policy, DebugLog.NONE, Executor { it.run() })
+    private fun output(
+        files: PackFiles = built.packFiles(),
+        decoder: ClipDecoder = FakeDecoder(),
+        sinks: Sinks = Sinks(),
+        policy: PackPolicy = PackPolicy.OPTIONAL,
+        validation: Executor = Executor { it.run() },
+    ): Built {
+        val source = VoicePackSource(files, { TestVoice.inventory }, policy, DebugLog.NONE, validation)
         val v = VoiceOutput(ctx, source, decoder, sinks, slowDecode, DebugLog.NONE)
         val done = ArrayList<Long>()
         val fallbacks = intArrayOf(0)
@@ -119,9 +130,9 @@ class PackVoiceOutputTest {
         return Built(v, done, fallbacks)
     }
 
-    private fun prompt(id: Long, c: VoiceContent, lang: Lang = Lang.MN): SpokenPrompt {
+    private fun prompt(id: Long, c: VoiceContent, lang: Lang = Lang.MN, triggerAtMs: Long = 0, cls: PromptClass = PromptClass.MANEUVER): SpokenPrompt {
         val p = VoiceText.prompt(c, lang, TestStrings.of(lang), TestVoice.inventory)!!
-        return SpokenPrompt(id, p.display, lang, PromptClass.MANEUVER, 0 to 1, 0, p.spoken, p.segments)
+        return SpokenPrompt(id, p.display, lang, cls, 0 to id.toInt(), triggerAtMs, p.spoken, p.segments)
     }
 
     private val chained = VoiceContent.Maneuver(
@@ -308,5 +319,241 @@ class PackVoiceOutputTest {
         val net = Regex("okhttp|java\\.net\\.|HttpURLConnection|URL\\(")
         val hits = dir.walkTopDown().filter { it.extension == "kt" }.filter { net.containsMatchIn(it.readText()) }.map { it.name }.toList()
         assertEquals(emptyList<String>(), hits)
+    }
+
+    // ------------------------------------------------------------------------------------------------ G1 (AC 35)
+
+    /**
+     * The production wiring of GuidanceCore: its PlaybackQueue drives VoiceOutput as the Speaker, and each playback rule
+     * reaches the queue as one call (mute, language switch, phone call: clear(); off-route: clear() + the off-route
+     * prompt; «Дуусгах»: close(); the 3 s drop and arrival: tick()). Which input triggers which call is covered on the
+     * GuidanceCore level by the NAV-005/NAV-012 tests; these tests check each call while a pack prompt is playing.
+     */
+    private inner class Wired(val b: Built, val sinks: Sinks) {
+        val dropped = ArrayList<Long>()
+        val queue = PlaybackQueue(
+            object : Speaker {
+                override fun play(prompt: SpokenPrompt) = b.voice.play(prompt)
+                override fun stop() = b.voice.stop()
+            },
+            object : PlaybackListener {
+                override fun onDropped(prompt: SpokenPrompt) { dropped += prompt.id }
+            },
+        )
+
+        init {
+            b.voice.onDone = { id -> b.done += id; queue.onDone(id, now()) }
+        }
+
+        fun now() = SystemClock.uptimeMillis()
+
+        fun enqueue(p: SpokenPrompt) {
+            shadowOf(audio).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+            queue.enqueue(p, now())
+        }
+
+        /** The chained roundabout prompt playing from the pack (one AudioTrack session started). */
+        fun playingChained(id: Long = 1): SpokenPrompt {
+            val p = prompt(id, chained, triggerAtMs = now())
+            enqueue(p)
+            idle(300)
+            assertEquals("the pack prompt plays", 1, sinks.started.size)
+            assertTrue("long enough for the rules below", sinks.started[0].pcm.size * 1000L / 22_050 > 4_000)
+            return p
+        }
+    }
+
+    private fun wired(): Wired {
+        val sinks = Sinks()
+        return Wired(output(sinks = sinks), sinks)
+    }
+
+    /** The stop of a pack prompt: AudioTrack stopped, focus released, the prompt reported done once, within [boundMs]. */
+    private fun assertStopped(w: Wired, id: Long, boundMs: Long, rule: String) {
+        val t0 = SystemClock.uptimeMillis()
+        val stoppedBefore = w.sinks.stopped
+        idle()
+        assertTrue("$rule: the AudioTrack stopped", w.sinks.stopped > stoppedBefore)
+        assertTrue("$rule: within $boundMs ms", SystemClock.uptimeMillis() - t0 <= boundMs)
+        assertEquals("$rule: done once", 1, w.b.done.count { it == id })
+        assertNotNull("$rule: focus released", shadowOf(audio).lastAbandonedAudioFocusRequest)
+    }
+
+    @Test
+    fun g1MuteStopsAPlayingPackPromptWithinOneSecond() {
+        val w = wired()
+        w.playingChained()
+        w.queue.clear() // GuidanceCore.setMuted(true)
+        assertStopped(w, 1, 1_000, "mute")
+        idle(10_000)
+        assertEquals("nothing resumes", 1, w.sinks.started.size)
+    }
+
+    @Test
+    fun g1APromptThatCannotStartWithin3sIsDroppedWhileAPackPromptPlays() {
+        val w = wired()
+        w.playingChained()
+        w.enqueue(prompt(2, VoiceContent.GpsLost, triggerAtMs = w.now()))
+        idle(3_100)
+        w.queue.tick(w.now())
+        assertEquals("one prompt at a time; the waiting one is dropped after 3 s", listOf(2L), w.dropped)
+        assertEquals("the playing pack prompt is not interrupted", 0, w.sinks.stopped)
+        idle(10_000)
+        assertEquals(1, w.sinks.started.size)
+        assertEquals(listOf(1L), w.b.done)
+    }
+
+    @Test
+    fun g1OffRouteStopsThePackPromptAndPlaysFixedOffRouteFromThePack() {
+        val w = wired()
+        w.playingChained()
+        // GuidanceCore on an off-route detection: queue.clear(), then the off-route prompt
+        w.queue.clear()
+        val off = prompt(2, VoiceContent.OffRoute, triggerAtMs = w.now())
+        w.enqueue(off)
+        assertStopped(w, 1, 1_000, "off-route")
+        idle(1_000)
+        assertEquals("fixed.offRoute played from the pack", 2, w.sinks.started.size)
+        assertEquals(listOf(Segment("fixed.offRoute", Take.FINAL)), off.segments)
+        assertArrayEquals(expectedPcm(off), w.sinks.started[1].pcm)
+        // the catch-up prompt after the reroute comes from the pack too
+        idle(w.sinks.started[1].pcm.size * 1000L / 22_050 + 100)
+        val catchUp = prompt(3, VoiceContent.Maneuver(ManeuverRules.key(ManeuverInput("turn", "left")), 400.0), triggerAtMs = w.now())
+        w.enqueue(catchUp)
+        idle(1_000)
+        assertEquals(3, w.sinks.started.size)
+        assertArrayEquals(expectedPcm(catchUp), w.sinks.started[2].pcm)
+        assertEquals(0, w.b.fallbacks[0])
+    }
+
+    @Test
+    fun g1LanguageSwitchStopsThePackPromptAndTheNextPromptUsesEnglishTts() {
+        ShadowTextToSpeech.addLanguageAvailability(Locale.US)
+        ShadowTextToSpeech.addVoice(Voice("en-voice", Locale.US, Voice.QUALITY_NORMAL, Voice.LATENCY_NORMAL, false, emptySet()))
+        val w = wired()
+        w.playingChained()
+        w.b.voice.onLanguageChanged() // GuidanceEngine, then GuidanceCore.setLanguage → queue.clear()
+        w.queue.clear()
+        assertStopped(w, 1, 1_000, "language switch")
+        w.enqueue(prompt(2, VoiceContent.OffRoute, Lang.EN, triggerAtMs = w.now()))
+        idle(100)
+        assertEquals("English is not played from the pack", 1, w.sinks.started.size)
+        assertEquals("You have left the route", shadowOf(ShadowTextToSpeech.getLastTextToSpeechInstance()!!).lastSpokenText)
+        assertEquals(0, w.b.fallbacks[0])
+    }
+
+    @Test
+    fun g1EndStopsAnyAudioWithinTwoSecondsAndNothingPlaysAfterIt() {
+        val w = wired()
+        w.playingChained()
+        w.queue.close() // «Дуусгах»: GuidanceCore.end()
+        assertStopped(w, 1, 2_000, "«Дуусгах»")
+        w.enqueue(prompt(2, VoiceContent.OffRoute, triggerAtMs = w.now()))
+        idle(5_000)
+        assertEquals("nothing after the end", 1, w.sinks.started.size)
+        assertEquals(listOf(2L), w.dropped)
+    }
+
+    @Test
+    fun g1APhoneCallStopsThePackPromptAndOneCatchUpFollowsFromThePack() {
+        val w = wired()
+        w.playingChained()
+        w.queue.clear() // GuidanceCore.onCallSignal(true) → CallGate STARTED
+        assertStopped(w, 1, 500, "phone call")
+        idle(20_000) // the call
+        // GuidanceCore.onCallEnded: exactly one catch-up prompt for the current next manoeuvre
+        val catchUp = prompt(2, VoiceContent.Maneuver(ManeuverRules.key(ManeuverInput("roundabout", "right", 2.0)), 150.0), triggerAtMs = w.now())
+        w.enqueue(catchUp)
+        idle(1_000)
+        assertEquals(2, w.sinks.started.size)
+        assertArrayEquals("the catch-up comes from the pack", expectedPcm(catchUp), w.sinks.started[1].pcm)
+        assertEquals(0, w.b.fallbacks[0])
+    }
+
+    @Test
+    fun g1ArrivalWaitsAtMost3sForThePlayingPackPrompt() {
+        val w = wired()
+        w.playingChained()
+        val arrival = prompt(2, VoiceContent.Arrival(ManeuverRules.key(ManeuverInput("arrive", null))), triggerAtMs = w.now(), cls = PromptClass.ARRIVAL)
+        w.enqueue(arrival)
+        idle(2_900)
+        w.queue.tick(w.now())
+        assertEquals("still waiting", 1, w.sinks.started.size)
+        idle(200)
+        w.queue.tick(w.now())
+        idle(1_000)
+        assertTrue("the pack prompt was stopped", w.sinks.stopped >= 1)
+        assertEquals("the arrival plays from the pack", 2, w.sinks.started.size)
+        assertArrayEquals(expectedPcm(arrival), w.sinks.started[1].pcm)
+    }
+
+    // ------------------------------------------------------------------------------------------------ G2 (AC 39)
+
+    @Test
+    fun g2APendingValidationAtStartWaitsAbout2sThenChimesWithoutA1ThenThePackPlays() {
+        val tasks = ArrayList<Runnable>()
+        val sinks = Sinks()
+        val b = output(sinks = sinks, validation = Executor { tasks += it })
+        assertEquals("validation queued, not finished", 1, tasks.size)
+        shadowOf(audio).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        val depart = prompt(1, VoiceContent.Depart(ManeuverRules.key(ManeuverInput("depart", null)), null))
+        val t0 = SystemClock.uptimeMillis()
+        b.voice.play(depart)
+        idle(1_900)
+        assertTrue("still waiting for the decision", b.done.isEmpty())
+        assertEquals(0, sinks.started.size)
+        idle(300)
+        assertEquals("then the chime (pack audio never started)", 0, sinks.started.size)
+        idle(1_000)
+        assertEquals(listOf(1L), b.done)
+        assertTrue("the wait is about 2 s", SystemClock.uptimeMillis() - t0 in VoiceOutput.DECISION_WAIT_MS..VoiceOutput.DECISION_WAIT_MS + 1_500)
+        assertEquals("a pending decision is not a fallback: no A1", 0, b.fallbacks[0])
+        // the validation finishes; the next prompt plays from the pack
+        tasks.removeAt(0).run()
+        shadowOf(audio).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        b.voice.play(prompt(2, VoiceContent.OffRoute))
+        idle(1_000)
+        assertEquals(1, sinks.started.size)
+        assertEquals(0, b.fallbacks[0])
+    }
+
+    // ------------------------------------------------------------------------------------------------ G3 (AC 40)
+
+    @Test
+    fun g3ARestoreInANewProcessValidatesAgainOfflineAndPlaysFromThePack() {
+        val reads = ArrayList<String>()
+        val files = object : PackFiles {
+            override fun read(path: String): ByteArray? = read(path, Int.MAX_VALUE)
+            override fun read(path: String, limit: Int): ByteArray? {
+                reads += path
+                return built.packFiles().read(path, limit)
+            }
+        }
+        // the first process validated and played
+        output(files = files)
+        val firstProcessReads = reads.count { it == VoicePackValidator.MANIFEST }
+        assertEquals(1, firstProcessReads)
+        // a new process (NAV-012 restore after process death): a new source over the same bundled files starts at Pending
+        val tasks = ArrayList<Runnable>()
+        val source = VoicePackSource(files, { TestVoice.inventory }, PackPolicy.OPTIONAL, DebugLog.NONE, Executor { tasks += it })
+        assertSame(PackState.Pending, source.state)
+        val sinks = Sinks()
+        val v = VoiceOutput(ctx, source, FakeDecoder(), sinks, slowDecode, DebugLog.NONE)
+        val done = ArrayList<Long>()
+        var fallbacks = 0
+        v.onDone = { done += it }
+        v.onFallback = { fallbacks++ }
+        v.newSession() // GuidanceEngine init on the restored session → packs.prepare()
+        idle()
+        assertEquals("validation started once on restore", 1, tasks.size)
+        tasks.removeAt(0).run()
+        assertTrue("Pending → Valid", source.state is PackState.Valid)
+        assertEquals("the manifest was read again in the new process", 2, reads.count { it == VoicePackValidator.MANIFEST })
+        assertTrue("only bundled pack paths were read (no network)", reads.all { it == VoicePackValidator.MANIFEST || it.startsWith("clips/") })
+        shadowOf(audio).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        v.play(prompt(1, VoiceContent.GpsRestored))
+        idle(1_000)
+        assertEquals("the next prompt plays from the pack", 1, sinks.started.size)
+        assertEquals(0, fallbacks)
     }
 }

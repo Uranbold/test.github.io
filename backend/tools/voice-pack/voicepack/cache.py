@@ -17,6 +17,7 @@ import threading
 from pathlib import Path
 
 from .errors import ConfigError
+from .redact import child_env
 
 CACHE_ENV = "NAV_VOICE_PACK_CACHE"
 OUT_ENV = "NAV_VOICE_PACK_OUT"
@@ -50,13 +51,14 @@ def cache_key(fields: dict) -> str:
 
 
 class Cache:
-    """root=None keeps everything in memory (stub runs without --cache)."""
+    """root=None keeps everything in memory (stub runs without --cache). create=False (--cache-only) never writes,
+    so the cache may be mounted read-only."""
 
-    def __init__(self, root: Path | None):
+    def __init__(self, root: Path | None, *, create: bool = True):
         self.root = Path(root) if root is not None else None
         self._mem: dict[str, bytes] = {}
         self._lock = threading.Lock()
-        if self.root is not None:
+        if self.root is not None and create:
             (self.root / "wav").mkdir(parents=True, exist_ok=True)
 
     def _path(self, key: str) -> Path:
@@ -104,7 +106,7 @@ def check_path_allowed(path: Path, repo: Path, label: str) -> Path:
     probe = real / ".voicepack-probe"
     try:
         r = subprocess.run(["git", "-C", str(repo_real), "check-ignore", "-q", "--", str(probe)],
-                           capture_output=True, timeout=30)
+                           capture_output=True, timeout=30, env=child_env())
     except (OSError, subprocess.SubprocessError):
         raise ConfigError(f"{label} is inside the repository and git is not available to confirm it is ignored") from None
     if r.returncode != 0:

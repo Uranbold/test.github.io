@@ -72,6 +72,11 @@ val voiceInventory: navmn.buildlogic.VoiceInventoryBuilder.Inventory = navmn.bui
 // the uncommitted gateway.local.properties, like nav.demoTilesFile (D182). Never committed, never downloaded. "none" =
 // build without a pack (debug and demo only). Rule: navmn.buildlogic.VoicePackGuard (buildSrc, also run by the JVM tests).
 val voicePackSetting: String? = navSetting(navmn.buildlogic.VoicePackGuard.PROPERTY, navmn.buildlogic.VoicePackGuard.ENV)
+// D236 (ADR-0010 §5): one pack per APK, two internal demo APKs (FEMALE5v2, MALE4v2) with the same applicationId. The
+// manifest's voiceId (plus "-stub" for a stub pack, never the vendor) goes into the APK file name (app-<tag>-<variant>.apk)
+// and the versionName suffix (-<tag>), so the PO can tell them apart. No pack: names unchanged (app-debug.apk).
+val voicePackTag: String? = navmn.buildlogic.VoicePackGuard.voiceTag(voicePackSetting)
+if (voicePackTag != null) base.archivesName.set("app-$voicePackTag")
 
 android {
     namespace = "mn.navmn.app"
@@ -455,7 +460,8 @@ abstract class BundleVoicePack : DefaultTask() {
         val out = outputDir.get().asFile
         out.deleteRecursively()
         val target = out.resolve("voicepack").apply { mkdirs() }
-        for (rel in result.files) result.dir.resolve(rel).copyTo(target.resolve(rel), overwrite = true)
+        // pack-format §8.2: regular files written from the verified bytes; never a link, never a directory tree.
+        result.writeTo(target)
         if (result.files.isNotEmpty()) logger.lifecycle("NAV-016: bundled voice pack ${result.dir} (${result.files.size - 1} clips)")
     }
 }
@@ -678,6 +684,8 @@ androidComponents {
     }
     // NAV-016 M1/M5: every variant gets the inventory asset and its voicepack/ folder (empty without a pack).
     onVariants { variant ->
+        // D236: the voice of the bundled pack as a versionName suffix (e.g. 0.1.0-nav005-demo-MALE4v2).
+        voicePackTag?.let { tag -> variant.outputs.forEach { o -> o.versionName.set("${o.versionName.orNull.orEmpty()}-$tag") } }
         variant.sources.assets?.addGeneratedSourceDirectory(generateVoiceInventory, GenerateVoiceInventory::outputDir)
         val buildType = variant.buildType ?: "release"
         val bundle = tasks.register<BundleVoicePack>("bundleVoicePack${variant.name.replaceFirstChar { it.uppercase() }}") {

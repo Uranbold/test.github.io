@@ -24,6 +24,7 @@ class Reply:
     body: bytes | None = None  # None with 200 = stub WAV of the request text
     headers: dict = field(default_factory=dict)
     delay: float = 0.0  # seconds before answering (a delay longer than the client timeout = a timeout)
+    drip: float = 0.0  # seconds between body bytes (a slow-drip response that never trips a per-recv timeout)
 
 
 @dataclass
@@ -79,8 +80,14 @@ class FakeChimege:
                         self.send_header(k, v)
                     self.send_header("Content-Length", str(len(data)))
                     self.end_headers()
-                    self.wfile.write(data)
-                except (BrokenPipeError, ConnectionResetError):
+                    if reply.drip:
+                        for i in range(len(data)):
+                            self.wfile.write(data[i:i + 1])
+                            self.wfile.flush()
+                            time.sleep(reply.drip)
+                    else:
+                        self.wfile.write(data)
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                     pass
                 finally:
                     with outer._lock:

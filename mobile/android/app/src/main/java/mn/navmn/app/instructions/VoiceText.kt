@@ -194,14 +194,15 @@ object VoiceText {
 
     /**
      * NAV-016 AC 22: display text, spoken text and segments of [c]; null = no prompt (D102). A segment without an inventory
-     * entry (impossible inside the AC 27 domain) leaves the display text, first letter lower case, as the spoken text;
-     * the voice output then plays the chime for that prompt (never a partial prompt, AC 36).
+     * entry (outside the AC 27 domain, e.g. a walking catch-up ≥ 2,500 m ahead) gives an empty spoken text, never the
+     * display text with its digits (AC 25; ADR-0010 §2, integration review 2026-10-13, the same rule as the web). The
+     * voice output plays the chime for that prompt only (never a partial prompt, AC 36; no A1).
      */
     fun prompt(c: VoiceContent, lang: Lang, strings: Strings, inventory: VoiceInventory): VoicePrompt? {
         val display = display(c, lang, strings) ?: return null
         if (lang != Lang.MN) return VoicePrompt(display, display, emptyList())
         val segments = segments(c).orEmpty()
-        return VoicePrompt(display, spokenText(segments, inventory) ?: BannerText.lowercaseFirst(display, lang), segments)
+        return VoicePrompt(display, spokenText(segments, inventory) ?: "", segments)
     }
 
     const val JOIN_THEN = "join.then"

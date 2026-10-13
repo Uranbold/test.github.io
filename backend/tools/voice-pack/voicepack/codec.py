@@ -16,6 +16,7 @@ from array import array
 from dataclasses import dataclass
 
 from .audio import check_failed
+from .redact import child_env
 from .errors import AudioCheckError, ConfigError
 
 PINNED_FFMPEG_VERSION = "7.0.2"
@@ -143,7 +144,8 @@ class Ffmpeg:
             raise ConfigError(f"ffmpeg not found (set --ffmpeg or {FFMPEG_ENV}, or use the reference image: make voice-pack-image)")
         self.exe = exe
         try:
-            out = subprocess.run([exe, "-hide_banner", "-version"], capture_output=True, check=True, timeout=30).stdout
+            out = subprocess.run([exe, "-hide_banner", "-version"], capture_output=True, check=True, timeout=30,
+                                 env=child_env()).stdout
         except (OSError, subprocess.SubprocessError) as e:
             raise ConfigError(f"ffmpeg at {exe!r} does not run ({type(e).__name__})") from None
         m = re.search(rb"ffmpeg version (\S+)", out)
@@ -152,7 +154,7 @@ class Ffmpeg:
         if self.version != PINNED_FFMPEG_VERSION and not allow_any_version:
             raise ConfigError(f"ffmpeg {self.version} is not the pinned {PINNED_FFMPEG_VERSION} (use the reference image, "
                               "or --ffmpeg-any-version for a development run without byte identity)")
-        enc = subprocess.run([exe, "-hide_banner", "-encoders"], capture_output=True, timeout=30).stdout
+        enc = subprocess.run([exe, "-hide_banner", "-encoders"], capture_output=True, timeout=30, env=child_env()).stdout
         if not re.search(rb"^\s*A\S*\s+aac\s", enc, re.MULTILINE):
             raise ConfigError("ffmpeg has no native aac encoder")
 
@@ -170,7 +172,7 @@ class Ffmpeg:
 
     def _run(self, args: list[str], data: bytes) -> bytes:
         cmd = [self.exe, "-hide_banner", "-nostats", "-loglevel", "error", *args]
-        p = subprocess.run(cmd, input=data, capture_output=True, timeout=120)
+        p = subprocess.run(cmd, input=data, capture_output=True, timeout=120, env=child_env())
         if p.returncode != 0:
             msg = p.stderr.decode("utf-8", "replace").strip().splitlines()
             raise AudioCheckError(f"ffmpeg failed ({p.returncode}): {msg[-1] if msg else ''}")
