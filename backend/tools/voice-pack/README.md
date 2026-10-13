@@ -167,7 +167,10 @@ new one is in place). The manifest has no timestamp, host name, user name, absol
 
 **Byte identity** (NAV-016 AC 13): the same cache, inventory, voice, options and generator image give byte-identical
 clips and `manifest.json`. It is guaranteed only within the reference image (ffmpeg 7.0.2 pinned); a host ffmpeg
-of another version needs `--ffmpeg-any-version` and gives different bytes.
+of another version needs `--ffmpeg-any-version` and gives different bytes. The pin is the **release**: a static or
+distribution build of 7.0.2 (version string `7.0.2-static`, `7.0.2-0ubuntu1`) passes the check without the flag and
+writes the same `codec.encoder` (`ffmpeg-7.0.2-aac`); the run output names the build (`ffmpeg 7.0.2 (build
+7.0.2-static)`). Byte identity between such a build and the image is expected for the same release, not proven here.
 
 ## The PO's listen (D230)
 
@@ -199,6 +202,14 @@ duration check over the real generator domain is authoritative. The superset ign
   RMS is the level of the **delivered** clip, after the gain, which is where the checks and the AC 33 join measurement
   look. The vendor's audio is louder than the target (gain about -1 to -11 dB), so the speech region and the gain are
   found together (a fixed point, 2-3 rounds); the sample operations keep the order trim, fades, gain.
+  **Edge re-trim:** the region is found before the fades, and the 10 ms fade covers half of the region's edge window,
+  so a breath or noise blip just above the threshold after a gap (MALE4v2 `fixed.gpsRestored`: 50 ms at -46 to -52
+  dBFS, then one 10 ms window 0.6 dB above the threshold) is active before the fade-out and silent after it, leaving
+  90 ms of trailing silence. When the delivered PCM's leading or trailing silence exceeds the 40 ms limit, the
+  region is re-derived from the delivered PCM's first and last active windows and the fixed point is run again (at
+  most 4 times; the run output names every re-trimmed clip: "edge re-trim: <key> (<take>)"). A clip within the limit
+  is never re-trimmed, so packs that passed before are byte-identical (FEMALE5v2 v1 has 33 clips with 20-40 ms edges
+  of this shape).
 - Codec (pack-format §4-§5): AAC-LC, mono, raw ADTS, 24 kbit/s by default; the encoder delay is measured at start-up
   (must be 1,024); every clip is decoded again, checked for `D == encodedFrames`, trimmed with the manifest rule to
   exactly `frames`, and aligned within 0 ± 2 frames. The pack size is printed, with a warning above 1.9 MB

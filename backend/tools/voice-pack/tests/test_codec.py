@@ -63,6 +63,28 @@ class CodecTest(unittest.TestCase):
             self.assertEqual(audio.duration_ms(len(t), R), e["durationMs"])
 
 
+class VersionPinTest(unittest.TestCase):
+    """The pin is a release: a static or distribution build of 7.0.2 ('7.0.2-static', '7.0.2-0ubuntu1') satisfies
+    it and writes the same codec.encoder (ffmpeg-7.0.2-aac) as the reference image; anything else is not 7.0.2."""
+
+    def test_release_version(self):
+        for raw, want in (("7.0.2", "7.0.2"), ("7.0.2-static", "7.0.2"), ("7.0.2-0ubuntu1", "7.0.2"),
+                          ("7.0.2-1~bpo12+1", "7.0.2"), ("7.0", "7.0"), ("7.0.22", "7.0.22"), ("7.1", "7.1"),
+                          ("n7.0.2", "n7.0.2"), ("N-116000-g1a2b3c", "N-116000-g1a2b3c"), ("unknown", "unknown")):
+            with self.subTest(raw=raw):
+                self.assertEqual(codec.release_version(raw), want)
+        self.assertEqual(codec.release_version("7.0.2-static") == codec.PINNED_FFMPEG_VERSION, True)
+        self.assertNotEqual(codec.release_version("7.1-static"), codec.PINNED_FFMPEG_VERSION)
+
+    def test_local_ffmpeg_reports_release_and_build(self):
+        ff = ffmpeg()
+        self.assertEqual(ff.version, codec.release_version(ff.version_raw))
+        self.assertEqual(ff.encoder_name, f"ffmpeg-{ff.version}-aac")
+        self.assertTrue(ff.version_raw.startswith(ff.version))
+        t = codec.Ffmpeg.trusted(ff.exe, ff.version)
+        self.assertEqual((t.version, t.version_raw, t.encoder_name), (ff.version, ff.version, ff.encoder_name))
+
+
 class TrimRuleTest(unittest.TestCase):
     """pack-format §5 cases every platform must handle (mirrors the Android ClipTrimTest list)."""
 

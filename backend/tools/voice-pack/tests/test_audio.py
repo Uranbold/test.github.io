@@ -106,6 +106,101 @@ class ProcessTest(unittest.TestCase):
             audio.check_rms_outliers([("a", -20.0, -6), ("b", -20.1, -6), ("c", -19.9, -6), ("d", -17.0, -6)])
 
 
+def db_amp(db: float) -> float:
+    return 32768 * 10 ** (db / 20)
+
+
+def sine(ms: float, db: float, f: float = 180.0, slope_db_per_ms: float = 0.0) -> list[int]:
+    """A sine whose RMS is `db` dBFS, optionally decaying by slope_db_per_ms."""
+    n = round(ms * R / 1000)
+    return [round(db_amp(db - slope_db_per_ms * i * 1000 / R) * math.sqrt(2) * math.sin(2 * math.pi * f * i / R))
+            for i in range(n)]
+
+
+def blip_shape(decay_ms: float, slope: float, gap_ms: float, blips: int, blip_db: float = -40.3) -> array:
+    """A loud source (negative gain, like Chimege): 200 ms silence, 700 ms at −16 dBFS, a word decay from −17 dBFS,
+    then `blips` × (gap_ms at −50 dBFS + one 10 ms window at blip_db), 200 ms silence. The blip is above the
+    threshold at the delivered level before the fade and below it after the fade-out lands on it."""
+    x = silence(200) + sine(700, -16) + sine(decay_ms, -17, slope_db_per_ms=slope)
+    for _ in range(blips):
+        x += sine(gap_ms, -50) + sine(10, blip_db)
+    return array("h", x + silence(200))
+
+
+class EdgeRetrimTest(unittest.TestCase):
+    """Regression (MALE4v2 `fixed.gpsRestored`, 2026-10-13, two vendor takes): a breath or noise blip 50 ms after the
+    last word, 0.6 dB above the threshold at the delivered level, is the region's last active window before the
+    fade and silent after the 10 ms fade-out, so the delivered PCM ended with 90 ms of silence. `process` re-trims
+    on the delivered PCM only when the §4 edge limit is exceeded; a clip within the limit is byte-identical to what
+    the plain fixed point gives (FEMALE5v2 v1, manifest 6023abbe…, has 33 clips with 20–40 ms edges of this shape)."""
+
+    BLIP_WINDOW = 20 + 70 + 30 + 5  # silence, body, 300 ms decay, 50 ms gap -> raw window 125
+
+    def assert_plain_region_ends_at_the_blip(self, x, p):
+        """Without the re-trim the region would end at the blip (active before the fade at the delivered level) with
+        a run of >= 5 silent windows before it, i.e. >= 60 ms of delivered trailing silence."""
+        thr_in = audio.SILENCE_THRESHOLD_DBFS - p.gain_db
+        f = audio.active_flags(x, R, thr_in)
+        b = len(f) - 1 - f[::-1].index(True)
+        self.assertEqual(b, self.BLIP_WINDOW)
+        self.assertEqual(f[b - 5 : b], [False] * 5)
+
+    def test_trailing_blip_after_gap_is_retrimmed_once(self):
+        x = blip_shape(300, 0.1, 50, 1)
+        p = audio.process(x, R, "k")
+        self.assertLess(p.gain_db, -2, "the fixture must need a negative gain")
+        self.assert_plain_region_ends_at_the_blip(x, p)
+        self.assertEqual(p.edge_retrims, 1)
+        audio.check_clip(p, "k")
+        lead, trail = audio.edge_silence_ms(p.samples, R)
+        self.assertLessEqual(max(lead, trail), 10)
+        # the gap and the blip are gone: the clip ends where the decay crosses the threshold (about 250 ms in)
+        self.assertLess(abs(p.duration_ms - 970), 30)
+        self.assertAlmostEqual(p.active_rms_db, audio.TARGET_RMS_DBFS, delta=0.3)
+
+    def test_leading_blip_before_gap_is_retrimmed(self):
+        x = array("h", reversed(blip_shape(300, 0.1, 50, 1)))
+        p = audio.process(x, R, "k")
+        self.assertEqual(p.edge_retrims, 1)
+        audio.check_clip(p, "k")
+        lead, trail = audio.edge_silence_ms(p.samples, R)
+        self.assertLessEqual(max(lead, trail), 10)
+        self.assertLess(abs(p.duration_ms - 970), 30)
+
+    def test_blip_within_the_limit_is_not_retrimmed(self):
+        """The same shape with a short decay and no gap: the fade silences the blip too, but the delivered trailing
+        silence is 30 ms, within the §4 limit. Nothing is re-trimmed and the blip window stays in the clip, exactly
+        as FEMALE5v2 v1 was built."""
+        x = blip_shape(100, 0.3, 0, 1)
+        p = audio.process(x, R, "k")
+        self.assertEqual(p.edge_retrims, 0)
+        audio.check_clip(p, "k")
+        lead, trail = audio.edge_silence_ms(p.samples, R)
+        self.assertEqual(lead, 0)
+        self.assertTrue(20 <= trail <= 40, trail)
+        thr_in = audio.SILENCE_THRESHOLD_DBFS - p.gain_db
+        f = audio.active_flags(x, R, thr_in)
+        b = len(f) - 1 - f[::-1].index(True)
+        self.assertEqual(b, 20 + 70 + 10, "the blip is the region's last active window before the fade")
+        self.assertLess(abs(p.duration_ms - ((b - 20 + 1) * 10 + 10)), 15, "the blip window is delivered")
+
+    def test_repeated_blips_hit_the_cap_and_fail(self):
+        p = audio.process(blip_shape(300, 0.1, 50, 6), R, "k")
+        self.assertEqual(p.edge_retrims, audio.MAX_EDGE_RETRIMS)
+        with self.assertRaisesRegex(AudioCheckError, "k: rule edge-silence: leading 0 ms, trailing 60 ms"):
+            audio.check_clip(p, "k")
+        p4 = audio.process(blip_shape(300, 0.1, 50, 4), R, "k")
+        self.assertEqual(p4.edge_retrims, 4)
+        audio.check_clip(p4, "k")
+        self.assertLess(abs(p4.duration_ms - 970), 30)
+
+    def test_plain_clips_are_untouched(self):
+        for name, x in (("tone", array("h", silence(300) + tone(800) + silence(400))),
+                        ("quiet", array("h", silence(200) + tone(60, amp=120) + tone(700, amp=1500) + tone(60, amp=120) + silence(200)))):
+            with self.subTest(name):
+                self.assertEqual(audio.process(x, R, "k").edge_retrims, 0)
+
+
 class LevelBandTest(unittest.TestCase):
     """pack-format §4 level band (2026-10-13, task B5): a peak-limited clip may sit down to −3 dB below the pack
     median and is named; every other clip keeps −2 dB; the +2 dB side holds for all."""
