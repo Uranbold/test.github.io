@@ -20,7 +20,7 @@
 			idle 2m
 		}
 		# Request headers above this size are refused (431); the gateway allows 4 x 8 KB.
-		max_header_size 16KB
+		max_header_size 16KiB
 	}
 	# Runtime log = include-list of certificate/config loggers only (checked against Caddy 2.11.4).
 	# Everything else is dropped, in particular http.log.error (per-request errors carry the request URI
@@ -51,7 +51,7 @@
 	# every other path, both answered by the gateway as JSON 413 PayloadTooLarge with CORS headers), so for any
 	# body a client can legitimately send the gateway decides; only a body over 1 MB is cut here (413 below).
 	request_body {
-		max_size 1MB
+		max_size 1MiB
 	}
 	# No `encode`: PMTiles range responses and the gateway's gzip pass through unchanged.
 	# Caddy replaces any client-sent X-Forwarded-For with the real peer address; the gateway trusts

@@ -83,11 +83,11 @@ echo "   nginx.conf timeouts/buffers/1k body limit present; no BE-12 label on no
 
 echo "== 3. Caddyfile text (BE-14)"
 C=$ST/caddy/Caddyfile
-for want in 'read_header 10s' 'read_body 10s' 'write 15m' 'idle 2m' 'max_header_size 16KB' 'max_size 1MB' 'handle_errors 413' 'dial_timeout 2s' 'response_header_timeout 15s' '"code":"PayloadTooLarge"'; do
+for want in 'read_header 10s' 'read_body 10s' 'write 15m' 'idle 2m' 'max_header_size 16KiB' 'max_size 1MiB' 'handle_errors 413' 'dial_timeout 2s' 'response_header_timeout 15s' '"code":"PayloadTooLarge"'; do
     grep -qF "$want" "$C" || fail "Caddyfile lacks '$want'"
 done
 grep -q 'protocols h1 h2' "$C" || fail "Caddy protocols"
-echo "   timeouts 10s/10s/15m/2m, headers 16KB, body 1MB -> 413 JSON, transport 2s/15s (caddy validate: staging-static-checks.sh)"
+echo "   timeouts 10s/10s/15m/2m, headers 16KiB, body 1MB -> 413 JSON, transport 2s/15s (caddy validate: staging-static-checks.sh)"
 
 echo "== 4. bootstrap.sh daemon.json (BE-12)"
 python3 - "$ST/bootstrap/bootstrap.sh" "$ST/.env.example" <<'PY' || fail "daemon.json"
