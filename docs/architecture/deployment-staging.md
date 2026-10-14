@@ -169,7 +169,7 @@ Enforced by the gateway with nginx `limit_req`, keyed on the client IP (`$binary
 |---|---|---|---|---|
 | Routing | `postRoute`, `getRoute` | 30 requests/s | 60, `nodelay` | One zone for `/v1/route` |
 | Search | `search`, `reverse` | 30 requests/s | 60, `nodelay` | One shared zone for `/v1/search` and `/v1/reverse` |
-| Not limited | `/health`, `/tiles/basemap.pmtiles` (any method), every `OPTIONS` preflight | — | — | AC 13: tile range requests at any rate are never limited. The uptime checker must never be limited |
+| Not limited | `/health`, `/tiles/basemap.pmtiles` (any method), every `OPTIONS` preflight | — | — | AC 13: tile range requests at any rate are never rate limited. The uptime checker must never be limited. Since `openapi.yaml` 0.7.1 the tiles path has a separate per-client **connection** cap (`GATEWAY_TILES_MAX_CONN_PER_IP`, recommended 32, never below 24; 429 `RateLimited` in the contract shape when more requests than that are open at once from one address; ADR-0019 Amendment 1). A normal map view stays below it (Android holds at most 20) |
 
 - **Check against AC 13:** 100 requests/s for 10 s from one IP gives about 60 + 30 × 10 = 360 accepted and the rest `429`, so at least one `429` is guaranteed. A normal session (≤ 10 requests/s) stays far below 30/s. The generous per-IP rate leaves room for several testers behind one carrier-grade NAT address (NAV-008 edge case). If testers report `429` during normal use, raise the rate and log the change in the NAV-008 Change log.
 - **429 response (contract, `openapi.yaml` 0.4.0):** status 429, `Content-Type: application/json`, body `{"code":"RateLimited","message":"Too many requests"}`, `Retry-After: <integer seconds ≥ 1>` (staging: `1`), `Cache-Control: no-store`, and each `Access-Control-*` header exactly once (NFR-C3). `Access-Control-Expose-Headers` now also lists `Retry-After`, so browser clients can read it.
@@ -306,7 +306,7 @@ Alternative if the PO does not want an ops VM: a hosted monitor with a ≤ 60 s 
 | 10 | §11 | `BASE_URL=https://staging.<domain> tests/smoke/run.sh` from outside and tethered |
 | 11 | §7 | Preflights with the allowed origins and `http://evil.example` |
 | 12 | §3, §4 | External full port scan, SSH password refusal, `sshd -T`, unattended-upgrades status |
-| 13 | §7.1 | 100 requests/s for 10 s, ≥ 1 `429` with the contract shape; a 10 requests/s session never limited; tiles never limited |
+| 13 | §7.1 | 100 requests/s for 10 s, ≥ 1 `429` with the contract shape; a 10 requests/s session never limited; tile range reads never rate limited (fewer than 24 open at once: all 206); over the tiles connection cap (§7.1): `429` in the contract shape on GET and HEAD |
 | 14 | §8 | Log search after a day of use |
 | 15, 16 | §11 | Rebuild record, `make stats`, downtime measured |
 | 17, 18 | §9 | Alert drill (stop the gateway), config review, disk and certificate rules |

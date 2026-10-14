@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OSM Navigation Mongolia - Gateway API
-  version: 0.7.0
+  version: 0.7.1
   summary: HTTP contract between backend/ and mobile/ + web/ clients.
   description: |
     Single source of truth for the HTTP API (owner: architect). Backend implements it,
@@ -21,6 +21,31 @@ info:
     `/packs/`, on-device routing and search as fallback when the online request fails)
     and ADR-0019 (route request limits on `/v1/route`: per-costing distance and location limits in Valhalla, a
     Valhalla-side processing timeout, and a gateway concurrency cap answered with 503 `RoutingBusy`).
+
+    **Changes in 0.7.1 (2026-10-14, SEC-4A BE-3 residual: per-client connection cap on the tiles path, ADR-0019
+    Amendment 1).** Additive. No path, parameter, schema or header change; no new `GatewayError` code:
+    - New response **429 `RateLimited`** on `getBasemapPmtiles` and `headBasemapPmtiles`. The gateway caps the
+      number of `/tiles/basemap.pmtiles` requests **in flight per client** (`GATEWAY_TILES_MAX_CONN_PER_IP`; client =
+      IPv4 address or IPv6 /64, as for every other per-client limit). Over the cap the gateway answers at once, with
+      the same body, headers and rules as the packs operations: `GatewayError` `{code: RateLimited}`, `Retry-After`
+      (integer >= 1, gateway value 1), `Cache-Control: no-store`, each CORS header once. HEAD gets the headers only.
+      It is a **connection cap, not a request rate**: tile range reads at any rate stay unlimited as long as fewer
+      than the cap are open at the same time. The bandwidth limit on whole-archive downloads (0.7.0 SEC-4A) is unchanged.
+    - **Client expectation.** No client change is required. Android: MapLibre Native maps 429 to its `RateLimit`
+      error, reads `Retry-After` and re-issues the same range read after it (5 s when the header is unreadable),
+      and never has more than 20 network requests in flight per map, so a phone cannot reach a cap of 24 or more.
+      Web: the `pmtiles` plugin and MapLibre GL JS do **not** retry a failed tile; it stays blank until the view
+      changes and the tile is requested again. Three consecutive failures show the NAV-002 "tiles unavailable"
+      banner; a 429 on the header read before the first render shows the blocking card with its retry button. The
+      web must not add its own immediate retry loop. A browser over HTTP/1.1 opens at most 6 connections per host;
+      over HTTP/2 (staging) it may open one per tile in view (about 20 on a 1080p window on a cold load, more on 4K).
+    - **Cap value (recommendation to backend and ops, measured basis above):** `GATEWAY_TILES_MAX_CONN_PER_IP=32`
+      on staging, never below 24. 8-16 would be hit by one phone on its own. Count tiles 429s in the access log
+      (status only, no IP) during the first tester week; if testers behind one carrier-grade NAT address see blank
+      tiles or the banner during normal use, raise it (64) and log the change. Dev stays unlimited: the cap is part
+      of the download limits that exist only with `GATEWAY_RATE_LIMIT=on`.
+    - Texts updated: "Rate limits" paragraph, `RateLimited` (tiles added to the path groups), `RoutingBusy` ("tiles
+      has no such cap" clarified), `getBasemapPmtiles` description, story traceability.
 
     **Changes in 0.7.0 (2026-10-11, SEC-2 route request limits, D213 and D216-D225, ADR-0019, audit finding BE-1).**
     Additive, plus **one documented narrowing**. No path or parameter changes, and no client logic change except
@@ -248,7 +273,8 @@ info:
     `UpstreamTimeout` (also for Valhalla's own plain-text 504). A raw Valhalla 5xx body is never passed through.
 
     **Rate limits (since 0.4.0).** Where limits are enabled (staging: yes), `postRoute`, `getRoute`, `search`,
-    `reverse` and (since 0.6.0) the two `packs` operations may return **429** `RateLimited` with `Retry-After`. Client rules: do not repeat the request
+    `reverse`, (since 0.6.0) the two `packs` operations and (since 0.7.1) `getBasemapPmtiles` / `headBasemapPmtiles`
+    (a per-client **connection** cap, not a request rate) may return **429** `RateLimited` with `Retry-After`. Client rules: do not repeat the request
     before `Retry-After` seconds have passed; never retry in a tight loop; for search-as-you-type, drop the
     pending request and let the next keystroke (after the delay) search again; for a route or reroute, show the
     retryable state and retry at most once after the delay. Localised text is keyed on the code or HTTP status.
@@ -283,6 +309,8 @@ info:
     pack build, publication and static serving) and NAV-022 (Android download and update client). The `/v1/route`
     request limits, timeout and concurrency cap (0.7.0) trace to SEC-2 (D213, D216-D225), recorded as change logs on
     NAV-001 AC 44-49, NAV-004 AC 35/36, NAV-005 AC 7/49, NAV-011 AC 24, NAV-018 AC 17, NAV-021 AC 6 and NAV-008 AC 13.
+    The tiles per-client connection cap (0.7.1) traces to SEC-4A audit finding BE-3 (residual of 2026-10-11),
+    recorded in ADR-0019 Amendment 1; no story and no client change.
   license:
     name: Proprietary (API contract). Data ODbL 1.0 - © OpenStreetMap contributors
 servers:
@@ -394,6 +422,18 @@ paths:
         supersedes the password part of D74; the page keeps `noindex`). It reads the archive from the **origin
         root**, outside its folder. Those requests carry no `Authorization` header and need none. The archive is not
         duplicated into the folder.
+
+        **Per-client connection cap (since 0.7.1, SEC-4A BE-3, ADR-0019 Amendment 1).** Where the download limits are
+        on (staging), the gateway caps the number of requests to this path **in flight per client** (IPv4 address or
+        IPv6 /64; `GATEWAY_TILES_MAX_CONN_PER_IP`, recommended 32, never below 24). Over the cap: **429**
+        `RateLimited` at once, same shape as on the packs operations. It is not a request rate: any number of range
+        reads per second is fine while fewer than the cap are open at once. Client rules: never add an immediate
+        retry loop; the normal tile retry is enough. Android (MapLibre Native) retries the range read by itself
+        after `Retry-After` (5 s if unreadable) and keeps at most 20 network requests in flight. Web (`pmtiles`
+        plugin + MapLibre GL JS) does not retry: the tile stays blank until the view changes, three consecutive
+        failures show the NAV-002 "tiles unavailable" banner, and a 429 on the header read before the first render
+        shows the blocking card with its retry button. The cap is sized so that a normal map view never reaches it.
+        A static host (above) never sends this 429.
       x-stories: [NAV-001, NAV-002, NAV-005, NAV-017]
       parameters:
         - $ref: "#/components/parameters/Range"
@@ -433,6 +473,8 @@ paths:
           $ref: "#/components/responses/GatewayNotFound"
         "416":
           $ref: "#/components/responses/RangeNotSatisfiable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
     head:
       tags: [tiles]
       operationId: headBasemapPmtiles
@@ -457,6 +499,13 @@ paths:
           description: "Unsatisfiable Range (headers only, no body on HEAD). Headers as in the GET 416 response, including `Cache-Control: no-store`."
           headers:
             Content-Range: { $ref: "#/components/headers/ContentRangeUnsatisfied" }
+            Cache-Control: { $ref: "#/components/headers/CacheControlNoStore" }
+            Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
+            Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
+        "429":
+          description: "Since 0.7.1. Over the per-client tiles connection cap (HEAD requests count too). Headers only, no body on HEAD; headers as in the GET 429 `RateLimited` response: `Retry-After`, `Cache-Control: no-store`, each CORS header once."
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
             Cache-Control: { $ref: "#/components/headers/CacheControlNoStore" }
             Access-Control-Allow-Origin: { $ref: "#/components/headers/AccessControlAllowOrigin" }
             Access-Control-Expose-Headers: { $ref: "#/components/headers/AccessControlExposeHeaders" }
@@ -1577,7 +1626,9 @@ components:
     RateLimited:
       description: |
         Since 0.4.0 (NAV-008 AC 13). The client IP exceeded the gateway's per-IP rate limit for this path group
-        (routing: `/v1/route`; search: `/v1/search` and `/v1/reverse`; packs: `/packs/`, since 0.6.0). Answered by the gateway without contacting
+        (routing: `/v1/route`; search: `/v1/search` and `/v1/reverse`; packs: `/packs/`, since 0.6.0), or, since
+        0.7.1, the per-client cap on `/tiles/basemap.pmtiles` requests in flight (`GATEWAY_TILES_MAX_CONN_PER_IP`,
+        recommended 32, never below 24; a connection cap, not a rate). Client = IPv4 address or IPv6 /64. Answered by the gateway without contacting
         the upstream. Each CORS header appears exactly once, so a browser `fetch` sees status 429 and can read
         `Retry-After` (it is in `Access-Control-Expose-Headers`). Must not be cached. Limits are set loosely because
         many phones share one carrier-grade NAT address: a normal session (<= 10 requests/s to these paths) is never
@@ -1602,7 +1653,8 @@ components:
         - `Retry-After`: integer seconds >= 1 (gateway value: 1). `Cache-Control: no-store`. Each CORS header
           appears exactly once, and `Access-Control-Expose-Headers` lists `Retry-After`.
         - Never relabelled as 502 `UpstreamUnavailable`. Requests already in flight are not affected. `search`,
-          `reverse`, tiles and health have no such cap.
+          `reverse`, tiles and health have no `RoutingBusy` cap (tiles has its own per-client connection cap since
+          0.7.1, answered with 429 `RateLimited`).
         - Always on (dev and staging), independent of `GATEWAY_RATE_LIMIT`. Values are dev defaults until the
           NAV-008 staging load measurement (`deployment-staging.md` §7.2).
 
