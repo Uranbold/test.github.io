@@ -27,7 +27,14 @@
 #    hardened like compose (read-only, tmpfs, uid 101, no capabilities); IPv6 clients keyed by /64 (BE-2); download
 #    limits (BE-3: packs per-client connection cap -> 429 RateLimited with CORS once, Range resume, bandwidth after
 #    the initial burst on packs and tiles, tile range reads never limited, bad values and a missing 18-*.sh refused);
-#    X-Content-Type-Options: nosniff exactly once on every response (BE-12/BE-13)
+#    X-Content-Type-Options: nosniff exactly once on every response (BE-13)
+# 12. Gate B hardening (audit 2026-10-07 re-check): BE-14 edge timeouts and per-route body limits (1 KB everywhere, 256 KB
+#    on /v1/route, JSON 413 on every location incl. tiles/packs, max_ranges 1, send/body timeouts on /v1/route; the
+#    settings are read back with nginx -T), BE-23 (burst 0 refused at start with the right message), BE-3 residual
+#    (tiles connection cap default 32, 429 on GET and HEAD, 0 = off, 1-23 refused), B3 (IMAGE_SCAN=1 runs
+#    scripts/image-scan.sh; the image list and the Trivy pin are always checked)
+#    The daemon-free part of this gate (entrypoint output, config text, daemon.json, .env rules, signed tags, pipeline
+#    unit tests) is also runnable without Docker: infra/ci/nodocker-checks.sh
 # 11. NAV-016 voice-pack generator (backend/tools/voice-pack): syntax, image pins, the repo-wide AC 8 / AC 19 scan
 #    (voicepack/reposcan.py: token values, audio, pack manifests, review pages anywhere), repository scans and the path
 #    rule (stdlib, no ffmpeg); the full stub + fake-server suite runs too when the reference image exists
@@ -89,7 +96,7 @@ docker exec navmn-ci-gw nginx -t
 G=http://127.0.0.1:18089
 code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 [[ $(code $G/health) == 200 ]] || fail "health"
-nosniff_once() {  # nosniff_once <label> <curl args...>: SEC-4A BE-12/13, exactly one X-Content-Type-Options: nosniff
+nosniff_once() {  # nosniff_once <label> <curl args...>: SEC-4A BE-13, exactly one X-Content-Type-Options: nosniff
   local n; n=$(curl -s -D - -o /dev/null "${@:2}" | tr -d '\r' | grep -ci '^x-content-type-options: nosniff$' || true)
   [[ $n == 1 ]] || fail "$1: X-Content-Type-Options: nosniff appears $n times (want 1)"
 }
@@ -105,6 +112,31 @@ curl -s -D - -o /dev/null -X OPTIONS -H 'Origin: http://evil.example' $G/v1/rout
 [[ $(code -X DELETE $G/v1/search) == 405 ]] || fail "405"
 [[ $(code -X POST --data-binary @<(head -c 300000 /dev/zero) $G/v1/route) == 413 ]] || fail "413"
 [[ $(code -X POST -d '{}' $G/v1/route) == 502 ]] || fail "502 without upstream"
+# SEC BE-14: body limits per route. /v1/route keeps the contract's 256 KB (a 200 KB body reaches the upstream: 502 here,
+# never 413); every other location allows 1 KB and answers JSON 413 PayloadTooLarge (CORS once, nosniff once).
+[[ $(code -X POST --data-binary @<(head -c 200000 /dev/zero) $G/v1/route) == 502 ]] || fail "a 200 KB route body must pass the gateway (contract: 413 only over 256 KB)"
+for p in /health "/v1/search?q=a" "/v1/reverse?lat=1&lon=1" /tiles/basemap.pmtiles /packs/mn/manifest.json /nope; do
+  H=$(curl -s -D - -o "$TMP/413.json" -H 'Origin: http://localhost:5173' -X POST --data-binary @<(head -c 2048 /dev/zero) "$G$p" | tr -d '\r')
+  echo "$H" | head -1 | grep -q ' 413' && grep -q '^{"code":"PayloadTooLarge","message":"Request body too large"}$' "$TMP/413.json" \
+    || fail "BE-14: 2 KB body on $p must be JSON 413: $(echo "$H" | head -1) $(head -c 80 "$TMP/413.json")"
+  [[ $(echo "$H" | grep -ci '^access-control-allow-origin: http://localhost:5173$') == 1 && $(echo "$H" | grep -ci '^x-content-type-options: nosniff$') == 1 ]] || fail "BE-14: 413 on $p headers once"
+  echo "$H" | grep -qi '^content-type: application/json' || fail "BE-14: 413 on $p Content-Type"
+done
+[[ $(code -X POST --data-binary @<(head -c 1000 /dev/zero) $G/v1/search) != 413 ]] || fail "BE-14: a 1000-byte body is within the 1 KB limit"
+[[ $(code -H 'Range: bytes=0-7' $G/tiles/basemap.pmtiles) == 206 ]] || fail "tiles range after the 413 probes"
+# BE-14: the effective settings as nginx reads them (nginx -T dumps every included file)
+docker exec navmn-ci-gw nginx -T 2>/dev/null > "$TMP/nginx-T.txt"
+for want in 'client_header_timeout     10s;' 'client_body_timeout       10s;' 'send_timeout              10s;' 'keepalive_timeout         30s;' \
+            'reset_timedout_connection on;' 'client_max_body_size        1k;' 'client_max_body_size 256k;' 'large_client_header_buffers 4 8k;' \
+            'max_ranges 1;' 'send_timeout        10s;' 'client_body_timeout 10s;'; do
+  grep -qF "$want" "$TMP/nginx-T.txt" || fail "BE-14: '$want' not in the effective nginx config"
+done
+[[ $(grep -c 'max_ranges 1;' "$TMP/nginx-T.txt") == 2 ]] || fail "BE-14: max_ranges 1 on TILES and PACKS files"
+[[ $(grep -c 'error_page 413 = @payload_too_large;' "$TMP/nginx-T.txt") -ge 6 ]] || fail "BE-14: error_page 413 on the server and every location with its own error_page"
+# a multi-range on tiles is served as the whole file (max_ranges 1), never as multipart/byteranges
+H=$(curl -s -D - -o /dev/null -H 'Range: bytes=0-1,4-5' $G/tiles/basemap.pmtiles | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 200' && ! echo "$H" | grep -qi 'multipart/byteranges' || fail "BE-14: multi-range must be answered as the whole file: $(echo "$H" | head -1)"
+echo "   BE-14: 256 KB on /v1/route, 1 KB elsewhere (JSON 413, CORS once), timeouts and buffers effective, max_ranges 1"
 # AC 43: Range starting at the archive size -> 416, JSON, Content-Range bytes */S, each CORS header once
 S=$(stat -c %s "$TMP/tiles/basemap.pmtiles")
 H=$(curl -s -D - -o "$TMP/416.json" -H 'Origin: http://localhost:5173' -H "Range: bytes=$S-" $G/tiles/basemap.pmtiles | tr -d '\r')
@@ -200,6 +232,14 @@ docker rm -f navmn-ci-gw-bad >/dev/null
 rl_run navmn-ci-gw-bad 18091 -e GATEWAY_RATE_LIMIT=on -e GATEWAY_RATE_PACKS=0r/s
 for _ in $(seq 20); do [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] && break; sleep 0.5; done
 [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] || fail "invalid GATEWAY_RATE_PACKS was accepted"
+# SEC BE-23: burst 0 is refused by the entrypoint with its own message (before nginx would fail on "invalid burst value")
+docker rm -f navmn-ci-gw-bad >/dev/null
+rl_run navmn-ci-gw-bad 18091 -e GATEWAY_RATE_LIMIT=on -e GATEWAY_BURST_SEARCH=0
+for _ in $(seq 20); do [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] && break; sleep 0.5; done
+[[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] || fail "GATEWAY_BURST_SEARCH=0 was accepted (BE-23)"
+dlogs navmn-ci-gw-bad | grep -q "16-rate-limits.sh: invalid burst (expected an integer >= 1; nginx refuses burst=0): '0'" || fail "BE-23: burst 0 must be refused by 16-rate-limits.sh with its own message, not by nginx"
+dlogs navmn-ci-gw-bad | grep -q 'invalid burst value' && fail "BE-23: nginx saw burst=0"
+echo "   BE-23: burst 0 refused by the entrypoint with the right message"
 echo "== NAV-006 compose.slots.yaml (ADR-0014)"
 printf 'NAV_COMPOSE_PROJECT=ci-slots\nNAV_DATA_ROOT=/nonexistent/nav-data\n' > "$TMP/slots.env"
 ( cd "$B" && docker compose -f compose.slots.yaml --env-file "$TMP/slots.env" --profile '*' config ) > "$TMP/slots.yaml" \
@@ -268,7 +308,7 @@ for n in ("gateway", "gateway-verify"):
 assert "/docker-entrypoint.d/18-download-limits.sh" in {v["target"] for v in d["gateway"]["volumes"]}
 for svc in (d["gateway"], s["gateway"]):
     env = svc["environment"]
-    assert (env["GATEWAY_PACKS_MAX_CONN_PER_IP"], env["GATEWAY_PACKS_LIMIT_RATE"], env["GATEWAY_TILES_MAX_CONN_PER_IP"]) == ("2", "2m", "0"), env
+    assert (env["GATEWAY_PACKS_MAX_CONN_PER_IP"], env["GATEWAY_PACKS_LIMIT_RATE"], env["GATEWAY_TILES_MAX_CONN_PER_IP"]) == ("2", "2m", "32"), env
 print("   SEC-4A: every service cap_drop ALL + no-new-privileges + mem/pids limits; serving services non-root, read-only;"
       " Photon /data read-only, only /data/photon writable; builders: only the listed capabilities")
 PY
@@ -603,7 +643,7 @@ dl_run navmn-ci-gw-dl 18095
 for _ in $(seq 30); do curl -fs localhost:18095/health >/dev/null && break; sleep 1; done
 D=http://127.0.0.1:18095; PF=$D/packs/mn/$A/routing.tar.gz
 docker exec navmn-ci-gw-dl grep -q 'limit_conn nav_dl_packs        2;' /etc/nginx/conf.d/03-download-limits.conf || fail "packs per-client cap not 2"
-docker exec navmn-ci-gw-dl grep -q 'limit_conn nav_dl_tiles' /etc/nginx/conf.d/03-download-limits.conf && fail "tiles connection cap must be off by default"
+docker exec navmn-ci-gw-dl grep -q 'limit_conn nav_dl_tiles        32;' /etc/nginx/conf.d/03-download-limits.conf || fail "tiles connection cap must be 32 by default (openapi 0.7.1)"
 for i in 1 2; do curl -s -o "$TMP/dl$i" -w '%{http_code} %{time_total}\n' "$PF" > "$TMP/dl$i.st" & done
 sleep 0.7
 H=$(curl -s -D - -o "$TMP/dl429.json" -H 'Origin: http://localhost:5173' "$PF" | tr -d '\r')
@@ -627,25 +667,45 @@ E=$(curl -s -D - -o /dev/null -r 0-0 "$PF" | tr -d '\r' | sed -n 's/^[Ee][Tt][Aa
 HALF=$((DZ / 2)); H=$(curl -s -D - -o "$TMP/dl.tail" -H "Range: bytes=$HALF-" -H "If-Range: $E" "$PF" | tr -d '\r')
 echo "$H" | head -1 | grep -q ' 206' && echo "$H" | grep -qi "^content-range: bytes $HALF-$((DZ - 1))/$DZ\$" || fail "pack resume under limits: $(echo "$H" | head -1)"
 [[ "$( (head -c "$HALF" "$TMP/dl1"; cat "$TMP/dl.tail") | sha256sum | cut -d' ' -f1)" == "$DSHA" ]] || fail "resumed halves do not hash to the file"
-# tiles: 30 parallel range reads -> all 206 at once (no connection cap, under the burst); a whole download is slowed
-got=$(seq 30 | xargs -P 30 -I{} curl -s -o /dev/null -w '%{http_code}:%{time_total} ' -H 'Range: bytes=0-16383' $D/tiles/basemap.pmtiles)
-[[ $(tr ' ' '\n' <<<"$got" | grep -c '^206:0\.') == 30 ]] || fail "tile range reads must all be 206 in < 1 s: $got"
+# tiles: 20 parallel range reads (fewer than the 24 minimum of the cap; one phone opens up to 20) -> all 206 at once
+# (a connection cap, never a rate); a whole download is slowed
+got=$(seq 20 | xargs -P 20 -I{} curl -s -o /dev/null -w '%{http_code}:%{time_total} ' -H 'Range: bytes=0-16383' $D/tiles/basemap.pmtiles)
+[[ $(tr ' ' '\n' <<<"$got" | grep -c '^206:0\.') == 20 ]] || fail "tile range reads must all be 206 in < 1 s: $got"
 n=$(curl -s -o /dev/null -w '%{size_download}' --max-time 2 $D/tiles/basemap.pmtiles || true)
 (( n > 65536 && n < 2000008 )) || fail "a whole tiles download must be slowed after the 64k burst (got $n bytes in 2 s)"
 dlogs navmn-ci-gw-dl | grep -qiE 'limiting connections|client: ' && fail "limit_conn lines reached the log"
 docker rm -f navmn-ci-gw-dl >/dev/null
-# optional tiles connection cap (off by default; needs the contract amendment): 429 RateLimited when on
-dl_run navmn-ci-gw-dl 18095 -e GATEWAY_TILES_MAX_CONN_PER_IP=1
+# tiles connection cap (openapi 0.7.1 / ADR-0019 Amendment 1): with the minimum of 24, 24 slowed whole-archive
+# downloads held open from one address -> the 25th GET is 429 RateLimited (contract shape, CORS once) and a HEAD is
+# 429 with headers only; after they finish, the next GET is accepted again.
+dl_run navmn-ci-gw-dl 18095 -e GATEWAY_TILES_MAX_CONN_PER_IP=24
 for _ in $(seq 30); do curl -fs localhost:18095/health >/dev/null && break; sleep 1; done
-curl -s -o /dev/null --max-time 3 $D/tiles/basemap.pmtiles & sleep 0.7
-H=$(curl -s -D - -o "$TMP/t429.json" -H 'Origin: http://localhost:5173' $D/tiles/basemap.pmtiles | tr -d '\r'); wait || true
-echo "$H" | head -1 | grep -q ' 429' && grep -q '"code":"RateLimited"' "$TMP/t429.json" && [[ $(echo "$H" | grep -ci '^access-control-allow-origin:') == 1 ]] \
-  || fail "GATEWAY_TILES_MAX_CONN_PER_IP=1: 2nd tiles download must be 429 RateLimited with CORS once: $(echo "$H" | head -1)"
+for _ in $(seq 24); do curl -s -o /dev/null --max-time 4 $D/tiles/basemap.pmtiles & done; sleep 1
+H=$(curl -s -D - -o "$TMP/t429.json" -H 'Origin: http://localhost:5173' $D/tiles/basemap.pmtiles | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 429' && grep -q '^{"code":"RateLimited","message":"Too many requests"}$' "$TMP/t429.json" \
+  || fail "tiles cap 24: 25th GET must be 429 RateLimited: $(echo "$H" | head -1) $(head -c 80 "$TMP/t429.json")"
+[[ $(echo "$H" | grep -ci '^retry-after: 1$') == 1 && $(echo "$H" | grep -ci '^cache-control: no-store$') == 1 ]] || fail "tiles 429 Retry-After/Cache-Control"
+[[ $(echo "$H" | grep -ci '^access-control-allow-origin: http://localhost:5173$') == 1 ]] || fail "tiles 429 ACAO once"
+echo "$H" | grep -qi '^content-type: application/json' || fail "tiles 429 Content-Type"
+[[ $(echo "$H" | grep -ci '^x-content-type-options: nosniff$') == 1 ]] || fail "tiles 429 nosniff once"
+DUP=$(echo "$H" | grep -i '^access-control-[a-z-]*:' | cut -d: -f1 | tr 'A-Z' 'a-z' | sort | uniq -d); [[ -z "$DUP" ]] || fail "tiles 429 repeated headers: $DUP"
+H=$(curl -s -I -H 'Origin: http://localhost:5173' $D/tiles/basemap.pmtiles | tr -d '\r')
+echo "$H" | head -1 | grep -q ' 429' && [[ $(echo "$H" | grep -ci '^retry-after: 1$') == 1 && $(echo "$H" | grep -ci '^cache-control: no-store$') == 1 ]] \
+  && [[ $(echo "$H" | grep -ci '^access-control-allow-origin: http://localhost:5173$') == 1 ]] || fail "tiles cap: HEAD over the cap must be 429 with the same headers: $(echo "$H" | head -1)"
+[[ $(code -H 'Range: bytes=0-7' "$D/packs/mn/$A/routing.tar.gz") == 206 && $(code $D/health) == 200 ]] || fail "the tiles cap must not touch packs or health"
+wait
+[[ $(code -H 'Range: bytes=0-7' $D/tiles/basemap.pmtiles) == 206 ]] || fail "tiles cap must free after the downloads finish"
+dlogs navmn-ci-gw-dl | grep -qiE 'limiting connections|client: ' && fail "limit_conn lines reached the log"
+docker rm -f navmn-ci-gw-dl >/dev/null
+# GATEWAY_TILES_MAX_CONN_PER_IP=0 switches the cap off (no limit_conn on the tiles zone)
+dl_run navmn-ci-gw-dl 18095 -e GATEWAY_TILES_MAX_CONN_PER_IP=0
+for _ in $(seq 30); do curl -fs localhost:18095/health >/dev/null && break; sleep 1; done
+docker exec navmn-ci-gw-dl grep -q 'limit_conn nav_dl_tiles' /etc/nginx/conf.d/03-download-limits.conf && fail "GATEWAY_TILES_MAX_CONN_PER_IP=0 must switch the tiles cap off"
 docker rm -f navmn-ci-gw-dl >/dev/null
 # off with GATEWAY_RATE_LIMIT=off (dev): no limit_conn/limit_rate at all
 docker exec navmn-ci-gw-slot grep -qE 'limit_conn|limit_rate' /etc/nginx/conf.d/03-download-limits.conf && fail "download limits must be off without GATEWAY_RATE_LIMIT=on"
 # bad values and a missing 18-download-limits.sh are refused at start
-for bad in "GATEWAY_PACKS_LIMIT_RATE=fast" "GATEWAY_PACKS_MAX_CONN_PER_IP=0" "GATEWAY_TILES_MAX_CONN_PER_IP=-1" "GATEWAY_TILES_LIMIT_RATE_AFTER=4g"; do
+for bad in "GATEWAY_PACKS_LIMIT_RATE=fast" "GATEWAY_PACKS_MAX_CONN_PER_IP=0" "GATEWAY_TILES_MAX_CONN_PER_IP=-1" "GATEWAY_TILES_MAX_CONN_PER_IP=23" "GATEWAY_TILES_LIMIT_RATE_AFTER=4g"; do
   docker rm -f navmn-ci-gw-bad >/dev/null 2>&1 || true
   rl_run navmn-ci-gw-bad 18091 -e GATEWAY_RATE_LIMIT=on -e "$bad"
   for _ in $(seq 20); do [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] && break; sleep 0.5; done
@@ -663,7 +723,7 @@ docker run -d --name navmn-ci-gw-bad --network navmn-ci-net "${GW_HARDEN[@]}" -e
 for _ in $(seq 20); do [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] && break; sleep 0.5; done
 [[ $(docker inspect -f '{{.State.Running}}' navmn-ci-gw-bad) == false ]] || fail "a gateway without 18-download-limits.sh must refuse to start"
 docker rm -f navmn-ci-gw-bad >/dev/null
-echo "   packs: 3rd parallel download -> 429 RateLimited (CORS once), downloads slowed after 64k, resume ok; tiles ranges never limited, whole file slowed"
+echo "   packs: 3rd parallel download -> 429 RateLimited (CORS once), downloads slowed after 64k, resume ok; tiles: 20 parallel reads 206, whole file slowed, 25th of 24 -> 429 (GET body, HEAD headers), 0 = off"
 
 echo "== NAV-006 + NAV-020 + NAV-022 pipeline unit tests, NAV-020 search builder tests"
 python3 -m unittest discover -s "$B/pipeline/tests" > "$TMP/ut.log" 2>&1 || { tail -n 30 "$TMP/ut.log"; fail "pipeline unit tests"; }
@@ -694,6 +754,16 @@ if docker image inspect "${VOICE_PACK_IMAGE:-navmn-voice-pack:1.0.0}" >/dev/null
   grep -E '^(Ran|OK)' "$TMP/vp-full.log" | tr '\n' ' '; echo
 else
   echo "   (reference image not built: full generator suite skipped; run make -C backend voice-pack-image voice-pack-test)"
+fi
+
+echo "== Security B3: image CVE scan (scripts/image-scan.sh: pinned Trivy; IMAGE_SCAN=1 runs it, needs network + a daemon)"
+"$B/scripts/image-scan.sh" --list > "$TMP/images.txt" || fail "image-scan.sh --list"
+[[ $(grep -c '@sha256:' "$TMP/images.txt") -ge 10 ]] || { cat "$TMP/images.txt"; fail "image list too short"; }
+grep -q 'ghcr.io/aquasecurity/trivy:[0-9.]*@sha256:[0-9a-f]\{64\}' "$B/scripts/image-scan.sh" || fail "Trivy image not pinned by digest"
+if [[ "${IMAGE_SCAN:-0}" == 1 ]]; then
+  IMAGE_SCAN_OUT="${IMAGE_SCAN_OUT:-}" "$B/scripts/image-scan.sh" --require || fail "image scan (B3)"
+else
+  echo "   $(head -1 "$TMP/images.txt"); scan not run (IMAGE_SCAN=1 runs it; 'make -C backend image-scan' for the gate B record)"
 fi
 
 echo "OK: backend static checks passed"

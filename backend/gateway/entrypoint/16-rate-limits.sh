@@ -40,8 +40,10 @@ case "$mode" in on|off) ;; *) bad GATEWAY_RATE_LIMIT "$mode" ;; esac
 for r in "$rate_route" "$rate_search" "$rate_packs"; do
     printf '%s' "$r" | grep -Eq '^[1-9][0-9]*r/s$' || bad "rate (expected <n>r/s, n >= 1; Retry-After is fixed at 1 s)" "$r"
 done
+# SEC BE-23: nginx refuses burst=0 ("invalid burst value"), so 0 is refused here with the right message instead of
+# letting nginx fail later; a burst below 1 makes no sense with nodelay anyway (the rate alone still applies).
 for b in "$burst_route" "$burst_search" "$burst_packs"; do
-    printf '%s' "$b" | grep -Eq '^[0-9]+$' || bad "burst (expected an integer)" "$b"
+    printf '%s' "$b" | grep -Eq '^[1-9][0-9]{0,5}$' || bad "burst (expected an integer >= 1; nginx refuses burst=0)" "$b"
 done
 
 {

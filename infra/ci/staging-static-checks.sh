@@ -11,6 +11,8 @@
 # 8. SEC-4A: every staging/ops image pinned as tag@sha256; Caddy hardened (only NET_BIND_SERVICE, no-new-privileges,
 #    read-only root, limits) on staging and the ops VM; HSTS + no Server header at the edge, nosniff on the backstop;
 #    download-limit and .md5 keys at their staging values; signed-tag deploy rules (staging-deploy-signature-test.sh)
+# 9. Gate B (audit re-check 2026-10-11): BE-12 daemon.json, BE-14 Caddy timeouts/body limit/413 backstop, BE-17 .env
+#    mode and owner, BE-22 renamed tag object (in the signature test); daemon-free variant: infra/ci/nodocker-checks.sh
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 ST=$ROOT/infra/staging
@@ -87,7 +89,7 @@ assert c.get("cap_add") == ["NET_BIND_SERVICE"] and c.get("read_only") is True a
 genv = s["gateway"]["environment"]
 assert (genv["GATEWAY_PACKS_MAX_CONN_PER_IP"], genv["GATEWAY_PACKS_MAX_CONN"], genv["GATEWAY_PACKS_LIMIT_RATE_AFTER"],
         genv["GATEWAY_PACKS_LIMIT_RATE"], genv["GATEWAY_TILES_LIMIT_RATE_AFTER"], genv["GATEWAY_TILES_LIMIT_RATE"],
-        genv["GATEWAY_TILES_MAX_CONN_PER_IP"]) == ("2", "64", "10m", "2m", "4m", "1m", "0"), genv
+        genv["GATEWAY_TILES_MAX_CONN_PER_IP"]) == ("2", "64", "10m", "2m", "4m", "1m", "32"), genv
 ipam = d["networks"]["edge"]["ipam"]["config"]
 assert (v == "v6") == bool(d["networks"]["edge"].get("enable_ipv6")), "enable_ipv6"
 print(f"   {v}: only caddy publishes 80/443 tcp; gateway 127.0.0.1; rate limit on; trusted proxy {trusted}; {len(ipam)} edge subnet(s)")
@@ -147,8 +149,17 @@ assert hdr[0]["response"]["set"] == {"Strict-Transport-Security": ["max-age=3153
 assert hdr[0]["response"].get("delete") == ["Server"], hdr[0]["response"]
 assert '"X-Content-Type-Options": ["nosniff"]' in errs and "Strict-Transport-Security" in errs, "backstop security headers"
 assert "Access-Control" not in routes and "Access-Control" not in errs, "CORS stays owned by the gateway"
+# SEC BE-14: explicit edge timeouts (nanoseconds in the adapted JSON), header size, body limit, 413 backstop
+S = 1_000_000_000
+assert (srv.get("read_header_timeout"), srv.get("read_timeout"), srv.get("write_timeout"), srv.get("idle_timeout")) == (10 * S, 10 * S, 900 * S, 120 * S), \
+    {k: srv.get(k) for k in ("read_header_timeout", "read_timeout", "write_timeout", "idle_timeout")}
+assert srv.get("max_header_bytes") == 16 * 1024, srv.get("max_header_bytes")
+assert '"handler": "request_body"' in routes and '"max_size": 1048576' in routes, "request_body max_size 1MB"
+assert '"dial_timeout": 2000000000' in routes and '"response_header_timeout": 15000000000' in routes, "reverse_proxy transport timeouts"
+assert "PayloadTooLarge" in errs and '"status_code": 413' in errs, "413 backstop in the GatewayError shape"
 print("   no access log; h1+h2; TLS 1.2-1.3; include-list", log["include"], "; JSON backstop; reverse_proxy gateway:8080;"
-      " HSTS + no Server header (deferred), nosniff on the backstop")
+      " HSTS + no Server header (deferred), nosniff on the backstop;"
+      " BE-14: read 10s/10s, write 15m, idle 2m, headers 16 KB, body 1 MB -> 413 JSON, dial 2s / response headers 15s")
 PY
 
 echo "== ops VM Caddyfile (caddy validate + adapted config)"
@@ -207,6 +218,26 @@ grep -q 'nav-pipeline" rebuild --scheduled' "$ST/bin/nav-rebuild.sh" || fail "na
 [[ $(find "$ST/systemd" -name '*rebuild*.timer' | wc -l) == 1 ]] || fail "exactly one rebuild timer"
 grep -q 'OnCalendar=\*:0/5' "$ST/systemd/nav-diskcheck.timer" || fail "diskcheck every 5 min"
 
+echo "== SEC BE-12: Docker daemon.json written by bootstrap.sh"
+python3 - "$ST/bootstrap/bootstrap.sh" "$ST/.env.example" <<'PY' || fail "daemon.json (BE-12)"
+import ipaddress, json, re, sys
+src = open(sys.argv[1]).read()
+m = re.search(r"put_file /etc/docker/daemon.json 644 '(\{.*?\n\})\n'", src, re.S)
+assert m, "daemon.json literal not found in bootstrap.sh"
+d = json.loads(m.group(1))
+assert d["no-new-privileges"] is True and d["userland-proxy"] is False and d["live-restore"] is True, d
+assert d["log-driver"] == "json-file" and d["log-opts"] == {"max-size": "10m", "max-file": "5"}, d
+pools = d["default-address-pools"]
+assert pools and all(set(p) == {"base", "size"} for p in pools), pools
+env = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", open(sys.argv[2]).read(), re.M))
+edge = ipaddress.ip_network(env["EDGE_SUBNET_V4"])
+for p in pools:
+    base = ipaddress.ip_network(p["base"])
+    assert base.is_private and p["size"] >= base.prefixlen, p
+    assert not base.overlaps(edge), f"address pool {base} overlaps the edge network {edge}"
+print(f"   daemon.json: no-new-privileges, userland-proxy off, json-file 10m x 5, live-restore, pools {[p['base'] for p in pools]} (no overlap with {edge})")
+PY
+
 echo "== .env.example and config helpers"
 python3 - "$ST/.env.example" "$ROOT/backend/.env.example" "$ST/monitoring/ops-vm/.env.example" <<'PY' || fail ".env.example comments"
 import re, sys
@@ -240,13 +271,13 @@ assert kv.get("PACK_TEST_PARTIAL_TILES", "0") in ("", "0") and not kv.get("PACK_
 print("   NAV-020: pack keys at their staging defaults (disabled until the RUNBOOK 7A.8 checklist, Gate 2 mode engine)")
 sec = {"REBUILD_REQUIRE_SOURCE_MD5": "1", "GATEWAY_PACKS_MAX_CONN_PER_IP": "2", "GATEWAY_PACKS_MAX_CONN": "64",
        "GATEWAY_PACKS_LIMIT_RATE_AFTER": "10m", "GATEWAY_PACKS_LIMIT_RATE": "2m", "GATEWAY_TILES_LIMIT_RATE_AFTER": "4m",
-       "GATEWAY_TILES_LIMIT_RATE": "1m", "GATEWAY_TILES_MAX_CONN_PER_IP": "0"}
+       "GATEWAY_TILES_LIMIT_RATE": "1m", "GATEWAY_TILES_MAX_CONN_PER_IP": "32"}
 bad = {k: kv.get(k) for k, v in sec.items() if kv.get(k) != v}
 assert not bad, bad
 assert kv.get("DEPLOY_ALLOWED_SIGNERS", "").startswith("/etc/"), "DEPLOY_ALLOWED_SIGNERS must point outside the checkout"
 assert "DEPLOY_ALLOW_UNSIGNED" not in kv and "ALLOW_UNVERIFIED_TOOLS" not in kv, "escape hatches must not be settings"
 assert kv["PHOTON_DUMP_URL"].startswith("https://") and all(u.startswith(("https://", "file:/")) for u in kv["OSM_SOURCES"].split())
-print("   SEC-4A: .md5 required, download limits 2/64/10m/2m/4m/1m/0, DEPLOY_ALLOWED_SIGNERS under /etc, no escape hatches set")
+print("   SEC-4A: .md5 required, download limits 2/64/10m/2m/4m/1m/32, DEPLOY_ALLOWED_SIGNERS under /etc, no escape hatches set")
 PY
 cat > "$TMP/t.env" <<'EOF'
 STAGING_HOST=first.example.invalid
@@ -255,6 +286,20 @@ ACME_EMAIL='ops@example.invalid'
 CORS_ALLOWED_ORIGINS=https://a.example.invalid,http://localhost:5173
 EMPTY=
 EOF
+# SEC BE-17 (checklist B7): the config must be a regular file owned by the running account with mode 600 (or 400)
+envcheck() { NAV_ENV_FILE="$1" bash -c 'source "$1/bin/nav-env.sh"; nav_require_env_file' _ "$ST" 2>&1 || true; }
+chmod 644 "$TMP/t.env"; envcheck "$TMP/t.env" | grep -q 'must be 600' || fail ".env with mode 644 was accepted (BE-17)"
+chmod 660 "$TMP/t.env"; envcheck "$TMP/t.env" | grep -q 'must be 600' || fail ".env with mode 660 was accepted (BE-17)"
+ln -s "$TMP/t.env" "$TMP/link.env"; envcheck "$TMP/link.env" | grep -q 'symlinks are refused' || fail ".env symlink was accepted (BE-17)"
+chmod 600 "$TMP/t.env"; [[ -z "$(envcheck "$TMP/t.env")" ]] || fail "root:600 .env refused: $(envcheck "$TMP/t.env")"
+chmod 400 "$TMP/t.env"; [[ -z "$(envcheck "$TMP/t.env")" ]] || fail "400 .env refused"; chmod 600 "$TMP/t.env"
+if [[ $EUID -eq 0 ]]; then
+    chown 65534 "$TMP/t.env"; envcheck "$TMP/t.env" | grep -q 'must belong to' || fail ".env owned by another user was accepted (BE-17)"
+    chown 0 "$TMP/t.env"
+fi
+grep -q 'nav_require_env_file' "$ST/bin/nav-compose" "$ST/bin/nav-diskcheck.sh" "$ST/bin/nav-backup.sh" "$ST/bin/nav-push-test.sh" \
+    && grep -q 'nav_require_env_file' <(sed -n '/^nav_validate_env()/,/^}/p' "$ST/bin/nav-env.sh") || fail "every env reader must go through nav_require_env_file"
+echo "   BE-17: .env refused with mode 644/660, as a symlink$( [[ $EUID -eq 0 ]] && echo ', owned by another user'); accepted as 600/400"
 out=$(NAV_ENV_FILE="$TMP/t.env" bash -c 'source "$1/bin/nav-env.sh"; printf "%s|%s|%s|%s" "$(nav_env_get STAGING_HOST)" "$(nav_env_get ACME_EMAIL)" "$(nav_env_get EMPTY dflt)" "$(nav_env_get MISSING d2)"; nav_validate_env' _ "$ST")
 [[ "$out" == "staging.example.invalid|ops@example.invalid|dflt|d2" ]] || fail "nav_env_get: $out"
 echo "CORS_ALLOWED_ORIGINS=*" >> "$TMP/t.env"

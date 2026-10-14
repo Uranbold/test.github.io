@@ -10,9 +10,11 @@
 #   GATEWAY_PACKS_LIMIT_RATE        bytes/s per /packs/ response after that (default 2m; 0 = no bandwidth limit)
 #   GATEWAY_TILES_LIMIT_RATE_AFTER  bytes of each tiles response sent at full speed (default 4m; nginx size)
 #   GATEWAY_TILES_LIMIT_RATE        bytes/s per tiles response after that (default 1m; 0 = no bandwidth limit)
-#   GATEWAY_TILES_MAX_CONN_PER_IP   tiles requests in flight per client (default 0 = off). openapi 0.7.0 keeps the
-#                                   tiles path unlimited (no 429 listed); turn it on only after the architect amends
-#                                   the contract (SEC-4A handoff).
+#   GATEWAY_TILES_MAX_CONN_PER_IP   tiles requests (GET and HEAD, any Range) in flight per client (default 32; 0 = off;
+#                                   1-23 refused: a phone alone opens up to 20, a browser over HTTP/2 about 20 on a
+#                                   cold load, openapi 0.7.1 / ADR-0019 Amendment 1); over it -> 429 RateLimited
+#                                   (headers only on HEAD). A connection cap, not a request rate: tile reads at any
+#                                   rate stay unlimited (NAV-008 AC 13). SEC-4A BE-3 residual.
 #
 # How: as in 16/17, limit_conn and limit_rate are set at http level and inherited by every location, but the keys are
 # empty and the rates 0 for everything that is not a GET/HEAD to the tiles file or under /packs/ (OPTIONS preflights
@@ -35,7 +37,7 @@ packs_after="${GATEWAY_PACKS_LIMIT_RATE_AFTER:-10m}"
 packs_rate="${GATEWAY_PACKS_LIMIT_RATE:-2m}"
 tiles_after="${GATEWAY_TILES_LIMIT_RATE_AFTER:-4m}"
 tiles_rate="${GATEWAY_TILES_LIMIT_RATE:-1m}"
-tiles_ip="${GATEWAY_TILES_MAX_CONN_PER_IP:-0}"
+tiles_ip="${GATEWAY_TILES_MAX_CONN_PER_IP:-32}"
 
 bad() { echo "18-download-limits.sh: invalid $1: '$2' ($3)" >&2; exit 1; }
 
@@ -43,6 +45,8 @@ case "$mode" in on|off) ;; *) bad GATEWAY_RATE_LIMIT "$mode" "on or off" ;; esac
 printf '%s' "$packs_ip" | grep -Eq '^[1-9][0-9]{0,5}$' || bad GATEWAY_PACKS_MAX_CONN_PER_IP "$packs_ip" "integer >= 1"
 printf '%s' "$packs_all" | grep -Eq '^[1-9][0-9]{0,5}$' || bad GATEWAY_PACKS_MAX_CONN "$packs_all" "integer >= 1"
 printf '%s' "$tiles_ip" | grep -Eq '^(0|[1-9][0-9]{0,5})$' || bad GATEWAY_TILES_MAX_CONN_PER_IP "$tiles_ip" "integer >= 0, 0 = off"
+# openapi 0.7.1 / ADR-0019 Amendment 1: never below 24 (one phone keeps up to 20 tiles requests in flight).
+[ "$tiles_ip" = 0 ] || [ "$tiles_ip" -ge 24 ] || bad GATEWAY_TILES_MAX_CONN_PER_IP "$tiles_ip" "0 = off, or an integer >= 24 (one client alone opens up to 20)"
 for kv in "GATEWAY_PACKS_LIMIT_RATE_AFTER=$packs_after" "GATEWAY_PACKS_LIMIT_RATE=$packs_rate" \
           "GATEWAY_TILES_LIMIT_RATE_AFTER=$tiles_after" "GATEWAY_TILES_LIMIT_RATE=$tiles_rate"; do
     printf '%s' "${kv#*=}" | grep -Eq '^[0-9]{1,9}[km]?$' || bad "${kv%%=*}" "${kv#*=}" "bytes, optional k or m suffix, e.g. 2m"
@@ -103,6 +107,6 @@ EOF
     fi
 } > "$out"
 
-printf '{"service":"gateway","level":"info","msg":"download limits configured","download_limits":"%s","packs":"%s per client, %s total, %s/s after %s","tiles":"%s/s after %s, %s per client"}\n' \
+printf '{"service":"gateway","level":"info","msg":"download limits configured","download_limits":"%s","packs":"%s per client, %s total, %s/s after %s","tiles":"%s/s after %s, %s in flight per client"}\n' \
     "$mode" "$packs_ip" "$packs_all" "$packs_rate" "$packs_after" "$tiles_rate" "$tiles_after" \
     "$( [ "$tiles_ip" = 0 ] && echo unlimited || echo "$tiles_ip")"

@@ -20,7 +20,8 @@
 # DEPLOY_ALLOWED_SIGNERS (root-owned, outside the checkout) are deployed; `git verify-tag` runs BEFORE the checkout
 # and the re-exec, with the verification settings forced on the command line (the checkout's own git config cannot
 # weaken them). A tag that already exists locally and points elsewhere at origin (a moved tag) is refused; tags are
-# never fetched with --force. No DEPLOY_ALLOWED_SIGNERS = refused, unless the one-off escape hatch for the first
+# never fetched with --force. A tag object whose own name ("tag <name>" header) differs from the requested tag is refused
+# (SEC BE-22: an old signed release cannot be deployed under a new name). No DEPLOY_ALLOWED_SIGNERS = refused, unless the one-off escape hatch for the first
 # bootstrap is given on the command line: sudo DEPLOY_ALLOW_UNSIGNED=1 deploy.sh <tag> (logged as a warning and in
 # deployments.log). The very first deploy of a SEC-4A tag is still done by the previous deploy.sh.
 # shellcheck source=nav-env.sh
@@ -90,6 +91,14 @@ if [[ $AFTER -eq 0 ]]; then
     [[ -n "$old" ]] || as_owner git -C "$NAV_ROOT" update-ref "refs/tags/$TAG" "$new" "" \
         || nav_die "could not record tag $TAG locally" tag="$TAG"
     commit=$(as_owner git -C "$NAV_ROOT" rev-parse -q --verify "$new^{commit}") || nav_die "tag does not point to a commit" tag="$TAG"
+    # SEC BE-22: an annotated tag object carries its own name ("tag <name>" header). A signature covers that object,
+    # so whoever can push tags could re-publish an OLD signed release under a NEW name (refs/tags/v9 -> the v1 object)
+    # and the signature would still verify. Refuse any tag object whose own name differs from the requested one.
+    if [[ "$(as_owner git -C "$NAV_ROOT" cat-file -t "$new")" == tag ]]; then
+        object_name=$(as_owner git -C "$NAV_ROOT" cat-file tag "$new" | awk '/^$/ {exit} /^tag / {print substr($0, 5); exit}')
+        [[ "$object_name" == "$TAG" ]] \
+            || nav_die "refusing to deploy: the tag object fetched as $TAG is named '$object_name' (an existing release re-pushed under a new name, SEC BE-22). A release is never renamed: create a new signed tag (RUNBOOK.md section 6.1)" tag="$TAG" object_name="$object_name"
+    fi
     signer=unsigned
     if [[ -n "$signers" ]]; then
         [[ "${DEPLOY_ALLOW_UNSIGNED:-0}" != 1 ]] || nav_log warn "DEPLOY_ALLOW_UNSIGNED=1 ignored: an allowed-signers file is configured, the signature is verified"

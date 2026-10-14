@@ -36,10 +36,20 @@
 #   - BE-3: download limits, conf.d/03-download-limits.conf (entrypoint/18-download-limits.sh), only with
 #     GATEWAY_RATE_LIMIT=on: PACKS per-client and global limit_conn (over it: 429 RateLimited), and on PACKS and TILES a
 #     per-response limit_rate after an initial burst (Range requests keep working; tile reads are below the burst).
-#     TILES has no connection limit by default (openapi keeps it unlimited). The TILES and PACKS locations read
-#     $nav_dl_loaded (defined only in that file), so nginx refuses to start when it is missing.
-#   - BE-12/BE-13: X-Content-Type-Options: nosniff on every response (snippets/cors-headers.conf, which every location
+#     TILES: per-client cap on requests in flight, GET and HEAD alike (GATEWAY_TILES_MAX_CONN_PER_IP, default 32,
+#     never below 24, 0 = off; openapi 0.7.1 / ADR-0019 Amendment 1): over it 429 RateLimited (headers only on HEAD).
+#     It is a connection cap, not a request rate: tile reads at any rate stay unlimited (NAV-008 AC 13). The TILES
+#     and PACKS locations read $nav_dl_loaded (defined only in that file), so nginx refuses to start when it is missing.
+#   - BE-13: X-Content-Type-Options: nosniff on every response (snippets/cors-headers.conf, which every location
 #     includes; the 416 keeps the TILES/PACKS location's copy, as for the CORS headers).
+#
+# SEC BE-14 (checklist B7/B10): edge timeouts and buffers are set once in nginx.conf (http level). Request bodies:
+#   1 KB everywhere (nginx.conf; a body on a GET/HEAD/OPTIONS path is useless) and 256 KB on /v1/route (the
+#   openapi GatewayPayloadTooLarge contract), both answered as JSON 413 PayloadTooLarge; every static location
+#   re-declares error_page 413 because declaring any error_page stops inheriting the server-level ones.
+#   /v1/route also carries explicit client_body_timeout / send_timeout (threat model 1.11: a slow reader must not
+#   hold a SEC-2 cap slot). TILES and PACKS accept a single Range (max_ranges 1): a multi-range request is served
+#   as the whole file and counted by the connection caps like one.
 
 # nginx error_log lines contain the request line (query string = coordinates / search text).
 # Keep the level at crit unless you are debugging locally (ADR-0002 §3.4).
@@ -54,8 +64,6 @@ js_set $valhalla_upstream slot.valhalla;
 js_set $photon_upstream   slot.photon;
 js_set $nav_tiles_path    slot.tiles;
 resolver_timeout 2s;
-
-client_max_body_size 256k;
 
 # A stopped upstream whose IP is still in the resolver cache gives a *connect* timeout, which
 # nginx reports as 504. The contract wants 502/503 for "unavailable" (AC 34) and 504 only when
@@ -101,12 +109,13 @@ server {
         add_header Accept-Ranges $tiles_accept_ranges_206;
         # SEC-4A BE-3 guard: unknown variable (nginx -t fails) unless 18-download-limits.sh wrote 03-download-limits.conf.
         set $nav_dl_guard $nav_dl_loaded;
-        # Only if GATEWAY_TILES_MAX_CONN_PER_IP > 0 (off by default): over the cap -> 429 RateLimited (not the SEC-2 529).
+        # GATEWAY_TILES_MAX_CONN_PER_IP (default 32; 0 = off): over the cap -> 429 RateLimited (not the SEC-2 529).
         limit_conn_status 429;
         if ($request_method = OPTIONS) { return 204; }
         if ($request_method !~ ^(GET|HEAD)$) { return 405; }
         gzip off;
         etag on;
+        max_ranges 1;
         types { }
         default_type application/octet-stream;
         # Dev: /srv/data/tiles/basemap.pmtiles. Slot mode: /srv/slots/<slot>/tiles/basemap.pmtiles of the
@@ -119,6 +128,7 @@ server {
         # inheriting the server-level ones, so 404/405 are re-declared here (missing archive = JSON 404).
         error_page 404 = @not_found;
         error_page 405 = @method_not_allowed;
+        error_page 413 = @payload_too_large;
         error_page 416 = @range_not_satisfiable;
         error_page 429 = @rate_limited;
     }
@@ -139,6 +149,12 @@ server {
         # NEVER add error_page 400 here (Valhalla's 400 bodies are the contract).
         if ($request_method = OPTIONS) { return 204; }
         if ($request_method !~ ^(GET|POST)$) { return 405; }
+        # openapi GatewayPayloadTooLarge: "Request body over 256 KB" (the only location that accepts a body).
+        client_max_body_size 256k;
+        # SEC BE-14 / threat model 1.11: explicit per-location timeouts on the only capped path (same values as
+        # nginx.conf, repeated here so the cap's bound is visible next to the cap).
+        client_body_timeout 10s;
+        send_timeout        10s;
         include /etc/nginx/snippets/proxy-common.conf;
         proxy_intercept_errors on;
         proxy_read_timeout 10s;
@@ -201,6 +217,7 @@ server {
         alias /srv/packs/mn/manifest.json;
         error_page 404 = @not_found;
         error_page 405 = @method_not_allowed;
+        error_page 413 = @payload_too_large;
         error_page 429 = @rate_limited;
     }
     # Named captures: the regex in the `if` below would overwrite numbered ones.
@@ -214,12 +231,14 @@ server {
         if ($request_method !~ ^(GET|HEAD)$) { return 405; }
         gzip off;
         etag on;
+        max_ranges 1;
         types { }
         default_type application/octet-stream;
         alias /srv/packs/mn/$nav_pack_version/$nav_pack_file.gz;
         # 416 as in TILES (njs: Cache-Control no-store, no Accept-Ranges); a retired file is a JSON 404.
         error_page 404 = @not_found;
         error_page 405 = @method_not_allowed;
+        error_page 413 = @payload_too_large;
         error_page 416 = @range_not_satisfiable;
         error_page 429 = @rate_limited;
     }

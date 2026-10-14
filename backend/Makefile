@@ -24,7 +24,7 @@ endif
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart ps logs smoke smoke-backend perf contract rate-limit-check cors-check rebuild-data \
+.PHONY: help up down restart ps logs smoke smoke-backend perf contract rate-limit-check cors-check rebuild-data image-scan \
         clean-data stats tiles-info build-info rebuild rollback status slot-checksums nav006-up nav006-ps \
         nav006-test-setup nav006-test-teardown pipeline-test pack-publish pack-status pack-test search-eval gate2-image \
         nav020-test-setup nav020-test-teardown voice-pack-image voice-pack-test voice-pack-stub voice-pack-build voice-pack-build-cached \
@@ -96,6 +96,9 @@ stats: ## Memory/CPU of running services and size of data/ (AC 39)
 
 build-info: ## Print data/build-info.json (sources, dates, versions)
 	@cat data/build-info.json
+
+image-scan: ## Security B3: Trivy HIGH/CRITICAL scan of every digest-pinned image (needs a Docker daemon; IMAGE_SCAN_OUT=<dir> writes JSON reports)
+	./scripts/image-scan.sh
 
 tiles-info: ## pmtiles show on the built archive (go-pmtiles image)
 	docker run --rm -v "$(CURDIR)/data/tiles:/t:ro" $${PMTILES_IMAGE:-ghcr.io/protomaps/go-pmtiles:v1.31.2@sha256:06574f01f55a78f78f887bc7ebf729a5c093c0d6e17d9876300cfcb0758b59d3} show /t/basemap.pmtiles

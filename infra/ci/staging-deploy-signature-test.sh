@@ -7,7 +7,8 @@
 # "signer=unsigned" in deployments.log; DEPLOY_ALLOW_UNSIGNED in .env -> refused; with an allowed-signers file:
 # unsigned annotated tag, lightweight tag, tag signed by an unknown key -> refused; tag signed by the allowed key ->
 # verified + deployed (checkout = the tag's commit); the same tag moved at origin -> refused; signers file writable by
-# group, a symlink, inside the checkout, or not owned by root -> refused.
+# group, a symlink, inside the checkout, or not owned by root -> refused; SEC BE-22: the signed v1 tag object pushed
+# again under a new name -> refused ("is named"); SEC BE-17: a world-readable or non-root-owned .env -> refused.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -57,6 +58,7 @@ envf() {  # envf [extra lines]
     { printf 'STAGING_HOST=staging.example.invalid\nACME_EMAIL=ops@example.invalid\n'
       printf 'CORS_ALLOWED_ORIGINS=https://demo.example.invalid\nNAV_DATA_ROOT=%s/data\nNAV_LOCK_FILE=%s/lock\n' "$T" "$T"
       printf '%s\n' "$@"; } > "$T/stg.env"
+    chmod 600 "$T/stg.env"   # SEC BE-17: nav-env.sh refuses any other mode
 }
 run() {  # run <tag> [VAR=value ...] -> output in $T/out, exit code in $rc
     local tag=$1; shift
@@ -92,6 +94,22 @@ run v1-good
 grep -q '"msg":"tag signature verified".*"signer":"release@example.invalid ED25519 SHA256:' "$T/out" || { cat "$T/out"; fail "signer not logged"; }
 grep -q "tag=v1-good object=.* commit=$C1 signer=release@example.invalid_ED25519_SHA256:" "$T/state/deployments.log" || fail "deployments.log entry"
 echo "   signed tag: verified (principal + key fingerprint logged), checkout = $C1, stub re-exec ran"
+
+echo "== SEC BE-22: an old signed tag object re-pushed under a new name"
+# refs/tags/v2-renamed -> the (valid, signed) v1-good tag object: the signature verifies, the name does not match
+git -C "$T/work" update-ref refs/tags/v2-renamed "$(git -C "$T/work" rev-parse v1-good)"
+git -C "$T/work" push -q origin refs/tags/v2-renamed 2>/dev/null
+run v2-renamed; expect_refused "signed v1-good object fetched as v2-renamed" "is named 'v1-good'"
+grep -q '"object_name":"v1-good"' "$T/out" || fail "BE-22 refusal must log the object's own name"
+# the same object under its own name still deploys (the check is on the name only)
+run v1-good; [[ $rc -eq 0 ]] || { cat "$T/out"; fail "v1-good must still deploy after the renamed probe"; }
+echo "   renamed tag object refused (name in the object != requested tag), the real name still deploys"
+
+echo "== SEC BE-17: .env mode and owner"
+chmod 640 "$T/stg.env"; run v1-good; expect_refused ".env mode 640" "must be 600"
+chmod 600 "$T/stg.env"; chown 65534 "$T/stg.env"; run v1-good; expect_refused ".env not owned by root" "must belong to"
+chown 0 "$T/stg.env"; run v1-good; [[ $rc -eq 0 ]] || { cat "$T/out"; fail "root-owned 600 .env must be accepted"; }
+echo "   .env refused with mode 640 and when not owned by root; accepted as root:600"
 
 echo "== moved tag"
 git -C "$T/work" tag -d v1-good >/dev/null

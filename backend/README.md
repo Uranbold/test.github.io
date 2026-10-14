@@ -81,7 +81,7 @@ below) is keyed on `$nav_client_key` from `gateway/njs/client.js`: an IPv4 clien
 by its **/64 prefix** (an IPv4-mapped address counts as the IPv4 address). One phone or VPS usually holds a whole /64,
 so rotating addresses inside it no longer escapes the limits or fills the zones. The key lives only in shared memory.
 
-`/health`, `/tiles/basemap.pmtiles` (any method, any rate) and every `OPTIONS` preflight are never limited. With the
+`/health`, `/tiles/basemap.pmtiles` (any method, any rate; the tiles **connection** cap below is a different thing) and every `OPTIONS` preflight are never rate limited. With the
 staging values, 100 requests/s for 10 s from one IP gives 360 accepted and 640 `429` (measured). Invalid values stop
 the gateway at start instead of running without limits. The client IP is only a key in shared memory: it is not in
 the access log, and nginx's "limiting requests" lines are logged at `info`, below the `crit` error log level.
@@ -98,7 +98,7 @@ the access log, and nginx's "limiting requests" lines are logged at `info`, belo
 | `GATEWAY_PACKS_MAX_CONN` | `64` | pack file downloads in flight from all clients together; over it 429 |
 | `GATEWAY_PACKS_LIMIT_RATE_AFTER` / `GATEWAY_PACKS_LIMIT_RATE` | `10m` / `2m` | each `/packs/` response is sent at full speed for 10 MB, then at 2 MB/s (16 Mbit/s) |
 | `GATEWAY_TILES_LIMIT_RATE_AFTER` / `GATEWAY_TILES_LIMIT_RATE` | `4m` / `1m` | each tiles response: 4 MB at full speed, then 1 MB/s. PMTiles range reads are far below 4 MB, so map use is never slowed; only whole-archive downloads are |
-| `GATEWAY_TILES_MAX_CONN_PER_IP` | `0` (off) | tiles requests in flight per client. openapi 0.7.0 keeps the tiles path unlimited (no 429 listed), so this stays 0 until the architect amends the contract |
+| `GATEWAY_TILES_MAX_CONN_PER_IP` | `32` | tiles requests (GET **and** HEAD, any Range) in flight per client; over it **429 `RateLimited`** (headers only on HEAD; openapi 0.7.1, ADR-0019 Amendment 1). A connection cap, not a request rate: tile reads at any rate stay unlimited while fewer than 32 are open at once (Android holds at most 20, a browser over HTTP/2 about 20 on a cold load). `0` = off; `1`-`23` are refused at start. Measure on staging (tiles 429 count in the access log) and raise to 64 if testers behind one carrier-grade NAT address see blank tiles |
 
 `limit_rate` counts bytes per response, so every `Range` request gets its own initial burst: offline-pack resume
 (`Range` + `If-Range`) keeps working and continues at the limited speed. `OPTIONS` preflights, `/health`, `/v1/*`
@@ -106,7 +106,10 @@ and the tiles range reads are never touched. Behind carrier-grade NAT many phone
 parallel pack download from such an address waits for a slot (429, retry after 1 s).
 
 Checks: `infra/ci/backend-static-checks.sh` (429 shape, never-limited paths, bad values refused; SEC-4A: one IPv6 /64
-= one bucket, the packs connection cap and bandwidth, Range resume under the limits, tile ranges never limited);
+= one bucket, the packs connection cap and bandwidth, Range resume under the limits, 20 parallel tile reads all 206,
+the 25th of 24 held tiles downloads 429 on GET and HEAD, `0` switches the cap off, `23` refused);
+`tests/api/sec4a/checks_sec4a.py --group tiles-cap --tiles-cap N` and `make contract CONTRACT_ARGS="--rate-limit
+--tiles-cap N"` (the tiles 429 against openapi 0.7.1) against a limits-on gateway;
 `make rate-limit-check BASE_URL=...` (AC 13 probe: 100 r/s bursts, a 10 r/s session, tiles at 200 r/s; `--only
 ipv6-prefix` against a test gateway that trusts this machine's `X-Forwarded-For`) and
 `make contract BASE_URL=... CONTRACT_ARGS=--rate-limit` (429 against openapi.yaml). Run both only against a gateway
@@ -200,12 +203,37 @@ The dev default OSM source is Geofabrik (the third-party mirror default is gone)
 **Image pins (BE-8).** Every image is `tag@sha256:<digest>` (table below; `.env.example`, the `Makefile` and the
 pack images included); CI refuses a tag-only image. Re-pin monthly and on every security release of nginx, the JDK,
 Valhalla or Caddy: `docker buildx imagetools inspect <image>:<tag>` gives the index digest; update `compose.yaml`,
-`compose.slots.yaml`, `.env.example` (and `infra/staging` for Caddy) together, scan the image, run both static-check
-scripts and the dev stack checks, then tag and deploy.
+`compose.slots.yaml`, `.env.example` (and `infra/staging` for Caddy) together, scan the images (`make image-scan`,
+below), run both static-check scripts and the dev stack checks, then tag and deploy.
 
-**Response headers (BE-12/BE-13).** The gateway sends `X-Content-Type-Options: nosniff` on every response (once, also on
+**Response headers (BE-13).** The gateway sends `X-Content-Type-Options: nosniff` on every response (once, also on
 429/503/416); Caddy adds `Strict-Transport-Security: max-age=31536000` and drops its `Server` header on staging; the
 static-pack `.htaccess` sends `nosniff` and answers directory URLs with 404 (no listings, without an `Options` line).
+(Earlier SEC-4A text gave this header the BE-12 label by mistake; BE-12 is the Docker daemon hardening in `infra/staging/bootstrap`.)
+
+**Edge timeouts and body limits (BE-14, checklist B7/B10).** `gateway/nginx.conf` sets every client-side timeout
+explicitly (`client_header_timeout`, `client_body_timeout`, `send_timeout` 10 s; `keepalive_timeout` 30 s,
+`keepalive_requests` 1000; `reset_timedout_connection on`), small explicit header buffers (1 KB + 4 x 8 KB) and a
+request body limit of **1 KB for every location** (a GET/HEAD/OPTIONS path needs no body); only `/v1/route` raises it
+to the contract's **256 KB** and repeats `client_body_timeout` / `send_timeout` so a slow reader cannot hold a SEC-2
+cap slot (threat model 1.11). Over the limit every location answers the JSON 413 `PayloadTooLarge` with CORS headers
+(the tiles and packs locations re-declare `error_page 413`). The tiles and pack files accept one `Range` per request
+(`max_ranges 1`: a multi-range request is served as the whole file). All values are inactivity timeouts, so a
+throttled whole-archive download keeps going. nginx 1.30 rejects a request that carries both `Transfer-Encoding` and
+`Content-Length` and the gateway forwards plain HTTP/1.1 (`proxy-common.conf`), so no smuggling ambiguity reaches an
+upstream. On staging Caddy adds its own limits in front (`infra/staging/caddy/Caddyfile`: read header/body 10 s,
+write 15 min, idle 2 min, headers 16 KB, body 1 MB with a 413 backstop in the same JSON shape, dial 2 s, upstream
+response headers 15 s). Checks: `infra/ci/backend-static-checks.sh` (413 per location, 200 KB route body not 413,
+effective settings via `nginx -T`), `infra/ci/nodocker-checks.sh` (config text), `infra/ci/staging-static-checks.sh`
+(adapted Caddy JSON), `tests/api/sec4a/checks_sec4a.py --group body-limits` against a running gateway.
+
+**Image CVE scan (checklist B3).** `make image-scan` runs Trivy (`ghcr.io/aquasecurity/trivy`, pinned by digest in
+`scripts/image-scan.sh`, in a container, images read from the registries, no Docker socket mounted) over every image
+pinned in git (dev stack, slot runtime, staging Caddy, ops VM, pack builder, go-pmtiles, voice-pack bases), fails on
+a HIGH/CRITICAL finding that has a fix, and with `IMAGE_SCAN_OUT=<dir>` writes one JSON report per image for the
+gate B record. `scripts/image-scan.sh --list` prints the image list without a daemon; `IMAGE_SCAN=1
+infra/ci/backend-static-checks.sh` runs the scan in CI. Without a daemon the scan is skipped with a message (exit 0;
+`--require` makes that a failure). Run it with every re-pin.
 
 ## Staging (NAV-008)
 
@@ -520,7 +548,7 @@ extract size. Photon's `lang=mn` works (AC 27). The Protomaps tiles carry `name`
 - **The BBBike URL returned HTTP 503 all day on 2026-09-29** (it is only the optional small build now). The BBBike runs used the local copy through `OSM_PBF_FILE`. With the URL alone, `data-fetch` exits 1 with `"msg":"download failed","url":"https://download.bbbike.org/…","http_status":"503"` after curl's 3 retries (about 75 s), which is the documented edge-case behaviour. With `OSM_PBF_FILE` set, the build succeeds under `docker run --network none` (AC 4).
 - **Ferrostar parsing the route response end to end** is not tested here (no client in NAV-001). Only the OpenAPI schema and the fields in AC 15 are checked.
 - **Docker Hub images** (`mediagis/nominatim`) were not tried, because Docker Hub returns 429 (the nginx and JDK digests were resolved from ghcr.io / mcr.microsoft.com; the nginx 1.30.5 digest also matched Docker Hub once before the 429).
-- **Image CVE scans** (Trivy/Grype) of the pinned images: no scanner here. Run one with every re-pin (security checklist).
+- **Image CVE scans** (Trivy) of the pinned images: `make image-scan` exists (B3) but needs a Docker daemon, which the dev container has not; run it on a machine with Docker with every re-pin and before the first staging deploy (security checklist B3).
 - **Nominatim** is not part of NAV-001 (ADR-0003).
 
 ## Troubleshooting

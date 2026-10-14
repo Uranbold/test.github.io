@@ -56,8 +56,26 @@ nav_env_get() {
     if [[ $found -eq 1 && -n "$val" ]]; then printf '%s' "$val"; else printf '%s' "$def"; fi
 }
 
+# SEC BE-17 (checklist B7): nav_env_file_problem <path>: why the staging config cannot be used; nothing when usable.
+# The file holds push tokens and secret paths, so it must be a regular file (no symlink) owned by the account that
+# runs these scripts (root on staging: every nav-* script and deploy.sh run under sudo) with no group/other bits
+# (mode 600; a read-only 400 is accepted too). The check runs before the file is read, in every script.
+nav_env_file_problem() {
+    local f=$1 uid mode
+    [[ -e "$f" ]] || { echo "missing"; return 0; }
+    [[ ! -L "$f" && -f "$f" ]] || { echo "not a regular file (symlinks are refused)"; return 0; }
+    read -r uid mode < <(stat -c '%u %a' "$f")
+    [[ "$uid" == "$EUID" ]] || { echo "owned by uid $uid; it must belong to the account running the staging scripts (uid $EUID, root on staging)"; return 0; }
+    (( (8#$mode & 8#077) == 0 )) || { echo "mode $mode is readable by group or others; it must be 600"; return 0; }
+    return 0
+}
+
 nav_require_env_file() {
-    [[ -r "$NAV_ENV_FILE" ]] || nav_die "staging config missing: copy infra/staging/.env.example to infra/staging/.env and fill it in" file="$NAV_ENV_FILE"
+    [[ -e "$NAV_ENV_FILE" ]] || nav_die "staging config missing: sudo install -m 600 -o root -g root infra/staging/.env.example infra/staging/.env, then fill it in (RUNBOOK.md section 5)" file="$NAV_ENV_FILE"
+    local why
+    why=$(nav_env_file_problem "$NAV_ENV_FILE")
+    [[ -z "$why" ]] || nav_die "refusing to read the staging config: $why (SEC BE-17, checklist B7). Fix: sudo chown root:root $NAV_ENV_FILE && sudo chmod 600 $NAV_ENV_FILE" file="$NAV_ENV_FILE"
+    [[ -r "$NAV_ENV_FILE" ]] || nav_die "staging config is not readable" file="$NAV_ENV_FILE"
 }
 
 # Refuse configurations that would break AC 11 / AC 13 / AC 14 on a public host.

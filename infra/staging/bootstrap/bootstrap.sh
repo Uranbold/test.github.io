@@ -23,7 +23,8 @@
 #
 # What it sets: UTC clock; nav-ops (sudo, key-only, no password); sshd drop-in 00-nav-hardening.conf (keys
 # only, no root, AllowUsers); unattended-upgrades (security pocket, reboot 21:30 UTC); Docker Engine + Compose
-# plugin from Docker's apt repository (held) with log rotation; journald 1 GB / 14 days; UFW deny-in with
+# plugin from Docker's apt repository (held) with a hardened daemon.json (SEC BE-12: no-new-privileges, no userland
+# proxy, json-file log rotation, live-restore, own address pool); journald 1 GB / 14 days; UFW deny-in with
 # limit 22, allow 80/443 (IPv4+IPv6; ops role too unless --no-web), logging off; 4 GB swap, swappiness 10; sysstat with 28 days history;
 # /opt/nav owned by nav-ops. Inside a container (for CI) kernel-level steps are reported as skipped.
 # Never prints key material (only fingerprints). Never sets or asks for passwords.
@@ -281,10 +282,21 @@ Signed-By: /etc/apt/keyrings/docker.asc
     for p in "${DOCKER_PKGS[@]}"; do
         grep -qx "$p" <<<"$held" || { apt-mark hold "$p" >/dev/null; changed "apt-mark hold $p"; }
     done
+    # SEC BE-12 (Docker daemon hardening; the compose files harden every container on top of this):
+    #   no-new-privileges     default for every container, so a forgotten security_opt cannot re-enable setuid gains
+    #   userland-proxy false  published ports use iptables DNAT only (no docker-proxy process per port, which also
+    #                         hides the real client address); 127.0.0.1-published ports still work (route_localnet)
+    #   json-file + rotation  bounded container logs, readable with `docker logs` (10 MB x 5 per container)
+    #   live-restore          containers keep running across a daemon restart/upgrade (RUNBOOK section 12)
+    #   default-address-pools networks without an explicit subnet come from 172.31.0.0/16 (/24 each), away from the
+    #                         staging edge network 172.30.81.0/28 (compose.staging.yaml) and the provider's ranges
     if put_file /etc/docker/daemon.json 644 '{
-  "log-driver": "local",
+  "no-new-privileges": true,
+  "userland-proxy": false,
+  "log-driver": "json-file",
   "log-opts": { "max-size": "10m", "max-file": "5" },
-  "live-restore": true
+  "live-restore": true,
+  "default-address-pools": [ { "base": "172.31.0.0/16", "size": 24 } ]
 }
 '; then svc restart docker || true; fi
     if has_systemd; then

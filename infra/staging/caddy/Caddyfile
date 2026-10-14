@@ -8,6 +8,19 @@
 	servers {
 		# HTTP/3 (UDP 443) off on staging: the firewall stays TCP-only (deployment-staging.md §4).
 		protocols h1 h2
+		# SEC BE-14 (checklist B7/B10): slow clients. read_header/read_body bound a client that trickles its request;
+		# idle closes keep-alive connections that send nothing; write is the total deadline of one response, long
+		# enough for a throttled whole-archive or pack download (1-2 MB/s after the burst, 18-download-limits.sh) and
+		# a safe cut for a reader that only drips (offline-pack downloads resume with Range, NAV-022). The gateway's own
+		# inactivity timeouts (backend/gateway/nginx.conf, 10 s) apply on the hop behind this one.
+		timeouts {
+			read_header 10s
+			read_body 10s
+			write 15m
+			idle 2m
+		}
+		# Request headers above this size are refused (431); the gateway allows 4 x 8 KB.
+		max_header_size 16KB
 	}
 	# Runtime log = include-list of certificate/config loggers only (checked against Caddy 2.11.4).
 	# Everything else is dropped, in particular http.log.error (per-request errors carry the request URI
@@ -34,10 +47,34 @@
 		-Server
 		defer
 	}
+	# SEC BE-14: edge body limit. 1 MB is a backstop above the gateway's own limits (256 KB on /v1/route, 1 KB on
+	# every other path, both answered by the gateway as JSON 413 PayloadTooLarge with CORS headers), so for any
+	# body a client can legitimately send the gateway decides; only a body over 1 MB is cut here (413 below).
+	request_body {
+		max_size 1MB
+	}
 	# No `encode`: PMTiles range responses and the gateway's gzip pass through unchanged.
 	# Caddy replaces any client-sent X-Forwarded-For with the real peer address; the gateway trusts
 	# X-Forwarded-For only from Caddy's fixed address on the edge network (GATEWAY_REAL_IP_FROM).
-	reverse_proxy gateway:8080
+	# Request smuggling: Caddy (Go net/http) rejects a request with both Transfer-Encoding and Content-Length and
+	# talks plain HTTP/1.1 to the gateway, which rejects the same (nginx 1.30), so no ambiguity reaches an upstream.
+	reverse_proxy gateway:8080 {
+		transport http {
+			# The gateway answers its own JSON 504 after 10 s (route) / 5 s (search); this only fires when the
+			# gateway itself hangs, and then the 502 backstop below answers.
+			dial_timeout 2s
+			response_header_timeout 15s
+		}
+	}
+	# SEC BE-14: a body over request_body max_size (above) is cut here with the contract's GatewayError shape.
+	handle_errors 413 {
+		header Content-Type application/json
+		header Cache-Control no-store
+		header X-Content-Type-Options nosniff
+		header Strict-Transport-Security "max-age=31536000"
+		header -Server
+		respond `{"code":"PayloadTooLarge","message":"Request body too large"}` 413
+	}
 	# Backstop only when the gateway container itself is down or unreachable (contract GatewayError
 	# shape, no CORS headers: CORS stays owned by the gateway, ADR-0002 §3). When an upstream behind the
 	# gateway is down, the gateway's own JSON 502/503/504 with CORS headers passes through unchanged.

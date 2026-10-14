@@ -11,6 +11,8 @@ headers listed in the spec for CORS preflight and tiles are checked for presence
 header may appear more than once on any response (NAV-001 AC 43), and every Access-Control-Expose-Headers must
 carry all tokens of the spec's AccessControlExposeHeaders (Retry-After since 0.4.0).
 --rate-limit (NAV-008 AC 13): floods route, search and reverse and validates one 429 per group against
+the spec; since openapi 0.7.1 also holds --tiles-cap (default 32) tiles downloads open and validates the tiles 429
+on GET and HEAD (SEC-4A BE-3, ADR-0019 Amendment 1);
 components/responses/RateLimited (Retry-After integer >= 1 once, Cache-Control: no-store once). Use it only
 against a gateway started with GATEWAY_RATE_LIMIT=on (staging or an isolated test gateway). With a published pack
 it also floods /packs/ (NAV-020 AC 21).
@@ -172,6 +174,50 @@ class Checker:
         self.result(f"{name} [{method} {spec_path} -> {status}]", errors)
 
 
+def check_tiles_cap(c, cors, cap):
+    """openapi 0.7.1 (SEC-4A BE-3, ADR-0019 Amendment 1): per-client connection cap on /tiles/basemap.pmtiles. Hold
+    `cap` whole-archive downloads open from this client (headers read, bodies left unread: the bandwidth limit keeps
+    them in flight), then the next GET must be 429 RateLimited in the contract shape and a HEAD 429 with the same
+    headers and no body; once the held downloads are closed, a range read is 206 again."""
+    import http.client
+    import socket
+    if cap <= 0:
+        c.result("tiles cap [GET /tiles/basemap.pmtiles]", ["--tiles-cap must be >= 1 (the gateway's GATEWAY_TILES_MAX_CONN_PER_IP)"])
+        return
+    u = urllib.parse.urlsplit(c.base)
+    held = []
+    try:
+        for _ in range(cap):
+            conn = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=20)
+            conn.request("GET", "/tiles/basemap.pmtiles", headers=cors)
+            resp = conn.getresponse()
+            held.append(conn)
+            if resp.status != 200:
+                c.result("tiles cap: held download [GET /tiles/basemap.pmtiles]", [f"held download {len(held)} got {resp.status}, expected 200"])
+                return
+        time.sleep(0.5)
+        for method in ("GET", "HEAD"):
+            status, hdrs, raw, names = http(c.base, method, "/tiles/basemap.pmtiles", None, cors)
+            if status != 429:
+                c.result(f"tiles cap {method} [{method} /tiles/basemap.pmtiles]",
+                         [f"no 429 with {cap} downloads held open ({status}); is GATEWAY_TILES_MAX_CONN_PER_IP={cap} and GATEWAY_RATE_LIMIT=on?"])
+            else:
+                errors = [] if method == "GET" or not raw else [f"HEAD 429 must carry no body, got {len(raw)} bytes"]
+                if errors:
+                    c.result(f"tiles cap {method} [{method} /tiles/basemap.pmtiles -> 429]", errors)
+                else:
+                    c.evaluate(f"tiles cap {method}", method, "/tiles/basemap.pmtiles", status, hdrs, raw, names, cors)
+    except (OSError, socket.timeout) as e:
+        c.result("tiles cap [GET /tiles/basemap.pmtiles]", [f"connection error while holding downloads: {e}"])
+    finally:
+        for conn in held:
+            conn.close()
+    time.sleep(1)
+    status = http(c.base, "GET", "/tiles/basemap.pmtiles", None, {**cors, "Range": "bytes=0-126"})[0]
+    c.result("tiles cap: range read after the held downloads are closed [GET /tiles/basemap.pmtiles -> 206]",
+             [] if status == 206 else [f"expected 206 once the cap is free again, got {status}"])
+
+
 def strong_etag(v):
     return bool(v) and not v.startswith("W/") and v.startswith('"') and v.endswith('"')
 
@@ -284,6 +330,9 @@ def main():
     ap.add_argument("--rate-limit", action="store_true",
                     help="NAV-008: also provoke and validate 429 RateLimited (gateway with GATEWAY_RATE_LIMIT=on only)")
     ap.add_argument("--rate-limit-flood", type=int, default=150, help="requests per flood (default 150)")
+    ap.add_argument("--tiles-cap", type=int, default=32, metavar="N",
+                    help="with --rate-limit: the gateway's GATEWAY_TILES_MAX_CONN_PER_IP (default 32); N whole-archive "
+                         "downloads are held open, then the next GET and HEAD must be 429 RateLimited (openapi 0.7.1)")
     ap.add_argument("--route-cap", action="store_true",
                     help="SEC-2: also fill the /v1/route concurrency cap and validate one 503 RoutingBusy")
     args = ap.parse_args()
@@ -380,6 +429,7 @@ def main():
             else:
                 c.evaluate(name, method, spec_path, status, hdrs, raw, names, cors)
             time.sleep(3)  # let the bucket drain before the next group (burst 60 at 30 r/s)
+        check_tiles_cap(c, cors, args.tiles_cap)
 
     if args.route_cap:
         # NAV-001 AC 49 (openapi 0.7.0 RoutingBusy): many concurrent route requests from this client exceed the per-IP

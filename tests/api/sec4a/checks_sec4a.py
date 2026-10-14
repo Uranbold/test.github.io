@@ -2,9 +2,11 @@
 """SEC-4A final-QA checks through the gateway (Python 3.9+ stdlib only). Owner: qa-engineer.
 
 Traces: SEC-4A (backlog SEC-4 split, D215; no story file yet) audit findings BE-3 (download connection and bandwidth
-limits) and BE-12/BE-13 (X-Content-Type-Options on every gateway response); NAV-001 AC 43/49 and openapi 0.7.0
-(CORS headers exactly once); NAV-020 / openapi getOfflinePackManifest + getOfflinePackFile (manifest re-readable,
-Range resume 206). BE-2 (IPv6 /64 keying) is backend/scripts/rate_limit_check.py --only ipv6-prefix.
+limits; since openapi 0.7.1 / ADR-0019 Amendment 1 also the tiles connection cap) and BE-13 (X-Content-Type-Options
+on every gateway response; the audit register notes that "BE-12" was a label mix-up: BE-12 is the Docker daemon);
+NAV-001 AC 43/49 and openapi 0.7.0 (CORS headers exactly once); NAV-020 / openapi getOfflinePackManifest +
+getOfflinePackFile (manifest re-readable, Range resume 206); gate B BE-14 (per-route body limits -> JSON 413).
+BE-2 (IPv6 /64 keying) is backend/scripts/rate_limit_check.py --only ipv6-prefix.
 
     python3 tests/api/sec4a/checks_sec4a.py --base-url URL --group G [--group G ...]
 
@@ -23,6 +25,14 @@ Groups
                 Retry-After >= 1, no-store, CORS once, nosniff once) while manifest.json stays 200; after the 2 are
                 closed, a Range resume -> 206 with Content-Range, and a plain GET -> 200
                 Pass --pack-path /packs/mn/<slot-id>/basemap.pmtiles.gz.
+  tiles-cap     isolated gateway with GATEWAY_RATE_LIMIT=on and GATEWAY_TILES_MAX_CONN_PER_IP=<N> (--tiles-cap N, default
+                32; the gateway refuses 1-23): N whole-archive downloads held open from one client, then GET -> 429
+                RateLimited (GatewayError, Retry-After >= 1, no-store, CORS once, nosniff once) and HEAD -> 429 with the
+                same headers and no body; N-1 parallel small range reads -> all 206 (a connection cap, not a rate);
+                after the held downloads are closed a range read is 206 again
+  body-limits   any gateway (BE-14): a 2 KB body on /health, /v1/search, /v1/reverse, /tiles, /packs, an unknown path ->
+                JSON 413 PayloadTooLarge with CORS once; a 200 KB body on /v1/route is NOT 413 (contract: over 256 KB);
+                a 300 KB body on /v1/route -> 413
 
 Exit code 0 only if no check failed. Every FAIL line prints expected and actual.
 """
@@ -168,26 +178,105 @@ class Sec4a:
         conn.close()
         self.r.check("PACK.slot_free_after_close_200", resp.status == 200, "200 once the held downloads are closed", resp.status)
 
-    def run(self, groups):
+    # ------------------------------------------------------------------ tiles connection cap (BE-3 residual, openapi 0.7.1)
+    def tiles_cap(self, cap):
+        c = self.c
+        held = []
+        try:
+            for i in range(cap):
+                conn, resp = self._open_download("/tiles/basemap.pmtiles")
+                held.append(conn)
+                if resp.status != 200:
+                    return self.r.check(f"TCAP.held_{i + 1}_200", False, 200, resp.status)
+            time.sleep(0.5)
+            r = c.request("GET", "/tiles/basemap.pmtiles", headers=H, timeout=10)
+            self.r.check("TCAP.get_over_cap_429", r.status == 429, f"429 ({cap} downloads held, same client)",
+                         f"{r.status} {len(r.body)} bytes in {r.elapsed * 1000:.0f} ms")
+            if r.status == 429:
+                j = r.json()
+                ra = [v for k, v in r.raw_headers if k.lower() == "retry-after"]
+                cc = [v for k, v in r.raw_headers if k.lower() == "cache-control"]
+                ct = (r.header("content-type") or "").split(";")[0]
+                self.r.check("TCAP.get_over_cap_429.RateLimited_shape",
+                             isinstance(j, dict) and j.get("code") == "RateLimited" and ct == "application/json"
+                             and len(ra) == 1 and ra[0].isdigit() and int(ra[0]) >= 1 and cc == ["no-store"],
+                             "GatewayError RateLimited JSON, one Retry-After >= 1, Cache-Control exactly ['no-store']",
+                             f"{ct!r} {r.body[:80]!r} Retry-After={ra} Cache-Control={cc}")
+                self.r.check("TCAP.get_over_cap_429.within_1s", r.elapsed <= 1, "<= 1 s", f"{r.elapsed * 1000:.0f} ms")
+                self.headers_once("TCAP.get_over_cap_429", r, 429)
+            h = c.request("HEAD", "/tiles/basemap.pmtiles", headers=H, timeout=10)
+            self.r.check("TCAP.head_over_cap_429", h.status == 429 and not h.body, "429, no body (HEAD counts too)",
+                         f"{h.status} {len(h.body)} bytes")
+            if h.status == 429:
+                ra = [v for k, v in h.raw_headers if k.lower() == "retry-after"]
+                cc = [v for k, v in h.raw_headers if k.lower() == "cache-control"]
+                self.r.check("TCAP.head_over_cap_429.headers", len(ra) == 1 and cc == ["no-store"],
+                             "one Retry-After, Cache-Control ['no-store']", f"Retry-After={ra} Cache-Control={cc}")
+                self.headers_once("TCAP.head_over_cap_429", h, 429)
+            self.headers_once("TCAP.health_while_capped", c.request("GET", "/health", headers=H), 200)
+        finally:
+            for conn in held:
+                conn.close()
+        time.sleep(1.0)
+        with ThreadPoolExecutor(max_workers=cap - 1) as pool:
+            rs = list(pool.map(lambda _i: c.request("GET", "/tiles/basemap.pmtiles", headers={**H, "Range": "bytes=0-16383"}, timeout=10),
+                               range(cap - 1)))
+        self.r.check("TCAP.parallel_range_reads_below_cap_206", all(x.status == 206 for x in rs),
+                     f"{cap - 1} parallel range reads all 206 (a connection cap, never a rate)", sorted({x.status for x in rs}))
+        self.r.check("TCAP.range_read_after_close_206", c.request("GET", "/tiles/basemap.pmtiles",
+                     headers={**H, "Range": "bytes=0-126"}).status == 206, 206, "see status")
+
+    # ------------------------------------------------------------------ per-route body limits (BE-14)
+    def body_limits(self):
+        c = self.c
+        big = b"{" + b" " * 2048 + b"}"
+        for path in ("/health", "/v1/search?q=a&lang=mn", "/v1/reverse?lat=47.9&lon=106.9", "/tiles/basemap.pmtiles",
+                     "/packs/mn/manifest.json", "/no-such-path"):
+            r = c.request("POST", path, big, headers=H)
+            cid = "BODY." + path.split("?")[0].strip("/").replace("/", "_") + "_2k_413"
+            j = r.json() if r.status == 413 else None
+            self.r.check(cid, r.status == 413 and isinstance(j, dict) and j.get("code") == "PayloadTooLarge",
+                         "413 PayloadTooLarge (1 KB body limit off the route path)", f"{r.status} {r.body[:80]!r}")
+            if r.status == 413:
+                self.headers_once(cid, r, 413)
+        r = c.request("POST", "/v1/route", c.route_body("P1", "P3"), headers=H)
+        self.r.check("BODY.route_normal_not_413", r.status != 413, "not 413", r.status)
+        body = dict(c.route_body("P1", "P3")); body["qa_padding"] = "x" * 200_000
+        r = c.request("POST", "/v1/route", body, headers=H, timeout=20)
+        self.r.check("BODY.route_200k_not_413", r.status != 413, "not 413 (contract: 413 only over 256 KB)", r.status)
+        body["qa_padding"] = "x" * 300_000
+        r = c.request("POST", "/v1/route", body, headers=H, timeout=20)
+        self.r.check("BODY.route_300k_413", r.status == 413 and (r.json() or {}).get("code") == "PayloadTooLarge",
+                     "413 PayloadTooLarge", f"{r.status} {r.body[:80]!r}")
+        if r.status == 413:
+            self.headers_once("BODY.route_300k_413", r, 413)
+
+    def run(self, groups, tiles_cap=32):
         if "headers-dev" in groups:
             self.headers_dev()
         if "headers-cap" in groups:
             self.headers_cap()
         if "packs" in groups:
             self.packs()
+        if "tiles-cap" in groups:
+            self.tiles_cap(tiles_cap)
+        if "body-limits" in groups:
+            self.body_limits()
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-url", default="http://localhost:8080")
-    ap.add_argument("--group", action="append", required=True, choices=["headers-dev", "headers-cap", "packs"])
+    ap.add_argument("--group", action="append", required=True,
+                    choices=["headers-dev", "headers-cap", "packs", "tiles-cap", "body-limits"])
     ap.add_argument("--pack-path")
+    ap.add_argument("--tiles-cap", type=int, default=32, help="the gateway's GATEWAY_TILES_MAX_CONN_PER_IP (default 32)")
     ap.add_argument("--json-out")
     a = ap.parse_args()
     rep = Report()
     print(f"SEC-4A QA checks: base={a.base_url} groups={','.join(a.group)}")
     try:
-        Sec4a(a.base_url, rep, a.pack_path).run(a.group)
+        Sec4a(a.base_url, rep, a.pack_path).run(a.group, a.tiles_cap)
     except Exception as e:  # never exit 0 on a crash
         rep.check("PRE.suite_crashed", False, "no exception", f"{type(e).__name__}: {e}")
     print("\n" + rep.summary())

@@ -483,6 +483,34 @@ class Interrupted(Outcome):
         super().__init__(40, "interrupted", None, f"{name} received; cleanup done")
 
 
+# SEC-4A BE-18: the same rule as scripts/lib.sh log_url (the download helper): a URL is logged without its
+# user:password@ part and without its query string, so a private mirror URL with credentials or a token never reaches
+# a log line. redact_url() is the per-value form; redact_text() applies it to every URL inside free text (error
+# texts quote URLs: "<url>.md5 missing", curl messages) and RunLog.emit() runs it over every line as the backstop.
+_URL_SCHEME = r"[a-zA-Z][a-zA-Z0-9+.\-]*://"
+_URL_CREDENTIALS = re.compile(r"(" + _URL_SCHEME + r")[^/@\s\"\\]*@")
+_URL_QUERY = re.compile(r"(" + _URL_SCHEME + r"[^\s\"\\?]*)\?[^\s\"\\]*")
+
+
+def redact_url(url):
+    """One URL -> loggable form, byte-for-byte like lib.sh log_url: scheme://<credentials>@host/path?<redacted>."""
+    if not isinstance(url, str):
+        return url
+    u = url.split("?", 1)[0]
+    m = re.match(r"^(" + _URL_SCHEME + r")[^/@]*@(.*)$", u)
+    if m:
+        u = m.group(1) + "<credentials>@" + m.group(2)
+    if "?" in url:
+        u += "?<redacted>"
+    return u
+
+
+def redact_text(text):
+    """Every URL inside free text (a log line, an error message) gets the redact_url() treatment."""
+    text = _URL_CREDENTIALS.sub(r"\1<credentials>@", text)
+    return _URL_QUERY.sub(r"\1?<redacted>", text)
+
+
 class RunLog:
     def __init__(self, lay, run_id, kind):
         self.run_id, self.kind = run_id, kind
@@ -490,7 +518,7 @@ class RunLog:
         self.f = open(self.path, "a", encoding="utf-8") if self.path else None
 
     def emit(self, rec):
-        line = json.dumps(rec, ensure_ascii=False)
+        line = redact_text(json.dumps(rec, ensure_ascii=False))
         print(line, flush=True)
         if self.f:
             try:

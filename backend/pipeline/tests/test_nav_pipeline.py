@@ -9,7 +9,9 @@ missing coverage), the ordered source list with fallback and the 13/20 classific
 refusal without a previous slot (exit 30 within 5 s), the alert hook (environment, timeout, exit code unchanged),
 pointer validation and atomic writes, status on an empty root.
 """
+import contextlib
 import datetime as dt
+import io
 import json
 import os
 import random
@@ -327,6 +329,47 @@ class Sec4aTests(Base):
 
 
 # ---------------------------------------------------------------- configuration guards
+class RedactionTests(Base):
+    """SEC-4A BE-18: source URLs are logged without credentials and query strings, with the same rule as the download
+    helper scripts/lib.sh log_url (parity checked by running the bash function), and every log line is swept."""
+    CASES = ["https://u:p@mirror.example.invalid/a.pbf?token=t", "https://download.geofabrik.de/asia/mongolia-latest.osm.pbf",
+             "https://mirror.example.invalid/a.pbf?sig=abc&x=1", "https://user@mirror.example.invalid/dir/a.pbf",
+             "https://mirror.example.invalid/a.pbf", "file:/var/tmp/mongolia.osm.pbf"]
+
+    def test_redact_url_matches_lib_sh_log_url(self):
+        lib = HERE.parent.parent / "scripts" / "lib.sh"
+        for url in self.CASES:
+            want = subprocess.run(["bash", "-c", 'source "$1"; trap - ERR; log_url "$2"', "_", str(lib), url],
+                                  capture_output=True, text=True, check=True).stdout
+            self.assertEqual(nav.redact_url(url), want, url)
+        self.assertEqual(nav.redact_url("https://u:p@h/a.pbf?token=t"), "https://<credentials>@h/a.pbf?<redacted>")
+
+    def test_run_log_lines_never_carry_credentials_or_query_strings(self):
+        secret_url = "https://mirror-user:S3cretPass@mirror.example.invalid/mn.osm.pbf?token=TOPSECRET&d=1"
+        lay = nav.Layout(self.root)
+        lay.runs.mkdir(parents=True, exist_ok=True)
+        log = nav.RunLog(lay, "r1", "unit")
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                log.step("fetch", "failed", 1.0, source=secret_url, measured=f"{secret_url}.md5 missing or unreadable")
+                log.event("warn", f"curl: (22) {secret_url} returned 404", source=secret_url)
+        finally:
+            log.close()
+        lines = out.getvalue().splitlines() + (log.path.read_text().splitlines() if log.path else [])
+        self.assertEqual(len(lines), 4)
+        for line in lines:
+            self.assertNotIn("S3cretPass", line)
+            self.assertNotIn("mirror-user", line)
+            self.assertNotIn("TOPSECRET", line)
+            rec = json.loads(line)
+            self.assertIn("https://<credentials>@mirror.example.invalid/mn.osm.pbf?<redacted>", rec["source"])
+        measured = json.loads(lines[0])["measured"]   # the query string (and anything glued to it) is swept, the text stays
+        self.assertTrue(measured.startswith("https://<credentials>@mirror.example.invalid/mn.osm.pbf?<redacted>"), measured)
+        self.assertIn("missing or unreadable", measured)
+        self.assertNotIn("<credentials>", nav.redact_text("https://download.geofabrik.de/asia/mongolia-latest.osm.pbf"))
+
+
 class ConfigTests(Base):
     def assert_config_error(self, text, **extra):
         with self.assertRaises(nav.ConfigError) as cm:
